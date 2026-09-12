@@ -1,0 +1,41 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/commitscape-core",
+    "crates/commitscape-index",
+    "crates/commitscape-metrics",
+    "crates/commitscape",
+    "xtask",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+rust-version = "1.98"
+
+[workspace.lints.rust]
+# ADR working agreement: no unwrap/expect outside tests and main.
+# Enforced per-crate; see each crate's [lints] section.
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+indexing_slicing = "warn"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+debug = 1
+
+# Benchmarks are meaningless on a debug build. `cargo xtask bench` refuses to
+# run one, but this keeps an accidental `cargo run` from being catastrophically
+# slow while still being usable.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3

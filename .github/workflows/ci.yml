@@ -1,0 +1,67 @@
+name: CI
+
+# Build and test only. Publishing is deliberately not here: ADR-0003 describes a
+# release that must publish six platform packages before the package that
+# depends on them, and that ordering is not something to bolt onto a push hook.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Configure git for fixture generation
+        # The fixture generator stamps its own authors and dates, but git
+        # refuses to commit at all without some identity configured.
+        run: |
+          git config --global user.name "commitscape ci"
+          git config --global user.email "ci@example.invalid"
+          git config --global init.defaultBranch main
+
+      - name: Build fixtures
+        run: cargo xtask fixtures --force
+
+      - name: Test
+        run: cargo test --workspace --all-targets
+
+      - name: Doc tests
+        run: cargo test --workspace --doc
+
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Layering
+        # ADR-0001's seam is only real if the metrics crate genuinely cannot
+        # reach gix. This asserts it on every push.
+        run: cargo xtask check-layering

@@ -1,0 +1,35 @@
+[package]
+name = "commitscape-index"
+description = "Walks a repository into an Index, and caches it. The only crate that knows git exists."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+commitscape-core = { path = "../commitscape-core" }
+ignore = "0.4.33"
+rayon = "1.12.0"
+serde = { version = "1.0.229", features = ["derive"] }
+thiserror = "2.0.20"
+
+# bincode 3.0.0 is a tombstone release whose lib.rs contains only a compiler
+# error; upstream archived the GitHub repo in Aug 2025 and moved to sourcehut.
+# 2.0.1 is the last real release and its format is stable. Pinned deliberately
+# rather than tracking latest. See the supply-chain note in STATE.md.
+bincode = { version = "=2.0.1", features = ["serde"] }
+
+# default-features disabled to keep the network clients out of the binary
+# entirely (no network at runtime is non-negotiable), and to drop `blob-diff`,
+# which we must not use: ADR-0004 says the history walk never reads blob
+# contents. Tree diffing does not need it. Features are added here only when a
+# compile error demands one, so this list doubles as a record of what we use.
+gix = { version = "0.87.1", default-features = false, features = [
+    "sha1",
+    "mailmap",
+    "parallel",
+    "max-performance-safe",
+] }

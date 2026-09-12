@@ -1,0 +1,12 @@
+/target
+**/*.rs.bk
+*.pdb
+
+# Generated test fixtures — rebuilt by `cargo xtask fixtures`
+/fixtures/
+
+# Benchmark output
+/bench-results/
+
+# Local scratch
+/.scratch/

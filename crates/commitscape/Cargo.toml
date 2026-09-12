@@ -1,0 +1,22 @@
+[package]
+name = "commitscape"
+description = "A terminal UI that reads a git repository and reports what changes what you do next."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "commitscape"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0.104"
+clap = { version = "4.6.6", features = ["derive"] }
+commitscape-core = { path = "../commitscape-core" }
+commitscape-index = { path = "../commitscape-index" }
+commitscape-metrics = { path = "../commitscape-metrics" }
+serde_json = "1.0.151"
