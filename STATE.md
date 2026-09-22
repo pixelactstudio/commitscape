@@ -3,9 +3,8 @@
 Running log for Build Run 1 (Phases 0 to 7). Written so a fresh session with
 no context can read this plus `docs/adr/` and continue without asking anything.
 
-**Current position:** Phase 4 complete. Every value in `docs/fixtures.md` is
-asserted end to end (`crates/commitscape/tests/fixture_metrics.rs`). Next is
-the throwaway ratatui spike, then Phase 5 (Change Coupling).
+**Current position:** Phase 4 complete and the ratatui spike captured and
+deleted. Phase 5 (Change Coupling and the changeset-size histogram) is next.
 
 ---
 
@@ -18,7 +17,7 @@ the throwaway ratatui spike, then Phase 5 (Change Coupling).
 | 2 | Warm start measured, in ms | **PASS: 23.1ms rust-lang/rust, 23.5ms Linux** (medians, n=20; budget 100ms) |
 | 3 | Top-10 largest and top-10 hotspots contain no lockfiles / drizzle snapshots / `routeTree.gen.ts` | **PASS on `pixelactstudio`**, which has all three; unfiltered, `pnpm-lock.yaml` ranks third by size and the snapshots eleventh to thirteenth |
 | 4 | Metric values match hand-worked fixture literals | **PASS**: 11 tests in `crates/commitscape/tests/fixture_metrics.rs` assert every documented value through the real pipeline |
-| — | Throwaway ratatui spike, captured then deleted | NOT YET RUN |
+| — | Throwaway ratatui spike, captured then deleted | **DONE**: findings below; the code was deleted from `.scratch/` |
 | 5 | Pair-map size + changeset histogram reported; `--max-changeset-size` chosen from data | NOT YET RUN |
 | 6 | `--json` run against ≥3 structurally different repos | NOT YET RUN |
 | 7 | TUI: every Panel covered by an `insta` snapshot through `TestBackend`; first paint from a warm cache measured under 100ms | NOT YET RUN |
@@ -137,6 +136,34 @@ warm-start-linux   median 51.0ms   (n=20)
 Per metric, warm, 90-day Window: rust-lang/rust ownership 7ms, staleness 1.7ms,
 code age 1.7ms; Linux ownership 15ms before the rewrite described in the
 findings, suspected duplicates 12ms before their `.mailmap` text was made lazy.
+
+### Ratatui spike findings
+
+A throwaway crate in `.scratch/` (ratatui 0.30.2, crossterm 0.29, insta 1.48)
+loaded through the real cache, computed a real Analysis, and drew an Overview:
+a title line, a hotspot list and a bus-factor-1 list. Then it was deleted.
+
+- **First paint fits the budget.** In a pseudo-terminal (`script`), from
+  process start to the first frame drawn: rust-lang/rust 28.6 to 30.5ms (load
+  23ms), Linux 40.9 to 41.5ms (load 28ms, then 13ms of Analysis inside the
+  draw). Whole process, Linux: 50 to 60ms wall.
+- **`ratatui::init()` and `ratatui::restore()`** set up and tear down raw mode,
+  the alternate screen and a panic hook: 35µs. Layouts are
+  `Layout::vertical([..]).areas(rect)`, returning arrays.
+- **`TestBackend` plus `insta::assert_snapshot!(terminal.backend())` works as
+  the render seam**: the snapshot is the screen as quoted text rows, box
+  drawing included, and a 60 by 12 draw takes 0.19ms. insta writes a
+  `.snap.new` and fails on a new snapshot; accept with `INSTA_UPDATE=always`
+  once and commit the `.snap`. CI must never write snapshots.
+- **Compute per Window, not per frame.** The spike called `hotspots()` and
+  `ownership()` inside the draw closure; on Linux that is 13ms a frame. The
+  real TUI keeps view models and recomputes them only when the Window or a
+  threshold changes.
+- **The root directory needs a name**: its path prefix is empty, and a
+  bus-factor-1 list rendered it as a blank row.
+- **The fixtures are all `.txt` files, which are Prose**, so they have no
+  Hotspots or largest files and make thin snapshots. TUI snapshot tests will
+  build their index from code files.
 
 ---
 
@@ -372,11 +399,10 @@ findings, suspected duplicates 12ms before their `.mailmap` text was made lazy.
 
 ## Where to pick up
 
-The throwaway ratatui spike: learn first-paint time, `TestBackend` and
-`insta` snapshotting with a real Analysis, record the findings here, and
-delete the code. Then Phase 5: Change Coupling (Jaccard and directional
-probabilities, support prune, cross-directory flag) and the changeset-size
-histogram used to choose `--max-changeset-size` from data.
+Phase 5: Change Coupling (Jaccard and directional probabilities, support
+prune, cross-directory flag) and the changeset-size histogram used to choose
+`--max-changeset-size` from data. Gate: pair-map size and histogram reported on
+real repositories, and the default threshold chosen from them.
 
 Known limits to carry forward: the head file is rewritten on every update
 (about 15 MB for rust-lang/rust), and a vendored tree without its own lockfile
