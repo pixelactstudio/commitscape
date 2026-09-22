@@ -57,12 +57,66 @@ struct Benchmark {
 /// repository, a cache that has not been built yet). That is reported as
 /// SKIPPED rather than as a pass, because a benchmark that silently measures
 /// nothing is worse than one that fails.
-const BENCHMARKS: &[Benchmark] = &[Benchmark {
-    name: "startup",
-    description: "process launch to exit, doing no work — the floor of the warm-start budget",
-    default_iterations: 20,
-    run: bench_startup,
-}];
+const BENCHMARKS: &[Benchmark] = &[
+    Benchmark {
+        name: "startup",
+        description: "process launch to exit, doing no work — the floor of the warm-start budget",
+        default_iterations: 20,
+        run: bench_startup,
+    },
+    Benchmark {
+        name: "cold-walk-rust",
+        description: "full history walk of rust-lang/rust, no cache — ADR-0002 budget is 60s",
+        default_iterations: 1,
+        run: bench_cold_walk_rust,
+    },
+];
+
+/// One full, uncached walk of `rust-lang/rust`.
+///
+/// The gating cold-index budget in ADR-0002. Reports the shape of the resulting
+/// index as well as the time, because a fast walk that collected the wrong
+/// amount of data is not a pass.
+fn bench_cold_walk_rust(ctx: &BenchContext) -> Result<Option<Duration>> {
+    let Some(path) = ctx.repo("rust") else {
+        return Ok(None);
+    };
+    let repo = commitscape_index::GixRepo::open(&path).context("opening rust-lang/rust")?;
+
+    let start = Instant::now();
+    let index = commitscape_index::index_from_scratch(&repo).context("indexing rust-lang/rust")?;
+    let elapsed = start.elapsed();
+
+    let merges = index.commits.iter().filter(|c| c.is_merge()).count();
+    let merge_changes: usize = index
+        .commits
+        .iter()
+        .filter(|c| c.is_merge())
+        .map(|c| c.changes_len as usize)
+        .sum();
+
+    println!(
+        "  index: {} commits ({} merges), {} changes, {} paths, {} authors",
+        index.commits.len(),
+        merges,
+        index.changes.len(),
+        index.paths.len(),
+        index.authors.len()
+    );
+    println!(
+        "  merge commits account for {} of {} changes ({:.1}%)",
+        merge_changes,
+        index.changes.len(),
+        100.0 * merge_changes as f64 / (index.changes.len().max(1)) as f64
+    );
+    println!(
+        "  throughput: {:.0} commits/sec",
+        index.commits.len() as f64 / elapsed.as_secs_f64().max(f64::EPSILON)
+    );
+    println!("  time ordered: {}", index.is_time_ordered());
+
+    Ok(Some(elapsed))
+}
 
 /// Measures bare process startup: exec, dynamic linking, runtime init, exit.
 ///

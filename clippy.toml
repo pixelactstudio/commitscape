@@ -1,0 +1,6 @@
+# The working agreement bans unwrap/expect/panic outside tests and main. These
+# three settings are what make "outside tests" part of the rule rather than an
+# exception someone has to remember.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true

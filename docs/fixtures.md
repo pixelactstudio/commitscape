@@ -114,7 +114,26 @@ than the recorded tip. A resume keyed on a single sha, or on a timestamp, misses
 them and reports success. A frontier-set resume finds them.
 
 Expected after indexing the full history: 7 commits, of which **1 is a merge**.
-`side.txt` churn = 2, `main.txt` churn = 4.
+
+| File | Unfiltered (merge included) | Excluding merges — what churn reports |
+|---|---|---|
+| `main.txt` | 4 | **4** |
+| `side.txt` | **3** | **2** |
+
+The asymmetry is the point and was not obvious until measured. A merge diffed
+against its *first* parent re-reports everything the merged branch changed, so
+`side.txt` is touched by `side 2`, `side 3` **and** the merge commit. The index
+records that as the fact it is; excluding merges is a metrics-layer decision.
+
+Two consequences worth carrying forward:
+
+- A merge's changeset is the size of the whole branch it merged. On a repository
+  using a merge queue, merge commits are therefore also large enough to trip the
+  bulk-commit filter, which is a second, independent reason they do not pollute
+  churn or coupling.
+- Staleness is the one metric where counting the merge is arguably *more*
+  truthful: it answers "when did this land on main" rather than "when was this
+  written on a branch".
 
 ## Edge-case repositories
 
