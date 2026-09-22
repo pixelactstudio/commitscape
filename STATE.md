@@ -1,11 +1,11 @@
 # STATE
 
-Running log for Build Run 1 (Phases 0–6). Written so a fresh session with no
-context can read this plus `docs/adr/` and continue without asking anything.
+Running log for Build Run 1 (Phases 0 to 7). Written so a fresh session with
+no context can read this plus `docs/adr/` and continue without asking anything.
 
-**Current position:** Phase 1 implemented, tests and CI checks green. Cold walk
-recorded at 114s, **over ADR-0002's 60s gating budget** — Phase 1 is not
-closed until that is resolved (see Phase 1 measured numbers).
+**Current position:** Phase 1 complete. Cold walk on `rust-lang/rust` is 23 to
+27s against the 60s budget, and the walk matches `git diff-tree -c` on every
+sampled commit of four real repositories. Phase 2 (the cache) is next.
 
 ---
 
@@ -14,13 +14,14 @@ closed until that is resolved (see Phase 1 measured numbers).
 | Phase | Gate | Status |
 |---|---|---|
 | 0 | Benchmark harness runs and records a number | **PASS — `startup` median 0.95ms** (min 0.56, max 1.05, n=20) |
-| 1 | Cold walk time on `rust-lang/rust` recorded | **Recorded — 114.2s, FAILS ADR-0002's 60s budget** |
+| 1 | Cold walk time on `rust-lang/rust` recorded | **PASS: 23.1 to 26.9s** (budget 60s). First run was 114s; see ADR-0007 |
 | 2 | Warm start measured, in ms | NOT YET RUN |
 | 3 | Top-10 largest and top-10 hotspots contain no lockfiles / drizzle snapshots / `routeTree.gen.ts` | NOT YET RUN |
 | 4 | Metric values match hand-worked fixture literals | NOT YET RUN |
 | — | Throwaway ratatui spike, captured then deleted | NOT YET RUN |
 | 5 | Pair-map size + changeset histogram reported; `--max-changeset-size` chosen from data | NOT YET RUN |
 | 6 | `--json` run against ≥3 structurally different repos | NOT YET RUN |
+| 7 | TUI: every Panel covered by an `insta` snapshot through `TestBackend`; first paint from a warm cache measured under 100ms | NOT YET RUN |
 
 ### Phase 0 measured numbers
 
@@ -35,20 +36,44 @@ the Node shim from ADR-0003 adds its own startup on top.
 ### Phase 1 measured numbers
 
 ```
-cold-walk-rust   114228ms   n=1   (budget: 60s, gating)
-index: 345,135 commits (108,403 merges), 4,763,555 changes,
-       147,524 paths, 8,523 authors
-merge commits account for 3,396,533 of 4,763,555 changes (71.3%)
-throughput: 3,021 commits/sec   time ordered: true
-wall 2m02s, user 2m18s — effectively single-threaded
+cold-walk-rust   23.1s to 26.9s over five runs, n=1 each   (budget: 60s, gating)
+index: 345,135 commits (108,403 merges), 1,489,215 changes,
+       110,698 files, 8,523 people
+merge commits account for 122,152 of 1,489,215 changes (8.2%)
+pass one (graph, one thread): 2.8s   pass two (diffs, six threads): 18 to 21s
+CPU: user 99 to 113s against 24 to 26s wall, so the diffs use all six cores
+memory: peak 1,940 MB resident, of which about 1,000 MB is the memory-mapped
+        pack file; about 900 MB anonymous
 ```
 
-Two things stand out. **Merges are 31% of commits but 71% of changes**, which
-is finding 3 at scale: each merge re-reports its whole branch. Not diffing
-merges (or storing only the flag) is likely the single largest saving, and it
-is the open merge question below, now with a number attached. Second, user
-time ≈ wall time, so the tree diffs run on one core; the walk is
-embarrassingly parallel per commit.
+The first measurement was 114s, single-threaded, with merges diffed against
+their first parent: 4,763,555 changes, 71% of them replayed by merges. Two
+changes brought it to 25s:
+
+1. **Merges record their combined diff** (ADR-0007): only paths that differ
+   from every parent. Stored changes fell from 4.8M to 1.5M, and a subtree that
+   matches either parent is skipped unread.
+2. **Diffs run on every core.** Pass one walks the graph on one thread; pass
+   two hands out batches of 64 commits to one thread per core, each with its
+   own object and delta-base caches, and delivers results in walk order.
+
+Single-threaded, our diff costs about 185us per commit against git's 81us on
+the newest 40k commits. The difference is probably object lookup and delta
+resolution in gix; it was not chased further because the budget is met with
+more than 2x headroom. Scaling is 3.4x on six physical cores, which points at
+memory bandwidth (per-thread caches far exceed the 16 MB L3).
+
+**Verification.** `cargo xtask verify-walk <repo>` compares the walk with `git
+diff-tree -c --raw` and `git rev-list --count`:
+
+| Repository | Commits walked | Sampled | Merges sampled | Mismatches |
+|---|---|---|---|---|
+| `rust-lang/rust` | 345,135 (= rev-list) | 3,453 (1 in 100) | 1,085 | 0 |
+| `pixelactstudio` | 1,116 (= rev-list) | all | 70 | 0 |
+| `t3code` | 7,789 (= rev-list) | all | 179 | 0 |
+| `maihs` | 5,654 (= rev-list) | all | 1,302 | 0 |
+
+CI runs the same check over every fixture.
 
 ---
 
@@ -57,7 +82,13 @@ embarrassingly parallel per commit.
 - Rust 1.98.1 stable. `gix` 0.87.1, `gix-diff` 0.67.1, `bincode` 2.0.1.
 - Benchmark clone: `rust-lang/rust` at `../.commitscape-bench/rust`
   — **339,854 commits, 62,817 files at HEAD**, full history (not shallow), 1.5G.
-  Override the location with `COMMITSCAPE_BENCH_REPOS`.
+  Override the location with `COMMITSCAPE_BENCH_REPOS`. With all refs it is
+  345,135 commits.
+- Benchmark clone: `torvalds/linux` at `../.commitscape-bench/linux`, full
+  history, cloned with `--no-checkout` (the tool reads the object database, not
+  the work tree). Used for ADR-0002's warm-start-at-every-scale budget.
+- Machine for every number in this file: AMD Ryzen 5 3500, six cores, no SMT,
+  16 GB RAM, SATA SSD.
 - Fixtures: `cargo xtask fixtures --force` → `fixtures/` (gitignored).
 - `cargo xtask` is aliased in `.cargo/config.toml` to a release build of the
   xtask crate.
@@ -67,33 +98,36 @@ embarrassingly parallel per commit.
 ## Phase 1 findings
 
 1. **`gix`'s ergonomic tree-diff API is gated behind `blob-diff`.**
-   `gix::object::tree::diff` / `Tree::changes()` — and `gix_diff::Rewrites`, the
-   rename tracker — all require gix's `blob-diff` feature. Enabling it would
-   compile blob-diffing machinery into a binary whose central performance
-   decision is that the walk never touches blob contents. We use
-   `gix::diff::tree` instead, the structure-only API, which is not gated. It is
-   not merely sufficient; it is what makes ADR-0004 structural rather than a
-   promise.
+   `Tree::changes()` and `gix_diff::Rewrites`, the rename tracker, both
+   require gix's `blob-diff` feature, which would compile blob diffing into a
+   binary whose central performance decision is that the walk never touches
+   blob contents. The walk now uses its own structure-only tree walk
+   (`gix_source/tree_diff.rs`), which reads tree objects only.
 2. **Exact renames are paired in the builder, not by gix.** A rename with
    identical content is a deletion and an addition sharing a blob id, so
-   detecting it is an id comparison. ~40 lines in `build.rs`, tested against
-   five cases including copy-to-two-places and move-plus-edit. This is also why
-   `blob-diff` stays off.
-3. **A merge's diff against its first parent re-reports everything the merged
-   branch changed.** Discovered by the `merges` fixture failing: `side.txt`
-   showed 3 rather than the 2 I had documented. The code was right and the
-   document was wrong. Two consequences are now recorded in `docs/fixtures.md`:
-   merge changesets are as large as the branch they merge (so they trip the
-   bulk filter too), and staleness is the one metric where counting the merge is
-   arguably more truthful. **Whether to store merge changes at all is a genuine
-   open question** — see uncertainties below.
-4. **Shallow clones have absent parent objects.** Reading the parent tree of a
-   boundary commit fails with `NotFound`. Now handled by diffing against the
-   empty tree via `try_find_object`, so a shallow clone indexes rather than
-   erroring. Caught by the `shallow` fixture.
-5. **`gix::Tree` implements `Drop`**, so its `data` cannot be moved out; it has
-   to be cloned. Minor, but it is a per-commit allocation in the hot path and a
-   candidate if the walk needs optimising.
+   detecting it is an id comparison.
+3. **A merge's diff against its first parent replays the merged branch.**
+   Found by the `merges` fixture. Resolved by ADR-0007: merges record the
+   combined diff, which is empty for a clean merge.
+4. **Shallow clones have absent parent objects.** A missing parent reads as an
+   empty tree, so a shallow boundary's whole tree becomes additions and the
+   index is marked truncated. Caught by the `shallow` fixture.
+5. **File identity depends on time order, and the walk is not in time order.**
+   The first builder resolved renames while walking newest-first, and a rename
+   overwrote the path lookup, so after `mv lib.rs lib_old.rs` plus a new
+   `lib.rs`, the new file's path resolved to the old file. Identity is now
+   resolved after the sort, oldest first, by `PathTable::record`: a rename
+   frees the old path, and a file created there later is a different file.
+6. **The frontier skipped commits but still walked their ancestors.** Resuming
+   would have re-walked all of history. The walk now hides the frontier the
+   way `git rev-list <tips> --not <frontier>` does, using gix's `with_hidden`.
+7. **`identity()` walked all of history to find the root commit**, about 2.5s
+   on `rust-lang/rust`, and it runs on every warm start. The cache key is now
+   the git directory alone; a different project cloned to the same path is
+   caught because none of the cached frontier commits exist in it.
+8. **Refs that are not history.** `refs/stash`, `refs/notes/*` and
+   `refs/original/*` were walked as if they were branches. Tips are now HEAD
+   plus `refs/heads`, `refs/remotes` and `refs/tags`.
 
 ## Decisions made during implementation, not in any ADR
 
@@ -121,6 +155,18 @@ embarrassingly parallel per commit.
    measures nothing is worse than one that fails.
 6. **Workspace lints deny `unwrap`/`expect`/`panic` via clippy**, applied to
    every crate including xtask.
+7. **Commits store a Signature, not a person.** Resolution to people is a pure
+   function of the signature table and the mailmap (`resolve_authors`), so a
+   `.mailmap` edit re-resolves in memory (`reresolve_authors`) instead of
+   reindexing. A person is shown under their most-used signature, so an
+   incremental index and a full one display the same names. Recorded as a
+   consequence in ADR-0006 and as a term in `CONTEXT.md`.
+8. **Deleted and re-added at the same path is the same file.** A file lives at
+   one path at a time; only a rename frees a path. Recorded in `CONTEXT.md`
+   under File Identity.
+9. **Cache sizes per diff thread: 16 MB objects, 48 MB delta bases.** Larger
+   caches (32 and 96 MB) were about 10% faster and cost about 500 MB more peak
+   memory.
 
 ---
 
@@ -142,16 +188,14 @@ embarrassingly parallel per commit.
 
 ## Where to pick up
 
-Phase 1 code is written: `commitscape-core` data model, the `RepoSource`
-trait with both adapters (`GixRepo` and the scripted fake), and the full
-history walk. What remains is getting the cold walk on `rust-lang/rust` under
-60s. First decide the merge question (store only the `MERGE` flag vs. the full
-first-parent diff), then consider parallelising tree diffs. Re-run with
-`cargo xtask bench --filter cold-walk`.
+Phase 2: the cache. ADR-0002 is the specification: bincode, a body range-readable
+by commit time with a monthly offset table, a frontier-set resume, rewrite
+detection, atomic two-file writes, and every failure degrading to a reindex.
+Gate: warm start measured in ms, with ADR-0002's budget of 100ms to first paint
+at every scale including Linux.
 
-Re-read `docs/adr/0001-git-access-behind-a-trait.md` and
-`docs/adr/0004-the-index-never-reads-blob-contents.md` from disk before starting
-— not from memory.
+Re-read `docs/adr/0002-cache-format-and-invalidation.md` from disk before
+starting, not from memory.
 
 Seams signed off by the user and not open for revision:
 `RepoSource` (fake + real), `Index`, the `Analysis` methods, `--json` golden

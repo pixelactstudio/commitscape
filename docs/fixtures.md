@@ -113,27 +113,54 @@ and day 3, while `main 5` is day 5.
 than the recorded tip. A resume keyed on a single sha, or on a timestamp, misses
 them and reports success. A frontier-set resume finds them.
 
+Resuming from a frontier of `{main 5}` must yield exactly three commits, dated
+day 2, day 3 and day 6.
+
 Expected after indexing the full history: 7 commits, of which **1 is a merge**.
 
-| File | Unfiltered (merge included) | Excluding merges — what churn reports |
+A merge records only what it introduced itself: the paths whose content differs
+from every parent, which is what `git diff-tree -c` reports. This merge is
+clean, so its changeset is empty.
+
+| File | Commits touching it, merge included | Excluding merges, what churn reports | Last touched |
+|---|---|---|---|
+| `main.txt` | 4 | **4** | day 5 |
+| `side.txt` | **2** | **2** | day 3 |
+
+An earlier version of the walk diffed a merge against its first parent only.
+That re-reports everything the merged branch changed, so `side.txt` showed 3.
+On `rust-lang/rust` it made merge commits 71% of all stored changes while adding
+nothing the branch commits did not already record. Recording only what differs
+from every parent keeps the facts that are real (conflict resolutions, see
+`conflict` below) and drops the replay.
+
+## `conflict`: a merge that resolves a conflict and adds a file
+
+```
+day 0  main: add shared.txt ("base") and other.txt   <- topic branches from here
+day 1  topic: shared.txt = "topic"
+day 2  main:  shared.txt = "main"
+day 3  merge topic into main: shared.txt = "resolved", and evil.txt added
+```
+
+The merge commit is built with `git commit-tree` so its tree is exactly the
+resolution written above, with no conflict markers and no dependence on the
+host's merge configuration.
+
+Expected: 4 commits, 1 merge. The merge's changeset is exactly two entries:
+
+| Path | Kind | Why |
 |---|---|---|
-| `main.txt` | 4 | **4** |
-| `side.txt` | **3** | **2** |
+| `shared.txt` | Modified | "resolved" matches neither parent ("main", "topic") |
+| `evil.txt` | Added | present in neither parent |
 
-The asymmetry is the point and was not obvious until measured. A merge diffed
-against its *first* parent re-reports everything the merged branch changed, so
-`side.txt` is touched by `side 2`, `side 3` **and** the merge commit. The index
-records that as the fact it is; excluding merges is a metrics-layer decision.
+`other.txt` is absent because it matches both parents.
 
-Two consequences worth carrying forward:
-
-- A merge's changeset is the size of the whole branch it merged. On a repository
-  using a merge queue, merge commits are therefore also large enough to trip the
-  bulk-commit filter, which is a second, independent reason they do not pollute
-  churn or coupling.
-- Staleness is the one metric where counting the merge is arguably *more*
-  truthful: it answers "when did this land on main" rather than "when was this
-  written on a branch".
+| File | Commits touching it, merge included | Excluding merges |
+|---|---|---|
+| `shared.txt` | 4 | **3** |
+| `other.txt` | 1 | 1 |
+| `evil.txt` | 1 | 0 |
 
 ## Edge-case repositories
 

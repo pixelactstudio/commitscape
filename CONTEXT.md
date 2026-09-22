@@ -49,20 +49,28 @@ The complete set of facts extracted from a repository by walking its history onc
 _Avoid_: database, cache, model, store.
 
 **Changeset**:
-The set of files a single commit touched, along with how each was touched. The Index stores Changesets rather than aggregates, which is what makes the Window changeable without re-reading the repository.
+The set of files a single commit touched, along with how each was touched. The Index stores Changesets rather than aggregates, which is what makes the Window changeable without re-reading the repository. A Merge Commit's Changeset holds only the files it changed relative to every parent, such as a conflict resolution, never the branch it merged.
 _Avoid_: diff, commit contents, file list.
+
+**Merge Commit**:
+A commit with more than one parent. Its Changeset is usually empty. Excluded from Churn, Change Coupling and Ownership.
+_Avoid_: merge, pull request.
 
 **Bulk Commit**:
 A commit touching more than a configured number of files. Excluded from Churn and Change Coupling because reformats, lockfile regenerations, and vendored drops would otherwise dominate every ranking.
 _Avoid_: large commit, mega commit, noise.
 
 **File Identity**:
-The identity of a file across its history, preserved through exact renames so that moving a file does not sever its past.
+The identity of a file across its history, preserved through exact renames so that moving a file does not sever its past. A file lives at one path at a time. A file created later at a path another file moved away from is a different file; a file deleted and re-added at the same path is the same file.
 _Avoid_: path, filename, file key.
 
 **Author Identity**:
-A single person, resolved from the several name and email pairs they have committed under. Resolved via the repository's own mailmap plus two narrow rules; anything less certain is surfaced as a suspected duplicate rather than merged.
+A single person, resolved from the several Signatures they have committed under. Resolved via the repository's own mailmap plus two narrow rules; anything less certain is surfaced as a suspected duplicate rather than merged.
 _Avoid_: author, committer, contributor, user.
+
+**Signature**:
+One name-and-email pair exactly as it appears on commits. The Index records Signatures; which Author Identity each belongs to is resolved on top, so editing a mailmap never requires re-reading history.
+_Avoid_: alias, raw identity, email.
 
 **Generated File**:
 A tracked file that no person wrote and nobody should be asked to look at — lockfiles, minified output, ORM snapshots, vendored trees. Excluded from every ranking.

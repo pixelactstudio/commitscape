@@ -39,9 +39,25 @@ dense_id!(
 );
 
 dense_id!(
+    PathId,
+    "Identifies one path string, exactly as git recorded it.\n\n\
+     Distinct from [`FileId`]: a path is where a file lives at some moment, and one file\n\
+     can live at several paths over its history. Changes record the file, not the path;\n\
+     the path table records which paths each file has lived at."
+);
+
+dense_id!(
     AuthorId,
     "Identifies one person, after the several git identities they commit under have\n\
      been resolved together (ADR-0006)."
+);
+
+dense_id!(
+    SignatureId,
+    "Identifies one name-and-email pair exactly as it appears in commits.\n\n\
+     Commits store this, not an [`AuthorId`]. Which person a signature belongs to is a\n\
+     resolution applied on top (mailmap plus two rules), so a `.mailmap` edit re-resolves\n\
+     a table of signatures instead of re-walking history."
 );
 
 dense_id!(

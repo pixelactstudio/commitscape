@@ -30,3 +30,4 @@ Nothing else merges. Identities that look related under weaker signals — same 
 - Turning the hint into a `.mailmap` improves every subsequent run, for every tool that reads mailmap, not just ours. We are pushing users toward a fix that outlives us.
 - Rules 2 and 3 are safe because both are identity-preserving by construction — neither can fuse two people who were ever distinct.
 - The hint is a panel that has to be designed, not just a log line. It is the only place the tool admits uncertainty about a number, and it should read as helpful rather than as a defect report.
+- Commits store the Signature they were made under, never the resolved person. Resolution is a pure function of the Signature table and the mailmap, re-run whenever the mailmap changes, so adding the suggested lines takes effect on the next run without re-reading history.

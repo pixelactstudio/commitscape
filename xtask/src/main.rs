@@ -1,12 +1,14 @@
 //! Repository automation. Run with `cargo xtask <command>`.
 //!
-//! Three jobs: build the synthetic fixture repositories that metric tests
+//! Four jobs: build the synthetic fixture repositories that metric tests
 //! assert against, run the benchmark harness that guards the budgets in
-//! ADR-0002, and assert the crate layering that ADR-0001 depends on.
+//! ADR-0002, assert the crate layering that ADR-0001 depends on, and check the
+//! history walk against git on a real repository.
 
 mod bench;
 mod fixtures;
 mod layering;
+mod verify;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -41,6 +43,14 @@ enum Command {
     },
     /// Assert that the metrics crate cannot see git.
     CheckLayering,
+    /// Check the history walk against `git diff-tree` on a real repository.
+    VerifyWalk {
+        /// The repository to check.
+        repo: std::path::PathBuf,
+        /// Check one commit in this many (merges are sampled separately).
+        #[arg(long, default_value_t = 100)]
+        every: u64,
+    },
 }
 
 fn main() -> Result<()> {
@@ -48,6 +58,7 @@ fn main() -> Result<()> {
         Command::Fixtures { force } => fixtures::build(force),
         Command::Bench { filter, iterations } => bench::run(filter.as_deref(), iterations),
         Command::CheckLayering => layering::check(),
+        Command::VerifyWalk { repo, every } => verify::run(&repo, every),
     }
 }
 

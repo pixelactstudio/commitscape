@@ -39,6 +39,15 @@ jobs:
       - name: Build fixtures
         run: cargo xtask fixtures --force
 
+      - name: Check the walk against git
+        # The walk computes its own tree diffs, including git's combined diff
+        # for merges. Every fixture commit must match `git diff-tree -c`.
+        shell: bash
+        run: |
+          for f in linear coupling ownership renames bulk merges conflict detached shallow; do
+            cargo xtask verify-walk "fixtures/$f" --every 1
+          done
+
       - name: Test
         run: cargo test --workspace --all-targets
 

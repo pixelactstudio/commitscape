@@ -17,11 +17,13 @@ use commitscape_core::Oid;
 
 use crate::mailmap::Mailmap;
 
-/// Commits already indexed. The walk stops when it reaches one.
+/// The tips recorded by the last index. A walk excludes every commit reachable
+/// from them, as `git rev-list <tips> --not <frontier>` does.
 ///
 /// A **set**, not a single sha. Merging a long-lived branch introduces commits
 /// whose dates are older than the recorded tip; resuming from one sha, or from
-/// a timestamp, silently drops them and reports success (ADR-0002).
+/// a timestamp, silently drops them and reports success (ADR-0002). Excluding
+/// by reachability rather than by date is what finds them.
 pub type Frontier = HashSet<Oid>;
 
 /// A commit, as the adapter sees it.
@@ -61,14 +63,23 @@ pub struct RawChange<'a> {
     pub blob: Oid,
 }
 
-/// Receives commits as the walk produces them, newest first.
+/// Receives commits as the walk produces them.
+///
+/// Order is roughly newest first but is not a contract: the builder sorts by
+/// time before it resolves anything that depends on order.
+///
+/// A merge's changes are the paths whose content differs from **every**
+/// parent, as `git diff-tree -c` reports them. A clean merge therefore has no
+/// changes; a conflict resolution, or a file added by the merge itself, does.
+/// Diffing against the first parent alone would replay the whole merged branch.
 pub trait CommitSink {
     /// Returns [`ControlFlow::Break`] to stop the walk early.
     fn on_commit(&mut self, commit: &RawCommit<'_>, changes: &[RawChange<'_>]) -> ControlFlow<()>;
 
-    /// Called periodically with the number of commits visited so far, so a
-    /// long cold index can show real progress rather than a spinner.
-    fn on_progress(&mut self, _visited: u64) {}
+    /// Called periodically with the commits processed so far and the total
+    /// the walk will process, so a long cold index can show real progress
+    /// rather than a spinner.
+    fn on_progress(&mut self, _done: u64, _total: u64) {}
 }
 
 /// Receives the contents of every blob at HEAD.
@@ -105,9 +116,8 @@ pub trait RepoSource {
     /// The repository's mailmap, empty if it has none.
     fn mailmap(&self) -> Result<Mailmap, Self::Error>;
 
-    /// Walks history from [`tips`](Self::tips) backwards, stopping at any
-    /// commit in `stop_at`, pushing each commit and its name-status changes
-    /// into `sink`.
+    /// Pushes into `sink` every commit reachable from [`tips`](Self::tips)
+    /// but not from `stop_at`, with its name-status changes.
     fn walk_history(
         &self,
         stop_at: &Frontier,

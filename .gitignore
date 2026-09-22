@@ -10,3 +10,6 @@
 
 # Local scratch
 /.scratch/
+
+# Editor settings
+/.idea/

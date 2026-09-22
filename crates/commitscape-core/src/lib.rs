@@ -9,9 +9,9 @@ mod ids;
 mod index;
 mod oid;
 
-pub use ids::{AuthorId, CommitIx, DirId, FileId};
+pub use ids::{AuthorId, CommitIx, DirId, FileId, PathId, SignatureId};
 pub use index::{
     Author, AuthorTable, ChangeKind, CommitFlags, CommitMeta, FileChange, FileClass, HeadFile,
-    Index, LineDelta, PathTable, RepoIdentity, SCHEMA_VERSION,
+    Index, LineDelta, PathEvent, PathTable, RepoIdentity, Signature, SCHEMA_VERSION,
 };
 pub use oid::Oid;

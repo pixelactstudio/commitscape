@@ -114,8 +114,33 @@ fn bench_cold_walk_rust(ctx: &BenchContext) -> Result<Option<Duration>> {
         index.commits.len() as f64 / elapsed.as_secs_f64().max(f64::EPSILON)
     );
     println!("  time ordered: {}", index.is_time_ordered());
+    println!(
+        "  memory: peak {} resident; now {} anonymous, {} mapped from files",
+        proc_status_mb("VmHWM"),
+        proc_status_mb("RssAnon"),
+        proc_status_mb("RssFile")
+    );
 
     Ok(Some(elapsed))
+}
+
+/// A memory figure for this process from `/proc` on Linux. A walk that is
+/// fast because it holds the whole repository in memory is not a pass.
+///
+/// Peak resident memory includes pages of the memory-mapped pack file, which
+/// the kernel can drop at will, so the anonymous figure is reported alongside.
+fn proc_status_mb(field: &str) -> String {
+    std::fs::read_to_string("/proc/self/status")
+        .ok()
+        .and_then(|status| {
+            status
+                .lines()
+                .find_map(|l| l.strip_prefix(field)?.strip_prefix(':'))
+                .and_then(|v| v.trim().strip_suffix("kB"))
+                .and_then(|kb| kb.trim().parse::<u64>().ok())
+        })
+        .map(|kb| format!("{} MB", kb / 1024))
+        .unwrap_or_else(|| "unavailable on this platform".to_string())
 }
 
 /// Measures bare process startup: exec, dynamic linking, runtime init, exit.

@@ -12,8 +12,9 @@ pub mod source;
 
 pub use build::IndexBuilder;
 pub use gix_source::{GixError, GixRepo};
+pub use identity::resolve_authors;
 pub use mailmap::Mailmap;
-pub use scripted::ScriptedRepo;
+pub use scripted::{ScriptedChangeSpec, ScriptedRepo};
 pub use source::{
     CommitSink, Frontier, RawChange, RawChangeKind, RawCommit, RepoSource, TreeSink, WalkStats,
 };
@@ -39,4 +40,19 @@ pub fn index_incremental<S: RepoSource>(
     let stats = source.walk_history(frontier, &mut builder)?;
     let tips = source.tips()?;
     Ok(builder.finish(identity, tips, stats.history_truncated))
+}
+
+/// Re-applies a mailmap to an existing index.
+///
+/// Commits store the signature they were made under, not a resolved person,
+/// so a `.mailmap` edit changes a small table and never re-reads history.
+pub fn reresolve_authors(index: &mut Index, mailmap: &Mailmap) {
+    let signatures = std::mem::take(&mut index.authors).into_signatures();
+    let mut used = vec![0u32; signatures.len()];
+    for c in &index.commits {
+        if let Some(n) = used.get_mut(c.signature.idx()) {
+            *n += 1;
+        }
+    }
+    index.authors = resolve_authors(signatures, &used, mailmap);
 }

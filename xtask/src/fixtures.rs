@@ -166,6 +166,7 @@ pub fn build(force: bool) -> Result<()> {
     renames(&dir)?;
     bulk(&dir)?;
     merges(&dir)?;
+    conflict(&dir)?;
     empty(&dir)?;
     detached(&dir)?;
     bare(&dir)?;
@@ -179,7 +180,7 @@ pub fn build(force: bool) -> Result<()> {
 /// `linear` — five commits, no branches, no merges.
 ///
 /// Churn: `a.txt` 5, `b.txt` 2, `c.txt` 1.
-/// Last touched: a.txt day 4, b.txt day 3, c.txt day 2.
+/// Last touched: a.txt day 4, b.txt day 4, c.txt day 2.
 fn linear(dir: &Path) -> Result<()> {
     let mut fx = Fx::init(dir.join("linear"))?;
     fx.commit_touching(ALICE, "add a", &[("a.txt", "1\n")])?;
@@ -409,6 +410,63 @@ fn merges(dir: &Path) -> Result<()> {
             ("GIT_COMMITTER_DATE", stamp),
         ],
     )?;
+    Ok(())
+}
+
+/// `conflict`: a merge that resolves a conflict and adds a file of its own.
+///
+/// The merge commit is assembled with `git commit-tree` rather than `git
+/// merge`, so its tree is exactly the resolution written here. That keeps the
+/// fixture independent of the host's merge strategy and conflict-marker style.
+///
+/// Its changeset must be `shared.txt` (Modified: matches neither parent) and
+/// `evil.txt` (Added: in neither parent). `other.txt` matches both parents and
+/// must not appear.
+fn conflict(dir: &Path) -> Result<()> {
+    let mut fx = Fx::init(dir.join("conflict"))?;
+    fx.commit_touching(
+        ALICE,
+        "base",
+        &[("shared.txt", "base\n"), ("other.txt", "o\n")],
+    )?;
+    let base = fx.git(&["rev-parse", "HEAD"])?.trim().to_string();
+
+    fx.git(&["checkout", "-q", "-b", "topic", &base])?;
+    fx.commit_touching(BOB, "topic edit", &[("shared.txt", "topic\n")])?;
+
+    fx.git(&["checkout", "-q", "main"])?;
+    fx.commit_touching(ALICE, "main edit", &[("shared.txt", "main\n")])?;
+
+    fx.write("shared.txt", "resolved\n")?;
+    fx.write("evil.txt", "evil\n")?;
+    fx.git(&["add", "-A"])?;
+    let tree = fx.git(&["write-tree"])?.trim().to_string();
+    let stamp = format!("{} +0000", EPOCH + fx.day * DAY);
+    let merge = fx
+        .git_env(
+            &[
+                "commit-tree",
+                &tree,
+                "-p",
+                "HEAD",
+                "-p",
+                "topic",
+                "-m",
+                "merge topic, resolving shared.txt",
+            ],
+            &[
+                ("GIT_AUTHOR_NAME", ALICE.name.to_string()),
+                ("GIT_AUTHOR_EMAIL", ALICE.email.to_string()),
+                ("GIT_AUTHOR_DATE", stamp.clone()),
+                ("GIT_COMMITTER_NAME", ALICE.name.to_string()),
+                ("GIT_COMMITTER_EMAIL", ALICE.email.to_string()),
+                ("GIT_COMMITTER_DATE", stamp),
+            ],
+        )?
+        .trim()
+        .to_string();
+    fx.git(&["reset", "-q", "--hard", &merge])?;
+    fx.day += 1;
     Ok(())
 }
 

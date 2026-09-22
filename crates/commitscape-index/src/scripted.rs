@@ -2,9 +2,16 @@
 //!
 //! This is the second adapter that makes the seam in ADR-0001 real rather than
 //! hypothetical. It lets the whole index layer be tested with no temp
-//! directories, no `git` subprocess, and no fixture repository to keep in sync —
+//! directories, no `git` subprocess, and no fixture repository to keep in sync,
 //! and it means a test can construct a history that would be awkward to produce
 //! with real git at all.
+//!
+//! Histories are built with a cursor, the way a person thinks about branches:
+//! [`commit`](ScriptedRepo::commit) adds a child of the cursor and moves the
+//! cursor onto it, [`at`](ScriptedRepo::at) moves the cursor back to an earlier
+//! commit to start a branch, and [`merge`](ScriptedRepo::merge) joins the
+//! cursor with another commit. Every commit without children is a tip, as if a
+//! branch pointed at it.
 
 use std::collections::HashSet;
 use std::convert::Infallible;
@@ -30,7 +37,7 @@ struct ScriptedCommit {
     time: i64,
     name: Vec<u8>,
     email: Vec<u8>,
-    parent_count: usize,
+    parents: Vec<Oid>,
     changes: Vec<ScriptedChange>,
 }
 
@@ -42,11 +49,14 @@ struct ScriptedCommit {
 #[derive(Debug, Clone, Default)]
 pub struct ScriptedRepo {
     commits: Vec<ScriptedCommit>,
+    cursor: Option<Oid>,
     head_blobs: Vec<(Vec<u8>, Vec<u8>)>,
     mailmap: Mailmap,
     truncated: bool,
-    next_oid: u32,
 }
+
+/// `(path, kind, blob)`: one change in a scripted commit.
+pub type ScriptedChangeSpec<'a> = (&'a [u8], RawChangeKind, Oid);
 
 impl ScriptedRepo {
     pub fn new() -> Self {
@@ -64,22 +74,56 @@ impl ScriptedRepo {
         self
     }
 
-    /// Adds a commit. `changes` are `(path, kind, blob)` triples.
+    /// Adds a commit whose parent is the cursor, and moves the cursor to it.
     pub fn commit(
+        self,
+        time: i64,
+        author: (&str, &str),
+        changes: &[ScriptedChangeSpec<'_>],
+    ) -> Self {
+        let parents = self.cursor.into_iter().collect();
+        self.push(time, author, parents, changes)
+    }
+
+    /// Moves the cursor to the nth commit added, counting from 1, so the next
+    /// commit starts a branch there.
+    pub fn at(mut self, n: u32) -> Self {
+        self.cursor = Some(synthetic_oid(n));
+        self
+    }
+
+    /// Adds a merge of the cursor with the nth commit added, counting from 1.
+    /// `changes` are what the merge itself introduced: the paths that differ
+    /// from every parent.
+    pub fn merge(
+        self,
+        time: i64,
+        author: (&str, &str),
+        other: u32,
+        changes: &[ScriptedChangeSpec<'_>],
+    ) -> Self {
+        let parents = self
+            .cursor
+            .into_iter()
+            .chain([synthetic_oid(other)])
+            .collect();
+        self.push(time, author, parents, changes)
+    }
+
+    fn push(
         mut self,
         time: i64,
         author: (&str, &str),
-        changes: &[(&[u8], RawChangeKind, Oid)],
+        parents: Vec<Oid>,
+        changes: &[ScriptedChangeSpec<'_>],
     ) -> Self {
-        self.next_oid += 1;
-        let id = synthetic_oid(self.next_oid);
-        let parent_count = usize::from(!self.commits.is_empty());
+        let id = synthetic_oid(self.commits.len() as u32 + 1);
         self.commits.push(ScriptedCommit {
             id,
             time,
             name: author.0.as_bytes().to_vec(),
             email: author.1.as_bytes().to_vec(),
-            parent_count,
+            parents,
             changes: changes
                 .iter()
                 .map(|(p, k, b)| ScriptedChange {
@@ -89,20 +133,7 @@ impl ScriptedRepo {
                 })
                 .collect(),
         });
-        self
-    }
-
-    /// Adds a commit with more than one parent, so it is flagged as a merge.
-    pub fn merge_commit(
-        mut self,
-        time: i64,
-        author: (&str, &str),
-        changes: &[(&[u8], RawChangeKind, Oid)],
-    ) -> Self {
-        self = self.commit(time, author, changes);
-        if let Some(last) = self.commits.last_mut() {
-            last.parent_count = 2;
-        }
+        self.cursor = Some(id);
         self
     }
 
@@ -116,6 +147,25 @@ impl ScriptedRepo {
     /// The id assigned to the nth commit added, counting from 1.
     pub fn commit_id(&self, n: u32) -> Oid {
         synthetic_oid(n)
+    }
+
+    fn find(&self, id: Oid) -> Option<&ScriptedCommit> {
+        self.commits.iter().find(|c| c.id == id)
+    }
+
+    /// Every commit reachable from `from`, including the starting points.
+    fn reachable(&self, from: impl IntoIterator<Item = Oid>) -> HashSet<Oid> {
+        let mut seen = HashSet::new();
+        let mut stack: Vec<Oid> = from.into_iter().collect();
+        while let Some(id) = stack.pop() {
+            let Some(commit) = self.find(id) else {
+                continue;
+            };
+            if seen.insert(id) {
+                stack.extend(commit.parents.iter().copied());
+            }
+        }
+        seen
     }
 }
 
@@ -133,12 +183,23 @@ impl RepoSource for ScriptedRepo {
     fn identity(&self) -> Result<RepoIdentity, Self::Error> {
         Ok(RepoIdentity {
             git_dir: "/scripted/.git".to_string(),
-            root_commit: self.commits.first().map(|c| c.id),
         })
     }
 
     fn tips(&self) -> Result<Vec<Oid>, Self::Error> {
-        Ok(self.commits.last().map(|c| c.id).into_iter().collect())
+        let parents: HashSet<Oid> = self
+            .commits
+            .iter()
+            .flat_map(|c| c.parents.iter().copied())
+            .collect();
+        let mut tips: Vec<Oid> = self
+            .commits
+            .iter()
+            .map(|c| c.id)
+            .filter(|id| !parents.contains(id))
+            .collect();
+        tips.sort_unstable();
+        Ok(tips)
     }
 
     fn mailmap(&self) -> Result<Mailmap, Self::Error> {
@@ -154,10 +215,14 @@ impl RepoSource for ScriptedRepo {
             history_truncated: self.truncated,
             ..WalkStats::default()
         };
-        let seen: &HashSet<Oid> = stop_at;
+        let hidden = self.reachable(stop_at.iter().copied());
+        let wanted = self.reachable(self.tips()?);
 
         for c in self.commits.iter().rev() {
-            if seen.contains(&c.id) {
+            if !wanted.contains(&c.id) {
+                continue;
+            }
+            if hidden.contains(&c.id) {
                 stats.commits_skipped += 1;
                 continue;
             }
@@ -175,7 +240,7 @@ impl RepoSource for ScriptedRepo {
                 time: c.time,
                 author_name: &c.name,
                 author_email: &c.email,
-                parent_count: c.parent_count,
+                parent_count: c.parents.len(),
             };
             stats.commits_visited += 1;
             if sink.on_commit(&raw, &changes).is_break() {

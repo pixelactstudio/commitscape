@@ -5,15 +5,13 @@
 //! a time window or a filter threshold lives here, which is what lets a filter
 //! change recompute in milliseconds instead of invalidating the cache.
 
-use std::collections::HashMap;
-
 use serde::{Deserialize, Serialize};
 
-use crate::{AuthorId, FileId, Oid};
+use crate::{AuthorId, FileId, Oid, PathId, SignatureId};
 
 /// Bumped whenever the on-disk layout changes. A mismatch triggers a full
 /// reindex rather than an error.
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// How a commit touched a file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -53,6 +51,10 @@ pub struct FileChange {
 /// a fact; calling it bulk is a threshold applied to that fact, and thresholds
 /// are a metrics-layer concern. Storing it here would make
 /// `--max-changeset-size` a cache-invalidating option (ADR-0002).
+///
+/// The same reasoning keeps the resolved person out. A commit stores the
+/// signature it was made under; which person that signature belongs to is a
+/// resolution applied on top, so a `.mailmap` edit never invalidates history.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommitMeta {
     pub id: Oid,
@@ -60,7 +62,8 @@ pub struct CommitMeta {
     /// author time because it is monotonic with respect to history being
     /// written, which is what the ordering invariant needs.
     pub time: i64,
-    pub author: AuthorId,
+    /// The author's name and email exactly as committed.
+    pub signature: SignatureId,
     pub flags: CommitFlags,
     /// Start of this commit's slice of [`Index::changes`].
     pub changes_start: u32,
@@ -148,36 +151,85 @@ pub struct HeadFile {
     pub class: FileClass,
 }
 
-/// A person, after their several git identities have been resolved together.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Author {
+/// One name-and-email pair exactly as it appears in commits.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Signature {
     pub name: String,
     pub email: String,
-    /// Every raw `(name, email)` pair that resolved to this person, so the
-    /// interface can show its work.
-    pub variants: Vec<(String, String)>,
 }
 
-/// `AuthorId` -> [`Author`].
+/// A person, after their several signatures have been resolved together.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Author {
+    /// Canonical name, after the mailmap.
+    pub name: String,
+    /// Canonical email, after the mailmap.
+    pub email: String,
+    /// Every signature that resolved to this person, so the interface can
+    /// show its work.
+    pub signatures: Vec<SignatureId>,
+}
+
+/// Signatures, the people they resolve to, and the resolution between them.
+///
+/// Signatures are facts recorded by the walk. People are derived: the
+/// resolver in the index crate applies the mailmap and ADR-0006's two rules to
+/// the signature list and builds this table. Re-resolving is cheap, which is
+/// why a mailmap change never needs a reindex.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuthorTable {
+    signatures: Vec<Signature>,
+    /// `SignatureId` -> `AuthorId`, parallel to `signatures`.
+    person_of: Vec<AuthorId>,
     authors: Vec<Author>,
-    /// Suspected-but-unmerged identity groups (ADR-0006). Surfaced to the user
-    /// as a prompt to write a `.mailmap`, never merged silently.
+    /// Suspected-but-unmerged groups of people (ADR-0006). Surfaced to the
+    /// user as a prompt to write a `.mailmap`, never merged silently.
     pub suspected_duplicates: Vec<Vec<AuthorId>>,
 }
 
 impl AuthorTable {
-    pub fn push(&mut self, author: Author) -> AuthorId {
-        let id = AuthorId(self.authors.len() as u32);
-        self.authors.push(author);
-        id
+    /// Assembles a resolved table. `person_of` must be parallel to
+    /// `signatures`, and every id in it must index `authors`.
+    pub fn new(
+        signatures: Vec<Signature>,
+        person_of: Vec<AuthorId>,
+        authors: Vec<Author>,
+        suspected_duplicates: Vec<Vec<AuthorId>>,
+    ) -> Self {
+        debug_assert_eq!(signatures.len(), person_of.len());
+        debug_assert!(person_of.iter().all(|a| a.idx() < authors.len()));
+        AuthorTable {
+            signatures,
+            person_of,
+            authors,
+            suspected_duplicates,
+        }
+    }
+
+    /// The person a signature resolved to.
+    pub fn person_of(&self, signature: SignatureId) -> Option<AuthorId> {
+        self.person_of.get(signature.idx()).copied()
+    }
+
+    pub fn signature(&self, id: SignatureId) -> Option<&Signature> {
+        self.signatures.get(id.idx())
+    }
+
+    /// Every signature, in id order.
+    pub fn signatures(&self) -> &[Signature] {
+        &self.signatures
+    }
+
+    /// Gives up the signature list, for re-resolution after it has grown.
+    pub fn into_signatures(self) -> Vec<Signature> {
+        self.signatures
     }
 
     pub fn get(&self, id: AuthorId) -> Option<&Author> {
         self.authors.get(id.idx())
     }
 
+    /// Number of people.
     pub fn len(&self) -> usize {
         self.authors.len()
     }
@@ -186,6 +238,7 @@ impl AuthorTable {
         self.authors.is_empty()
     }
 
+    /// Every person, in id order.
     pub fn iter(&self) -> impl Iterator<Item = (AuthorId, &Author)> {
         self.authors
             .iter()
@@ -194,43 +247,117 @@ impl AuthorTable {
     }
 }
 
-/// `FileId` -> current path, plus every historical path that resolves to it.
+/// How one commit touched one path, as fed to [`PathTable::record`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PathEvent {
+    Added(PathId),
+    Modified(PathId),
+    Deleted(PathId),
+    /// An exact rename: same content, new path (ADR-0004).
+    Renamed {
+        from: PathId,
+        to: PathId,
+    },
+}
+
+/// Paths, files, and which file lives at which path.
+///
+/// A path is a string git recorded; a file is an identity that can move
+/// between paths through exact renames (ADR-0004). The table is built by
+/// feeding it every change **oldest first**, which is what lets identity
+/// follow time:
+///
+/// - Adding, modifying or deleting a path touches the file living there, or
+///   creates one if none does. A deleted file keeps its path, so a file
+///   deleted and later re-added at the same path is the same file.
+/// - An exact rename moves the file to the new path and frees the old one. A
+///   new file created later at the old path is a *different* file. Without
+///   this, `mv lib.rs lib_old.rs` followed by a fresh `lib.rs` would fuse two
+///   files that both exist at HEAD.
 ///
 /// Git paths are bytes, not UTF-8. Storing them as `Vec<u8>` avoids silently
 /// mangling a repository that contains a non-UTF-8 filename.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PathTable {
-    /// Current path of each file.
-    paths: Vec<Vec<u8>>,
-    /// Every path ever seen, including pre-rename ones, mapped to its file.
-    lookup: HashMap<Vec<u8>, FileId>,
+    /// Every distinct path ever touched, by `PathId`.
+    names: Vec<Vec<u8>>,
+    /// `PathId` -> the file living at that path now, if any.
+    live: Vec<Option<FileId>>,
+    /// `FileId` -> the path that file most recently lived at.
+    current: Vec<PathId>,
+    /// Every rename, oldest first, as (file, path it left).
+    departures: Vec<(FileId, PathId)>,
 }
 
 impl PathTable {
-    /// Returns the id for `path`, allocating one if this path is new.
-    pub fn intern(&mut self, path: &[u8]) -> FileId {
-        if let Some(&id) = self.lookup.get(path) {
-            return id;
+    /// Adds a path string and returns its id. Paths are not deduplicated
+    /// here: the builder keeps the reverse map, because a warm start never
+    /// needs one and should not pay to rebuild it.
+    pub fn push_path(&mut self, path: &[u8]) -> PathId {
+        let id = PathId(self.names.len() as u32);
+        self.names.push(path.to_vec());
+        self.live.push(None);
+        id
+    }
+
+    /// Applies one change and returns the file it touched. Must be called in
+    /// ascending time order; see the type-level documentation for the rules.
+    pub fn record(&mut self, event: PathEvent) -> FileId {
+        match event {
+            PathEvent::Added(p) | PathEvent::Modified(p) | PathEvent::Deleted(p) => {
+                let file = self.live_or_new(p);
+                self.set_current(file, p);
+                file
+            }
+            PathEvent::Renamed { from, to } => {
+                let file = self.live_or_new(from);
+                if let Some(slot) = self.live.get_mut(from.idx()) {
+                    *slot = None;
+                }
+                if let Some(slot) = self.live.get_mut(to.idx()) {
+                    *slot = Some(file);
+                }
+                self.set_current(file, to);
+                self.departures.push((file, from));
+                file
+            }
         }
-        let id = FileId(self.paths.len() as u32);
-        self.paths.push(path.to_vec());
-        self.lookup.insert(path.to_vec(), id);
-        id
     }
 
-    /// Records that `from` became `to` in an exact rename.
-    ///
-    /// The file keeps its id; `to` becomes its current path and both paths
-    /// continue to resolve to it. History walks run newest-first, so `to` is
-    /// usually already interned and `from` is the one being attached.
-    pub fn record_rename(&mut self, from: &[u8], to: &[u8]) -> FileId {
-        let id = self.intern(to);
-        self.lookup.insert(from.to_vec(), id);
-        id
+    fn live_or_new(&mut self, path: PathId) -> FileId {
+        if let Some(Some(file)) = self.live.get(path.idx()) {
+            return *file;
+        }
+        let file = FileId(self.current.len() as u32);
+        self.current.push(path);
+        if let Some(slot) = self.live.get_mut(path.idx()) {
+            *slot = Some(file);
+        }
+        file
     }
 
+    fn set_current(&mut self, file: FileId, path: PathId) {
+        if let Some(slot) = self.current.get_mut(file.idx()) {
+            *slot = path;
+        }
+    }
+
+    /// The file living at `path` now. A linear scan over every path ever
+    /// seen: for tests and occasional interactive lookups, not hot loops.
+    pub fn get(&self, path: &[u8]) -> Option<FileId> {
+        let at = self.names.iter().position(|n| n == path)?;
+        self.live.get(at).copied().flatten()
+    }
+
+    /// The file living at a path now.
+    pub fn live_file(&self, path: PathId) -> Option<FileId> {
+        self.live.get(path.idx()).copied().flatten()
+    }
+
+    /// The path a file most recently lived at.
     pub fn path(&self, id: FileId) -> Option<&[u8]> {
-        self.paths.get(id.idx()).map(|v| v.as_slice())
+        let path = self.current.get(id.idx())?;
+        self.names.get(path.idx()).map(|v| v.as_slice())
     }
 
     /// The current path as text, replacing invalid UTF-8 rather than failing.
@@ -241,34 +368,57 @@ impl PathTable {
             .unwrap_or_default()
     }
 
-    pub fn get(&self, path: &[u8]) -> Option<FileId> {
-        self.lookup.get(path).copied()
+    /// Paths this file lived at before exact renames moved it, oldest first.
+    pub fn former_paths(&self, id: FileId) -> impl Iterator<Item = &[u8]> {
+        self.departures
+            .iter()
+            .filter(move |(file, _)| *file == id)
+            .filter_map(|(_, path)| self.names.get(path.idx()).map(|v| v.as_slice()))
     }
 
+    /// Number of files.
     pub fn len(&self) -> usize {
-        self.paths.len()
+        self.current.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.paths.is_empty()
+        self.current.is_empty()
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (FileId, &[u8])> {
-        self.paths
+    /// Number of distinct path strings ever seen.
+    pub fn path_count(&self) -> usize {
+        self.names.len()
+    }
+
+    /// Every path string ever seen, by id.
+    pub fn path_names(&self) -> impl Iterator<Item = (PathId, &[u8])> {
+        self.names
             .iter()
             .enumerate()
-            .map(|(i, p)| (FileId(i as u32), p.as_slice()))
+            .map(|(i, p)| (PathId(i as u32), p.as_slice()))
+    }
+
+    /// Every file with its current path.
+    pub fn iter(&self) -> impl Iterator<Item = (FileId, &[u8])> {
+        self.current.iter().enumerate().filter_map(|(i, p)| {
+            self.names
+                .get(p.idx())
+                .map(|name| (FileId(i as u32), name.as_slice()))
+        })
     }
 }
 
 /// Identifies a repository for cache-keying purposes.
+///
+/// The path alone, deliberately. Finding anything that identifies the
+/// *project*, such as its root commit, means walking history, and this is
+/// computed on every warm start. A different project cloned to the same path
+/// is still caught: none of the cached frontier commits exist in it, so the
+/// cache cannot be resumed and is rebuilt.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RepoIdentity {
     /// Canonical path of the repository's git directory.
     pub git_dir: String,
-    /// The oldest root commit reachable at index time. Together with the path
-    /// this distinguishes two checkouts of different projects at the same path.
-    pub root_commit: Option<Oid>,
 }
 
 impl RepoIdentity {
@@ -285,9 +435,6 @@ impl RepoIdentity {
             }
         };
         feed(self.git_dir.as_bytes());
-        if let Some(root) = self.root_commit {
-            feed(&root.0);
-        }
         format!("{hash:016x}")
     }
 }
@@ -337,6 +484,11 @@ impl Index {
         self.changes.get(c.changes()).unwrap_or(&[])
     }
 
+    /// The person who authored a commit, after identity resolution.
+    pub fn author_of(&self, c: &CommitMeta) -> Option<AuthorId> {
+        self.authors.person_of(c.signature)
+    }
+
     /// Committer time of the newest commit, if any. This is the anchor `--json`
     /// and `--budget` resolve windows against, so their output is reproducible.
     pub fn newest_commit_time(&self) -> Option<i64> {
@@ -369,29 +521,52 @@ mod tests {
     }
 
     #[test]
-    fn rename_keeps_one_identity_and_both_paths_resolve() {
-        // This is the core of ADR-0004's rename decision: after a move, the old
-        // path and the new path are the same file, and the current path is new.
+    fn a_rename_moves_the_file_and_frees_the_old_path() {
         let mut t = PathTable::default();
-        let original = t.intern(b"old/path.txt");
-        let after = t.record_rename(b"old/path.txt", b"new/path.txt");
+        let old = t.push_path(b"old/path.txt");
+        let new = t.push_path(b"new/path.txt");
 
+        let created = t.record(PathEvent::Added(old));
+        let moved = t.record(PathEvent::Renamed { from: old, to: new });
+        assert_eq!(created, moved, "a rename keeps the file's identity");
+        assert_eq!(t.path(moved), Some(b"new/path.txt".as_slice()));
+        assert_eq!(t.get(b"new/path.txt"), Some(moved));
+        assert_eq!(t.get(b"old/path.txt"), None, "nothing lives there now");
         assert_eq!(
-            t.get(b"old/path.txt".as_slice()),
-            t.get(b"new/path.txt".as_slice())
+            t.former_paths(moved).collect::<Vec<_>>(),
+            vec![b"old/path.txt".as_slice()]
         );
-        assert_eq!(t.path(after), Some(b"new/path.txt".as_slice()));
-        // The pre-rename intern allocated id 0; the rename must not allocate a
-        // second identity for the same file.
-        assert_eq!(original, FileId(0));
-        assert_eq!(t.len(), 2, "old and new were interned as separate entries");
+        assert_eq!(t.len(), 1);
+    }
+
+    #[test]
+    fn a_new_file_at_a_vacated_path_is_a_different_file() {
+        let mut t = PathTable::default();
+        let a = t.push_path(b"lib.rs");
+        let b = t.push_path(b"lib_old.rs");
+        let original = t.record(PathEvent::Added(a));
+        t.record(PathEvent::Renamed { from: a, to: b });
+        let fresh = t.record(PathEvent::Added(a));
+        assert_ne!(original, fresh);
+        assert_eq!(t.get(b"lib_old.rs"), Some(original));
+        assert_eq!(t.get(b"lib.rs"), Some(fresh));
+    }
+
+    #[test]
+    fn a_file_deleted_and_re_added_at_the_same_path_is_the_same_file() {
+        let mut t = PathTable::default();
+        let p = t.push_path(b"a.txt");
+        let first = t.record(PathEvent::Added(p));
+        t.record(PathEvent::Deleted(p));
+        assert_eq!(t.record(PathEvent::Added(p)), first);
     }
 
     #[test]
     fn non_utf8_paths_survive() {
         let mut t = PathTable::default();
         let weird: &[u8] = &[b'a', 0xff, 0xfe, b'.', b'r', b's'];
-        let id = t.intern(weird);
+        let p = t.push_path(weird);
+        let id = t.record(PathEvent::Added(p));
         assert_eq!(t.path(id), Some(weird));
         assert!(t.path_lossy(id).contains('\u{fffd}'));
     }
@@ -400,7 +575,6 @@ mod tests {
     fn cache_key_is_stable_and_distinguishes_repos() {
         let a = RepoIdentity {
             git_dir: "/home/x/proj/.git".into(),
-            root_commit: Oid::from_hex("adcc5f3bdc1a3c205141996ba01404b6e4b27310"),
         };
         let mut b = a.clone();
         b.git_dir = "/home/x/other/.git".into();
@@ -413,12 +587,11 @@ mod tests {
     fn time_ordering_invariant_detects_violation() {
         let mut idx = Index::empty(RepoIdentity {
             git_dir: "/tmp/x".into(),
-            root_commit: None,
         });
         let mk = |time| CommitMeta {
             id: Oid::ZERO,
             time,
-            author: AuthorId(0),
+            signature: SignatureId(0),
             flags: CommitFlags::EMPTY,
             changes_start: 0,
             changes_len: 0,

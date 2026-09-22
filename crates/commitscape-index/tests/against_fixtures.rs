@@ -13,7 +13,15 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use commitscape_core::{ChangeKind, FileId, Index};
-use commitscape_index::{index_from_scratch, GixRepo};
+use commitscape_index::{index_from_scratch, index_incremental, Frontier, GixRepo};
+
+/// 2024-01-01T00:00:00Z, the fixtures' day 0. See `docs/fixtures.md`.
+const EPOCH: i64 = 1_704_067_200;
+const DAY: i64 = 86_400;
+
+fn day_of(time: i64) -> i64 {
+    (time - EPOCH) / DAY
+}
 
 fn fixture(name: &str) -> PathBuf {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -99,10 +107,14 @@ fn an_exact_rename_keeps_one_identity_with_the_whole_history() {
         "old/path.txt must not survive as a separate file"
     );
 
-    // Both paths resolve to the same file.
-    let by_old = idx.paths.get(b"old/path.txt");
-    let by_new = idx.paths.get(b"new/path.txt");
-    assert!(by_old.is_some() && by_old == by_new);
+    // The file lives at the new path now and remembers the old one. Nothing
+    // lives at the old path any more.
+    let moved = idx.paths.get(b"new/path.txt").expect("the moved file");
+    assert_eq!(
+        idx.paths.former_paths(moved).collect::<Vec<_>>(),
+        vec![b"old/path.txt".as_slice()]
+    );
+    assert_eq!(idx.paths.get(b"old/path.txt"), None);
 
     let renames = idx
         .commits
@@ -114,42 +126,74 @@ fn an_exact_rename_keeps_one_identity_with_the_whole_history() {
 }
 
 #[test]
-fn merges_are_flagged_and_the_branch_history_is_present() {
+fn a_clean_merge_records_no_changes_of_its_own() {
     let idx = index("merges");
     assert_eq!(idx.commits.len(), 7);
-    assert_eq!(idx.commits.iter().filter(|c| c.is_merge()).count(), 1);
+    let merges: Vec<_> = idx.commits.iter().filter(|c| c.is_merge()).collect();
+    assert_eq!(merges.len(), 1);
+    assert_eq!(
+        merges.first().map(|m| m.changes_len),
+        Some(0),
+        "a clean merge introduces nothing that differs from every parent"
+    );
 
-    // A merge diffed against its first parent re-reports everything the merged
-    // branch changed, so side.txt appears in side 2, side 3 *and* the merge.
-    // The index stores that as the fact it is; excluding merges is a
-    // metrics-layer decision, and that is where the number becomes 2.
+    // With the merge contributing nothing, the unfiltered counts are the branch
+    // commits' own: side 2 and side 3 for side.txt, days 0, 1, 4, 5 for main.txt.
     let churn = churn_by_path(&idx);
-    assert_eq!(
-        churn.get("side.txt"),
-        Some(&3),
-        "unfiltered, merge included"
-    );
+    assert_eq!(churn.get("side.txt"), Some(&2));
+    assert_eq!(churn.get("main.txt"), Some(&4));
+}
 
-    let excluding_merges = idx
+#[test]
+fn a_merge_records_exactly_what_it_resolved_or_introduced() {
+    let idx = index("conflict");
+    assert_eq!(idx.commits.len(), 4);
+    let merge = idx
         .commits
         .iter()
-        .filter(|c| !c.is_merge())
-        .flat_map(|c| idx.changes_of(c))
-        .filter(|ch| idx.paths.path_lossy(ch.file) == "side.txt")
-        .count();
+        .find(|c| c.is_merge())
+        .expect("the fixture has one merge");
+
+    let mut recorded: Vec<(String, ChangeKind)> = idx
+        .changes_of(merge)
+        .iter()
+        .map(|ch| (idx.paths.path_lossy(ch.file), ch.kind))
+        .collect();
+    recorded.sort_by(|a, b| a.0.cmp(&b.0));
     assert_eq!(
-        excluding_merges, 2,
-        "the side branch's own two commits — this is what churn will report"
+        recorded,
+        vec![
+            ("evil.txt".to_string(), ChangeKind::Added),
+            ("shared.txt".to_string(), ChangeKind::Modified),
+        ],
+        "other.txt matches both parents, so it must not appear"
     );
 
-    let main_excluding_merges = idx
+    let churn = churn_by_path(&idx);
+    assert_eq!(churn.get("shared.txt"), Some(&4), "merge included");
+    assert_eq!(churn.get("other.txt"), Some(&1));
+    assert_eq!(churn.get("evil.txt"), Some(&1));
+}
+
+#[test]
+fn resuming_from_a_frontier_finds_older_commits_a_merge_made_reachable() {
+    // ADR-0002's frontier case. Pretend the last index stopped when main's tip
+    // was `main 5`; the side branch had never been seen. A resume keyed on a
+    // single sha or a timestamp would miss side 2 and side 3, which are older
+    // than main 5.
+    let repo = GixRepo::open(&fixture("merges")).expect("opening fixture");
+    let full = index_from_scratch(&repo).expect("indexing fixture");
+    let main_5 = full
         .commits
         .iter()
-        .filter(|c| !c.is_merge())
-        .flat_map(|c| idx.changes_of(c))
-        .filter(|ch| idx.paths.path_lossy(ch.file) == "main.txt")
-        .count();
-    assert_eq!(main_excluding_merges, 4);
+        .find(|c| day_of(c.time) == 5)
+        .expect("a commit on day 5");
+
+    let frontier = Frontier::from([main_5.id]);
+    let resumed = index_incremental(&repo, &frontier).expect("resuming");
+    let mut days: Vec<i64> = resumed.commits.iter().map(|c| day_of(c.time)).collect();
+    days.sort_unstable();
+    assert_eq!(days, vec![2, 3, 6]);
 }
 
 #[test]
@@ -196,7 +240,11 @@ fn ownership_resolves_every_identity_form() {
         .find(|(_, a)| a.email == "alice@example.com")
         .map(|(id, _)| id)
         .expect("alice resolved to her canonical address");
-    let alice_commits = idx.commits.iter().filter(|c| c.author == alice).count();
+    let alice_commits = idx
+        .commits
+        .iter()
+        .filter(|c| idx.author_of(c) == Some(alice))
+        .count();
     // 9 in alpha/ plus the commit that added .mailmap.
     assert_eq!(alice_commits, 10);
 }

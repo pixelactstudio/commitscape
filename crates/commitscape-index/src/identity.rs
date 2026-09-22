@@ -16,82 +16,74 @@
 
 use std::collections::HashMap;
 
-use commitscape_core::{Author, AuthorId, AuthorTable};
+use commitscape_core::{Author, AuthorId, AuthorTable, Signature, SignatureId};
 
 use crate::mailmap::Mailmap;
 
-pub struct IdentityResolver {
-    mailmap: Mailmap,
-    /// Canonical email key -> author.
-    by_key: HashMap<Vec<u8>, AuthorId>,
-    table: AuthorTable,
-    /// Raw variants seen per author, in first-seen order.
-    variants: Vec<Vec<(String, String)>>,
-}
+/// Resolves every signature to a person and returns the finished table.
+///
+/// `commit_counts` is parallel to `signatures`: how many commits each was
+/// used for. A person is displayed under the mailmap-resolved name and email
+/// of their most-used signature, so the displayed identity does not depend on
+/// the order the walk happened to meet signatures in, and an incremental
+/// index shows the same names as a full one.
+///
+/// This is a pure function of its inputs. That is what makes a `.mailmap`
+/// edit cheap: re-run it over the stored signatures, and no history is read.
+pub fn resolve_authors(
+    signatures: Vec<Signature>,
+    commit_counts: &[u32],
+    mailmap: &Mailmap,
+) -> AuthorTable {
+    let mut by_key: HashMap<Vec<u8>, AuthorId> = HashMap::new();
+    let mut members: Vec<Vec<SignatureId>> = Vec::new();
+    let mut person_of = Vec::with_capacity(signatures.len());
 
-impl IdentityResolver {
-    pub fn new(mailmap: Mailmap) -> Self {
-        IdentityResolver {
-            mailmap,
-            by_key: HashMap::new(),
-            table: AuthorTable::default(),
-            variants: Vec::new(),
-        }
-    }
-
-    /// Returns the person this raw identity belongs to, allocating one if this
-    /// is the first time we have seen them.
-    pub fn resolve(&mut self, raw_name: &[u8], raw_email: &[u8]) -> AuthorId {
-        let (name, email) = self.mailmap.resolve(raw_name, raw_email);
-        let name = name.to_vec();
-        let email = email.to_vec();
-        let key = canonical_email_key(&email);
-
-        let raw_variant = (
-            String::from_utf8_lossy(raw_name).into_owned(),
-            String::from_utf8_lossy(raw_email).into_owned(),
-        );
-
-        if let Some(&id) = self.by_key.get(&key) {
-            if let Some(v) = self.variants.get_mut(id.idx()) {
-                if !v.contains(&raw_variant) {
-                    v.push(raw_variant);
-                }
-            }
-            return id;
-        }
-
-        let id = self.table.push(Author {
-            name: String::from_utf8_lossy(&name).into_owned(),
-            email: String::from_utf8_lossy(&email).into_owned(),
-            variants: Vec::new(),
+    for (i, sig) in signatures.iter().enumerate() {
+        let (_, email) = mailmap.resolve(sig.name.as_bytes(), sig.email.as_bytes());
+        let key = canonical_email_key(email);
+        let id = *by_key.entry(key).or_insert_with(|| {
+            members.push(Vec::new());
+            AuthorId(members.len() as u32 - 1)
         });
-        self.variants.push(vec![raw_variant]);
-        self.by_key.insert(key, id);
-        id
-    }
-
-    /// Finalises the table, attaching raw variants and computing the suspected
-    /// duplicate groups.
-    pub fn finish(mut self) -> AuthorTable {
-        let mut table = std::mem::take(&mut self.table);
-        let suspects = suspected_duplicates(&table);
-
-        // Rebuild with variants attached. `AuthorTable` owns its storage, so
-        // this reconstructs rather than mutating in place.
-        let mut rebuilt = AuthorTable::default();
-        for (id, author) in table.iter() {
-            let variants = self.variants.get(id.idx()).cloned().unwrap_or_default();
-            rebuilt.push(Author {
-                name: author.name.clone(),
-                email: author.email.clone(),
-                variants,
-            });
+        if let Some(m) = members.get_mut(id.idx()) {
+            m.push(SignatureId(i as u32));
         }
-        rebuilt.suspected_duplicates = suspects;
-        table = rebuilt;
-        table
+        person_of.push(id);
     }
+
+    let authors: Vec<Author> = members
+        .into_iter()
+        .map(|sigs| {
+            // Most commits wins; the lowest id breaks ties deterministically.
+            let display = sigs
+                .iter()
+                .copied()
+                .max_by_key(|s| {
+                    let used = commit_counts.get(s.idx()).copied().unwrap_or(0);
+                    (used, std::cmp::Reverse(s.0))
+                })
+                .and_then(|s| signatures.get(s.idx()));
+            let (name, email) = match display {
+                Some(sig) => {
+                    let (n, e) = mailmap.resolve(sig.name.as_bytes(), sig.email.as_bytes());
+                    (
+                        String::from_utf8_lossy(n).into_owned(),
+                        String::from_utf8_lossy(e).into_owned(),
+                    )
+                }
+                None => (String::new(), String::new()),
+            };
+            Author {
+                name,
+                email,
+                signatures: sigs,
+            }
+        })
+        .collect();
+
+    let suspects = suspected_duplicates(&authors);
+    AuthorTable::new(signatures, person_of, authors, suspects)
 }
 
 /// Applies rules 2 and 3 to produce the key two identities must share to be
@@ -139,11 +131,12 @@ fn strip_github_numeric_prefix(email: &[u8]) -> Vec<u8> {
 /// Two signals, both deliberately weak, both surfaced rather than applied:
 /// an identical display name across different emails, and an identical email
 /// local-part across different domains.
-fn suspected_duplicates(table: &AuthorTable) -> Vec<Vec<AuthorId>> {
+fn suspected_duplicates(authors: &[Author]) -> Vec<Vec<AuthorId>> {
     let mut by_name: HashMap<String, Vec<AuthorId>> = HashMap::new();
     let mut by_local: HashMap<String, Vec<AuthorId>> = HashMap::new();
 
-    for (id, author) in table.iter() {
+    for (i, author) in authors.iter().enumerate() {
+        let id = AuthorId(i as u32);
         let name = author.name.trim().to_ascii_lowercase();
         if !name.is_empty() {
             by_name.entry(name).or_default().push(id);
@@ -178,27 +171,46 @@ fn suspected_duplicates(table: &AuthorTable) -> Vec<Vec<AuthorId>> {
 mod tests {
     use super::*;
 
-    fn resolver() -> IdentityResolver {
-        IdentityResolver::new(Mailmap::default())
+    fn sig(name: &str, email: &str) -> Signature {
+        Signature {
+            name: name.to_string(),
+            email: email.to_string(),
+        }
+    }
+
+    /// Resolves with every signature used once.
+    fn resolve(sigs: &[Signature], mailmap: &Mailmap) -> AuthorTable {
+        resolve_authors(sigs.to_vec(), &vec![1; sigs.len()], mailmap)
+    }
+
+    fn same_person(t: &AuthorTable, a: u32, b: u32) -> bool {
+        t.person_of(SignatureId(a)) == t.person_of(SignatureId(b))
     }
 
     #[test]
     fn rule_2_folds_email_case() {
-        let mut r = resolver();
-        let a = r.resolve(b"Alice Example", b"alice@example.com");
-        let b = r.resolve(b"Alice Example", b"Alice@Example.COM");
-        assert_eq!(a, b);
-        let table = r.finish();
-        assert_eq!(table.len(), 1);
+        let t = resolve(
+            &[
+                sig("Alice Example", "alice@example.com"),
+                sig("Alice Example", "Alice@Example.COM"),
+            ],
+            &Mailmap::default(),
+        );
+        assert!(same_person(&t, 0, 1));
+        assert_eq!(t.len(), 1);
     }
 
     #[test]
     fn rule_3_folds_the_github_numeric_noreply_form() {
-        let mut r = resolver();
-        let a = r.resolve(b"Carol", b"90210+carol@users.noreply.github.com");
-        let b = r.resolve(b"Carol", b"carol@users.noreply.github.com");
-        assert_eq!(a, b);
-        assert_eq!(r.finish().len(), 1);
+        let t = resolve(
+            &[
+                sig("Carol", "90210+carol@users.noreply.github.com"),
+                sig("Carol", "carol@users.noreply.github.com"),
+            ],
+            &Mailmap::default(),
+        );
+        assert!(same_person(&t, 0, 1));
+        assert_eq!(t.len(), 1);
     }
 
     #[test]
@@ -223,35 +235,48 @@ mod tests {
     fn mailmap_resolves_what_the_two_rules_cannot() {
         let mailmap =
             Mailmap::parse(b"Alice Example <alice@example.com> <alice@work.example.org>\n");
-        let mut r = IdentityResolver::new(mailmap);
-        let a = r.resolve(b"Alice Example", b"alice@example.com");
-        let b = r.resolve(b"A. Example", b"alice@work.example.org");
-        assert_eq!(a, b, "the mailmap is what merges these two");
-        assert_eq!(r.finish().len(), 1);
+        let t = resolve(
+            &[
+                sig("Alice Example", "alice@example.com"),
+                sig("A. Example", "alice@work.example.org"),
+            ],
+            &mailmap,
+        );
+        assert!(
+            same_person(&t, 0, 1),
+            "the mailmap is what merges these two"
+        );
+        assert_eq!(t.len(), 1);
     }
 
     #[test]
     fn distinct_people_are_never_merged() {
-        let mut r = resolver();
-        let a = r.resolve(b"Alice Example", b"alice@example.com");
-        let b = r.resolve(b"Bob Example", b"bob@example.com");
-        assert_ne!(a, b);
-        assert_eq!(r.finish().len(), 2);
+        let t = resolve(
+            &[
+                sig("Alice Example", "alice@example.com"),
+                sig("Bob Example", "bob@example.com"),
+            ],
+            &Mailmap::default(),
+        );
+        assert!(!same_person(&t, 0, 1));
+        assert_eq!(t.len(), 2);
     }
 
     #[test]
     fn a_shared_display_name_is_suspected_but_not_merged() {
         // The dangerous case: two real people both committing as "dev".
-        let mut r = resolver();
-        let a = r.resolve(b"dev", b"one@example.com");
-        let b = r.resolve(b"dev", b"two@example.com");
-        assert_ne!(a, b, "a shared display name must not merge identities");
-
-        let table = r.finish();
-        assert_eq!(table.len(), 2);
+        let t = resolve(
+            &[sig("dev", "one@example.com"), sig("dev", "two@example.com")],
+            &Mailmap::default(),
+        );
+        assert!(
+            !same_person(&t, 0, 1),
+            "a shared display name must not merge identities"
+        );
+        assert_eq!(t.len(), 2);
         assert_eq!(
-            table.suspected_duplicates,
-            vec![vec![a, b]],
+            t.suspected_duplicates,
+            vec![vec![AuthorId(0), AuthorId(1)]],
             "but it must be surfaced so the user can write a mailmap"
         );
     }
@@ -259,25 +284,34 @@ mod tests {
     #[test]
     fn generic_local_parts_do_not_generate_suggestions() {
         // root@host-a and root@host-b are not evidence of anything.
-        let mut r = resolver();
-        r.resolve(b"Someone", b"root@host-a.example.com");
-        r.resolve(b"Another", b"root@host-b.example.com");
-        let table = r.finish();
-        assert_eq!(table.len(), 2);
+        let t = resolve(
+            &[
+                sig("Someone", "root@host-a.example.com"),
+                sig("Another", "root@host-b.example.com"),
+            ],
+            &Mailmap::default(),
+        );
+        assert_eq!(t.len(), 2);
         assert!(
-            table.suspected_duplicates.is_empty(),
+            t.suspected_duplicates.is_empty(),
             "shared generic local-parts say nothing about identity"
         );
     }
 
     #[test]
-    fn raw_variants_are_recorded_so_the_interface_can_show_its_work() {
-        let mut r = resolver();
-        let id = r.resolve(b"Alice Example", b"alice@example.com");
-        r.resolve(b"Alice Example", b"Alice@Example.COM");
-        let table = r.finish();
-        let author = table.get(id).expect("author exists");
-        assert_eq!(author.variants.len(), 2);
-        assert_eq!(author.email, "alice@example.com");
+    fn a_person_is_shown_under_their_most_used_signature() {
+        // Two commits as the upper-case form, five as the lower-case one. The
+        // walk met the upper-case form first; the display must not care.
+        let t = resolve_authors(
+            vec![
+                sig("Alice Example", "Alice@Example.COM"),
+                sig("Alice Example", "alice@example.com"),
+            ],
+            &[2, 5],
+            &Mailmap::default(),
+        );
+        let alice = t.get(AuthorId(0)).expect("one person");
+        assert_eq!(alice.email, "alice@example.com");
+        assert_eq!(alice.signatures, vec![SignatureId(0), SignatureId(1)]);
     }
 }
