@@ -11,7 +11,6 @@ workspace = true
 
 [dependencies]
 commitscape-core = { path = "../commitscape-core" }
-ignore = "0.4.33"
 rayon = "1.12.0"
 serde = { version = "1.0.229", features = ["derive"] }
 thiserror = "2.0.20"
@@ -34,6 +33,7 @@ gix = { version = "0.87.1", default-features = false, features = [
     "max-performance-safe",
 ] }
 xxhash-rust = { version = "0.8.18", features = ["xxh3"] }
+globset = "0.4.20"
 
 [dev-dependencies]
 tempfile = "3.27.0"

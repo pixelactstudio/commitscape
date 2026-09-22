@@ -11,7 +11,7 @@ use crate::{AuthorId, FileId, Oid, PathId, SignatureId};
 
 /// Bumped whenever the on-disk layout changes. A mismatch triggers a full
 /// reindex rather than an error.
-pub const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 5;
 
 /// How a commit touched a file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -108,22 +108,35 @@ impl CommitFlags {
 /// What a file at HEAD appears to be.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FileClass {
-    /// Something a person wrote and might be asked to look at.
+    /// Code a person wrote and might be asked to look at.
     Source,
+    /// Text a person wrote to be read rather than run: Markdown,
+    /// reStructuredText, AsciiDoc, plain text.
+    Prose,
     /// Machine-written: lockfiles, ORM snapshots, `*.gen.ts`, minified output.
     Generated,
     /// Third-party code committed into the tree.
     Vendored,
     /// Not text.
     Binary,
+    /// A symbolic link: its content is a path, not code.
+    Symlink,
 }
 
 impl FileClass {
-    /// Whether this file may appear in a ranking. Only [`Source`](Self::Source)
-    /// may — a hotspot list containing a lockfile makes the tool look stupid on
-    /// first run.
+    /// Whether a person wrote this file, so it may appear in a ranking of
+    /// Churn, Ownership or Change Coupling. A hotspot list containing a
+    /// lockfile makes the tool look broken on first run.
     #[inline]
     pub fn is_rankable(self) -> bool {
+        matches!(self, FileClass::Source | FileClass::Prose)
+    }
+
+    /// Whether this file is code, so rankings by size or by the Complexity
+    /// Proxy apply to it. Indentation measures nesting in code; in prose it
+    /// measures bullet lists.
+    #[inline]
+    pub fn is_code(self) -> bool {
         matches!(self, FileClass::Source)
     }
 }
@@ -132,7 +145,15 @@ impl FileClass {
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct HeadFile {
     pub file: FileId,
-    /// Total lines, including blank ones.
+    /// The path it was measured at. A file renamed without changing is
+    /// measured again, since its class can depend on its name.
+    pub path: PathId,
+    /// The blob measured. When HEAD moves, a file whose blob is unchanged is
+    /// not read again.
+    pub blob: Oid,
+    /// Size of the blob in bytes.
+    pub bytes: u64,
+    /// Total lines, including blank ones. Zero for binary files.
     pub loc: u32,
     /// Sum of indentation *levels* across all lines — not whitespace
     /// characters. A tab-indented file and a two-space file with identical
@@ -571,8 +592,11 @@ pub struct Index {
     pub changes: Vec<FileChange>,
     pub paths: PathTable,
     pub authors: AuthorTable,
-    /// Files present at HEAD. Sized by file count, not by history length.
+    /// Files present at HEAD, sorted by [`FileId`]. Sized by file count, not
+    /// by history length.
     pub head: Vec<HeadFile>,
+    /// The commit the HEAD table describes.
+    pub head_commit: Option<Oid>,
     /// True when the repository is shallow. The commit count is then a floor,
     /// not a total, and the interface must say so rather than presenting a
     /// truncated number as real.
@@ -634,6 +658,7 @@ impl Index {
             paths: PathTable::default(),
             authors: AuthorTable::default(),
             head: Vec::new(),
+            head_commit: None,
             history_truncated: false,
             span: HistorySpan::default(),
             loaded_from: None,

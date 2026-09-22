@@ -8,14 +8,13 @@
 //! (ADR-0004). Our walk reads tree objects only, and it also computes the
 //! combined diff that merges need, which gix does not offer.
 
-use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 
 use commitscape_core::{Oid, RepoIdentity};
 use gix::objs::TreeRefIter;
 
 use crate::mailmap::Mailmap;
-use crate::source::{CommitSink, Indexed, RepoSource, TreeSink, WalkStats};
+use crate::source::{BlobSink, CommitSink, HeadChange, HeadEntry, Indexed, RepoSource, WalkStats};
 
 /// Wraps any error into [`GixError::Git`] with a human-facing context.
 macro_rules! git_ctx {
@@ -27,6 +26,7 @@ macro_rules! git_ctx {
     };
 }
 
+mod blobs;
 mod tree_diff;
 mod walk;
 
@@ -317,31 +317,78 @@ impl RepoSource for GixRepo {
         walk::walk(self, indexed, sink)
     }
 
-    fn walk_head_tree(&self, sink: &mut dyn TreeSink) -> Result<(), Self::Error> {
+    fn head_commit(&self) -> Result<Option<Oid>, Self::Error> {
+        match self.repo.head_id() {
+            Ok(id) => Ok(Some(Self::to_oid(id.as_ref())?)),
+            Err(_) => Ok(None),
+        }
+    }
+
+    fn head_files(&self) -> Result<Vec<HeadEntry>, Self::Error> {
         let head = git_ctx!(self.repo.head_commit(), "resolving HEAD")?;
         let tree = git_ctx!(head.tree(), "reading the HEAD tree")?;
-
-        let hash_kind = self.repo.object_hash();
         let mut recorder = gix::traverse::tree::Recorder::default();
         git_ctx!(
             gix::traverse::tree::breadthfirst(
-                TreeRefIter::from_bytes(&tree.data, hash_kind),
+                TreeRefIter::from_bytes(&tree.data, self.repo.object_hash()),
                 gix::traverse::tree::breadthfirst::State::default(),
                 &self.repo.objects,
                 &mut recorder,
             ),
             "walking the HEAD tree"
         )?;
-
+        let mut files = Vec::with_capacity(recorder.records.len());
         for entry in recorder.records {
-            if !entry.mode.is_blob() {
+            // Directories are implied by their files, and a submodule is a
+            // pointer to another repository rather than a file in this one.
+            if !entry.mode.is_blob_or_symlink() {
                 continue;
             }
-            let obj = git_ctx!(self.repo.find_object(entry.oid), "reading a blob")?;
-            if let ControlFlow::Break(()) = sink.on_blob(entry.filepath.as_ref(), &obj.data) {
-                break;
-            }
+            files.push(HeadEntry {
+                path: entry.filepath.into(),
+                blob: Self::to_oid(entry.oid.as_ref())?,
+                symlink: entry.mode.is_link(),
+            });
         }
-        Ok(())
+        Ok(files)
+    }
+
+    fn head_changes(&self, since: Oid) -> Result<Option<Vec<HeadChange>>, Self::Error> {
+        let Some(since) = Self::to_gix(since) else {
+            return Ok(None);
+        };
+        let Ok(old) = self.repo.find_commit(since) else {
+            return Ok(None);
+        };
+        let old_tree = git_ctx!(old.tree_id(), "reading an earlier HEAD tree")?.detach();
+        let head = git_ctx!(self.repo.head_commit(), "resolving HEAD")?;
+        let tree = git_ctx!(head.tree_id(), "reading the HEAD tree")?.detach();
+
+        let mut differ = tree_diff::TreeDiffer::new(self.repo.object_hash());
+        let mut changed = Vec::new();
+        differ
+            .diff(&self.repo.objects, tree, &[Some(old_tree)], &mut changed)
+            .map_err(|source| GixError::Git {
+                context: "comparing HEAD with the tree last measured",
+                source,
+            })?;
+        changed
+            .into_iter()
+            .map(|c| {
+                Ok(HeadChange {
+                    entry: HeadEntry {
+                        path: c.path,
+                        blob: Self::to_oid(c.blob.as_ref())?,
+                        symlink: c.symlink,
+                    },
+                    kind: c.kind,
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map(Some)
+    }
+
+    fn read_blobs(&self, blobs: &[Oid], sink: BlobSink<'_>) -> Result<(), Self::Error> {
+        blobs::read(self, blobs, sink)
     }
 }

@@ -32,6 +32,8 @@ pub(super) struct Changed {
     pub kind: RawChangeKind,
     /// The blob after the change, or for a deletion the blob removed.
     pub blob: ObjectId,
+    /// Whether the entry after the change is a symbolic link.
+    pub symlink: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -273,6 +275,7 @@ fn file_change(
                 path: path(),
                 kind,
                 blob: e.oid.to_owned(),
+                symlink: e.mode.is_link(),
             })
         }
         Some(_) => None,
@@ -284,6 +287,7 @@ fn file_change(
                 path: path(),
                 kind: RawChangeKind::Deleted,
                 blob: removed.oid.to_owned(),
+                symlink: false,
             })
         }
     }

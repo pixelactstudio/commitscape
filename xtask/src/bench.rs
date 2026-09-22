@@ -66,10 +66,10 @@ const BENCHMARKS: &[Benchmark] = &[
         run: bench_startup,
     },
     Benchmark {
-        name: "cold-walk-rust",
-        description: "full history walk of rust-lang/rust, no cache — ADR-0002 budget is 60s",
+        name: "cold-index-rust",
+        description: "full index of rust-lang/rust, history walk and HEAD pass, no cache; ADR-0002 budget is 60s",
         default_iterations: 1,
-        run: bench_cold_walk_rust,
+        run: bench_cold_index_rust,
     },
     Benchmark {
         name: "warm-start-rust",
@@ -248,12 +248,13 @@ fn copy_dir(from: &Path, to: &Path) -> Result<()> {
     Ok(())
 }
 
-/// One full, uncached walk of `rust-lang/rust`.
+/// One full, uncached index of `rust-lang/rust`: every commit, then every
+/// file at HEAD.
 ///
 /// The gating cold-index budget in ADR-0002. Reports the shape of the resulting
-/// index as well as the time, because a fast walk that collected the wrong
+/// index as well as the time, because a fast index that collected the wrong
 /// amount of data is not a pass.
-fn bench_cold_walk_rust(ctx: &BenchContext) -> Result<Option<Duration>> {
+fn bench_cold_index_rust(ctx: &BenchContext) -> Result<Option<Duration>> {
     let Some(path) = ctx.repo("rust") else {
         return Ok(None);
     };
@@ -290,6 +291,7 @@ fn bench_cold_walk_rust(ctx: &BenchContext) -> Result<Option<Duration>> {
         index.commits.len() as f64 / elapsed.as_secs_f64().max(f64::EPSILON)
     );
     println!("  time ordered: {}", index.is_time_ordered());
+    println!("  files at HEAD: {}", index.head.len());
     println!(
         "  memory: peak {} resident; now {} anonymous, {} mapped from files",
         proc_status_mb("VmHWM"),

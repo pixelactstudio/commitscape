@@ -39,6 +39,8 @@ use commitscape_core::{
 use serde::{Deserialize, Serialize};
 use xxhash_rust::xxh3::xxh3_64;
 
+use crate::head_pass::ClassifyContext;
+
 const HEAD_MAGIC: [u8; 8] = *b"CSCAPEH\x02";
 const DATA_MAGIC: [u8; 8] = *b"CSCAPED\x02";
 const POINTER_FILE: &str = "index.current";
@@ -95,6 +97,8 @@ pub(super) struct Head {
     pub authors: AuthorTable,
     pub head: Vec<HeadFile>,
     pub head_commit: Option<Oid>,
+    /// What the HEAD table's classes were decided from.
+    pub classify: ClassifyContext,
     /// Name of the data file, within the cache directory.
     pub data_file: String,
     /// One per month, in time order.
@@ -117,6 +121,7 @@ struct HeadMeta {
     history_truncated: bool,
     span: HistorySpan,
     head_commit: Option<Oid>,
+    classify: ClassifyContext,
     data_file: String,
     blocks: Vec<BlockEntry>,
     id_runs: Vec<Extent>,
@@ -133,6 +138,7 @@ fn encode_head(head: &Head) -> std::io::Result<Vec<u8>> {
         history_truncated: head.history_truncated,
         span: head.span,
         head_commit: head.head_commit,
+        classify: head.classify.clone(),
         data_file: head.data_file.clone(),
         blocks: head.blocks.clone(),
         id_runs: head.id_runs.clone(),
@@ -216,6 +222,7 @@ fn decode_head(payload: &[u8]) -> Result<Head, Unusable> {
         authors: authors?,
         head: files?,
         head_commit: meta.head_commit,
+        classify: meta.classify,
         data_file: meta.data_file,
         blocks: meta.blocks,
         id_runs: meta.id_runs,
@@ -641,7 +648,7 @@ pub(super) fn head_of(
     index: &Index,
     refs_fingerprint: u64,
     mailmap_fingerprint: u64,
-    head_commit: Option<Oid>,
+    classify: ClassifyContext,
 ) -> Head {
     Head {
         schema_version: SCHEMA_VERSION,
@@ -655,7 +662,8 @@ pub(super) fn head_of(
         paths: index.paths.clone(),
         authors: index.authors.clone(),
         head: index.head.clone(),
-        head_commit,
+        head_commit: index.head_commit,
+        classify,
         data_file: String::new(),
         blocks: Vec::new(),
         id_runs: Vec::new(),

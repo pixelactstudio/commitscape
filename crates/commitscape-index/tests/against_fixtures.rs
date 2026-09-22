@@ -301,3 +301,22 @@ fn a_real_repository_loads_warm_the_second_time() {
     assert_eq!(second.index.commits, first.index.commits);
     assert_eq!(second.index.changes, first.index.changes);
 }
+
+#[test]
+fn the_head_pass_measures_every_file_at_head() {
+    // linear's HEAD: a.txt holds "1".."5", b.txt "b" twice, c.txt "c" once.
+    // Plain text is prose: a person wrote it, but it is not code.
+    let idx = index("linear");
+    let loc = |path: &str| {
+        let file = idx.paths.get(path.as_bytes()).expect("file at HEAD");
+        idx.head
+            .iter()
+            .find(|h| h.file == file)
+            .map(|h| (h.loc, h.class))
+    };
+    assert_eq!(idx.head.len(), 3);
+    assert_eq!(loc("a.txt"), Some((5, commitscape_core::FileClass::Prose)));
+    assert_eq!(loc("b.txt"), Some((2, commitscape_core::FileClass::Prose)));
+    assert_eq!(loc("c.txt"), Some((1, commitscape_core::FileClass::Prose)));
+    assert!(idx.head_commit.is_some());
+}

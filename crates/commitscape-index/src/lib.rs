@@ -5,9 +5,13 @@
 
 pub mod build;
 pub mod cache;
+mod classify;
 pub mod gix_source;
+mod hash_index;
+mod head_pass;
 pub mod identity;
 pub mod mailmap;
+pub mod measure;
 pub mod scripted;
 pub mod source;
 
@@ -21,18 +25,21 @@ pub use identity::resolve_authors;
 pub use mailmap::Mailmap;
 pub use scripted::{ScriptedChangeSpec, ScriptedRepo};
 pub use source::{
-    CommitSink, Frontier, Indexed, RawChange, RawChangeKind, RawCommit, RepoSource, TreeSink,
-    WalkStats,
+    BlobSink, CommitSink, Frontier, HeadChange, HeadEntry, Indexed, RawChange, RawChangeKind,
+    RawCommit, RepoSource, WalkStats,
 };
 
 use commitscape_core::Index;
 
-/// Indexes a repository from scratch.
+/// Indexes a repository from scratch, history and HEAD, without a cache.
 ///
 /// Generic over [`RepoSource`] so the same path is exercised by the real gix
 /// adapter and by the scripted fake.
 pub fn index_from_scratch<S: RepoSource>(source: &S) -> Result<Index, S::Error> {
-    index_incremental(source, &Frontier::default())
+    let mut index = index_incremental(source, &Frontier::default())?;
+    index.head = head_pass::head_pass(source, &index.paths, None)?.files;
+    index.head_commit = source.head_commit()?;
+    Ok(index)
 }
 
 /// Indexes everything reachable that is not already `indexed`.

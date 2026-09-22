@@ -97,13 +97,26 @@ pub trait CommitSink {
     fn on_progress(&mut self, _done: u64, _total: u64) {}
 }
 
-/// Receives the contents of every blob at HEAD.
-///
-/// This is the one place blob contents are read, and it happens once per index
-/// rather than once per commit (ADR-0004).
-pub trait TreeSink {
-    fn on_blob(&mut self, path: &[u8], contents: &[u8]) -> ControlFlow<()>;
+/// One file at HEAD: where it is and which blob it holds. Submodules are not
+/// files and are never listed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HeadEntry {
+    pub path: Vec<u8>,
+    pub blob: Oid,
+    pub symlink: bool,
 }
+
+/// How a file at HEAD changed since an earlier commit. For a deletion,
+/// `entry.blob` is the blob removed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HeadChange {
+    pub entry: HeadEntry,
+    pub kind: RawChangeKind,
+}
+
+/// Receives blob contents, possibly from several threads at once: the index
+/// in the request, and the bytes.
+pub type BlobSink<'a> = &'a (dyn Fn(usize, &[u8]) + Sync);
 
 /// What a walk did.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -161,6 +174,19 @@ pub trait RepoSource {
         sink: &mut dyn CommitSink,
     ) -> Result<WalkStats, Self::Error>;
 
-    /// Reads every blob at HEAD exactly once.
-    fn walk_head_tree(&self, sink: &mut dyn TreeSink) -> Result<(), Self::Error>;
+    /// The commit HEAD points at, if it points at one.
+    fn head_commit(&self) -> Result<Option<Oid>, Self::Error>;
+
+    /// Every file at HEAD, without contents.
+    fn head_files(&self) -> Result<Vec<HeadEntry>, Self::Error>;
+
+    /// How the files at HEAD differ from those of commit `since`, if the
+    /// adapter can say without listing HEAD. `None` asks the caller to use
+    /// [`head_files`](Self::head_files) instead.
+    fn head_changes(&self, since: Oid) -> Result<Option<Vec<HeadChange>>, Self::Error>;
+
+    /// Reads the given blobs and hands each one's contents to `sink` with its
+    /// position in `blobs`. The only place blob contents are read (ADR-0004),
+    /// and only for files at HEAD.
+    fn read_blobs(&self, blobs: &[Oid], sink: BlobSink<'_>) -> Result<(), Self::Error>;
 }

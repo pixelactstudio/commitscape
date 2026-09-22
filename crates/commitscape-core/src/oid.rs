@@ -4,14 +4,30 @@
 //! inside the index crate, and an object id appears in the cache format and in
 //! `--json` output, both of which outlive any particular git library.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// A SHA-1 git object id.
 ///
 /// v0.1 assumes SHA-1 repositories. A SHA-256 repository will fail to open with
 /// a clear message rather than being silently truncated into this type.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Oid(pub [u8; 20]);
+
+/// Serialized as one byte string rather than twenty separate bytes: the cache
+/// holds one per commit and one per file at HEAD, and decoding them byte by
+/// byte was a measurable share of a warm start.
+impl Serialize for Oid {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_bytes(&self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for Oid {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Oid, D::Error> {
+        let bytes: serde_bytes::ByteArray<20> = serde_bytes::ByteArray::deserialize(d)?;
+        Ok(Oid(bytes.into_array()))
+    }
+}
 
 impl Oid {
     pub const ZERO: Oid = Oid([0; 20]);
@@ -108,6 +124,17 @@ mod tests {
     fn short_form_is_nine_characters() {
         let oid = Oid::from_hex(KNOWN).expect("valid hex");
         assert_eq!(oid.short(), "adcc5f3bd");
+    }
+
+    #[test]
+    fn round_trips_through_the_cache_encoding() {
+        let oid = Oid::from_hex(KNOWN).expect("valid hex");
+        let config = bincode::config::standard();
+        let bytes = bincode::serde::encode_to_vec(oid, config).expect("encodes");
+        assert_eq!(bytes.len(), 21, "a length byte and the twenty id bytes");
+        let (back, _): (Oid, usize) =
+            bincode::serde::decode_from_slice(&bytes, config).expect("decodes");
+        assert_eq!(back, oid);
     }
 
     #[test]

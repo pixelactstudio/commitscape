@@ -22,6 +22,7 @@ use std::path::{Path, PathBuf};
 use commitscape_core::{CommitMeta, FileChange, Index, Month, RepoIdentity};
 
 use crate::build::IndexBuilder;
+use crate::head_pass::{head_pass, ClassifyContext, Previous as PreviousHead};
 use crate::mailmap::Mailmap;
 use crate::reresolve_authors;
 use crate::source::{CommitSink, RawChange, RawCommit, RepoSource};
@@ -77,11 +78,13 @@ pub enum RebuildReason {
     HistoryRewritten,
 }
 
-/// Progress of a load that has to walk history.
+/// Progress of a load that has to read the repository.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Progress {
     /// Commits diffed so far, of the total this walk will diff.
     History { done: u64, total: u64 },
+    /// Reading and measuring the files at HEAD.
+    HeadFiles,
 }
 
 /// The result of [`load`].
@@ -158,7 +161,7 @@ pub fn load<S: RepoSource>(
 ) -> Result<Loaded, S::Error> {
     let identity = source.identity()?;
     let Some(root) = options.root.as_deref() else {
-        let index = build(source, identity, source.mailmap()?, progress)?;
+        let (index, _) = build(source, identity, source.mailmap()?, progress)?;
         return Ok(Loaded::complete(
             index,
             Freshness::Built {
@@ -189,7 +192,10 @@ pub fn load<S: RepoSource>(
         }
     };
 
-    if head.refs_fingerprint == fingerprint {
+    // Rules for Generated Files improved since this cache was written: the
+    // HEAD table is classified again, and history is kept.
+    let reclassify = head.classify.version != crate::classify::CLASSIFIER_VERSION;
+    if head.refs_fingerprint == fingerprint && !reclassify {
         // Only a changed mailmap needs reading; an unchanged one is already
         // applied in the cached author table.
         let mailmap = if head.mailmap_fingerprint == mailmap_fingerprint {
@@ -203,7 +209,7 @@ pub fn load<S: RepoSource>(
             Err(_) => rebuild(source, ctx, RebuildReason::Unreadable, progress),
         };
     }
-    resume(source, ctx, head, since, progress)
+    resume(source, ctx, head, since, reclassify, progress)
 }
 
 /// What every path through [`load`] needs.
@@ -214,12 +220,14 @@ struct Context<'a> {
     mailmap_fingerprint: u64,
 }
 
+/// Indexes from scratch: every commit, then every file at HEAD. Returns the
+/// index and what its HEAD table was classified with.
 fn build<S: RepoSource>(
     source: &S,
     identity: RepoIdentity,
     mailmap: Mailmap,
     progress: &mut dyn FnMut(Progress),
-) -> Result<Index, S::Error> {
+) -> Result<(Index, ClassifyContext), S::Error> {
     let mut builder = IndexBuilder::new(mailmap);
     let stats = source.walk_history(
         &std::collections::HashSet::new(),
@@ -229,7 +237,12 @@ fn build<S: RepoSource>(
         },
     )?;
     let tips = source.tips()?;
-    Ok(builder.finish(identity, tips, stats.history_truncated))
+    let mut index = builder.finish(identity, tips, stats.history_truncated);
+    progress(Progress::HeadFiles);
+    let head = head_pass(source, &index.paths, None)?;
+    index.head = head.files;
+    index.head_commit = source.head_commit()?;
+    Ok((index, head.context))
 }
 
 fn rebuild<S: RepoSource>(
@@ -238,8 +251,8 @@ fn rebuild<S: RepoSource>(
     reason: RebuildReason,
     progress: &mut dyn FnMut(Progress),
 ) -> Result<Loaded, S::Error> {
-    let index = build(source, ctx.identity.clone(), source.mailmap()?, progress)?;
-    let head = format::head_of(&index, ctx.fingerprint, ctx.mailmap_fingerprint, None);
+    let (index, classify) = build(source, ctx.identity.clone(), source.mailmap()?, progress)?;
+    let head = format::head_of(&index, ctx.fingerprint, ctx.mailmap_fingerprint, classify);
     // A cache that cannot be written is a slower next run, not an error.
     let _ = format::write(format::Writing {
         head,
@@ -293,6 +306,7 @@ fn index_from(
         paths: head.paths,
         authors: head.authors,
         head: head.head,
+        head_commit: head.head_commit,
         history_truncated: head.history_truncated,
         span: head.span,
         loaded_from,
@@ -322,7 +336,7 @@ fn warm(
         id_runs: head.id_runs.clone(),
         ids: format::read_ids(ctx.dir, &head),
     });
-    let head_commit = head.head_commit;
+    let classify = head.classify.clone();
 
     let mut index = index_from(head, decoded.commits, decoded.changes, loaded_from);
     if let (Some(mailmap), Some(previous)) = (changed_mailmap, previous) {
@@ -336,7 +350,7 @@ fn warm(
                     &index,
                     ctx.fingerprint,
                     ctx.mailmap_fingerprint,
-                    head_commit,
+                    classify.clone(),
                 ),
                 previous: Some(format::Previous {
                     data_file: previous.data_file,
@@ -374,6 +388,7 @@ fn resume<S: RepoSource>(
     ctx: Context<'_>,
     head: Head,
     since: Since,
+    reclassify: bool,
     progress: &mut dyn FnMut(Progress),
 ) -> Result<Loaded, S::Error> {
     let tips = source.tips()?;
@@ -386,6 +401,7 @@ fn resume<S: RepoSource>(
     let data_file = head.data_file.clone();
     let old_blocks = head.blocks.clone();
     let id_runs = head.id_runs.clone();
+    let mut classify = head.classify.clone();
     let indexed = match format::read_ids(ctx.dir, &head) {
         Ok(ids) => ids,
         Err(_) => return rebuild(source, ctx, RebuildReason::Unreadable, progress),
@@ -428,7 +444,26 @@ fn resume<S: RepoSource>(
     }
 
     let new_ids = SortedIds::run_of(builder.added_ids().into_iter());
-    let index = builder.finish(ctx.identity.clone(), tips, stats.history_truncated);
+    let mut index = builder.finish(ctx.identity.clone(), tips, stats.history_truncated);
+
+    // HEAD usually moved with the refs. Files whose path and blob are
+    // unchanged are carried over; only the rest are read.
+    let head_commit = source.head_commit()?;
+    if head_commit != index.head_commit || reclassify {
+        progress(Progress::HeadFiles);
+        let table = head_pass(
+            source,
+            &index.paths,
+            Some(PreviousHead {
+                files: &index.head,
+                context: &classify,
+                commit: index.head_commit,
+            }),
+        )?;
+        index.head = table.files;
+        index.head_commit = head_commit;
+        classify = table.context;
+    }
 
     // Only the months the new commits landed in are re-encoded and
     // appended; every other month stays where it is in the data file.
@@ -447,7 +482,7 @@ fn resume<S: RepoSource>(
         None => (Vec::new(), old_blocks.clone()),
     };
     let written = format::write(format::Writing {
-        head: format::head_of(&index, ctx.fingerprint, ctx.mailmap_fingerprint, None),
+        head: format::head_of(&index, ctx.fingerprint, ctx.mailmap_fingerprint, classify),
         previous: Some(Previous {
             data_file: data_file.clone(),
             blocks: unchanged,
@@ -492,5 +527,73 @@ impl CommitSink for Reporting<'_> {
 
     fn on_progress(&mut self, done: u64, total: u64) {
         (self.progress)(Progress::History { done, total });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::expect_used, clippy::panic)]
+
+    use super::*;
+    use crate::source::RawChangeKind::Added;
+    use crate::ScriptedRepo;
+    use commitscape_core::Oid;
+
+    fn load_in(repo: &ScriptedRepo, root: &Path) -> Loaded {
+        let options = CacheOptions {
+            root: Some(root.to_path_buf()),
+        };
+        match load(repo, &options, Since::All, &mut |_| {}) {
+            Ok(l) => l,
+            Err(never) => match never {},
+        }
+    }
+
+    #[test]
+    fn a_cache_classified_by_older_rules_is_classified_again_without_rewalking() {
+        let repo = ScriptedRepo::new()
+            .commit(
+                1_704_067_200,
+                ("Alice", "alice@example.com"),
+                &[
+                    (b"src/lib.rs", Added, Oid([1; 20])),
+                    (b"Cargo.lock", Added, Oid([2; 20])),
+                ],
+            )
+            .head_file(b"src/lib.rs", "fn a() {}\n")
+            .head_file(b"Cargo.lock", "version = 3\n");
+        let dir = tempfile::tempdir().expect("temp dir");
+        load_in(&repo, dir.path());
+        let read = repo.blobs_read();
+
+        // Stamp the cache as classified by an earlier version of the rules.
+        let cache = dir.path().join(
+            RepoIdentity {
+                git_dir: "/scripted/.git".into(),
+            }
+            .cache_key(),
+        );
+        let mut head = format::read_head(&cache).expect("a cache");
+        head.classify.version = 0;
+        let previous = Previous {
+            data_file: head.data_file.clone(),
+            blocks: head.blocks.clone(),
+            id_runs: head.id_runs.clone(),
+            ids: format::read_ids(&cache, &head).expect("ids"),
+        };
+        format::write(format::Writing {
+            head,
+            previous: Some(previous),
+            fresh: Vec::new(),
+            new_ids: Vec::new(),
+            dir: &cache,
+        })
+        .expect("rewriting the head");
+
+        let again = load_in(&repo, dir.path());
+        assert_eq!(again.freshness, Freshness::Updated { added: 0 });
+        assert_eq!(repo.blobs_read() - read, 2, "both files read again");
+        let warm = load_in(&repo, dir.path());
+        assert_eq!(warm.freshness, Freshness::Warm, "and saved");
     }
 }

@@ -229,6 +229,7 @@ dependencies = [
 name = "commitscape-core"
 version = "0.1.0"
 dependencies = [
+ "bincode",
  "serde",
  "serde_bytes",
 ]
@@ -240,7 +241,7 @@ dependencies = [
  "bincode",
  "commitscape-core",
  "gix",
- "ignore",
+ "globset",
  "rayon",
  "serde",
  "tempfile",
@@ -1262,22 +1263,6 @@ name = "heck"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
-
-[[package]]
-name = "ignore"
-version = "0.4.33"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "00b69833ed729dc5aa7d19541d96d6cf8e9137194207a04916d658e43168402f"
-dependencies = [
- "crossbeam-deque",
- "globset",
- "log",
- "memchr",
- "regex-automata",
- "same-file",
- "walkdir",
- "winapi-util",
-]
 
 [[package]]
 name = "is_terminal_polyfill"

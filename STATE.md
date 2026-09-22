@@ -3,10 +3,10 @@
 Running log for Build Run 1 (Phases 0 to 7). Written so a fresh session with
 no context can read this plus `docs/adr/` and continue without asking anything.
 
-**Current position:** Phase 2 complete. Warm start is 23ms on both
-`rust-lang/rust` and Linux against the 100ms budget; a warm start that absorbs
-625 new commits is 165 to 257ms against 300ms. Phase 3 (the HEAD pass and
-Generated File classification) is next.
+**Current position:** Phase 3 complete. The HEAD pass measures and classifies
+every file at HEAD; the largest-files and hotspot rankings on `pixelactstudio`
+contain no lockfile, Drizzle snapshot or `routeTree.gen.ts`. Phase 4 (the rest
+of the metrics, checked against the fixture literals) is next.
 
 ---
 
@@ -17,7 +17,7 @@ Generated File classification) is next.
 | 0 | Benchmark harness runs and records a number | **PASS — `startup` median 0.95ms** (min 0.56, max 1.05, n=20) |
 | 1 | Cold walk time on `rust-lang/rust` recorded | **PASS: 23.1 to 26.9s** (budget 60s). First run was 114s; see ADR-0007 |
 | 2 | Warm start measured, in ms | **PASS: 23.1ms rust-lang/rust, 23.5ms Linux** (medians, n=20; budget 100ms) |
-| 3 | Top-10 largest and top-10 hotspots contain no lockfiles / drizzle snapshots / `routeTree.gen.ts` | NOT YET RUN |
+| 3 | Top-10 largest and top-10 hotspots contain no lockfiles / drizzle snapshots / `routeTree.gen.ts` | **PASS on `pixelactstudio`**, which has all three; unfiltered, `pnpm-lock.yaml` ranks third by size and the snapshots eleventh to thirteenth |
 | 4 | Metric values match hand-worked fixture literals | NOT YET RUN |
 | — | Throwaway ratatui spike, captured then deleted | NOT YET RUN |
 | 5 | Pair-map size + changeset histogram reported; `--max-changeset-size` chosen from data | NOT YET RUN |
@@ -97,6 +97,36 @@ What the warm path costs, measured on rust-lang/rust with a warm page cache:
 repository open 0.4ms, refs fingerprint 0.2ms (1.2ms for Linux's 950 refs),
 head file read 6ms, checksum 1.2ms, decode 7 to 8ms on three threads, window
 blocks 2 to 3ms.
+
+### Phase 3 measured numbers
+
+```
+cold-index-rust    22.8s to 30.4s (history walk and HEAD pass; budget 60s)
+                   62,799 files at HEAD, read and measured once
+warm-start-rust    median 27.7ms   (n=20; now includes the Analysis and rankings)
+warm-start-linux   median 31.7ms   (n=20)
+warm-update-rust   median 265.0ms, max 278.4ms, 625 new commits (budget 300ms)
+```
+
+The gate run, `commitscape ~/code/pixelactstudio --window all`:
+
+```
+Largest files (lines, generated files excluded)
+   1      1,200  apps/api/src/modules/admin/v1/__tests__/users.integration.test.ts
+   2        863  packages/auth/src/__tests__/security-hardening.integration.test.ts
+   3        838  apps/dashboard/src/features/audit-log/components/admin-audit-log.tsx
+   ...
+Hotspots (churn in the window, and indentation complexity, both ranked)
+   1  churn    40  complexity     1,582  packages/auth/src/index.ts
+   2  churn    13  complexity     2,222  apps/api/src/modules/admin/v1/__tests__/users.integration.test.ts
+   3  churn    26  complexity       963  apps/api/src/modules/admin/v1/users.handlers.ts
+   ...
+```
+
+Without classification the same repository's ten largest files are nine JPEGs
+and MP4s and `pnpm-lock.yaml`; its Drizzle snapshots come eleventh to
+thirteenth. `vidcastx` passes the same check. rust-lang/rust and Linux were
+used to find the failure modes listed under Phase 3 findings.
 
 ---
 
@@ -181,6 +211,45 @@ blocks 2 to 3ms.
    (ADR-0008): an update appends the months it re-encoded and a run of new
    commit ids.
 
+## Phase 3 findings
+
+1. **Dividing by the maximum does not survive real repositories.**
+   rust-lang/rust has a parser stress test whose Complexity Proxy is
+   4,024,433, over a hundred times any real source file. Normalising by the
+   maximum made every other hotspot score round to zero and ranked that test,
+   changed once in a year, first. Hotspots now multiply percentile ranks, and
+   `CONTEXT.md` says so. A test reproduces the case.
+2. **`linguist-generated=false` does not mean a person wrote a file.**
+   rust-lang/rust sets it on `Cargo.lock` so GitHub shows the lockfile's diffs.
+   Lockfiles are therefore Generated whatever `.gitattributes` says; the
+   attribute still overrides every other rule.
+3. **Linux's largest files were AMD register maps**, 60,000 to 220,000 lines
+   of `#define` with a comment naming each register and no generator marker. A
+   C or C++ header whose code lines are at least 90% `#define` is now a
+   generated table, and any text file over 100,000 lines is machine-produced
+   (this also catches a 313,000-line HTML example in rust-lang/rust).
+4. **Changelogs and release notes topped the largest files**, and a kernel
+   documentation file was a hotspot. Indentation and size measure code, so
+   there is now a Prose class (Markdown, reStructuredText, AsciiDoc, plain
+   text, and extensionless files such as `MAINTAINERS`): counted for Churn,
+   Ownership and Change Coupling, never a Hotspot or among the largest.
+5. **Another project's checkout is vendored.** `t3code` commits whole
+   repositories under `.repos/`, which dominated its largest files. A
+   directory below the root with both its own lockfile and its own license
+   file is now vendored; in rust-lang/rust this also covers subtree-synced
+   projects such as `src/tools/rust-analyzer`, whose churn comes from
+   upstream.
+6. **Sorting 95,000 files to show ten cost 23ms of a warm start**, first
+   because `Ordering::then` evaluated the path tie-break eagerly and then from
+   sorting at all. Rankings return at most 1,000 rows, chosen by a linear
+   selection.
+7. **An update listed all 62,799 files at HEAD to find the 1,700 that
+   changed.** HEAD is now updated by diffing the old HEAD tree against the new
+   one; a changed `.gitattributes`, or a lockfile or license file appearing or
+   disappearing, falls back to a full listing, since those can reclassify
+   files that did not change. The first version fell back on every edit to
+   `Cargo.lock`, which is most of rust-lang/rust's history.
+
 ## Decisions made during implementation, not in any ADR
 
 1. **`bincode` pinned to `=2.0.1`.** `cargo add` resolves to 3.0.0, which is a
@@ -229,7 +298,16 @@ blocks 2 to 3ms.
     unpeeled, plus HEAD) decides warm versus update. A mailmap fingerprint
     decides re-resolution.
 12. **The binary loads a 90-day window by default** and prints a summary of
-    the index. That stands in for the TUI (Phase 7) and `--json` (Phase 6).
+    the index and the rankings. That stands in for the TUI (Phase 7) and
+    `--json` (Phase 6). `--window` takes 30d, 90d, 1y or all.
+13. **The Complexity Proxy detects each file's indentation unit**: a tab, or
+    the most common step between consecutive space-indented lines. Levels,
+    not characters, so indentation style does not rank files.
+14. **Classification rules carry a version** (`CLASSIFIER_VERSION`). A cache
+    classified by older rules has its HEAD table read again on the next load;
+    its history is kept.
+15. **Commit and blob ids serialize as byte strings**, one copy each rather
+    than twenty separate bytes.
 
 ---
 
@@ -251,14 +329,16 @@ blocks 2 to 3ms.
 
 ## Where to pick up
 
-Phase 3: the HEAD pass. Read every blob at HEAD once (ADR-0004), measure the
-Complexity Proxy (indentation levels) and lines, and classify Generated Files
-(lockfiles, ORM snapshots, `*.gen.ts`, minified output, vendored trees,
-`.gitattributes` `linguist-generated`). Store it in the HEAD table, update it
-incrementally when HEAD moves, and rank the largest files and the hotspots.
-Gate: the top 10 largest and top 10 hotspots contain no lockfiles, drizzle
-snapshots or `routeTree.gen.ts` on a repository that has them
-(`~/code/pixelactstudio` has all three).
+Phase 4: the rest of the metrics over an `Analysis`: Staleness in buckets,
+Ownership and Bus Factor by directory, Code Age by file-creation quarter, and
+the suspected-duplicates hint from the author table. Staleness and Code Age
+need per-file facts over all of history (last touch, first appearance) kept in
+the cache, since a warm start loads only the Window. Gate: every value in
+`docs/fixtures.md` asserted from the real pipeline.
+
+Known limits to carry forward: the head file is rewritten on every update
+(about 15 MB for rust-lang/rust), and a vendored tree without its own lockfile
+and license needs `linguist-vendored` in `.gitattributes`.
 
 Seams signed off by the user and not open for revision:
 `RepoSource` (fake + real), `Index`, the `Analysis` methods, `--json` golden

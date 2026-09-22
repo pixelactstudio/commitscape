@@ -15,13 +15,13 @@
 
 use std::collections::HashSet;
 use std::convert::Infallible;
-use std::ops::ControlFlow;
 
 use commitscape_core::{Oid, RepoIdentity};
 
 use crate::mailmap::Mailmap;
 use crate::source::{
-    CommitSink, Indexed, RawChange, RawChangeKind, RawCommit, RepoSource, TreeSink, WalkStats,
+    BlobSink, CommitSink, HeadChange, HeadEntry, Indexed, RawChange, RawChangeKind, RawCommit,
+    RepoSource, WalkStats,
 };
 
 #[derive(Debug, Clone)]
@@ -56,6 +56,7 @@ pub struct ScriptedRepo {
     head_blobs: Vec<(Vec<u8>, Vec<u8>)>,
     mailmap: Mailmap,
     truncated: bool,
+    reads: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
 /// `(path, kind, blob)`: one change in a scripted commit.
@@ -148,11 +149,25 @@ impl ScriptedRepo {
         self
     }
 
-    /// Sets the contents of a file at HEAD, for the tree pass.
+    /// Sets the contents of a file at HEAD, for the tree pass. Setting a path
+    /// again replaces its contents, as a commit would.
     pub fn head_file(mut self, path: &[u8], contents: &str) -> Self {
+        self.head_blobs.retain(|(p, _)| p.as_slice() != path);
         self.head_blobs
             .push((path.to_vec(), contents.as_bytes().to_vec()));
         self
+    }
+
+    /// Removes a file from HEAD.
+    pub fn without_head_file(mut self, path: &[u8]) -> Self {
+        self.head_blobs.retain(|(p, _)| p.as_slice() != path);
+        self
+    }
+
+    /// How many blobs [`read_blobs`](RepoSource::read_blobs) has read, so a
+    /// test can check that an unchanged file is not read twice.
+    pub fn blobs_read(&self) -> usize {
+        self.reads.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// The id assigned to the nth commit added, counting from 1.
@@ -178,6 +193,15 @@ impl ScriptedRepo {
         }
         seen
     }
+}
+
+/// A blob id for contents: the same contents always get the same id, as in
+/// git.
+fn blob_of(contents: &[u8]) -> Oid {
+    let mut b = [0u8; 20];
+    b[..8].copy_from_slice(&xxhash_rust::xxh3::xxh3_64(contents).to_le_bytes());
+    b[8..16].copy_from_slice(&xxhash_rust::xxh3::xxh3_64_with_seed(contents, 1).to_le_bytes());
+    Oid(b)
 }
 
 /// Deterministic, human-readable object ids so a failing test prints something
@@ -222,6 +246,9 @@ impl RepoSource for ScriptedRepo {
         let mut h = xxhash_rust::xxh3::Xxh3::new();
         for tip in self.tips()? {
             h.update(&tip.0);
+        }
+        if let Some(head) = self.cursor {
+            h.update(&head.0);
         }
         Ok(h.digest())
     }
@@ -288,10 +315,34 @@ impl RepoSource for ScriptedRepo {
         Ok(stats)
     }
 
-    fn walk_head_tree(&self, sink: &mut dyn TreeSink) -> Result<(), Self::Error> {
-        for (path, contents) in &self.head_blobs {
-            if let ControlFlow::Break(()) = sink.on_blob(path, contents) {
-                break;
+    fn head_commit(&self) -> Result<Option<Oid>, Self::Error> {
+        Ok(self.cursor)
+    }
+
+    fn head_files(&self) -> Result<Vec<HeadEntry>, Self::Error> {
+        Ok(self
+            .head_blobs
+            .iter()
+            .map(|(path, contents)| HeadEntry {
+                path: path.clone(),
+                blob: blob_of(contents),
+                symlink: false,
+            })
+            .collect())
+    }
+
+    /// The scripted repository keeps one set of files at HEAD, not one per
+    /// commit, so it cannot diff two of them: the caller lists HEAD instead.
+    fn head_changes(&self, _since: Oid) -> Result<Option<Vec<HeadChange>>, Self::Error> {
+        Ok(None)
+    }
+
+    fn read_blobs(&self, blobs: &[Oid], sink: BlobSink<'_>) -> Result<(), Self::Error> {
+        for (i, id) in blobs.iter().enumerate() {
+            if let Some((_, contents)) = self.head_blobs.iter().find(|(_, c)| blob_of(c) == *id) {
+                self.reads
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                sink(i, contents);
             }
         }
         Ok(())

@@ -15,7 +15,7 @@ A language-agnostic stand-in for structural complexity, derived from the indenta
 _Avoid_: complexity, cyclomatic complexity, difficulty.
 
 **Hotspot**:
-A file that is both heavily changed and structurally complex, scored as the product of its normalized Churn and normalized Complexity Proxy. The central finding of the tool.
+A file that is both heavily changed and structurally complex, scored as the product of its Churn percentile and its Complexity Proxy percentile: where it ranks among the files that changed in the Window, times where it ranks among all the files people wrote. The central finding of the tool.
 _Avoid_: problem file, risk file, tech debt.
 
 **Change Coupling**:
@@ -71,6 +71,10 @@ _Avoid_: author, committer, contributor, user.
 **Signature**:
 One name-and-email pair exactly as it appears on commits. The Index records Signatures; which Author Identity each belongs to is resolved on top, so editing a mailmap never requires re-reading history.
 _Avoid_: alias, raw identity, email.
+
+**Prose File**:
+A file a person wrote to be read rather than run: Markdown, reStructuredText, AsciiDoc, plain text. Counted in Churn, Ownership and Change Coupling, but never a Hotspot or among the largest files, since the Complexity Proxy and size measure code.
+_Avoid_: docs, documentation file, text file.
 
 **Generated File**:
 A tracked file that no person wrote and nobody should be asked to look at — lockfiles, minified output, ORM snapshots, vendored trees. Excluded from every ranking.

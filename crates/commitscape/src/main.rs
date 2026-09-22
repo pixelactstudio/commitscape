@@ -9,10 +9,10 @@ use commitscape_core::{civil_from_unix, Index};
 use commitscape_index::{
     default_cache_root, load, CacheOptions, Freshness, GixRepo, Progress, RebuildReason, Since,
 };
+use commitscape_metrics::{Analysis, Options, Span};
 
-/// The window the summary is loaded for until windows are selectable.
-const DEFAULT_WINDOW_DAYS: i64 = 90;
-const DAY: i64 = 86_400;
+/// How many rows each ranking shows.
+const TOP: usize = 10;
 
 #[derive(Parser)]
 #[command(
@@ -25,6 +25,15 @@ struct Cli {
     #[arg(default_value = ".")]
     repo: PathBuf,
 
+    /// The Window every number is computed over: 30d, 90d, 1y or all.
+    #[arg(long, default_value = "90d", value_parser = parse_span)]
+    window: Span,
+
+    /// A commit touching more files than this is a Bulk Commit, left out of
+    /// Churn and Change Coupling.
+    #[arg(long, value_name = "FILES")]
+    max_changeset_size: Option<u32>,
+
     /// Where to keep the index cache. Defaults to COMMITSCAPE_CACHE_DIR, then
     /// the platform's cache directory.
     #[arg(long, value_name = "DIR")]
@@ -33,6 +42,10 @@ struct Cli {
     /// Index from scratch and neither read nor write a cache.
     #[arg(long)]
     no_cache: bool,
+}
+
+fn parse_span(s: &str) -> Result<Span, String> {
+    Span::from_label(s).ok_or_else(|| format!("expected 30d, 90d, 1y or all, got {s:?}"))
 }
 
 fn main() -> ExitCode {
@@ -52,28 +65,37 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         root: if cli.no_cache {
             None
         } else {
-            cli.cache_dir.or_else(default_cache_root)
+            cli.cache_dir.clone().or_else(default_cache_root)
         },
     };
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
+    let window = cli.window.window(now);
 
     let mut meter = ProgressLine::new();
     let loaded = load(
         &repo,
         &options,
-        Since::Time(now - DEFAULT_WINDOW_DAYS * DAY),
+        window.from.map_or(Since::All, Since::Time),
         &mut |p| meter.show(p),
     )?;
     meter.clear();
 
-    print!("{}", summary(&cli.repo, &loaded.index, loaded.freshness));
+    let metrics = Options {
+        max_changeset_size: cli
+            .max_changeset_size
+            .unwrap_or(Options::default().max_changeset_size),
+        ..Options::default()
+    };
+    let analysis = Analysis::new(&loaded.index, window, metrics)?;
+    print!("{}", summary(&cli, &loaded.index, loaded.freshness));
+    print!("{}", rankings(&analysis, cli.window));
     Ok(())
 }
 
-fn summary(path: &std::path::Path, index: &Index, freshness: Freshness) -> String {
+fn summary(cli: &Cli, index: &Index, freshness: Freshness) -> String {
     let span = index.span;
     let dates = match (span.oldest, span.newest) {
         (Some(a), Some(b)) => format!(", from {} to {}", date(a), date(b)),
@@ -99,13 +121,55 @@ fn summary(path: &std::path::Path, index: &Index, freshness: Freshness) -> Strin
         ),
     };
     format!(
-        "{}\n  {}, {} of them merges{dates}{floor}\n  {} tracked over time, {}\n  {how}\n",
-        path.display(),
+        "{}\n  {}, {} of them merges{dates}{floor}\n  {} at HEAD, {} tracked over time, {}\n  {how}\n",
+        cli.repo.display(),
         counted(span.commits, "commit", "commits"),
         grouped(span.merges),
-        counted(index.paths.len() as u64, "file", "files"),
+        counted(index.head.len() as u64, "file", "files"),
+        grouped(index.paths.len() as u64),
         counted(index.authors.len() as u64, "person", "people"),
     )
+}
+
+fn rankings(analysis: &Analysis<'_>, span: Span) -> String {
+    let index = analysis.index();
+    let path = |f| index.paths.path_lossy(f);
+    let counts = analysis.commits();
+    let mut out = String::new();
+    out.push_str(&format!(
+        "\nWindow {}: {} in the window; {} merges and {} bulk commits (over {} files) not counted\n",
+        span.label(),
+        counted(counts.in_window, "commit", "commits"),
+        grouped(counts.merges),
+        grouped(counts.bulk),
+        analysis.options().max_changeset_size,
+    ));
+
+    out.push_str("\nLargest files (lines, generated files excluded)\n");
+    for (i, f) in analysis.largest().iter().take(TOP).enumerate() {
+        out.push_str(&format!(
+            "  {:>2}  {:>9}  {}\n",
+            i + 1,
+            grouped(f.loc as u64),
+            path(f.file)
+        ));
+    }
+
+    out.push_str("\nHotspots (churn in the window, and indentation complexity, both ranked)\n");
+    let hotspots = analysis.hotspots();
+    if hotspots.is_empty() {
+        out.push_str("  none: nothing a person wrote changed in this window\n");
+    }
+    for (i, h) in hotspots.iter().take(TOP).enumerate() {
+        out.push_str(&format!(
+            "  {:>2}  churn {:>5}  complexity {:>9}  {}\n",
+            i + 1,
+            grouped(h.churn as u64),
+            grouped(h.complexity as u64),
+            path(h.file)
+        ));
+    }
+    out
 }
 
 fn counted(n: u64, one: &str, many: &str) -> String {
@@ -149,14 +213,16 @@ impl ProgressLine {
         if !self.live {
             return;
         }
-        let Progress::History { done, total } = p;
+        let line = match p {
+            Progress::History { done, total } => format!(
+                "indexing history: {} / {} commits",
+                grouped(done),
+                grouped(total)
+            ),
+            Progress::HeadFiles => "reading the files at HEAD".to_string(),
+        };
         let mut err = std::io::stderr().lock();
-        let _ = write!(
-            err,
-            "\r\x1b[2Kindexing history: {} / {} commits",
-            grouped(done),
-            grouped(total)
-        );
+        let _ = write!(err, "\r\x1b[2K{line}");
         let _ = err.flush();
         self.drawn = true;
     }
