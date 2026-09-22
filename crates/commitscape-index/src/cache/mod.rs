@@ -306,6 +306,7 @@ fn index_from(
         paths: head.paths,
         authors: head.authors,
         head: head.head,
+        file_history: head.file_history,
         head_commit: head.head_commit,
         history_truncated: head.history_truncated,
         span: head.span,

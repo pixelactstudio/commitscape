@@ -9,7 +9,7 @@ use commitscape_core::{civil_from_unix, Index};
 use commitscape_index::{
     default_cache_root, load, CacheOptions, Freshness, GixRepo, Progress, RebuildReason, Since,
 };
-use commitscape_metrics::{Analysis, Options, Span};
+use commitscape_metrics::{Age, Analysis, Options, Span};
 
 /// How many rows each ranking shows.
 const TOP: usize = 10;
@@ -168,6 +168,57 @@ fn rankings(analysis: &Analysis<'_>, span: Span) -> String {
             grouped(h.complexity as u64),
             path(h.file)
         ));
+    }
+
+    let held: Vec<_> = analysis
+        .ownership()
+        .into_iter()
+        .filter(|d| d.bus_factor == 1 && !d.dir.is_empty())
+        .collect();
+    out.push_str(&format!(
+        "\nDirectories one person holds (bus factor 1, over {} commits in the window): {}\n",
+        analysis.options().ownership_min_commits,
+        grouped(held.len() as u64)
+    ));
+    for (i, d) in held.iter().take(TOP).enumerate() {
+        let owner = d.owners.first();
+        let who = owner
+            .and_then(|o| index.authors.get(o.author))
+            .map(|a| a.name.to_string())
+            .unwrap_or_default();
+        let share = owner.map_or(0.0, |o| 100.0 * o.commits as f64 / d.commits.max(1) as f64);
+        out.push_str(&format!(
+            "  {:>2}  {:>3.0}% of {:>4} commits  {:<24}  {}\n",
+            i + 1,
+            share,
+            d.commits,
+            who,
+            String::from_utf8_lossy(&d.dir)
+        ));
+    }
+
+    let staleness = analysis.staleness();
+    out.push_str("\nStaleness of the files people wrote, by last touch\n");
+    for bucket in &staleness.buckets {
+        out.push_str(&format!(
+            "  {:<16} {:>7}\n",
+            bucket.age.label(),
+            grouped(bucket.files as u64)
+        ));
+    }
+    debug_assert_eq!(staleness.buckets.len(), Age::EVERY.len());
+
+    let duplicates = analysis.suspected_duplicates();
+    if !duplicates.is_empty() {
+        out.push_str(&format!(
+            "\n{} groups of people may be one person each. Nothing was merged; to join them, add lines like these to .mailmap:\n",
+            duplicates.len()
+        ));
+        if let Some(first) = duplicates.first() {
+            for line in analysis.mailmap_for(first).lines().take(3) {
+                out.push_str(&format!("  {line}\n"));
+            }
+        }
     }
     out
 }

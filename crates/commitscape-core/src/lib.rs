@@ -13,8 +13,8 @@ mod time;
 pub use ids::{AuthorId, CommitIx, DirId, FileId, PathId, SignatureId};
 pub use index::{
     Author, AuthorRef, AuthorTable, ChangeKind, CommitFlags, CommitMeta, FileChange, FileClass,
-    HeadFile, HistorySpan, Index, LineDelta, PathEvent, PathTable, RepoIdentity, Signature,
-    SignatureRef, SCHEMA_VERSION,
+    FileHistory, HeadFile, HistorySpan, Index, LineDelta, PathEvent, PathTable, RepoIdentity,
+    Signature, SignatureRef, SCHEMA_VERSION,
 };
 pub use oid::Oid;
 pub use time::{civil_from_unix, Month};

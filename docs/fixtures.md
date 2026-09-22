@@ -46,7 +46,8 @@ therefore tests the prune as well as the arithmetic.
 
 ## `ownership` — every identity form ADR-0006 must resolve
 
-16 commits (one adds `.mailmap`). `.mailmap` contains:
+21 commits: one adds `.mailmap`, ten touch `alpha/`, ten touch `beta/`.
+`.mailmap` contains:
 
 ```
 Alice Example <alice@example.com> <alice@work.example.org>
@@ -70,6 +71,11 @@ Expected after full resolution:
 With the mailmap ignored, `alpha/` becomes Alice 6/10 = 60%, which is under the
 line and yields bus factor 2. The mailmap is what moves the number, which is why
 ADR-0006 puts it first.
+
+Bus Factor is the fewest people who together hold more than 80%: 90% alone is
+1; 50 + 50, and 60 + 30 (+ 10), are 2. The root holds all 21 commits: Alice 10
+(counting the `.mailmap` commit), Bob 6, Carol 5. Alice and Bob together hold
+16/21 = 76%, under the line, so the root's bus factor is 3.
 
 ## `renames` — exact rename mid-history
 

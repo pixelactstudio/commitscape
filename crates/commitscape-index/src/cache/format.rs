@@ -33,8 +33,8 @@ use std::io::{Read, Seek, SeekFrom, Write as _};
 use std::path::{Path, PathBuf};
 
 use commitscape_core::{
-    AuthorTable, CommitMeta, FileChange, HeadFile, HistorySpan, Index, Month, Oid, PathTable,
-    RepoIdentity, SCHEMA_VERSION,
+    AuthorTable, CommitMeta, FileChange, FileHistory, HeadFile, HistorySpan, Index, Month, Oid,
+    PathTable, RepoIdentity, SCHEMA_VERSION,
 };
 use serde::{Deserialize, Serialize};
 use xxhash_rust::xxh3::xxh3_64;
@@ -96,6 +96,7 @@ pub(super) struct Head {
     pub paths: PathTable,
     pub authors: AuthorTable,
     pub head: Vec<HeadFile>,
+    pub file_history: Vec<FileHistory>,
     pub head_commit: Option<Oid>,
     /// What the HEAD table's classes were decided from.
     pub classify: ClassifyContext,
@@ -148,7 +149,7 @@ fn encode_head(head: &Head) -> std::io::Result<Vec<u8>> {
         encode(&meta)?,
         encode(&head.paths)?,
         encode(&head.authors)?,
-        encode(&head.head)?,
+        encode(&(&head.head, &head.file_history))?,
     ];
     let mut out = Vec::with_capacity(sections.iter().map(|s| s.len() + 8).sum());
     for section in &sections {
@@ -206,7 +207,7 @@ fn decode_head(payload: &[u8]) -> Result<Head, Unusable> {
     let (paths, authors, files) = std::thread::scope(|s| {
         let paths = s.spawn(|| decode::<PathTable>(paths));
         let authors = s.spawn(|| decode::<AuthorTable>(authors));
-        let files = decode::<Vec<HeadFile>>(files);
+        let files = decode::<(Vec<HeadFile>, Vec<FileHistory>)>(files);
         (joined(paths.join()), joined(authors.join()), files)
     });
     Ok(Head {
@@ -220,7 +221,8 @@ fn decode_head(payload: &[u8]) -> Result<Head, Unusable> {
         span: meta.span,
         paths: paths?,
         authors: authors?,
-        head: files?,
+        head: files.as_ref().map(|f| f.0.clone()).map_err(|e| *e)?,
+        file_history: files.map(|f| f.1)?,
         head_commit: meta.head_commit,
         classify: meta.classify,
         data_file: meta.data_file,
@@ -662,6 +664,7 @@ pub(super) fn head_of(
         paths: index.paths.clone(),
         authors: index.authors.clone(),
         head: index.head.clone(),
+        file_history: index.file_history.clone(),
         head_commit: index.head_commit,
         classify,
         data_file: String::new(),

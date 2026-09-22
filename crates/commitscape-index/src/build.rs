@@ -14,8 +14,8 @@ use std::collections::HashMap;
 use std::ops::ControlFlow;
 
 use commitscape_core::{
-    ChangeKind, CommitFlags, CommitMeta, FileChange, HistorySpan, Index, Oid, PathEvent, PathId,
-    PathTable, RepoIdentity, Signature, SignatureId,
+    ChangeKind, CommitFlags, CommitMeta, FileChange, FileHistory, HistorySpan, Index, Oid,
+    PathEvent, PathId, PathTable, RepoIdentity, Signature, SignatureId,
 };
 
 use crate::hash_index::HashIndex;
@@ -204,6 +204,11 @@ impl IndexBuilder {
 
         let mut changes = Vec::with_capacity(self.pending.len());
         let mut commits = Vec::with_capacity(self.commits.len());
+        let mut history: Vec<FileHistory> = self
+            .base
+            .as_mut()
+            .map(|b| std::mem::take(&mut b.file_history))
+            .unwrap_or_default();
 
         for c in &self.commits {
             let start = changes.len() as u32;
@@ -218,8 +223,27 @@ impl IndexBuilder {
                         to: p.path,
                     },
                 };
+                let file = self.paths.record(event);
+                match history.get_mut(file.idx()) {
+                    Some(h) => *h = h.touched(c.time),
+                    None => {
+                        // Identities are dense and appear in order, so a new
+                        // one is always the next slot.
+                        history.resize(
+                            file.idx(),
+                            FileHistory {
+                                first_seen: c.time,
+                                last_touched: c.time,
+                            },
+                        );
+                        history.push(FileHistory {
+                            first_seen: c.time,
+                            last_touched: c.time,
+                        });
+                    }
+                }
                 changes.push(FileChange {
-                    file: self.paths.record(event),
+                    file,
                     kind: p.kind,
                     // Always None in v0.1: the walk never reads blob contents,
                     // and line counts require exactly that (ADR-0004).
@@ -256,6 +280,7 @@ impl IndexBuilder {
                 fresh
             }
         };
+        index.file_history = history;
         index.repo = repo;
         index.frontier = frontier;
         index.schema_version = commitscape_core::SCHEMA_VERSION;

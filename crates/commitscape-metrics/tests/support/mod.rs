@@ -8,16 +8,16 @@
 
 use commitscape_core::{
     Author, AuthorId, AuthorTable, ChangeKind, CommitFlags, CommitMeta, FileChange, FileClass,
-    FileId, HeadFile, HistorySpan, Index, Oid, PathEvent, PathTable, RepoIdentity, Signature,
-    SignatureId,
+    FileHistory, FileId, HeadFile, HistorySpan, Index, Oid, PathEvent, PathTable, RepoIdentity,
+    Signature, SignatureId,
 };
 
 /// 2024-01-01T00:00:00Z.
 pub const EPOCH: i64 = 1_704_067_200;
 pub const DAY: i64 = 86_400;
 
-/// One commit: its day, author email, whether it is a merge, and the paths it
-/// touched.
+/// One commit: its day, its author as an email or as `Name <email>`, whether
+/// it is a merge, and the paths it touched.
 pub struct C<'a> {
     pub day: i64,
     pub author: &'a str,
@@ -78,9 +78,26 @@ pub fn generated(path: &str, loc: u32, indent: u32) -> H<'_> {
     }
 }
 
+/// `Name <email>` split in two; a bare email is its own name.
+fn name_and_email(author: &str) -> (String, String) {
+    match author.split_once(" <") {
+        Some((name, email)) => (name.to_string(), email.trim_end_matches('>').to_string()),
+        None => (author.to_string(), author.to_string()),
+    }
+}
+
 /// Builds an index. Every author email is its own person; each path is added
 /// the first time a commit touches it and modified after that.
 pub fn index(commits: &[C<'_>], head: &[H<'_>]) -> Index {
+    index_with_suspects(commits, head, Vec::new())
+}
+
+/// Like [`index`], with groups of people flagged as suspected duplicates.
+pub fn index_with_suspects(
+    commits: &[C<'_>],
+    head: &[H<'_>],
+    suspected: Vec<Vec<AuthorId>>,
+) -> Index {
     let mut idx = Index::empty(RepoIdentity {
         git_dir: "/test/.git".into(),
     });
@@ -98,6 +115,7 @@ pub fn index(commits: &[C<'_>], head: &[H<'_>]) -> Index {
                 SignatureId(emails.len() as u32 - 1)
             }
         };
+        let time = EPOCH + commit.day * DAY;
         let start = idx.changes.len() as u32;
         for path in commit.touched {
             let (id, seen) = match path_ids.get(*path) {
@@ -113,8 +131,21 @@ pub fn index(commits: &[C<'_>], head: &[H<'_>]) -> Index {
             } else {
                 (PathEvent::Added(id), ChangeKind::Added)
             };
+            let file = paths.record(event);
+            if idx.file_history.len() <= file.idx() {
+                idx.file_history.resize(
+                    file.idx() + 1,
+                    FileHistory {
+                        first_seen: time,
+                        last_touched: time,
+                    },
+                );
+            }
+            if let Some(h) = idx.file_history.get_mut(file.idx()) {
+                *h = h.touched(time);
+            }
             idx.changes.push(FileChange {
-                file: paths.record(event),
+                file,
                 kind,
                 lines: None,
             });
@@ -123,7 +154,7 @@ pub fn index(commits: &[C<'_>], head: &[H<'_>]) -> Index {
         id[16..].copy_from_slice(&(n as u32 + 1).to_be_bytes());
         idx.commits.push(CommitMeta {
             id: Oid(id),
-            time: EPOCH + commit.day * DAY,
+            time,
             signature,
             flags: if commit.merge {
                 CommitFlags::EMPTY.with(CommitFlags::MERGE)
@@ -137,27 +168,31 @@ pub fn index(commits: &[C<'_>], head: &[H<'_>]) -> Index {
 
     let signatures: Vec<Signature> = emails
         .iter()
-        .map(|e| Signature {
-            name: e.clone(),
-            email: e.clone(),
+        .map(|e| {
+            let (name, email) = name_and_email(e);
+            Signature { name, email }
         })
         .collect();
-    let people: Vec<Author> = emails
+    let people: Vec<Author> = signatures
         .iter()
         .enumerate()
-        .map(|(i, e)| Author {
-            name: e.clone(),
-            email: e.clone(),
+        .map(|(i, s)| Author {
+            name: s.name.clone(),
+            email: s.email.clone(),
             signatures: vec![SignatureId(i as u32)],
         })
+        .collect();
+    let used: Vec<u32> = emails
+        .iter()
+        .map(|e| commits.iter().filter(|c| c.author == e).count() as u32)
         .collect();
     let n = signatures.len();
     idx.authors = AuthorTable::new(
         signatures,
-        vec![1; n],
+        used,
         (0..n).map(|i| AuthorId(i as u32)).collect(),
         people,
-        Vec::new(),
+        suspected,
     );
 
     for file in head {
@@ -168,6 +203,10 @@ pub fn index(commits: &[C<'_>], head: &[H<'_>]) -> Index {
         let id: FileId = paths
             .live_file(path)
             .unwrap_or_else(|| paths.record(PathEvent::Added(path)));
+        if idx.file_history.len() <= id.idx() {
+            idx.file_history
+                .resize(id.idx() + 1, FileHistory::default());
+        }
         idx.head.push(HeadFile {
             file: id,
             path,

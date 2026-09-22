@@ -8,10 +8,14 @@
 //! over the same Index, which is milliseconds; the Index itself never changes
 //! for a filter (ADR-0002).
 
+mod ages;
 mod analysis;
+mod people;
 mod window;
 
+pub use ages::{Age, AgeCount, QuarterAge, StaleFile, Staleness};
 pub use analysis::{
     Analysis, Churn, CommitCounts, Hotspot, LargeFile, NotLoaded, Options, RANKING_LIMIT,
 };
+pub use people::{DirectoryOwnership, Owner, SuspectedDuplicate};
 pub use window::{Span, Window};

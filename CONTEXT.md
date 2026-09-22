@@ -23,11 +23,11 @@ The tendency of two files to appear in the same commit. Reported symmetrically a
 _Avoid_: logical coupling, dependency, correlation, co-change.
 
 **Ownership**:
-The distribution of commit counts by Author across a directory within the Window. Commit-weighted, never line-weighted — a distinction the tool states rather than hides.
+The distribution of commit counts by Author across a directory within the Window, counting commits that touched a file people wrote under that directory. Merge Commits and Bulk Commits are excluded. Commit-weighted, never line-weighted — a distinction the tool states rather than hides.
 _Avoid_: authorship, contribution, blame.
 
 **Bus Factor**:
-The number of Authors holding the majority of a directory's Ownership. A directory where one Author holds more than 80% of commits has a Bus Factor of 1.
+The smallest number of Authors who together hold more than 80% of a directory's Ownership. A directory where one Author holds more than 80% of commits has a Bus Factor of 1; one split 60/30/10 has a Bus Factor of 2.
 _Avoid_: truck factor, key person risk.
 
 **Staleness**:
@@ -35,7 +35,7 @@ Time since the last commit touching a file, reported in buckets. Unlike Churn, i
 _Avoid_: age, freshness, last modified.
 
 **Code Age**:
-The distribution of surviving code by the quarter in which it was introduced. Distinct from Staleness, which is per-file and backward-looking from now.
+The distribution of surviving code by the quarter in which it was introduced. Until line-level history exists it is measured per file: each file's lines count toward the quarter the file first appeared. Distinct from Staleness, which is per-file and backward-looking from now.
 _Avoid_: code lifetime, survival.
 
 ### What we measure it over

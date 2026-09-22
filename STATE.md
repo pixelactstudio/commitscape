@@ -3,10 +3,9 @@
 Running log for Build Run 1 (Phases 0 to 7). Written so a fresh session with
 no context can read this plus `docs/adr/` and continue without asking anything.
 
-**Current position:** Phase 3 complete. The HEAD pass measures and classifies
-every file at HEAD; the largest-files and hotspot rankings on `pixelactstudio`
-contain no lockfile, Drizzle snapshot or `routeTree.gen.ts`. Phase 4 (the rest
-of the metrics, checked against the fixture literals) is next.
+**Current position:** Phase 4 complete. Every value in `docs/fixtures.md` is
+asserted end to end (`crates/commitscape/tests/fixture_metrics.rs`). Next is
+the throwaway ratatui spike, then Phase 5 (Change Coupling).
 
 ---
 
@@ -18,7 +17,7 @@ of the metrics, checked against the fixture literals) is next.
 | 1 | Cold walk time on `rust-lang/rust` recorded | **PASS: 23.1 to 26.9s** (budget 60s). First run was 114s; see ADR-0007 |
 | 2 | Warm start measured, in ms | **PASS: 23.1ms rust-lang/rust, 23.5ms Linux** (medians, n=20; budget 100ms) |
 | 3 | Top-10 largest and top-10 hotspots contain no lockfiles / drizzle snapshots / `routeTree.gen.ts` | **PASS on `pixelactstudio`**, which has all three; unfiltered, `pnpm-lock.yaml` ranks third by size and the snapshots eleventh to thirteenth |
-| 4 | Metric values match hand-worked fixture literals | NOT YET RUN |
+| 4 | Metric values match hand-worked fixture literals | **PASS**: 11 tests in `crates/commitscape/tests/fixture_metrics.rs` assert every documented value through the real pipeline |
 | — | Throwaway ratatui spike, captured then deleted | NOT YET RUN |
 | 5 | Pair-map size + changeset histogram reported; `--max-changeset-size` chosen from data | NOT YET RUN |
 | 6 | `--json` run against ≥3 structurally different repos | NOT YET RUN |
@@ -127,6 +126,17 @@ Without classification the same repository's ten largest files are nine JPEGs
 and MP4s and `pnpm-lock.yaml`; its Drizzle snapshots come eleventh to
 thirteenth. `vidcastx` passes the same check. rust-lang/rust and Linux were
 used to find the failure modes listed under Phase 3 findings.
+
+### Phase 4 measured numbers
+
+```
+warm-start-rust    median 35.6ms   (n=20; the summary now computes every metric)
+warm-start-linux   median 51.0ms   (n=20)
+```
+
+Per metric, warm, 90-day Window: rust-lang/rust ownership 7ms, staleness 1.7ms,
+code age 1.7ms; Linux ownership 15ms before the rewrite described in the
+findings, suspected duplicates 12ms before their `.mailmap` text was made lazy.
 
 ---
 
@@ -250,6 +260,30 @@ used to find the failure modes listed under Phase 3 findings.
    files that did not change. The first version fell back on every edit to
    `Cargo.lock`, which is most of rust-lang/rust's history.
 
+## Phase 4 findings
+
+1. **`CONTEXT.md` defined Bus Factor as "the Authors holding the majority",
+   but the fixture literals contradict a 50% reading** (60% gives bus factor
+   2). The only reading consistent with every literal is the fewest people who
+   together hold more than 80%. The glossary now says that.
+2. **`docs/fixtures.md` said the ownership fixture had 16 commits**; the
+   generator makes 21. Corrected, with the root directory's worked value
+   (bus factor 3) added.
+3. **Carol displayed as `90210+carol@...`**, her most-used signature. Rule 3
+   makes the plain address the canonical form, so the display now drops the
+   numeric prefix, matching what the fixture document calls canonical.
+4. **Staleness and Code Age look past the Window**, which a warm start does not
+   load. Each file's first and last touch over all of history is now kept per
+   file in the index and the cache head, updated by every resume.
+5. **Linux has 7,602 suspected-duplicate groups and rust-lang/rust 997.**
+   Formatting a `.mailmap` suggestion for each took 12ms, so suggestions are
+   made for one group at a time (`Analysis::mailmap_for`). The panel for this
+   hint will need paging.
+6. **Ownership hashed every ancestor directory of every change as a byte
+   string**: 15ms on Linux. Directories are now interned by parent and name,
+   each touched file's directories resolved once, and (directory, person)
+   pairs counted with one sort.
+
 ## Decisions made during implementation, not in any ADR
 
 1. **`bincode` pinned to `=2.0.1`.** `cargo add` resolves to 3.0.0, which is a
@@ -308,6 +342,15 @@ used to find the failure modes listed under Phase 3 findings.
     its history is kept.
 15. **Commit and blob ids serialize as byte strings**, one copy each rather
     than twenty separate bytes.
+16. **Ownership counts only commits that touched a file people wrote and that
+    exists at HEAD**, excluding merges and bulk commits. Knowing a deleted file
+    or a lockfile is not knowing a directory. Directories with fewer than 10
+    commits in the Window are not reported (`ownership_min_commits`).
+17. **Staleness buckets**: under a week, under 30 days, under 90 days, under a
+    year, a year or more, counted back from the Window's anchor.
+18. **Code Age is per file for now**: each code file's lines count toward the
+    quarter it first appeared. Line-level age needs blame, which ADR-0004
+    defers to `--deep`.
 
 ---
 
@@ -329,12 +372,11 @@ used to find the failure modes listed under Phase 3 findings.
 
 ## Where to pick up
 
-Phase 4: the rest of the metrics over an `Analysis`: Staleness in buckets,
-Ownership and Bus Factor by directory, Code Age by file-creation quarter, and
-the suspected-duplicates hint from the author table. Staleness and Code Age
-need per-file facts over all of history (last touch, first appearance) kept in
-the cache, since a warm start loads only the Window. Gate: every value in
-`docs/fixtures.md` asserted from the real pipeline.
+The throwaway ratatui spike: learn first-paint time, `TestBackend` and
+`insta` snapshotting with a real Analysis, record the findings here, and
+delete the code. Then Phase 5: Change Coupling (Jaccard and directional
+probabilities, support prune, cross-directory flag) and the changeset-size
+histogram used to choose `--max-changeset-size` from data.
 
 Known limits to carry forward: the head file is rewritten on every update
 (about 15 MB for rust-lang/rust), and a vendored tree without its own lockfile

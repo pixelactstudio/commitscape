@@ -1,0 +1,249 @@
+//! Staleness, Ownership, Bus Factor, Code Age and the suspected-duplicates
+//! hint, over hand-built indexes whose values are worked out in the comments.
+
+#![allow(clippy::expect_used)]
+
+mod support;
+
+use commitscape_core::AuthorId;
+use commitscape_metrics::{Age, Analysis, Options, Window};
+use support::{c, generated, h, index, index_with_suspects, merge, prose, DAY, EPOCH};
+
+fn options() -> Options {
+    Options {
+        max_changeset_size: 3,
+        ownership_min_commits: 1,
+        ..Options::default()
+    }
+}
+
+fn path(idx: &commitscape_core::Index, file: commitscape_core::FileId) -> String {
+    idx.paths.path_lossy(file)
+}
+
+#[test]
+fn staleness_puts_every_file_in_an_age_bucket() {
+    // Anchored at day 400. Last touched: week.rs day 399 (1 day ago),
+    // month.rs day 380 (20), quarter.rs day 320 (80), year.rs day 100 (300),
+    // older.rs day 0 (400).
+    let idx = index(
+        &[
+            c(0, "a@x.org", &["older.rs"]),
+            c(100, "a@x.org", &["year.rs"]),
+            c(320, "a@x.org", &["quarter.rs"]),
+            c(380, "a@x.org", &["month.rs"]),
+            c(399, "a@x.org", &["week.rs"]),
+        ],
+        &[
+            h("older.rs", 1, 0),
+            h("year.rs", 1, 0),
+            h("quarter.rs", 1, 0),
+            h("month.rs", 1, 0),
+            h("week.rs", 1, 0),
+        ],
+    );
+    let a = Analysis::new(&idx, Window::all(EPOCH + 400 * DAY), options()).expect("covered");
+    let staleness = a.staleness();
+    let counts: Vec<(Age, u32)> = staleness.buckets.iter().map(|b| (b.age, b.files)).collect();
+    assert_eq!(
+        counts,
+        vec![
+            (Age::Week, 1),
+            (Age::Month, 1),
+            (Age::Quarter, 1),
+            (Age::Year, 1),
+            (Age::Older, 1)
+        ]
+    );
+    let stalest: Vec<(String, i64)> = staleness
+        .files
+        .iter()
+        .map(|f| (path(&idx, f.file), f.days))
+        .collect();
+    assert_eq!(
+        stalest.first(),
+        Some(&("older.rs".to_string(), 400)),
+        "stalest first"
+    );
+}
+
+#[test]
+fn staleness_counts_bulk_commits_and_merge_resolutions() {
+    // Days 0 and 1 touch a.rs normally; day 5 is a bulk commit (four files at
+    // a threshold of three) and day 6 a merge resolving b.rs. A file that was
+    // touched was touched.
+    let idx = index(
+        &[
+            c(0, "a@x.org", &["a.rs", "b.rs"]),
+            c(1, "a@x.org", &["a.rs"]),
+            c(5, "a@x.org", &["a.rs", "x.rs", "y.rs", "z.rs"]),
+            merge(6, "a@x.org", &["b.rs"]),
+        ],
+        &[
+            h("a.rs", 1, 0),
+            h("b.rs", 1, 0),
+            h("x.rs", 1, 0),
+            h("y.rs", 1, 0),
+            h("z.rs", 1, 0),
+        ],
+    );
+    let a = Analysis::new(&idx, Window::all(EPOCH + 6 * DAY), options()).expect("covered");
+    let last = |p: &str| {
+        a.staleness()
+            .files
+            .iter()
+            .find(|f| path(&idx, f.file) == p)
+            .map(|f| f.last_touched)
+    };
+    assert_eq!(last("a.rs"), Some(EPOCH + 5 * DAY));
+    assert_eq!(last("b.rs"), Some(EPOCH + 6 * DAY));
+}
+
+/// alpha/: Alice 9 commits, Bob 1. beta/: Carol 5, Bob 5.
+/// gamma/: Dave 6, Erin 3, Frank 1.
+fn team() -> commitscape_core::Index {
+    let mut commits = Vec::new();
+    for day in 0..9 {
+        commits.push(c(day, "alice@x.org", &["alpha/f.rs"]));
+    }
+    commits.push(c(9, "bob@x.org", &["alpha/f.rs"]));
+    for day in 10..15 {
+        commits.push(c(day, "carol@x.org", &["beta/g.rs"]));
+    }
+    for day in 15..20 {
+        commits.push(c(day, "bob@x.org", &["beta/g.rs"]));
+    }
+    for day in 20..26 {
+        commits.push(c(day, "dave@x.org", &["gamma/h.rs"]));
+    }
+    for day in 26..29 {
+        commits.push(c(day, "erin@x.org", &["gamma/h.rs"]));
+    }
+    commits.push(c(29, "frank@x.org", &["gamma/h.rs"]));
+    // None of these may count: a merge, a bulk commit, and a commit that
+    // only touched a lockfile.
+    commits.push(merge(30, "bot@x.org", &["alpha/f.rs"]));
+    commits.push(c(
+        31,
+        "bot@x.org",
+        &["alpha/f.rs", "beta/g.rs", "gamma/h.rs", "alpha/z.rs"],
+    ));
+    commits.push(c(32, "bot@x.org", &["alpha/pnpm-lock.yaml"]));
+    index(
+        &commits,
+        &[
+            h("alpha/f.rs", 1, 0),
+            h("alpha/z.rs", 1, 0),
+            generated("alpha/pnpm-lock.yaml", 1, 0),
+            h("beta/g.rs", 1, 0),
+            h("gamma/h.rs", 1, 0),
+        ],
+    )
+}
+
+#[test]
+fn ownership_is_commit_weighted_per_directory_and_bus_factor_follows_the_80_percent_line() {
+    let idx = team();
+    let a = Analysis::new(&idx, Window::all(EPOCH + 40 * DAY), options()).expect("covered");
+    let ownership = a.ownership();
+    let dir = |d: &str| {
+        ownership
+            .iter()
+            .find(|o| o.dir == d.as_bytes())
+            .expect("the directory is reported")
+    };
+    let shares = |d: &str| -> Vec<(String, u32)> {
+        dir(d)
+            .owners
+            .iter()
+            .map(|o| {
+                let who = idx.authors.get(o.author).map(|p| p.email.to_string());
+                (who.unwrap_or_default(), o.commits)
+            })
+            .collect()
+    };
+
+    // alpha/: 9 of 10 is 90%, over the line on its own.
+    assert_eq!(
+        shares("alpha/"),
+        vec![("alice@x.org".into(), 9), ("bob@x.org".into(), 1)]
+    );
+    assert_eq!(dir("alpha/").commits, 10);
+    assert_eq!(dir("alpha/").bus_factor, 1);
+    // beta/: 50/50. Neither alone is over 80%; together they are.
+    assert_eq!(dir("beta/").bus_factor, 2);
+    // gamma/: 60/30/10. 60% alone is not over the line, 90% is.
+    assert_eq!(dir("gamma/").bus_factor, 2);
+    // The root holds all 30 counted commits: Alice 9, Bob 6, Dave 6, Carol 5,
+    // Erin 3, Frank 1. 9+6+6+5 = 26 is 86.7%, the first over 80%.
+    assert_eq!(dir("").commits, 30);
+    assert_eq!(dir("").bus_factor, 4);
+}
+
+#[test]
+fn directories_with_too_few_commits_are_not_reported() {
+    let idx = team();
+    let options = Options {
+        ownership_min_commits: 11,
+        ..options()
+    };
+    let a = Analysis::new(&idx, Window::all(EPOCH + 40 * DAY), options).expect("covered");
+    let dirs: Vec<Vec<u8>> = a.ownership().into_iter().map(|o| o.dir).collect();
+    assert_eq!(dirs, vec![b"".to_vec()], "only the root has more than ten");
+}
+
+#[test]
+fn code_age_counts_each_code_files_lines_in_the_quarter_it_appeared() {
+    // 2024-01-01 is day 0: q1.rs appears in 2024 Q1, q2.rs on day 100
+    // (2024-04-10, Q2), and q2b.rs on day 120 (2024-04-30, Q2). The README is
+    // prose, not code.
+    let idx = index(
+        &[
+            c(0, "a@x.org", &["q1.rs", "README.md"]),
+            c(100, "a@x.org", &["q2.rs"]),
+            c(120, "a@x.org", &["q2b.rs", "q1.rs"]),
+        ],
+        &[
+            h("q1.rs", 100, 0),
+            h("q2.rs", 30, 0),
+            h("q2b.rs", 20, 0),
+            prose("README.md", 500, 0),
+        ],
+    );
+    let a = Analysis::new(&idx, Window::all(EPOCH + 120 * DAY), options()).expect("covered");
+    let age: Vec<(i64, u32, u64, u32)> = a
+        .code_age()
+        .iter()
+        .map(|q| (q.year, q.quarter, q.lines, q.files))
+        .collect();
+    assert_eq!(age, vec![(2024, 1, 100, 1), (2024, 2, 50, 2)]);
+}
+
+#[test]
+fn suspected_duplicates_come_with_the_mailmap_lines_that_would_join_them() {
+    // Two signatures with the same name and different emails: surfaced, not
+    // merged. The suggestion keeps the one with more commits.
+    let idx = index_with_suspects(
+        &[
+            c(0, "Dana Dev <dana@home.example>", &["a.rs"]),
+            c(1, "Dana Dev <dana@work.example>", &["a.rs"]),
+            c(2, "Dana Dev <dana@work.example>", &["a.rs"]),
+        ],
+        &[h("a.rs", 1, 0)],
+        vec![vec![AuthorId(0), AuthorId(1)]],
+    );
+    let a = Analysis::new(&idx, Window::all(EPOCH + 2 * DAY), options()).expect("covered");
+    let hints = a.suspected_duplicates();
+    assert_eq!(hints.len(), 1);
+    let hint = hints.first().expect("one hint");
+    assert_eq!(
+        hint.people,
+        vec![AuthorId(1), AuthorId(0)],
+        "most commits first"
+    );
+    assert_eq!(hint.commits, vec![2, 1]);
+    assert_eq!(
+        a.mailmap_for(hint),
+        "Dana Dev <dana@work.example> <dana@home.example>\n"
+    );
+}

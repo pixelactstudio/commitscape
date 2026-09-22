@@ -16,6 +16,11 @@ pub const DEFAULT_MAX_CHANGESET_SIZE: u32 = 50;
 /// Change Coupling ignores files that changed in fewer commits than this.
 pub const DEFAULT_COUPLING_SUPPORT: u32 = 5;
 
+/// Directories with fewer commits than this in the Window are not reported
+/// for Ownership: one person making the only two commits in a directory is
+/// not a finding.
+pub const DEFAULT_OWNERSHIP_MIN_COMMITS: u32 = 10;
+
 /// The most rows a ranking returns. No Panel shows more, and ordering every
 /// one of a large repository's 90,000 files to show the first dozen measured
 /// 23ms of a warm start. A file past this is still reachable by asking about
@@ -31,6 +36,9 @@ pub struct Options {
     /// Files that changed in fewer commits than this within the Window are
     /// left out of Change Coupling.
     pub coupling_support: u32,
+    /// Directories with fewer commits than this within the Window are left
+    /// out of Ownership.
+    pub ownership_min_commits: u32,
 }
 
 impl Default for Options {
@@ -38,6 +46,7 @@ impl Default for Options {
         Options {
             max_changeset_size: DEFAULT_MAX_CHANGESET_SIZE,
             coupling_support: DEFAULT_COUPLING_SUPPORT,
+            ownership_min_commits: DEFAULT_OWNERSHIP_MIN_COMMITS,
         }
     }
 }
@@ -262,17 +271,17 @@ impl<'i> Analysis<'i> {
     }
 
     /// Files at HEAD a person wrote: the only ones any ranking shows.
-    fn ranked(&self) -> impl Iterator<Item = &'i HeadFile> {
+    pub(crate) fn ranked(&self) -> impl Iterator<Item = &'i HeadFile> {
         self.index.head.iter().filter(|h| h.class.is_rankable())
     }
 
     /// Code files at HEAD a person wrote: the ones size and the Complexity
     /// Proxy mean anything for.
-    fn code(&self) -> impl Iterator<Item = &'i HeadFile> {
+    pub(crate) fn code(&self) -> impl Iterator<Item = &'i HeadFile> {
         self.index.head.iter().filter(|h| h.class.is_code())
     }
 
-    fn by_path(&self, a: FileId, b: FileId) -> Ordering {
+    pub(crate) fn by_path(&self, a: FileId, b: FileId) -> Ordering {
         self.index.paths.path(a).cmp(&self.index.paths.path(b))
     }
 }
@@ -287,7 +296,7 @@ fn percentile(sorted: &[u32], value: u32) -> f64 {
 
 /// Keeps the first [`RANKING_LIMIT`] rows in `order`, sorted: a linear
 /// selection, then a sort of what is kept.
-fn top<T>(rows: &mut Vec<T>, mut order: impl FnMut(&T, &T) -> Ordering) {
+pub(crate) fn top<T>(rows: &mut Vec<T>, mut order: impl FnMut(&T, &T) -> Ordering) {
     if rows.len() > RANKING_LIMIT {
         rows.select_nth_unstable_by(RANKING_LIMIT, &mut order);
         rows.truncate(RANKING_LIMIT);
@@ -298,6 +307,12 @@ fn top<T>(rows: &mut Vec<T>, mut order: impl FnMut(&T, &T) -> Ordering) {
 enum Excluded {
     Merge,
     Bulk,
+}
+
+/// Whether a commit counts for Churn, Ownership and Change Coupling: not a
+/// Merge Commit and not a Bulk Commit.
+pub(crate) fn counts(commit: &CommitMeta, options: &Options) -> bool {
+    exclusion(commit, options).is_none()
 }
 
 /// Why a commit is left out of Churn, if it is.

@@ -11,7 +11,7 @@ use crate::{AuthorId, FileId, Oid, PathId, SignatureId};
 
 /// Bumped whenever the on-disk layout changes. A mismatch triggers a full
 /// reindex rather than an error.
-pub const SCHEMA_VERSION: u32 = 5;
+pub const SCHEMA_VERSION: u32 = 6;
 
 /// How a commit touched a file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -170,6 +170,29 @@ pub struct HeadFile {
     /// with complexity; it is surfaced in the drill-down.
     pub indent_stddev: f32,
     pub class: FileClass,
+}
+
+/// When a file was first and last touched, over all of history.
+///
+/// Kept per file because a warm start loads only the Window's commits, and
+/// Staleness and Code Age both look past it.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileHistory {
+    /// Committer time of the first commit that touched the file.
+    pub first_seen: i64,
+    /// Committer time of the last commit that touched it, of any kind: a
+    /// Bulk Commit or a merge's resolution touched it too.
+    pub last_touched: i64,
+}
+
+impl FileHistory {
+    /// Folds in one more commit that touched the file.
+    pub fn touched(self, time: i64) -> FileHistory {
+        FileHistory {
+            first_seen: self.first_seen.min(time),
+            last_touched: self.last_touched.max(time),
+        }
+    }
 }
 
 /// One name-and-email pair exactly as it appears in commits.
@@ -597,6 +620,9 @@ pub struct Index {
     pub head: Vec<HeadFile>,
     /// The commit the HEAD table describes.
     pub head_commit: Option<Oid>,
+    /// First and last touch of every file, by [`FileId`], over all of history
+    /// even when only part of it is loaded.
+    pub file_history: Vec<FileHistory>,
     /// True when the repository is shallow. The commit count is then a floor,
     /// not a total, and the interface must say so rather than presenting a
     /// truncated number as real.
@@ -659,6 +685,7 @@ impl Index {
             authors: AuthorTable::default(),
             head: Vec::new(),
             head_commit: None,
+            file_history: Vec::new(),
             history_truncated: false,
             span: HistorySpan::default(),
             loaded_from: None,
@@ -700,6 +727,11 @@ impl Index {
     /// The person who authored a commit, after identity resolution.
     pub fn author_of(&self, c: &CommitMeta) -> Option<AuthorId> {
         self.authors.person_of(c.signature)
+    }
+
+    /// When a file was first and last touched.
+    pub fn history_of(&self, file: FileId) -> Option<FileHistory> {
+        self.file_history.get(file.idx()).copied()
     }
 
     /// Asserts the ascending-time invariant. Cheap enough to run in tests and

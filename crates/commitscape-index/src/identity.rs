@@ -63,12 +63,15 @@ pub fn resolve_authors(
                     (count, std::cmp::Reverse(s.0))
                 })
                 .and_then(|s| signatures.get(s.idx()));
+            // Shown under the most-used signature's mailmap-resolved name,
+            // with GitHub's numeric noreply prefix dropped: rule 3 makes the
+            // plain address the canonical form of that account.
             let (name, email) = match display {
                 Some(sig) => {
                     let (n, e) = mailmap.resolve(sig.name.as_bytes(), sig.email.as_bytes());
                     (
                         String::from_utf8_lossy(n).into_owned(),
-                        String::from_utf8_lossy(e).into_owned(),
+                        String::from_utf8_lossy(&strip_github_numeric_prefix(e)).into_owned(),
                     )
                 }
                 None => (String::new(), String::new()),
