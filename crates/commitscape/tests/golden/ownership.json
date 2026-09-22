@@ -1,0 +1,248 @@
+{
+  "schema": 1,
+  "repository": {
+    "head": "c4a860b7273c0bc48dd1e4030e1cd1496d5d6f81",
+    "commits": 21,
+    "merges": 0,
+    "first_commit": "2024-01-01T00:00:00Z",
+    "last_commit": "2024-01-21T00:00:00Z",
+    "history_truncated": false,
+    "files_at_head": 3,
+    "people": 3
+  },
+  "window": {
+    "span": "all",
+    "from": null,
+    "to": "2024-01-21T00:00:00Z",
+    "anchor": "newest-commit",
+    "commits": 21,
+    "merges_excluded": 0,
+    "bulk_excluded": 0
+  },
+  "options": {
+    "max_changeset_size": 50,
+    "coupling_support": 5,
+    "ownership_min_commits": 10
+  },
+  "hotspots": [],
+  "largest": [
+    {
+      "path": ".mailmap",
+      "lines": 1,
+      "bytes": 59,
+      "complexity": 0
+    }
+  ],
+  "churn": [
+    {
+      "path": "alpha/f.txt",
+      "commits": 10
+    },
+    {
+      "path": "beta/g.txt",
+      "commits": 10
+    },
+    {
+      "path": ".mailmap",
+      "commits": 1
+    }
+  ],
+  "coupling": {
+    "support": 5,
+    "files": 2,
+    "pairs_seen": 0,
+    "pairs": []
+  },
+  "ownership": {
+    "directories": 3,
+    "bus_factor_one": 1,
+    "by_directory": [
+      {
+        "directory": "alpha/",
+        "commits": 10,
+        "bus_factor": 1,
+        "owners": [
+          {
+            "name": "Alice Example",
+            "email": "alice@example.com",
+            "commits": 9,
+            "share": 0.9
+          },
+          {
+            "name": "Bob Example",
+            "email": "bob@example.com",
+            "commits": 1,
+            "share": 0.1
+          }
+        ]
+      },
+      {
+        "directory": "beta/",
+        "commits": 10,
+        "bus_factor": 2,
+        "owners": [
+          {
+            "name": "Bob Example",
+            "email": "bob@example.com",
+            "commits": 5,
+            "share": 0.5
+          },
+          {
+            "name": "Carol",
+            "email": "carol@users.noreply.github.com",
+            "commits": 5,
+            "share": 0.5
+          }
+        ]
+      },
+      {
+        "directory": "",
+        "commits": 21,
+        "bus_factor": 3,
+        "owners": [
+          {
+            "name": "Alice Example",
+            "email": "alice@example.com",
+            "commits": 10,
+            "share": 0.47619047619047616
+          },
+          {
+            "name": "Bob Example",
+            "email": "bob@example.com",
+            "commits": 6,
+            "share": 0.2857142857142857
+          },
+          {
+            "name": "Carol",
+            "email": "carol@users.noreply.github.com",
+            "commits": 5,
+            "share": 0.23809523809523808
+          }
+        ]
+      }
+    ]
+  },
+  "staleness": {
+    "buckets": [
+      {
+        "age": "week",
+        "label": "under a week",
+        "files": 1
+      },
+      {
+        "age": "month",
+        "label": "under a month",
+        "files": 2
+      },
+      {
+        "age": "quarter",
+        "label": "under 3 months",
+        "files": 0
+      },
+      {
+        "age": "year",
+        "label": "under a year",
+        "files": 0
+      },
+      {
+        "age": "older",
+        "label": "a year or more",
+        "files": 0
+      }
+    ],
+    "stalest": [
+      {
+        "path": ".mailmap",
+        "last_touched": "2024-01-01T00:00:00Z",
+        "days": 20
+      },
+      {
+        "path": "alpha/f.txt",
+        "last_touched": "2024-01-11T00:00:00Z",
+        "days": 10
+      },
+      {
+        "path": "beta/g.txt",
+        "last_touched": "2024-01-21T00:00:00Z",
+        "days": 0
+      }
+    ]
+  },
+  "code_age": [
+    {
+      "quarter": "2024-Q1",
+      "lines": 1,
+      "files": 1
+    }
+  ],
+  "changeset_sizes": {
+    "commits": 21,
+    "buckets": [
+      {
+        "from": 0,
+        "to": 0,
+        "commits": 0
+      },
+      {
+        "from": 1,
+        "to": 1,
+        "commits": 21
+      },
+      {
+        "from": 2,
+        "to": 2,
+        "commits": 0
+      },
+      {
+        "from": 3,
+        "to": 5,
+        "commits": 0
+      },
+      {
+        "from": 6,
+        "to": 10,
+        "commits": 0
+      },
+      {
+        "from": 11,
+        "to": 20,
+        "commits": 0
+      },
+      {
+        "from": 21,
+        "to": 50,
+        "commits": 0
+      },
+      {
+        "from": 51,
+        "to": 100,
+        "commits": 0
+      },
+      {
+        "from": 101,
+        "to": 200,
+        "commits": 0
+      },
+      {
+        "from": 201,
+        "to": 500,
+        "commits": 0
+      },
+      {
+        "from": 501,
+        "to": 1000,
+        "commits": 0
+      },
+      {
+        "from": 1001,
+        "to": 4294967295,
+        "commits": 0
+      }
+    ],
+    "median": 1,
+    "p90": 1,
+    "p99": 1,
+    "max": 1
+  },
+  "suspected_duplicates": []
+}

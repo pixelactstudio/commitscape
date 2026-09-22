@@ -41,7 +41,7 @@ _Avoid_: code lifetime, survival.
 ### What we measure it over
 
 **Window**:
-The active time range that every panel is computed over. One of a fixed set of spans, changeable globally at any moment. The difference between two Windows is itself a finding.
+The active time range that every panel is computed over. One of a fixed set of spans, changeable globally at any moment. The difference between two Windows is itself a finding. A Window ends at its anchor: the present moment when someone is looking, or the newest commit when the output must come out the same every time it is produced.
 _Avoid_: range, period, timeframe, filter.
 
 **Index**:

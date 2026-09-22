@@ -3,10 +3,10 @@
 Running log for Build Run 1 (Phases 0 to 7). Written so a fresh session with
 no context can read this plus `docs/adr/` and continue without asking anything.
 
-**Current position:** Phase 5 complete. Change Coupling matches the fixture's
-worked Jaccard values at both support thresholds, and the Bulk Commit default
-of 50 is chosen from the changeset sizes of seven repositories. Phase 6
-(`--json`) is next.
+**Current position:** Phase 6 complete. `--json` prints one document with
+every metric, byte-identical across runs, cache states and fixture rebuilds,
+with golden files for every fixture and a run against five real repositories.
+Phase 7 (the TUI) is next.
 
 ---
 
@@ -21,7 +21,7 @@ of 50 is chosen from the changeset sizes of seven repositories. Phase 6
 | 4 | Metric values match hand-worked fixture literals | **PASS**: 11 tests in `crates/commitscape/tests/fixture_metrics.rs` assert every documented value through the real pipeline |
 | — | Throwaway ratatui spike, captured then deleted | **DONE**: findings below; the code was deleted from `.scratch/` |
 | 5 | Pair-map size + changeset histogram reported; `--max-changeset-size` chosen from data | **PASS**: seven repositories reported below; default stays 50, now with the data behind it |
-| 6 | `--json` run against ≥3 structurally different repos | NOT YET RUN |
+| 6 | `--json` run against ≥3 structurally different repos | **PASS: five** (pixelactstudio, t3code, maihs, rust-lang/rust, Linux), each checked against 16 invariants; golden files for all ten non-empty fixtures |
 | 7 | TUI: every Panel covered by an `insta` snapshot through `TestBackend`; first paint from a warm cache measured under 100ms | NOT YET RUN |
 
 ### Phase 0 measured numbers
@@ -198,6 +198,29 @@ mostly scaffolding drops, which must not drive Change Coupling. At 100, the
 0.7% of rust-lang/rust's commits touching 51 to 100 files would each add 1,275
 to 4,950 pairs.
 
+### Phase 6 measured numbers
+
+`commitscape <repo> --json --window 1y`, release build:
+
+| Repository | Shape | Commits (1y) | Merges | People | Cold | Warm |
+|---|---|---|---|---|---|---|
+| pixelactstudio | TypeScript monorepo, two people, generated files | 1,116 | 70 | 2 | 150ms | 20ms |
+| t3code | TypeScript app, many contributors | 7,789 | 179 | 305 | 484ms | 36ms |
+| maihs | Next.js app, merge-heavy (23% merges) | 4,685 | 1,210 | 18 | 971ms | 10 to 17ms |
+| rust-lang/rust | compiler, 345k commits, bors merges | 33,646 | 12,589 | 8,523 | 23.2s | 58 to 70ms |
+| Linux | kernel, 1.48M commits, 39k people | 89,337 | 7,674 | 39,381 | 87.0s | 97 to 100ms |
+
+Warm, by Window: rust-lang/rust 40 to 47ms at 90 days, 270 to 314ms over all
+history; Linux 59 to 69ms at 90 days, about 1.0s over all history. Output is
+34 to 81 KB at the default `--top 20`.
+
+Every document passed these checks (`jq`): percentiles, scores and coupling
+degrees within 0 to 1; each score equal to the product of its percentiles;
+each Jaccard degree equal to together / (first + second - together); owner
+shares summing to 1 and owner commits to the directory's; bus factor between
+1 and the number of owners; changeset buckets summing to the commit count;
+median ≤ p90 ≤ p99 ≤ max; rankings in order.
+
 ---
 
 ## Environment
@@ -355,6 +378,30 @@ to 4,950 pairs.
    pairs and 455ms on Linux. It is never on the startup path, which uses the
    90-day Window (1.8ms).
 
+## Phase 6 findings
+
+1. **`--json` ends its Window at the newest commit, not at the clock**, and
+   loads with `Since::BeforeNewest`. It prints nothing machine-specific: no
+   timings, cache paths or the path it was given. The document is
+   byte-identical with no cache, a cold cache and a warm one, and across
+   fixture rebuilds, which is what lets the golden files be compared byte for
+   byte. The summary still ends its Window now, so the two can differ on a
+   repository that has been quiet for a while. `CONTEXT.md` now says a Window
+   ends at an anchor.
+2. **Ownership was counted after the ranking cap.** Linux reported exactly
+   1,000 directories at one year; there are 1,724. `Analysis::ownership` now
+   returns the counts taken before the cap next to the ranked rows, as
+   Coupling already did with its pair count.
+3. **The summary left the root out of the bus-factor-1 list**, though one
+   person holding the whole repository is the most important row it can
+   show. It is now listed as `(root)` (`DirectoryOwnership::label`), which the
+   TUI will use too.
+4. **A Span serialises as its `--window` label** (`30d`, `90d`, `1y`, `all`),
+   so the document echoes the flag it was given.
+5. **The document's shape is the Rust types in `crates/commitscape/src/json.rs`**,
+   whose field names are the schema. `schema` is bumped when a field is
+   removed or changes meaning, not when one is added.
+
 ## Decisions made during implementation, not in any ADR
 
 1. **`bincode` pinned to `=2.0.1`.** `cargo add` resolves to 3.0.0, which is a
@@ -403,8 +450,10 @@ to 4,950 pairs.
     unpeeled, plus HEAD) decides warm versus update. A mailmap fingerprint
     decides re-resolution.
 12. **The binary loads a 90-day window by default** and prints a summary of
-    the index and the rankings. That stands in for the TUI (Phase 7) and
-    `--json` (Phase 6). `--window` takes 30d, 90d, 1y or all.
+    the index and the rankings, or with `--json` one JSON document. The
+    summary stands in for the TUI (Phase 7). `--window` takes 30d, 90d, 1y or
+    all; `--top` sets the JSON's rows per ranking (default 20);
+    `--coupling-support` and `--max-changeset-size` set the thresholds.
 13. **The Complexity Proxy detects each file's indentation unit**: a tab, or
     the most common step between consecutive space-indented lines. Levels,
     not characters, so indentation style does not rank files.
@@ -443,10 +492,15 @@ to 4,950 pairs.
 
 ## Where to pick up
 
-Phase 6: `--json`. One document with every metric the Analysis has, windows
-anchored at the newest commit so the output is reproducible, golden files for
-the fixtures, and a run against at least three structurally different
-repositories.
+Phase 7: the TUI, in a `commitscape-tui` crate so the metrics crate stays free
+of ratatui and crossterm (`cargo xtask check-layering` enforces it). Panels:
+Overview (bus-factor-1 directories, the top Hotspot, the top cross-directory
+coupled pair), Hotspots, Coupling, Ownership, Staleness, Code Age, and the
+duplicates hint, paged. Window switching loads the rest of history in the
+background for `all`. View models are computed per Window, never per frame.
+Snapshot tests through `insta` and `TestBackend`, built from code files, and
+first paint from a warm cache measured under 100ms. The binary opens the TUI
+when stdout is a terminal and prints the summary otherwise.
 
 Known limits to carry forward: the head file is rewritten on every update
 (about 15 MB for rust-lang/rust), and a vendored tree without its own lockfile

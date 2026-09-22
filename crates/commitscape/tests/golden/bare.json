@@ -1,0 +1,171 @@
+{
+  "schema": 1,
+  "repository": {
+    "head": "8a54daa985869c13df113ebf002674da155882b1",
+    "commits": 5,
+    "merges": 0,
+    "first_commit": "2024-01-01T00:00:00Z",
+    "last_commit": "2024-01-05T00:00:00Z",
+    "history_truncated": false,
+    "files_at_head": 3,
+    "people": 1
+  },
+  "window": {
+    "span": "all",
+    "from": null,
+    "to": "2024-01-05T00:00:00Z",
+    "anchor": "newest-commit",
+    "commits": 5,
+    "merges_excluded": 0,
+    "bulk_excluded": 0
+  },
+  "options": {
+    "max_changeset_size": 50,
+    "coupling_support": 5,
+    "ownership_min_commits": 10
+  },
+  "hotspots": [],
+  "largest": [],
+  "churn": [
+    {
+      "path": "a.txt",
+      "commits": 5
+    },
+    {
+      "path": "b.txt",
+      "commits": 2
+    },
+    {
+      "path": "c.txt",
+      "commits": 1
+    }
+  ],
+  "coupling": {
+    "support": 5,
+    "files": 1,
+    "pairs_seen": 0,
+    "pairs": []
+  },
+  "ownership": {
+    "directories": 0,
+    "bus_factor_one": 0,
+    "by_directory": []
+  },
+  "staleness": {
+    "buckets": [
+      {
+        "age": "week",
+        "label": "under a week",
+        "files": 3
+      },
+      {
+        "age": "month",
+        "label": "under a month",
+        "files": 0
+      },
+      {
+        "age": "quarter",
+        "label": "under 3 months",
+        "files": 0
+      },
+      {
+        "age": "year",
+        "label": "under a year",
+        "files": 0
+      },
+      {
+        "age": "older",
+        "label": "a year or more",
+        "files": 0
+      }
+    ],
+    "stalest": [
+      {
+        "path": "c.txt",
+        "last_touched": "2024-01-03T00:00:00Z",
+        "days": 2
+      },
+      {
+        "path": "a.txt",
+        "last_touched": "2024-01-05T00:00:00Z",
+        "days": 0
+      },
+      {
+        "path": "b.txt",
+        "last_touched": "2024-01-05T00:00:00Z",
+        "days": 0
+      }
+    ]
+  },
+  "code_age": [],
+  "changeset_sizes": {
+    "commits": 5,
+    "buckets": [
+      {
+        "from": 0,
+        "to": 0,
+        "commits": 0
+      },
+      {
+        "from": 1,
+        "to": 1,
+        "commits": 2
+      },
+      {
+        "from": 2,
+        "to": 2,
+        "commits": 3
+      },
+      {
+        "from": 3,
+        "to": 5,
+        "commits": 0
+      },
+      {
+        "from": 6,
+        "to": 10,
+        "commits": 0
+      },
+      {
+        "from": 11,
+        "to": 20,
+        "commits": 0
+      },
+      {
+        "from": 21,
+        "to": 50,
+        "commits": 0
+      },
+      {
+        "from": 51,
+        "to": 100,
+        "commits": 0
+      },
+      {
+        "from": 101,
+        "to": 200,
+        "commits": 0
+      },
+      {
+        "from": 201,
+        "to": 500,
+        "commits": 0
+      },
+      {
+        "from": 501,
+        "to": 1000,
+        "commits": 0
+      },
+      {
+        "from": 1001,
+        "to": 4294967295,
+        "commits": 0
+      }
+    ],
+    "median": 2,
+    "p90": 2,
+    "p99": 2,
+    "max": 2
+  },
+  "suspected_duplicates": []
+}

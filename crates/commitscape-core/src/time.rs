@@ -42,6 +42,19 @@ impl Month {
     }
 }
 
+/// A Unix timestamp as an RFC 3339 / ISO 8601 UTC time, to the second:
+/// `2024-01-05T00:00:00Z`.
+pub fn iso8601(unix: i64) -> String {
+    let (y, m, d) = civil_from_unix(unix);
+    let secs = unix.rem_euclid(SECONDS_PER_DAY);
+    format!(
+        "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z",
+        secs / 3600,
+        secs % 3600 / 60,
+        secs % 60
+    )
+}
+
 /// `(year, month, day)` of a Unix timestamp, in UTC.
 pub fn civil_from_unix(unix: i64) -> (i64, u32, u32) {
     civil_from_days(unix.div_euclid(SECONDS_PER_DAY))
@@ -89,6 +102,13 @@ mod tests {
         assert_eq!(civil_from_unix(FEB_29_2000), (2000, 2, 29));
         assert_eq!(civil_from_unix(0), (1970, 1, 1));
         assert_eq!(civil_from_unix(-1), (1969, 12, 31));
+    }
+
+    #[test]
+    fn a_timestamp_prints_as_iso_8601_utc() {
+        assert_eq!(iso8601(JAN_1_2024), "2024-01-01T00:00:00Z");
+        assert_eq!(iso8601(FEB_1_2024 - 1), "2024-01-31T23:59:59Z");
+        assert_eq!(iso8601(-1), "1969-12-31T23:59:59Z");
     }
 
     #[test]

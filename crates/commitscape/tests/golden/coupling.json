@@ -1,0 +1,206 @@
+{
+  "schema": 1,
+  "repository": {
+    "head": "02d099509f94fe2dfbf99004d927f7332c274a94",
+    "commits": 12,
+    "merges": 0,
+    "first_commit": "2024-01-01T00:00:00Z",
+    "last_commit": "2024-01-12T00:00:00Z",
+    "history_truncated": false,
+    "files_at_head": 4,
+    "people": 1
+  },
+  "window": {
+    "span": "all",
+    "from": null,
+    "to": "2024-01-12T00:00:00Z",
+    "anchor": "newest-commit",
+    "commits": 12,
+    "merges_excluded": 0,
+    "bulk_excluded": 0
+  },
+  "options": {
+    "max_changeset_size": 50,
+    "coupling_support": 5,
+    "ownership_min_commits": 10
+  },
+  "hotspots": [],
+  "largest": [],
+  "churn": [
+    {
+      "path": "other/d.txt",
+      "commits": 5
+    },
+    {
+      "path": "pkg/c.txt",
+      "commits": 5
+    },
+    {
+      "path": "src/a.txt",
+      "commits": 5
+    },
+    {
+      "path": "src/b.txt",
+      "commits": 4
+    }
+  ],
+  "coupling": {
+    "support": 5,
+    "files": 3,
+    "pairs_seen": 1,
+    "pairs": [
+      {
+        "first": "other/d.txt",
+        "second": "pkg/c.txt",
+        "together": 4,
+        "first_commits": 5,
+        "second_commits": 5,
+        "jaccard": 0.6666666666666666,
+        "first_given_second": 0.8,
+        "second_given_first": 0.8,
+        "cross_directory": true
+      }
+    ]
+  },
+  "ownership": {
+    "directories": 1,
+    "bus_factor_one": 1,
+    "by_directory": [
+      {
+        "directory": "",
+        "commits": 12,
+        "bus_factor": 1,
+        "owners": [
+          {
+            "name": "Alice Example",
+            "email": "alice@example.com",
+            "commits": 12,
+            "share": 1.0
+          }
+        ]
+      }
+    ]
+  },
+  "staleness": {
+    "buckets": [
+      {
+        "age": "week",
+        "label": "under a week",
+        "files": 3
+      },
+      {
+        "age": "month",
+        "label": "under a month",
+        "files": 1
+      },
+      {
+        "age": "quarter",
+        "label": "under 3 months",
+        "files": 0
+      },
+      {
+        "age": "year",
+        "label": "under a year",
+        "files": 0
+      },
+      {
+        "age": "older",
+        "label": "a year or more",
+        "files": 0
+      }
+    ],
+    "stalest": [
+      {
+        "path": "src/a.txt",
+        "last_touched": "2024-01-05T00:00:00Z",
+        "days": 7
+      },
+      {
+        "path": "src/b.txt",
+        "last_touched": "2024-01-06T00:00:00Z",
+        "days": 6
+      },
+      {
+        "path": "pkg/c.txt",
+        "last_touched": "2024-01-11T00:00:00Z",
+        "days": 1
+      },
+      {
+        "path": "other/d.txt",
+        "last_touched": "2024-01-12T00:00:00Z",
+        "days": 0
+      }
+    ]
+  },
+  "code_age": [],
+  "changeset_sizes": {
+    "commits": 12,
+    "buckets": [
+      {
+        "from": 0,
+        "to": 0,
+        "commits": 0
+      },
+      {
+        "from": 1,
+        "to": 1,
+        "commits": 5
+      },
+      {
+        "from": 2,
+        "to": 2,
+        "commits": 7
+      },
+      {
+        "from": 3,
+        "to": 5,
+        "commits": 0
+      },
+      {
+        "from": 6,
+        "to": 10,
+        "commits": 0
+      },
+      {
+        "from": 11,
+        "to": 20,
+        "commits": 0
+      },
+      {
+        "from": 21,
+        "to": 50,
+        "commits": 0
+      },
+      {
+        "from": 51,
+        "to": 100,
+        "commits": 0
+      },
+      {
+        "from": 101,
+        "to": 200,
+        "commits": 0
+      },
+      {
+        "from": 201,
+        "to": 500,
+        "commits": 0
+      },
+      {
+        "from": 501,
+        "to": 1000,
+        "commits": 0
+      },
+      {
+        "from": 1001,
+        "to": 4294967295,
+        "commits": 0
+      }
+    ],
+    "median": 2,
+    "p90": 2,
+    "p99": 2,
+    "max": 2
+  },
+  "suspected_duplicates": []
+}

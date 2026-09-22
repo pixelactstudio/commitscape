@@ -161,6 +161,7 @@ fn conflict() {
 fn ownership(idx: &Index) -> HashMap<String, (Vec<(String, u32)>, u32)> {
     analysis(idx)
         .ownership()
+        .directories
         .into_iter()
         .map(|d| {
             let owners = d

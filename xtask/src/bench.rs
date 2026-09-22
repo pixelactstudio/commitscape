@@ -54,7 +54,7 @@ struct Benchmark {
 
 /// The benchmark registry.
 ///
-/// A benchmark returns `Ok(None)` when its inputs are not present (an unclonedd
+/// A benchmark returns `Ok(None)` when its inputs are not present (an uncloned
 /// repository, a cache that has not been built yet). That is reported as
 /// SKIPPED rather than as a pass, because a benchmark that silently measures
 /// nothing is worse than one that fails.

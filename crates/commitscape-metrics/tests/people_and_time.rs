@@ -145,7 +145,7 @@ fn team() -> commitscape_core::Index {
 fn ownership_is_commit_weighted_per_directory_and_bus_factor_follows_the_80_percent_line() {
     let idx = team();
     let a = Analysis::new(&idx, Window::all(EPOCH + 40 * DAY), options()).expect("covered");
-    let ownership = a.ownership();
+    let ownership = a.ownership().directories;
     let dir = |d: &str| {
         ownership
             .iter()
@@ -188,8 +188,41 @@ fn directories_with_too_few_commits_are_not_reported() {
         ..options()
     };
     let a = Analysis::new(&idx, Window::all(EPOCH + 40 * DAY), options).expect("covered");
-    let dirs: Vec<Vec<u8>> = a.ownership().into_iter().map(|o| o.dir).collect();
+    let dirs: Vec<Vec<u8>> = a
+        .ownership()
+        .directories
+        .into_iter()
+        .map(|o| o.dir)
+        .collect();
     assert_eq!(dirs, vec![b"".to_vec()], "only the root has more than ten");
+}
+
+#[test]
+fn ownership_counts_every_directory_even_past_the_ranking_limit() {
+    // 1,001 directories, each with one commit by its own person: each is held
+    // by one person. The root holds all 1,001 commits, one each, so it takes
+    // 801 people to pass 80%. The ranking keeps 1,000 rows; the counts cover
+    // all 1,002 directories.
+    let paths: Vec<String> = (0..1001).map(|i| format!("d{i:04}/f.rs")).collect();
+    let people: Vec<String> = (0..1001).map(|i| format!("p{i}@x.org")).collect();
+    let touched: Vec<[&str; 1]> = paths.iter().map(|p| [p.as_str()]).collect();
+    let commits: Vec<_> = touched
+        .iter()
+        .zip(&people)
+        .enumerate()
+        .map(|(day, (t, who))| c(day as i64, who, t))
+        .collect();
+    let head: Vec<_> = paths.iter().map(|p| h(p, 1, 0)).collect();
+    let idx = index(&commits, &head);
+    let a = Analysis::new(&idx, Window::all(EPOCH + 1001 * DAY), options()).expect("covered");
+
+    let ownership = a.ownership();
+    assert_eq!(ownership.directory_count, 1002);
+    assert_eq!(
+        ownership.bus_factor_one, 1001,
+        "every directory but the root"
+    );
+    assert_eq!(ownership.directories.len(), 1000, "the ranking limit");
 }
 
 #[test]

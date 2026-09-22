@@ -31,6 +31,30 @@ pub struct DirectoryOwnership {
     pub bus_factor: u32,
 }
 
+impl DirectoryOwnership {
+    /// The directory for display: its path, or `(root)` for the root, whose
+    /// path is empty.
+    pub fn label(&self) -> String {
+        if self.dir.is_empty() {
+            "(root)".to_string()
+        } else {
+            String::from_utf8_lossy(&self.dir).into_owned()
+        }
+    }
+}
+
+/// Ownership over the Window.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Ownership {
+    /// Directories with at least `ownership_min_commits` commits in the
+    /// Window: every one ranked, not only those kept.
+    pub directory_count: u32,
+    /// Of those, how many one person holds.
+    pub bus_factor_one: u32,
+    /// Fewest owners first, then most commits.
+    pub directories: Vec<DirectoryOwnership>,
+}
+
 /// People who might be one person.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SuspectedDuplicate {
@@ -41,13 +65,12 @@ pub struct SuspectedDuplicate {
 }
 
 impl Analysis<'_> {
-    /// Ownership of every directory with enough commits in the Window,
-    /// fewest owners first, then most commits.
+    /// Ownership of every directory with enough commits in the Window.
     ///
     /// A commit counts once for each directory holding a file it touched, at
     /// every depth, as long as a person wrote the file and it exists at HEAD:
     /// knowing a deleted file, or a lockfile, is not knowing the directory.
-    pub fn ownership(&self) -> Vec<DirectoryOwnership> {
+    pub fn ownership(&self) -> Ownership {
         let index = self.index();
         let options = self.options();
         let mut written = vec![false; index.paths.len()];
@@ -143,13 +166,19 @@ impl Analysis<'_> {
             }
             i += run.max(1);
         }
+        let directory_count = out.len() as u32;
+        let bus_factor_one = out.iter().filter(|d| d.bus_factor == 1).count() as u32;
         top(&mut out, |a, b| {
             a.bus_factor
                 .cmp(&b.bus_factor)
                 .then(b.commits.cmp(&a.commits))
                 .then_with(|| a.dir.cmp(&b.dir))
         });
-        out
+        Ownership {
+            directory_count,
+            bus_factor_one,
+            directories: out,
+        }
     }
 
     /// People who might be one person (ADR-0006), each group with the most

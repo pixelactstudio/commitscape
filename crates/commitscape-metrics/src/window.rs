@@ -35,13 +35,17 @@ impl Window {
     }
 }
 
-/// The fixed set of spans a Window can take.
+/// The fixed set of spans a Window can take. Serialised as its label, the
+/// value `--window` takes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
-#[serde(rename_all = "lowercase")]
 pub enum Span {
+    #[serde(rename = "30d")]
     Month,
+    #[serde(rename = "90d")]
     Quarter,
+    #[serde(rename = "1y")]
     Year,
+    #[serde(rename = "all")]
     All,
 }
 
