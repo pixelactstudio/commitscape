@@ -254,3 +254,74 @@ fn an_empty_repository_is_a_clear_message() {
     let err = index_from_scratch(&repo).expect_err("nothing to index");
     assert!(err.to_string().contains("no commits"), "{err}");
 }
+
+/// Each coupled pair by path: (first, second, both, jaccard, P(first|second),
+/// P(second|first), cross-directory).
+fn pairs(idx: &Index, support: u32) -> Vec<(String, String, u32, f64, f64, f64, bool)> {
+    let anchor = idx.span.newest.expect("commits");
+    let options = Options {
+        coupling_support: support,
+        ..options()
+    };
+    let a = Analysis::new(idx, Window::all(anchor), options).expect("loaded");
+    a.coupling()
+        .pairs
+        .iter()
+        .map(|p| {
+            (
+                idx.paths.path_lossy(p.first),
+                idx.paths.path_lossy(p.second),
+                p.both,
+                p.jaccard,
+                p.first_given_second,
+                p.second_given_first,
+                p.cross_directory,
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn coupling_with_a_support_of_five_prunes_src_b() {
+    // src/b.txt changed in 4 commits, under the support of 5, so the
+    // (src/a, src/b) pair never forms. (pkg/c, other/d): together in 4 of
+    // 5 + 5 - 4 = 6 commits, Jaccard 2/3; each is 4/5 = 0.8 given the other.
+    let idx = index("coupling");
+    let found = pairs(&idx, 5);
+    assert_eq!(found.len(), 1, "{found:?}");
+    let (first, second, both, jaccard, p_fs, p_sf, cross) =
+        found.first().cloned().expect("one pair");
+    assert_eq!(
+        (first.as_str(), second.as_str()),
+        ("other/d.txt", "pkg/c.txt")
+    );
+    assert_eq!(both, 4);
+    assert!((jaccard - 2.0 / 3.0).abs() < 1e-12);
+    assert!((p_fs - 0.8).abs() < 1e-12 && (p_sf - 0.8).abs() < 1e-12);
+    assert!(cross, "other/ and pkg/ are different directories");
+}
+
+#[test]
+fn coupling_with_a_support_of_four_keeps_both_pairs() {
+    // (src/a, src/b): together 3 times of 5 + 4 - 3 = 6, Jaccard 1/2.
+    // P(src/a | src/b) = 3/4, P(src/b | src/a) = 3/5. Same directory.
+    let idx = index("coupling");
+    let found = pairs(&idx, 4);
+    assert_eq!(found.len(), 2, "{found:?}");
+    let ab = found
+        .iter()
+        .find(|p| p.0 == "src/a.txt")
+        .cloned()
+        .expect("the (src/a, src/b) pair");
+    assert_eq!(ab.1, "src/b.txt");
+    assert_eq!(ab.2, 3);
+    assert!((ab.3 - 0.5).abs() < 1e-12);
+    assert!((ab.4 - 0.75).abs() < 1e-12, "P(src/a | src/b)");
+    assert!((ab.5 - 0.6).abs() < 1e-12, "P(src/b | src/a)");
+    assert!(!ab.6);
+    assert_eq!(
+        found.first().map(|p| p.0.as_str()),
+        Some("other/d.txt"),
+        "the higher Jaccard ranks first"
+    );
+}

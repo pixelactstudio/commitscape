@@ -197,6 +197,37 @@ fn rankings(analysis: &Analysis<'_>, span: Span) -> String {
         ));
     }
 
+    let coupling = analysis.coupling();
+    out.push_str(&format!(
+        "\nChange coupling (files with {} or more commits in the window: {}, pairs seen together: {})\n",
+        coupling.support,
+        grouped(coupling.files as u64),
+        grouped(coupling.pair_count)
+    ));
+    if coupling.pairs.is_empty() {
+        out.push_str("  none: no two such files changed together\n");
+    }
+    for (i, p) in coupling.pairs.iter().take(TOP).enumerate() {
+        out.push_str(&format!(
+            "  {:>2}  {:>3.0}% together  {}  {} <-> {}\n",
+            i + 1,
+            100.0 * p.jaccard,
+            if p.cross_directory {
+                "across dirs"
+            } else {
+                "same dir   "
+            },
+            path(p.first),
+            path(p.second)
+        ));
+    }
+
+    let sizes = analysis.changeset_sizes();
+    out.push_str(&format!(
+        "\nFiles per commit: median {}, 90% touch {} or fewer, 99% touch {} or fewer, largest {}\n",
+        sizes.median, sizes.p90, sizes.p99, sizes.max
+    ));
+
     let staleness = analysis.staleness();
     out.push_str("\nStaleness of the files people wrote, by last touch\n");
     for bucket in &staleness.buckets {

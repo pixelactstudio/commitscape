@@ -15,3 +15,4 @@ anyhow = "1.0.104"
 clap = { version = "4.6.6", features = ["derive"] }
 commitscape-core = { version = "0.1.0", path = "../crates/commitscape-core" }
 commitscape-index = { version = "0.1.0", path = "../crates/commitscape-index" }
+commitscape-metrics = { version = "0.1.0", path = "../crates/commitscape-metrics" }

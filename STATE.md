@@ -3,8 +3,10 @@
 Running log for Build Run 1 (Phases 0 to 7). Written so a fresh session with
 no context can read this plus `docs/adr/` and continue without asking anything.
 
-**Current position:** Phase 4 complete and the ratatui spike captured and
-deleted. Phase 5 (Change Coupling and the changeset-size histogram) is next.
+**Current position:** Phase 5 complete. Change Coupling matches the fixture's
+worked Jaccard values at both support thresholds, and the Bulk Commit default
+of 50 is chosen from the changeset sizes of seven repositories. Phase 6
+(`--json`) is next.
 
 ---
 
@@ -18,7 +20,7 @@ deleted. Phase 5 (Change Coupling and the changeset-size histogram) is next.
 | 3 | Top-10 largest and top-10 hotspots contain no lockfiles / drizzle snapshots / `routeTree.gen.ts` | **PASS on `pixelactstudio`**, which has all three; unfiltered, `pnpm-lock.yaml` ranks third by size and the snapshots eleventh to thirteenth |
 | 4 | Metric values match hand-worked fixture literals | **PASS**: 11 tests in `crates/commitscape/tests/fixture_metrics.rs` assert every documented value through the real pipeline |
 | — | Throwaway ratatui spike, captured then deleted | **DONE**: findings below; the code was deleted from `.scratch/` |
-| 5 | Pair-map size + changeset histogram reported; `--max-changeset-size` chosen from data | NOT YET RUN |
+| 5 | Pair-map size + changeset histogram reported; `--max-changeset-size` chosen from data | **PASS**: seven repositories reported below; default stays 50, now with the data behind it |
 | 6 | `--json` run against ≥3 structurally different repos | NOT YET RUN |
 | 7 | TUI: every Panel covered by an `insta` snapshot through `TestBackend`; first paint from a warm cache measured under 100ms | NOT YET RUN |
 
@@ -164,6 +166,37 @@ a title line, a hotspot list and a bus-factor-1 list. Then it was deleted.
 - **The fixtures are all `.txt` files, which are Prose**, so they have no
   Hotspots or largest files and make thin snapshots. TUI snapshot tests will
   build their index from code files.
+
+### Phase 5 measured numbers
+
+`cargo xtask changesets <repo>...`, over all history, non-merge commits:
+
+| Repository | Commits | Median files | p90 | p99 | Over 50 | Over 100 |
+|---|---|---|---|---|---|---|
+| env-helper | 147 | 1 | 3 | 40 | 0.68% | 0% |
+| vidcastx | 259 | 3 | 23 | 168 | 6.18% | 2.32% |
+| pixelactstudio | 1,046 | 1 | 13 | 124 | 2.29% | 1.24% |
+| maihs | 4,352 | 2 | 7 | 35 | 0.60% | 0.16% |
+| t3code | 7,610 | 2 | 16 | 74 | 2.04% | 0.70% |
+| rust-lang/rust | 236,732 | 2 | 9 | 58 | 1.21% | 0.51% |
+| Linux | 1,371,396 | 1 | 4 | 15 | 0.15% | 0.05% |
+
+Change Coupling's pair map at the default support of 5:
+
+| Repository | 90 days | 1 year | All history |
+|---|---|---|---|
+| pixelactstudio | 120 pairs, 0.0ms | 1,263, 0.3ms | 1,263, 0.3ms |
+| t3code | 25,098, 3.8ms | 37,383, 6.0ms | 37,383, 6.0ms |
+| maihs | 3,077, 1.0ms | 8,062, 2.5ms | 9,561, 2.9ms |
+| rust-lang/rust | 13,711, 2.5ms | 59,363, 10.9ms | 472,305, 121ms |
+| Linux | 3,940, 1.8ms | 46,424, 11.0ms | 1,430,730, 455ms |
+
+**`--max-changeset-size` stays 50, chosen from this.** Over 50 files is 0.15%
+of Linux's commits and 1.2% of rust-lang/rust's: the reformat and mass-move
+tail, with rust's p99 at 58. In young application repositories it is 2 to 6%,
+mostly scaffolding drops, which must not drive Change Coupling. At 100, the
+0.7% of rust-lang/rust's commits touching 51 to 100 files would each add 1,275
+to 4,950 pairs.
 
 ---
 
@@ -311,6 +344,17 @@ a title line, a hotspot list and a bus-factor-1 list. Then it was deleted.
    each touched file's directories resolved once, and (directory, person)
    pairs counted with one sort.
 
+## Phase 5 findings
+
+1. **Pairs rank by Jaccard degree, then shared commits.** On rust-lang/rust
+   the top of the list is generated shell completions (`src/etc/completions/`)
+   and blessed MIR test output, which carry no generator marker. That is what
+   `linguist-generated` in `.gitattributes` is for; no rule was added for one
+   repository.
+2. **Coupling over all history is the one expensive Analysis**: 1.43 million
+   pairs and 455ms on Linux. It is never on the startup path, which uses the
+   90-day Window (1.8ms).
+
 ## Decisions made during implementation, not in any ADR
 
 1. **`bincode` pinned to `=2.0.1`.** `cargo add` resolves to 3.0.0, which is a
@@ -399,10 +443,10 @@ a title line, a hotspot list and a bus-factor-1 list. Then it was deleted.
 
 ## Where to pick up
 
-Phase 5: Change Coupling (Jaccard and directional probabilities, support
-prune, cross-directory flag) and the changeset-size histogram used to choose
-`--max-changeset-size` from data. Gate: pair-map size and histogram reported on
-real repositories, and the default threshold chosen from them.
+Phase 6: `--json`. One document with every metric the Analysis has, windows
+anchored at the newest commit so the output is reproducible, golden files for
+the fixtures, and a run against at least three structurally different
+repositories.
 
 Known limits to carry forward: the head file is rewritten on every update
 (about 15 MB for rust-lang/rust), and a vendored tree without its own lockfile

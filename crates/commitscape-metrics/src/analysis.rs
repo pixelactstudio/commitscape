@@ -11,6 +11,13 @@ use crate::window::Window;
 
 /// Commits touching more files than this are Bulk Commits unless the caller
 /// says otherwise.
+///
+/// Chosen from the changeset sizes of seven repositories (`cargo xtask
+/// changesets`, recorded in STATE.md). Over 50 files is 0.15% of Linux's
+/// commits and 1.2% of rust-lang/rust's: the reformat and mass-move tail. In
+/// young application repositories it is 2 to 6%, mostly scaffolding drops,
+/// which are what must not drive Change Coupling; a commit of 51 to 100 files
+/// alone makes 1,275 to 4,950 pairs.
 pub const DEFAULT_MAX_CHANGESET_SIZE: u32 = 50;
 
 /// Change Coupling ignores files that changed in fewer commits than this.

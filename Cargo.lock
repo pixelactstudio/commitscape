@@ -1844,6 +1844,7 @@ dependencies = [
  "clap",
  "commitscape-core",
  "commitscape-index",
+ "commitscape-metrics",
 ]
 
 [[package]]

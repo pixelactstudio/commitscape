@@ -10,6 +10,7 @@
 
 mod ages;
 mod analysis;
+mod coupling;
 mod people;
 mod window;
 
@@ -17,5 +18,6 @@ pub use ages::{Age, AgeCount, QuarterAge, StaleFile, Staleness};
 pub use analysis::{
     Analysis, Churn, CommitCounts, Hotspot, LargeFile, NotLoaded, Options, RANKING_LIMIT,
 };
+pub use coupling::{ChangesetSizes, CoupledPair, Coupling, SizeBucket};
 pub use people::{DirectoryOwnership, Owner, SuspectedDuplicate};
 pub use window::{Span, Window};

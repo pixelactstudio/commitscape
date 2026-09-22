@@ -6,6 +6,7 @@
 //! history walk against git on a real repository.
 
 mod bench;
+mod changesets;
 mod fixtures;
 mod layering;
 mod verify;
@@ -43,6 +44,12 @@ enum Command {
     },
     /// Assert that the metrics crate cannot see git.
     CheckLayering,
+    /// Report changeset sizes and coupling pair-map sizes on real
+    /// repositories, the data `--max-changeset-size` is chosen from.
+    Changesets {
+        /// Repositories to report on.
+        repos: Vec<std::path::PathBuf>,
+    },
     /// Check the history walk against `git diff-tree` on a real repository.
     VerifyWalk {
         /// The repository to check.
@@ -59,6 +66,7 @@ fn main() -> Result<()> {
         Command::Bench { filter, iterations } => bench::run(filter.as_deref(), iterations),
         Command::CheckLayering => layering::check(),
         Command::VerifyWalk { repo, every } => verify::run(&repo, every),
+        Command::Changesets { repos } => changesets::run(&repos),
     }
 }
 
