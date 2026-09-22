@@ -15,7 +15,7 @@ use commitscape_core::{Oid, RepoIdentity};
 use gix::objs::TreeRefIter;
 
 use crate::mailmap::Mailmap;
-use crate::source::{CommitSink, Frontier, RepoSource, TreeSink, WalkStats};
+use crate::source::{CommitSink, Indexed, RepoSource, TreeSink, WalkStats};
 
 /// Wraps any error into [`GixError::Git`] with a human-facing context.
 macro_rules! git_ctx {
@@ -129,6 +129,21 @@ impl GixRepo {
         Ok(tips)
     }
 
+    /// The work tree's `.mailmap`, if there is a work tree and it has one.
+    fn worktree_mailmap(&self) -> Result<Option<Vec<u8>>, GixError> {
+        let Some(work_dir) = self.repo.workdir() else {
+            return Ok(None);
+        };
+        match std::fs::read(work_dir.join(".mailmap")) {
+            Ok(bytes) => Ok(Some(bytes)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(GixError::Git {
+                context: "reading .mailmap",
+                source: Box::new(e),
+            }),
+        }
+    }
+
     /// The `.mailmap` at HEAD, for a repository with no work tree copy.
     fn mailmap_at_head(&self) -> Result<Option<Vec<u8>>, GixError> {
         let Ok(commit) = self.repo.head_commit() else {
@@ -172,21 +187,101 @@ impl RepoSource for GixRepo {
         Ok(tips)
     }
 
-    fn mailmap(&self) -> Result<Mailmap, Self::Error> {
-        // git reads the work tree's `.mailmap` when there is one, and the
-        // committed one otherwise. Parsed by our own parser so that no gix
-        // type crosses the seam.
-        if let Some(work_dir) = self.repo.workdir() {
-            match std::fs::read(work_dir.join(".mailmap")) {
-                Ok(bytes) => return Ok(Mailmap::parse(&bytes)),
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                Err(e) => {
-                    return Err(GixError::Git {
-                        context: "reading .mailmap",
-                        source: Box::new(e),
-                    })
-                }
+    fn refs_fingerprint(&self) -> Result<u64, Self::Error> {
+        let mut h = xxhash_rust::xxh3::Xxh3::new();
+        // HEAD as stored: the branch it names, or the commit it holds when
+        // detached. The branch's own target is hashed with the other refs
+        // below. Nothing here reads an object, so a warm start never opens a
+        // pack.
+        match git_ctx!(self.repo.head(), "reading HEAD")?.kind {
+            gix::head::Kind::Symbolic(r) => {
+                h.update(b"S");
+                h.update(r.name.as_bstr());
             }
+            gix::head::Kind::Unborn(name) => {
+                h.update(b"U");
+                h.update(name.as_bstr());
+            }
+            gix::head::Kind::Detached { target, .. } => {
+                h.update(b"D");
+                h.update(target.as_bytes());
+            }
+        }
+        let platform = git_ctx!(self.repo.references(), "opening references")?;
+        let all = git_ctx!(platform.all(), "listing references")?;
+        let mut refs: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
+        for reference in all.flatten() {
+            let name = reference.name().as_bstr().to_vec();
+            if !HISTORY_REFS.iter().any(|p| name.starts_with(p)) {
+                continue;
+            }
+            // The target as stored, unpeeled: a tag's own id rather than the
+            // commit it names, so no object is read.
+            let target = match reference.target() {
+                gix::refs::TargetRef::Object(id) => id.as_bytes().to_vec(),
+                gix::refs::TargetRef::Symbolic(name) => name.as_bstr().to_vec(),
+            };
+            refs.push((name, target));
+        }
+        refs.sort_unstable();
+        for (name, target) in refs {
+            h.update(&(name.len() as u64).to_le_bytes());
+            h.update(&name);
+            h.update(&target);
+        }
+        Ok(h.digest())
+    }
+
+    fn all_reachable(&self, commits: &[Oid], from: &[Oid]) -> Result<bool, Self::Error> {
+        let mut missing: std::collections::HashSet<gix::ObjectId> = commits
+            .iter()
+            .filter(|c| !from.contains(c))
+            .filter_map(|c| Self::to_gix(*c))
+            .collect();
+        if missing.is_empty() {
+            return Ok(true);
+        }
+        // Walk newest first from `from`, but only down to the age of the
+        // oldest missing commit: nothing older can lead to it. A branch that
+        // moved forward is found within its new commits, so this costs little
+        // in the common case, and it never paints all of history the way a
+        // hidden walk from hundreds of tags does.
+        let mut cutoff = i64::MAX;
+        for id in &missing {
+            let Ok(commit) = self.repo.find_commit(*id) else {
+                // Gone from the object database: certainly not reachable.
+                return Ok(false);
+            };
+            let time = git_ctx!(commit.time(), "reading a commit time")?;
+            cutoff = cutoff.min(time.seconds);
+        }
+        let starts: Vec<gix::ObjectId> = from.iter().filter_map(|c| Self::to_gix(*c)).collect();
+        let walk = git_ctx!(
+            self.repo
+                .rev_walk(starts)
+                .sorting(gix::revision::walk::Sorting::ByCommitTimeCutoff {
+                    order: Default::default(),
+                    seconds: cutoff,
+                })
+                .all(),
+            "checking which indexed commits are still reachable"
+        )?;
+        for info in walk {
+            let info = git_ctx!(info, "checking which indexed commits are still reachable")?;
+            missing.remove(&info.id);
+            if missing.is_empty() {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    fn mailmap(&self) -> Result<Mailmap, Self::Error> {
+        // The work tree's `.mailmap` when there is one, and the committed one
+        // otherwise. Parsed by our own parser so that no gix type crosses the
+        // seam.
+        if let Some(bytes) = self.worktree_mailmap()? {
+            return Ok(Mailmap::parse(&bytes));
         }
         Ok(self
             .mailmap_at_head()?
@@ -194,12 +289,32 @@ impl RepoSource for GixRepo {
             .unwrap_or_default())
     }
 
+    fn mailmap_fingerprint(&self) -> Result<u64, Self::Error> {
+        if let Some(bytes) = self.worktree_mailmap()? {
+            return Ok(Mailmap::parse(&bytes).fingerprint());
+        }
+        // The committed mailmap is part of HEAD's tree, so HEAD's commit
+        // stands for it without reading the tree.
+        let mut h = xxhash_rust::xxh3::Xxh3::new();
+        h.update(b"head");
+        if let Ok(Some(r)) = self.repo.head_ref() {
+            if let Some(id) = r.target().try_id() {
+                h.update(id.as_bytes());
+            }
+        } else if let Ok(head) = self.repo.head() {
+            if let gix::head::Kind::Detached { target, .. } = head.kind {
+                h.update(target.as_bytes());
+            }
+        }
+        Ok(h.digest())
+    }
+
     fn walk_history(
         &self,
-        stop_at: &Frontier,
+        indexed: &dyn Indexed,
         sink: &mut dyn CommitSink,
     ) -> Result<WalkStats, Self::Error> {
-        walk::walk(self, stop_at, sink)
+        walk::walk(self, indexed, sink)
     }
 
     fn walk_head_tree(&self, sink: &mut dyn TreeSink) -> Result<(), Self::Error> {

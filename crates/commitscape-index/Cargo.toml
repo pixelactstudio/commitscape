@@ -33,3 +33,7 @@ gix = { version = "0.87.1", default-features = false, features = [
     "parallel",
     "max-performance-safe",
 ] }
+xxhash-rust = { version = "0.8.18", features = ["xxh3"] }
+
+[dev-dependencies]
+tempfile = "3.27.0"

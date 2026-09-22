@@ -3,12 +3,12 @@
 
 #![allow(clippy::expect_used)]
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use commitscape_core::{FileId, Index, Oid};
 use commitscape_index::source::RawChangeKind::{Added, Deleted, Modified};
 use commitscape_index::{
-    index_from_scratch, index_incremental, reresolve_authors, Frontier, Mailmap, ScriptedRepo,
+    index_from_scratch, index_incremental, reresolve_authors, Mailmap, ScriptedRepo,
 };
 
 const ALICE: (&str, &str) = ("Alice Example", "alice@example.com");
@@ -114,11 +114,12 @@ fn branched() -> ScriptedRepo {
 }
 
 #[test]
-fn resuming_from_a_frontier_walks_only_what_it_cannot_reach() {
+fn resuming_walks_only_what_is_not_indexed() {
     let repo = branched();
-    // The last index saw main up to commit 6 and never saw the side branch.
-    let frontier = Frontier::from([repo.commit_id(6)]);
-    let resumed = match index_incremental(&repo, &frontier) {
+    // The last index saw main up to commit 6 and never saw the side branch,
+    // so it holds commits 1, 2, 5 and 6.
+    let indexed: HashSet<Oid> = [1, 2, 5, 6].map(|n| repo.commit_id(n)).into();
+    let resumed = match index_incremental(&repo, &indexed) {
         Ok(i) => i,
         Err(never) => match never {},
     };
@@ -132,10 +133,10 @@ fn resuming_from_a_frontier_walks_only_what_it_cannot_reach() {
 }
 
 #[test]
-fn a_frontier_covering_every_tip_leaves_nothing_to_walk() {
+fn a_fully_indexed_history_leaves_nothing_to_walk() {
     let repo = branched();
-    let frontier = Frontier::from([repo.commit_id(7)]);
-    let resumed = match index_incremental(&repo, &frontier) {
+    let indexed: HashSet<Oid> = (1..=7).map(|n| repo.commit_id(n)).collect();
+    let resumed = match index_incremental(&repo, &indexed) {
         Ok(i) => i,
         Err(never) => match never {},
     };

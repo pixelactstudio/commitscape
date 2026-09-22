@@ -20,7 +20,7 @@ use gix::ObjectId;
 
 use super::tree_diff::{Changed, TreeDiffer};
 use super::{GixError, GixRepo};
-use crate::source::{CommitSink, Frontier, RawChange, RawCommit, WalkStats};
+use crate::source::{CommitSink, Indexed, RawChange, RawCommit, WalkStats};
 
 /// Commits per unit of work handed to a diff thread. Consecutive commits
 /// share most of their trees, so a batch keeps one thread's object cache warm.
@@ -62,28 +62,24 @@ type BatchResult = Result<Vec<Vec<Changed>>, GixError>;
 
 pub(super) fn walk(
     source: &GixRepo,
-    stop_at: &Frontier,
+    indexed: &dyn Indexed,
     sink: &mut dyn CommitSink,
 ) -> Result<WalkStats, GixError> {
     let repo = &source.repo;
     let tips: Vec<ObjectId> = source.tips_gix()?.into_iter().map(|(_, id)| id).collect();
-    // A frontier commit that no longer exists cannot hide anything, and
-    // handing it to the walk would fail it. History rewrites are detected
-    // separately, before a resume is attempted.
-    let hidden: Vec<ObjectId> = stop_at
-        .iter()
-        .filter_map(|id| GixRepo::to_gix(*id))
-        .filter(|id| repo.has_object(id))
-        .collect();
 
     let mut stats = WalkStats {
         history_truncated: repo.is_shallow(),
         ..WalkStats::default()
     };
 
-    // Pass one: the graph.
+    // Pass one: the graph, stopping at the first indexed commit on each path.
+    // gix applies the predicate to the tips as well, so an unchanged branch
+    // costs one lookup.
     let walk = git_ctx!(
-        repo.rev_walk(tips).with_hidden(hidden).all(),
+        repo.rev_walk(tips).selected(|id| {
+            Oid::from_bytes(id.as_bytes()).is_none_or(|oid| !indexed.contains(&oid))
+        }),
         "starting the history walk"
     )?;
     let mut signatures: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();

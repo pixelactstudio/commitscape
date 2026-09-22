@@ -31,13 +31,14 @@ pub struct BenchContext {
     pub binary: PathBuf,
     /// Root containing the large benchmark clones.
     pub repos: PathBuf,
+    /// The workspace root, for scratch space under `target/`.
+    pub workspace: PathBuf,
 }
 
 impl BenchContext {
-    /// Path to a named benchmark repository, if it has been cloned.
-    // Unused until the Phase 1 cold-index benchmark lands; it is the mechanism
-    // by which a benchmark reports SKIPPED instead of silently measuring nothing.
-    #[allow(dead_code)]
+    /// Path to a named benchmark repository, if it has been cloned. A missing
+    /// clone makes its benchmarks report SKIPPED instead of silently
+    /// measuring nothing.
     pub fn repo(&self, name: &str) -> Option<PathBuf> {
         let p = self.repos.join(name);
         p.join(".git").is_dir().then_some(p)
@@ -70,7 +71,182 @@ const BENCHMARKS: &[Benchmark] = &[
         default_iterations: 1,
         run: bench_cold_walk_rust,
     },
+    Benchmark {
+        name: "warm-start-rust",
+        description: "binary start to exit on rust-lang/rust with a warm cache; ADR-0002 budget is 100ms to first paint",
+        default_iterations: 20,
+        run: bench_warm_start_rust,
+    },
+    Benchmark {
+        name: "warm-start-linux",
+        description: "binary start to exit on torvalds/linux with a warm cache; the budget holds at every scale",
+        default_iterations: 20,
+        run: bench_warm_start_linux,
+    },
+    Benchmark {
+        name: "warm-update-rust",
+        description: "binary start to exit on rust-lang/rust when a few hundred commits are new; ADR-0002 budget is 300ms",
+        default_iterations: 10,
+        run: bench_warm_update_rust,
+    },
+    Benchmark {
+        name: "cold-index-linux",
+        description: "binary start to exit on torvalds/linux with no cache; an honest stress number, not gating",
+        default_iterations: 1,
+        run: bench_cold_index_linux,
+    },
 ];
+
+/// Cache directory for benchmark runs, kept apart from the user's own.
+fn bench_cache(ctx: &BenchContext, name: &str) -> PathBuf {
+    ctx.workspace.join("target").join("bench-cache").join(name)
+}
+
+/// Runs the binary on a repository and returns how long it took.
+fn time_binary(ctx: &BenchContext, repo: &Path, cache: &Path) -> Result<Duration> {
+    let start = Instant::now();
+    let out = Command::new(&ctx.binary)
+        .arg(repo)
+        .env("COMMITSCAPE_CACHE_DIR", cache)
+        .output()
+        .with_context(|| format!("spawning {}", ctx.binary.display()))?;
+    let elapsed = start.elapsed();
+    if !out.status.success() {
+        bail!(
+            "commitscape exited with {}: {}",
+            out.status,
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    Ok(elapsed)
+}
+
+/// One warm start: an untimed run makes sure the cache is warm (after the
+/// first sample this is itself a warm start), then a timed one.
+fn warm_start(ctx: &BenchContext, name: &str) -> Result<Option<Duration>> {
+    let Some(repo) = ctx.repo(name) else {
+        return Ok(None);
+    };
+    let cache = bench_cache(ctx, name);
+    time_binary(ctx, &repo, &cache)?;
+    time_binary(ctx, &repo, &cache).map(Some)
+}
+
+fn bench_warm_start_rust(ctx: &BenchContext) -> Result<Option<Duration>> {
+    warm_start(ctx, "rust")
+}
+
+fn bench_warm_start_linux(ctx: &BenchContext) -> Result<Option<Duration>> {
+    warm_start(ctx, "linux")
+}
+
+fn bench_cold_index_linux(ctx: &BenchContext) -> Result<Option<Duration>> {
+    let Some(repo) = ctx.repo("linux") else {
+        return Ok(None);
+    };
+    let cache = bench_cache(ctx, "linux-cold");
+    if cache.exists() {
+        std::fs::remove_dir_all(&cache).context("clearing the cold-index cache")?;
+    }
+    let elapsed = time_binary(ctx, &repo, &cache)?;
+    println!("  memory is not measured here: the index runs in a child process");
+    Ok(Some(elapsed))
+}
+
+/// First-parent steps `main` is rewound by to make "a few hundred" commits
+/// new. The exact number of commits is printed with each run.
+const UPDATE_REWIND: u32 = 40;
+
+/// A warm start that has to absorb a few hundred new commits.
+///
+/// Runs against a `--shared` clone of the benchmark repository in `target/`,
+/// never against the clone itself: `main` is rewound, the cache is built and
+/// saved aside, then each sample restores that cache, moves `main` back to
+/// its real tip, and times the run that brings the cache up to date.
+fn bench_warm_update_rust(ctx: &BenchContext) -> Result<Option<Duration>> {
+    let Some(source) = ctx.repo("rust") else {
+        return Ok(None);
+    };
+    let scratch = ctx
+        .workspace
+        .join("target")
+        .join("bench-scratch")
+        .join("rust-update");
+    let cache = bench_cache(ctx, "rust-update");
+    let saved = bench_cache(ctx, "rust-update-saved");
+    let git = |args: &[&str]| -> Result<String> {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(&scratch)
+            .args(args)
+            .output()
+            .with_context(|| format!("running git {}", args.join(" ")))?;
+        if !out.status.success() {
+            bail!(
+                "git {} failed: {}",
+                args.join(" "),
+                String::from_utf8_lossy(&out.stderr)
+            );
+        }
+        Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    };
+
+    if !scratch.join(".git").is_dir() {
+        std::fs::create_dir_all(scratch.parent().unwrap_or(&scratch))?;
+        let status = Command::new("git")
+            .args(["clone", "--quiet", "--shared", "--no-checkout"])
+            .arg(&source)
+            .arg(&scratch)
+            .status()
+            .context("making a shared clone for the update benchmark")?;
+        if !status.success() {
+            bail!("could not make a shared clone of {}", source.display());
+        }
+        // Remember the real tip, then keep only `main` and the tags:
+        // remote-tracking refs would pin the new commits as already reachable.
+        let tip = git(&["rev-parse", "refs/remotes/origin/main"])?;
+        git(&["config", "commitscape.bench.tip", &tip])?;
+        for r in git(&["for-each-ref", "--format=%(refname)", "refs/remotes"])?.lines() {
+            git(&["update-ref", "-d", r])?;
+        }
+    }
+    let tip = git(&["config", "--get", "commitscape.bench.tip"])?;
+    let old = git(&["rev-parse", &format!("{tip}~{UPDATE_REWIND}")])?;
+
+    if !saved.join("done").exists() {
+        git(&["update-ref", "refs/heads/main", &old])?;
+        if cache.exists() {
+            std::fs::remove_dir_all(&cache)?;
+        }
+        time_binary(ctx, &scratch, &cache)?;
+        copy_dir(&cache, &saved)?;
+        std::fs::write(saved.join("done"), b"")?;
+    }
+
+    let new = git(&["rev-list", "--count", &format!("{old}..{tip}")])?;
+    if cache.exists() {
+        std::fs::remove_dir_all(&cache)?;
+    }
+    copy_dir(&saved, &cache)?;
+    git(&["update-ref", "refs/heads/main", &tip])?;
+    let elapsed = time_binary(ctx, &scratch, &cache)?;
+    git(&["update-ref", "refs/heads/main", &old])?;
+    println!("  {new} new commits");
+    Ok(Some(elapsed))
+}
+
+fn copy_dir(from: &Path, to: &Path) -> Result<()> {
+    std::fs::create_dir_all(to)?;
+    for entry in std::fs::read_dir(from)? {
+        let entry = entry?;
+        if entry.file_type()?.is_dir() {
+            copy_dir(&entry.path(), &to.join(entry.file_name()))?;
+        } else {
+            std::fs::copy(entry.path(), to.join(entry.file_name()))?;
+        }
+    }
+    Ok(())
+}
 
 /// One full, uncached walk of `rust-lang/rust`.
 ///
@@ -197,21 +373,21 @@ pub fn run(filter: Option<&str>, iterations: Option<u32>) -> Result<()> {
     let root = crate::workspace_root();
     let binary = root.join("target/release/commitscape");
 
-    if !binary.is_file() {
-        println!("release binary not found, building it first...");
-        let status = Command::new(env!("CARGO"))
-            .args(["build", "--release", "--package", "commitscape"])
-            .current_dir(&root)
-            .status()
-            .context("building the release binary")?;
-        if !status.success() {
-            bail!("release build failed; refusing to benchmark a debug build");
-        }
+    // Always rebuild: a stale binary would benchmark code that no longer
+    // exists. Cargo makes this a no-op when nothing changed.
+    let status = Command::new(env!("CARGO"))
+        .args(["build", "--release", "--package", "commitscape"])
+        .current_dir(&root)
+        .status()
+        .context("building the release binary")?;
+    if !status.success() {
+        bail!("release build failed; refusing to benchmark a debug build");
     }
 
     let ctx = BenchContext {
         binary,
         repos: bench_repo_root(),
+        workspace: root.clone(),
     };
 
     println!("commitscape benchmark harness");

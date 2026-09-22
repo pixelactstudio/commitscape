@@ -21,7 +21,7 @@ use commitscape_core::{Oid, RepoIdentity};
 
 use crate::mailmap::Mailmap;
 use crate::source::{
-    CommitSink, Frontier, RawChange, RawChangeKind, RawCommit, RepoSource, TreeSink, WalkStats,
+    CommitSink, Indexed, RawChange, RawChangeKind, RawCommit, RepoSource, TreeSink, WalkStats,
 };
 
 #[derive(Debug, Clone)]
@@ -50,6 +50,9 @@ struct ScriptedCommit {
 pub struct ScriptedRepo {
     commits: Vec<ScriptedCommit>,
     cursor: Option<Oid>,
+    /// Tips set by [`only_tips`](ScriptedRepo::only_tips); every childless
+    /// commit otherwise.
+    tips: Option<Vec<Oid>>,
     head_blobs: Vec<(Vec<u8>, Vec<u8>)>,
     mailmap: Mailmap,
     truncated: bool,
@@ -137,6 +140,14 @@ impl ScriptedRepo {
         self
     }
 
+    /// Makes only the listed commits tips, counting from 1, as if the refs to
+    /// every other branch did not exist yet. Commits reachable only from
+    /// hidden branches are invisible to the walk.
+    pub fn only_tips(mut self, ns: &[u32]) -> Self {
+        self.tips = Some(ns.iter().map(|&n| synthetic_oid(n)).collect());
+        self
+    }
+
     /// Sets the contents of a file at HEAD, for the tree pass.
     pub fn head_file(mut self, path: &[u8], contents: &str) -> Self {
         self.head_blobs
@@ -187,6 +198,11 @@ impl RepoSource for ScriptedRepo {
     }
 
     fn tips(&self) -> Result<Vec<Oid>, Self::Error> {
+        if let Some(tips) = &self.tips {
+            let mut tips = tips.clone();
+            tips.sort_unstable();
+            return Ok(tips);
+        }
         let parents: HashSet<Oid> = self
             .commits
             .iter()
@@ -202,28 +218,50 @@ impl RepoSource for ScriptedRepo {
         Ok(tips)
     }
 
+    fn refs_fingerprint(&self) -> Result<u64, Self::Error> {
+        let mut h = xxhash_rust::xxh3::Xxh3::new();
+        for tip in self.tips()? {
+            h.update(&tip.0);
+        }
+        Ok(h.digest())
+    }
+
+    fn all_reachable(&self, commits: &[Oid], from: &[Oid]) -> Result<bool, Self::Error> {
+        let reachable = self.reachable(from.iter().copied());
+        Ok(commits.iter().all(|c| reachable.contains(c)))
+    }
+
     fn mailmap(&self) -> Result<Mailmap, Self::Error> {
         Ok(self.mailmap.clone())
     }
 
+    fn mailmap_fingerprint(&self) -> Result<u64, Self::Error> {
+        Ok(self.mailmap.fingerprint())
+    }
+
     fn walk_history(
         &self,
-        stop_at: &Frontier,
+        indexed: &dyn Indexed,
         sink: &mut dyn CommitSink,
     ) -> Result<WalkStats, Self::Error> {
         let mut stats = WalkStats {
             history_truncated: self.truncated,
             ..WalkStats::default()
         };
-        let hidden = self.reachable(stop_at.iter().copied());
-        let wanted = self.reachable(self.tips()?);
+        // Reachable from the tips without passing through an indexed commit.
+        let mut wanted = HashSet::new();
+        let mut stack = self.tips()?;
+        while let Some(id) = stack.pop() {
+            if indexed.contains(&id) || !wanted.insert(id) {
+                continue;
+            }
+            if let Some(c) = self.find(id) {
+                stack.extend(c.parents.iter().copied());
+            }
+        }
 
         for c in self.commits.iter().rev() {
             if !wanted.contains(&c.id) {
-                continue;
-            }
-            if hidden.contains(&c.id) {
-                stats.commits_skipped += 1;
                 continue;
             }
             let changes: Vec<RawChange<'_>> = c

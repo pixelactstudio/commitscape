@@ -22,8 +22,7 @@ use crate::mailmap::Mailmap;
 
 /// Resolves every signature to a person and returns the finished table.
 ///
-/// `commit_counts` is parallel to `signatures`: how many commits each was
-/// used for. A person is displayed under the mailmap-resolved name and email
+/// `used` is parallel to `signatures`: how many commits each was used for. A person is displayed under the mailmap-resolved name and email
 /// of their most-used signature, so the displayed identity does not depend on
 /// the order the walk happened to meet signatures in, and an incremental
 /// index shows the same names as a full one.
@@ -32,7 +31,7 @@ use crate::mailmap::Mailmap;
 /// edit cheap: re-run it over the stored signatures, and no history is read.
 pub fn resolve_authors(
     signatures: Vec<Signature>,
-    commit_counts: &[u32],
+    used: Vec<u32>,
     mailmap: &Mailmap,
 ) -> AuthorTable {
     let mut by_key: HashMap<Vec<u8>, AuthorId> = HashMap::new();
@@ -60,8 +59,8 @@ pub fn resolve_authors(
                 .iter()
                 .copied()
                 .max_by_key(|s| {
-                    let used = commit_counts.get(s.idx()).copied().unwrap_or(0);
-                    (used, std::cmp::Reverse(s.0))
+                    let count = used.get(s.idx()).copied().unwrap_or(0);
+                    (count, std::cmp::Reverse(s.0))
                 })
                 .and_then(|s| signatures.get(s.idx()));
             let (name, email) = match display {
@@ -83,7 +82,7 @@ pub fn resolve_authors(
         .collect();
 
     let suspects = suspected_duplicates(&authors);
-    AuthorTable::new(signatures, person_of, authors, suspects)
+    AuthorTable::new(signatures, used, person_of, authors, suspects)
 }
 
 /// Applies rules 2 and 3 to produce the key two identities must share to be
@@ -180,7 +179,7 @@ mod tests {
 
     /// Resolves with every signature used once.
     fn resolve(sigs: &[Signature], mailmap: &Mailmap) -> AuthorTable {
-        resolve_authors(sigs.to_vec(), &vec![1; sigs.len()], mailmap)
+        resolve_authors(sigs.to_vec(), vec![1; sigs.len()], mailmap)
     }
 
     fn same_person(t: &AuthorTable, a: u32, b: u32) -> bool {
@@ -307,7 +306,7 @@ mod tests {
                 sig("Alice Example", "Alice@Example.COM"),
                 sig("Alice Example", "alice@example.com"),
             ],
-            &[2, 5],
+            vec![2, 5],
             &Mailmap::default(),
         );
         let alice = t.get(AuthorId(0)).expect("one person");

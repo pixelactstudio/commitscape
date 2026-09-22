@@ -14,8 +14,8 @@ use std::collections::HashMap;
 use std::ops::ControlFlow;
 
 use commitscape_core::{
-    ChangeKind, CommitFlags, CommitMeta, FileChange, Index, Oid, PathEvent, PathId, PathTable,
-    RepoIdentity, Signature, SignatureId,
+    ChangeKind, CommitFlags, CommitMeta, FileChange, HistorySpan, Index, Oid, PathEvent, PathId,
+    PathTable, RepoIdentity, Signature, SignatureId,
 };
 
 use crate::identity::resolve_authors;
@@ -42,16 +42,64 @@ struct PendingCommit {
     changes_len: u32,
 }
 
+/// Byte strings to dense ids, keyed by a 64-bit hash of the bytes.
+///
+/// Resuming an index rebuilds this for every path it has ever seen. Keyed by
+/// owned copies that meant one allocation per path, a noticeable share of an
+/// update; keyed by hash it is one table of integers. Every hit is checked
+/// against the real bytes, so a hash collision costs a lookup, not a wrong id.
+#[derive(Default)]
+struct HashIndex {
+    by_hash: HashMap<u64, u32>,
+    /// Entries whose hash was already taken. Practically always empty.
+    collisions: Vec<(u64, u32)>,
+}
+
+impl HashIndex {
+    fn get(&self, hash: u64, matches: impl Fn(u32) -> bool) -> Option<u32> {
+        if let Some(&id) = self.by_hash.get(&hash) {
+            if matches(id) {
+                return Some(id);
+            }
+        }
+        self.collisions
+            .iter()
+            .find(|(h, id)| *h == hash && matches(*id))
+            .map(|(_, id)| *id)
+    }
+
+    fn insert(&mut self, hash: u64, id: u32) {
+        match self.by_hash.entry(hash) {
+            std::collections::hash_map::Entry::Vacant(v) => {
+                v.insert(id);
+            }
+            std::collections::hash_map::Entry::Occupied(_) => self.collisions.push((hash, id)),
+        }
+    }
+}
+
+fn signature_hash(name: &[u8], email: &[u8]) -> u64 {
+    let mut h = xxhash_rust::xxh3::Xxh3::new();
+    h.update(&(name.len() as u64).to_le_bytes());
+    h.update(name);
+    h.update(email);
+    h.digest()
+}
+
 /// Accumulates commits pushed by a walk, in whatever order it produces them.
 pub struct IndexBuilder {
     mailmap: Mailmap,
     paths: PathTable,
-    path_ids: HashMap<Vec<u8>, PathId>,
+    path_ids: HashIndex,
     signatures: Vec<Signature>,
-    signature_ids: HashMap<(Vec<u8>, Vec<u8>), SignatureId>,
+    /// Commits per signature, including any already in `base`.
+    used: Vec<u32>,
+    signature_ids: HashIndex,
     commits: Vec<PendingCommit>,
     pending: Vec<PendingChange>,
-    progress: Option<Box<dyn FnMut(u64, u64) + Send>>,
+    /// The index being extended, with its path and author tables moved out
+    /// into the fields above.
+    base: Option<Index>,
 }
 
 impl IndexBuilder {
@@ -59,50 +107,124 @@ impl IndexBuilder {
         IndexBuilder {
             mailmap,
             paths: PathTable::default(),
-            path_ids: HashMap::new(),
+            path_ids: HashIndex::default(),
             signatures: Vec::new(),
-            signature_ids: HashMap::new(),
+            used: Vec::new(),
+            signature_ids: HashIndex::default(),
             commits: Vec::new(),
             pending: Vec::new(),
-            progress: None,
+            base: None,
         }
     }
 
-    /// Installs a progress callback, invoked with (done, total) commits.
-    pub fn on_progress(mut self, f: impl FnMut(u64, u64) + Send + 'static) -> Self {
-        self.progress = Some(Box::new(f));
-        self
+    /// Continues an existing index. New commits resolve against its paths and
+    /// signatures, and [`finish`](Self::finish) merges them into its history.
+    ///
+    /// `index` may hold only recent history. It must hold every commit at or
+    /// after the oldest commit the walk will add, or the merge cannot place
+    /// them; the cache arranges that before resuming.
+    ///
+    /// New commits are resolved after every commit already indexed, even one
+    /// dated older (a long-lived branch merged late). A full reindex would
+    /// interleave them by date instead. The two can differ only when such a
+    /// commit renames a path that newer history also touched.
+    pub fn resume(mut index: Index, mailmap: Mailmap) -> Self {
+        let paths = std::mem::take(&mut index.paths);
+        let mut path_ids = HashIndex::default();
+        for (id, name) in paths.path_names() {
+            path_ids.insert(xxhash_rust::xxh3::xxh3_64(name), id.0);
+        }
+        let (signatures, used) = std::mem::take(&mut index.authors).into_signatures();
+        let mut signature_ids = HashIndex::default();
+        for (i, s) in signatures.iter().enumerate() {
+            signature_ids.insert(
+                signature_hash(s.name.as_bytes(), s.email.as_bytes()),
+                i as u32,
+            );
+        }
+        IndexBuilder {
+            mailmap,
+            paths,
+            path_ids,
+            signatures,
+            used,
+            signature_ids,
+            commits: Vec::new(),
+            pending: Vec::new(),
+            base: Some(index),
+        }
     }
 
+    /// Commits added so far.
     pub fn commit_count(&self) -> usize {
         self.commits.len()
     }
 
+    /// The ids of the commits added so far.
+    pub fn added_ids(&self) -> Vec<Oid> {
+        self.commits.iter().map(|c| c.id).collect()
+    }
+
+    /// The time of the oldest commit added so far.
+    pub fn oldest_pending_time(&self) -> Option<i64> {
+        self.commits.iter().map(|c| c.time).min()
+    }
+
+    /// Extends the resumed index further back, so that it covers the oldest
+    /// commit being added. `commits` and `changes` are the history just
+    /// before what is loaded; `loaded_from` is the new start of coverage.
+    pub fn prepend_base(
+        &mut self,
+        commits: Vec<CommitMeta>,
+        changes: Vec<FileChange>,
+        loaded_from: Option<i64>,
+    ) {
+        if let Some(base) = self.base.as_mut() {
+            base.prepend_history(commits, changes, loaded_from);
+        }
+    }
+
     fn path_id(&mut self, path: &[u8]) -> PathId {
-        if let Some(&id) = self.path_ids.get(path) {
-            return id;
+        let hash = xxhash_rust::xxh3::xxh3_64(path);
+        let paths = &self.paths;
+        if let Some(id) = self
+            .path_ids
+            .get(hash, |id| paths.path_name(PathId(id)) == Some(path))
+        {
+            return PathId(id);
         }
         let id = self.paths.push_path(path);
-        self.path_ids.insert(path.to_vec(), id);
+        self.path_ids.insert(hash, id.0);
         id
     }
 
     fn signature_id(&mut self, name: &[u8], email: &[u8]) -> SignatureId {
-        let key = (name.to_vec(), email.to_vec());
-        if let Some(&id) = self.signature_ids.get(&key) {
-            return id;
+        // Signatures are stored as text, so compare in the form they were
+        // stored in; a name that is not UTF-8 is stored lossily either way.
+        let name = String::from_utf8_lossy(name);
+        let email = String::from_utf8_lossy(email);
+        let hash = signature_hash(name.as_bytes(), email.as_bytes());
+        let signatures = &self.signatures;
+        if let Some(id) = self.signature_ids.get(hash, |id| {
+            signatures
+                .get(id as usize)
+                .is_some_and(|s| s.name == name && s.email == email)
+        }) {
+            return SignatureId(id);
         }
         let id = SignatureId(self.signatures.len() as u32);
         self.signatures.push(Signature {
-            name: String::from_utf8_lossy(name).into_owned(),
-            email: String::from_utf8_lossy(email).into_owned(),
+            name: name.into_owned(),
+            email: email.into_owned(),
         });
-        self.signature_ids.insert(key, id);
+        self.used.push(0);
+        self.signature_ids.insert(hash, id.0);
         id
     }
 
     /// Sorts into ascending commit time, resolves file identity oldest first,
-    /// and resolves signatures to people.
+    /// resolves signatures to people, and merges with the resumed index if
+    /// there is one.
     ///
     /// ADR-0002 makes ascending time an invariant because it is what turns a
     /// time window into a contiguous range. Ties are broken by commit id so
@@ -117,7 +239,6 @@ impl IndexBuilder {
 
         let mut changes = Vec::with_capacity(self.pending.len());
         let mut commits = Vec::with_capacity(self.commits.len());
-        let mut used = vec![0u32; self.signatures.len()];
 
         for c in &self.commits {
             let start = changes.len() as u32;
@@ -140,7 +261,7 @@ impl IndexBuilder {
                     lines: None,
                 });
             }
-            if let Some(n) = used.get_mut(c.signature.idx()) {
+            if let Some(n) = self.used.get_mut(c.signature.idx()) {
                 *n += 1;
             }
             commits.push(CommitMeta {
@@ -153,17 +274,77 @@ impl IndexBuilder {
             });
         }
 
-        Index {
-            schema_version: commitscape_core::SCHEMA_VERSION,
-            repo,
-            frontier,
-            commits,
-            changes,
-            paths: self.paths,
-            authors: resolve_authors(self.signatures, &used, &self.mailmap),
-            head: Vec::new(),
-            history_truncated,
-        }
+        let added = HistorySpan::of(&commits);
+        let mut index = match self.base.take() {
+            Some(mut base) => {
+                merge_history(&mut base, commits, changes);
+                base.span = base.span.joined(added);
+                base.history_truncated = history_truncated;
+                base
+            }
+            None => {
+                let mut fresh = Index::empty(repo.clone());
+                fresh.commits = commits;
+                fresh.changes = changes;
+                fresh.span = added;
+                fresh.history_truncated = history_truncated;
+                fresh
+            }
+        };
+        index.repo = repo;
+        index.frontier = frontier;
+        index.schema_version = commitscape_core::SCHEMA_VERSION;
+        index.paths = self.paths;
+        index.authors = resolve_authors(self.signatures, self.used, &self.mailmap);
+        index
+    }
+}
+
+/// Merges time-sorted new commits into an index's time-sorted history.
+///
+/// New commits are almost always newer than everything indexed, and are
+/// appended. A long-lived branch merged late can bring older ones, and then
+/// only the tail from the oldest of them onward is re-sorted.
+fn merge_history(index: &mut Index, new_commits: Vec<CommitMeta>, new_changes: Vec<FileChange>) {
+    let Some(first_new) = new_commits.first().copied() else {
+        return;
+    };
+    let key = |c: &CommitMeta| (c.time, c.id.0);
+    let split = index.commits.partition_point(|c| key(c) <= key(&first_new));
+
+    let tail: Vec<CommitMeta> = index.commits.split_off(split);
+    let arena_split = tail
+        .first()
+        .map(|c| c.changes_start as usize)
+        .unwrap_or(index.changes.len());
+    let old_changes = index.changes.split_off(arena_split);
+
+    // Two sorted runs, merged; each commit's changes are copied from the
+    // arena it came from.
+    let mut a = tail.into_iter().peekable();
+    let mut b = new_commits.into_iter().peekable();
+    loop {
+        let from_old = match (a.peek(), b.peek()) {
+            (Some(x), Some(y)) => key(x) <= key(y),
+            (Some(_), None) => true,
+            (None, Some(_)) => false,
+            (None, None) => break,
+        };
+        let (commit, arena, base) = if from_old {
+            (a.next(), &old_changes, arena_split)
+        } else {
+            (b.next(), &new_changes, 0)
+        };
+        let Some(mut commit) = commit else {
+            break;
+        };
+        let start = commit.changes_start as usize - base;
+        let slice = arena
+            .get(start..start + commit.changes_len as usize)
+            .unwrap_or(&[]);
+        commit.changes_start = index.changes.len() as u32;
+        index.changes.extend_from_slice(slice);
+        index.commits.push(commit);
     }
 }
 
@@ -206,12 +387,6 @@ impl CommitSink for IndexBuilder {
             changes_len: self.pending.len() as u32 - start,
         });
         ControlFlow::Continue(())
-    }
-
-    fn on_progress(&mut self, done: u64, total: u64) {
-        if let Some(p) = self.progress.as_mut() {
-            p(done, total);
-        }
     }
 }
 

@@ -17,14 +17,29 @@ use commitscape_core::Oid;
 
 use crate::mailmap::Mailmap;
 
-/// The tips recorded by the last index. A walk excludes every commit reachable
-/// from them, as `git rev-list <tips> --not <frontier>` does.
+/// The tips recorded by the last index (ADR-0002).
 ///
 /// A **set**, not a single sha. Merging a long-lived branch introduces commits
 /// whose dates are older than the recorded tip; resuming from one sha, or from
-/// a timestamp, silently drops them and reports success (ADR-0002). Excluding
-/// by reachability rather than by date is what finds them.
+/// a timestamp, silently drops them and reports success.
 pub type Frontier = HashSet<Oid>;
+
+/// Commits already in the index.
+///
+/// Always closed under ancestry: every parent of an indexed commit is indexed
+/// too, or absent from a shallow clone. That lets a walk stop at the first
+/// indexed commit on each path and still find every new commit, including
+/// older-dated ones a merge made reachable, in time proportional to the new
+/// commits rather than to history.
+pub trait Indexed: Sync {
+    fn contains(&self, id: &Oid) -> bool;
+}
+
+impl Indexed for HashSet<Oid> {
+    fn contains(&self, id: &Oid) -> bool {
+        HashSet::contains(self, id)
+    }
+}
 
 /// A commit, as the adapter sees it.
 ///
@@ -94,8 +109,6 @@ pub trait TreeSink {
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct WalkStats {
     pub commits_visited: u64,
-    /// Commits skipped because they were already in the frontier.
-    pub commits_skipped: u64,
     /// True when the repository is shallow, so the counts above are a floor
     /// rather than a total.
     pub history_truncated: bool,
@@ -113,14 +126,38 @@ pub trait RepoSource {
     /// history.
     fn tips(&self) -> Result<Vec<Oid>, Self::Error>;
 
+    /// A cheap summary of every history ref and of HEAD.
+    ///
+    /// Equal fingerprints mean nothing [`tips`](Self::tips) or the HEAD tree
+    /// depend on has moved, so a warm start can skip the walk without peeling
+    /// a single tag. Computing it must not read commits or trees.
+    fn refs_fingerprint(&self) -> Result<u64, Self::Error>;
+
+    /// Whether every one of `commits` is reachable from `from`.
+    ///
+    /// False means history was rewritten, or a branch holding unmerged commits
+    /// was deleted. Either way, something the cache recorded is no longer part
+    /// of the repository's history, and resuming would keep it.
+    fn all_reachable(&self, commits: &[Oid], from: &[Oid]) -> Result<bool, Self::Error>;
+
     /// The repository's mailmap, empty if it has none.
     fn mailmap(&self) -> Result<Mailmap, Self::Error>;
 
+    /// A cheap value that changes whenever [`mailmap`](Self::mailmap) would
+    /// return something different.
+    ///
+    /// Read on every warm start, so it must not read git objects when it can
+    /// avoid it. A mailmap that lives in history (a bare repository's, say)
+    /// can only change when HEAD does, which the refs fingerprint already
+    /// covers; only a work-tree file can change behind git's back.
+    fn mailmap_fingerprint(&self) -> Result<u64, Self::Error>;
+
     /// Pushes into `sink` every commit reachable from [`tips`](Self::tips)
-    /// but not from `stop_at`, with its name-status changes.
+    /// that is not already `indexed`, with its name-status changes. The walk
+    /// does not go past an indexed commit.
     fn walk_history(
         &self,
-        stop_at: &Frontier,
+        indexed: &dyn Indexed,
         sink: &mut dyn CommitSink,
     ) -> Result<WalkStats, Self::Error>;
 

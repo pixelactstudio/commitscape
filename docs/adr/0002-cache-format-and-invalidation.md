@@ -4,7 +4,7 @@ The cache stores facts only, never findings. The body is laid out so that a boun
 
 ## Status
 
-accepted — supersedes the eager-summary design in the first draft of this ADR
+accepted — supersedes the eager-summary design in the first draft of this ADR. How the files are written, and how a resume finds new commits, are refined by ADR-0008.
 
 ## Context
 

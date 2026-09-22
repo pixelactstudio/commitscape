@@ -33,6 +33,10 @@ pub struct MailmapRule {
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Mailmap {
     rules: Vec<MailmapRule>,
+    /// Lowercased commit email -> indices of the rules matching it, in file
+    /// order. A large project's mailmap has a thousand rules and its history
+    /// tens of thousands of signatures, so resolving must not scan every rule.
+    by_email: std::collections::HashMap<Vec<u8>, Vec<usize>>,
 }
 
 impl Mailmap {
@@ -42,6 +46,30 @@ impl Mailmap {
 
     pub fn len(&self) -> usize {
         self.rules.len()
+    }
+
+    /// A stable hash of the rules, so the cache can tell when a mailmap
+    /// changed and people need re-resolving.
+    pub fn fingerprint(&self) -> u64 {
+        let mut h = xxhash_rust::xxh3::Xxh3::new();
+        for rule in &self.rules {
+            for part in [
+                rule.proper_name.as_deref(),
+                Some(rule.proper_email.as_slice()),
+                rule.match_name.as_deref(),
+                Some(rule.match_email.as_slice()),
+            ] {
+                match part {
+                    Some(bytes) => {
+                        h.update(&[1]);
+                        h.update(&(bytes.len() as u64).to_le_bytes());
+                        h.update(bytes);
+                    }
+                    None => h.update(&[0]),
+                }
+            }
+        }
+        h.digest()
     }
 
     /// Parses mailmap file contents. Malformed lines are skipped, matching
@@ -57,7 +85,15 @@ impl Mailmap {
                 rules.push(rule);
             }
         }
-        Mailmap { rules }
+        let mut by_email: std::collections::HashMap<Vec<u8>, Vec<usize>> =
+            std::collections::HashMap::new();
+        for (i, rule) in rules.iter().enumerate() {
+            by_email
+                .entry(rule.match_email.to_ascii_lowercase())
+                .or_default()
+                .push(i);
+        }
+        Mailmap { rules, by_email }
     }
 
     /// Applies the mailmap to a raw identity, returning the canonical one.
@@ -67,10 +103,12 @@ impl Mailmap {
     /// naming only an email.
     pub fn resolve<'a>(&'a self, name: &'a [u8], email: &'a [u8]) -> (&'a [u8], &'a [u8]) {
         let mut best: Option<&MailmapRule> = None;
-        for rule in &self.rules {
-            if !eq_ignore_case(&rule.match_email, email) {
-                continue;
-            }
+        let candidates = self
+            .by_email
+            .get(&email.to_ascii_lowercase())
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        for rule in candidates.iter().filter_map(|&i| self.rules.get(i)) {
             match &rule.match_name {
                 Some(n) if eq_ignore_case(n, name) => {
                     best = Some(rule);

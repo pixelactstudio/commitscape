@@ -3,9 +3,10 @@
 Running log for Build Run 1 (Phases 0 to 7). Written so a fresh session with
 no context can read this plus `docs/adr/` and continue without asking anything.
 
-**Current position:** Phase 1 complete. Cold walk on `rust-lang/rust` is 23 to
-27s against the 60s budget, and the walk matches `git diff-tree -c` on every
-sampled commit of four real repositories. Phase 2 (the cache) is next.
+**Current position:** Phase 2 complete. Warm start is 23ms on both
+`rust-lang/rust` and Linux against the 100ms budget; a warm start that absorbs
+625 new commits is 165 to 257ms against 300ms. Phase 3 (the HEAD pass and
+Generated File classification) is next.
 
 ---
 
@@ -15,7 +16,7 @@ sampled commit of four real repositories. Phase 2 (the cache) is next.
 |---|---|---|
 | 0 | Benchmark harness runs and records a number | **PASS — `startup` median 0.95ms** (min 0.56, max 1.05, n=20) |
 | 1 | Cold walk time on `rust-lang/rust` recorded | **PASS: 23.1 to 26.9s** (budget 60s). First run was 114s; see ADR-0007 |
-| 2 | Warm start measured, in ms | NOT YET RUN |
+| 2 | Warm start measured, in ms | **PASS: 23.1ms rust-lang/rust, 23.5ms Linux** (medians, n=20; budget 100ms) |
 | 3 | Top-10 largest and top-10 hotspots contain no lockfiles / drizzle snapshots / `routeTree.gen.ts` | NOT YET RUN |
 | 4 | Metric values match hand-worked fixture literals | NOT YET RUN |
 | — | Throwaway ratatui spike, captured then deleted | NOT YET RUN |
@@ -75,6 +76,28 @@ diff-tree -c --raw` and `git rev-list --count`:
 
 CI runs the same check over every fixture.
 
+### Phase 2 measured numbers
+
+```
+warm-start-rust    min 19.9ms   median 23.1ms   max 27.2ms   n=20   (budget 100ms)
+warm-start-linux   min 20.9ms   median 23.5ms   max 30.9ms   n=20   (budget 100ms)
+warm-update-rust   min 164.7ms  median 170.6 to 192.3ms  max 256.9ms  n=10
+                   625 new commits, main rewound 40 first-parent steps (budget 300ms)
+cold-index-linux   86.2s, 1,483,509 commits, 950 refs     (stress number, not gating)
+cache size         rust-lang/rust: 12.5 MB head, 26 MB data
+                   Linux: 12.8 MB head, 97 MB data
+```
+
+Warm start means the binary from process start to exit, reading the cache for
+a 90-day window: open the repository, fingerprint the refs, read and decode the
+head, read the months the window needs. No git object is read. Page cache
+matters: with the head file evicted, reading it alone took 21 to 25ms.
+
+What the warm path costs, measured on rust-lang/rust with a warm page cache:
+repository open 0.4ms, refs fingerprint 0.2ms (1.2ms for Linux's 950 refs),
+head file read 6ms, checksum 1.2ms, decode 7 to 8ms on three threads, window
+blocks 2 to 3ms.
+
 ---
 
 ## Environment
@@ -129,6 +152,35 @@ CI runs the same check over every fixture.
    `refs/original/*` were walked as if they were branches. Tips are now HEAD
    plus `refs/heads`, `refs/remotes` and `refs/tags`.
 
+## Phase 2 findings
+
+1. **On btrfs, renaming over an existing file forces the new file's data to
+   disk first.** A 67 MB write took 45ms; the rename over the old file took
+   1.2 to 4.4 seconds. ADR-0002's "write to temporary files and rename" put
+   that on every update. ADR-0008 writes heads under new names and swaps a
+   small pointer file instead.
+2. **gix's hidden-commit walk paints from every hidden tip.** Hiding the
+   frontier (every ref, including about 950 tags on Linux) made a resume with
+   nothing new take 11 seconds on Linux and 2.4 on rust-lang/rust. The resume
+   now stops at the first indexed commit on each path, using the stored
+   commit ids; the same resume takes about 100ms.
+3. **The mailmap was scanned rule by rule for every signature.** Linux has 989
+   rules and 39,381 people; resolving took about 500ms. Rules are now indexed
+   by lowercased email.
+4. **A warm start must not touch git objects.** Peeling HEAD for the refs
+   fingerprint and reading a no-checkout clone's committed `.mailmap` each
+   opened the pack index, 20 to 60ms on a cold page cache. The fingerprint now
+   hashes HEAD's stored target, and the committed mailmap is represented by
+   HEAD's commit id, read only when it changed.
+5. **One allocation per string made the author table the slowest thing to
+   decode**: 15ms for Linux's 39,381 people. Its strings are now packed into
+   shared buffers, and the head decodes its path, author and HEAD tables on
+   separate threads.
+6. **Rewriting everything per update wrote about 110 MB on Linux** and varied
+   from 55 to 350ms with kernel writeback. The data file is now append-only
+   (ADR-0008): an update appends the months it re-encoded and a run of new
+   commit ids.
+
 ## Decisions made during implementation, not in any ADR
 
 1. **`bincode` pinned to `=2.0.1`.** `cargo add` resolves to 3.0.0, which is a
@@ -167,6 +219,17 @@ CI runs the same check over every fixture.
 9. **Cache sizes per diff thread: 16 MB objects, 48 MB delta bases.** Larger
    caches (32 and 96 MB) were about 10% faster and cost about 500 MB more peak
    memory.
+10. **The cache lives in the platform cache directory**, never in the
+    repository: `COMMITSCAPE_CACHE_DIR`, then `$XDG_CACHE_HOME` or `~/.cache`
+    on Linux, `~/Library/Caches` on macOS, `%LOCALAPPDATA%` on Windows. The
+    key is a hash of the canonical git directory; a different project cloned
+    to the same path is caught because none of the cached commits exist in it.
+11. **Bulk and window are applied at read time; the cache is keyed only by
+    what git says.** A refs fingerprint (every history ref's stored target,
+    unpeeled, plus HEAD) decides warm versus update. A mailmap fingerprint
+    decides re-resolution.
+12. **The binary loads a 90-day window by default** and prints a summary of
+    the index. That stands in for the TUI (Phase 7) and `--json` (Phase 6).
 
 ---
 
@@ -188,14 +251,14 @@ CI runs the same check over every fixture.
 
 ## Where to pick up
 
-Phase 2: the cache. ADR-0002 is the specification: bincode, a body range-readable
-by commit time with a monthly offset table, a frontier-set resume, rewrite
-detection, atomic two-file writes, and every failure degrading to a reindex.
-Gate: warm start measured in ms, with ADR-0002's budget of 100ms to first paint
-at every scale including Linux.
-
-Re-read `docs/adr/0002-cache-format-and-invalidation.md` from disk before
-starting, not from memory.
+Phase 3: the HEAD pass. Read every blob at HEAD once (ADR-0004), measure the
+Complexity Proxy (indentation levels) and lines, and classify Generated Files
+(lockfiles, ORM snapshots, `*.gen.ts`, minified output, vendored trees,
+`.gitattributes` `linguist-generated`). Store it in the HEAD table, update it
+incrementally when HEAD moves, and rank the largest files and the hotspots.
+Gate: the top 10 largest and top 10 hotspots contain no lockfiles, drizzle
+snapshots or `routeTree.gen.ts` on a repository that has them
+(`~/code/pixelactstudio` has all three).
 
 Seams signed off by the user and not open for revision:
 `RepoSource` (fake + real), `Index`, the `Analysis` methods, `--json` golden

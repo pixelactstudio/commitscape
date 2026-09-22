@@ -176,34 +176,84 @@ pub struct Author {
 /// resolver in the index crate applies the mailmap and ADR-0006's two rules to
 /// the signature list and builds this table. Re-resolving is cheap, which is
 /// why a mailmap change never needs a reindex.
+///
+/// Every string is packed into shared buffers. A large project has tens of
+/// thousands of people and signatures, and this table is read on every warm
+/// start: one allocation per string made it the slowest part of the read.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuthorTable {
-    signatures: Vec<Signature>,
-    /// `SignatureId` -> `AuthorId`, parallel to `signatures`.
+    signature_names: Packed,
+    signature_emails: Packed,
+    /// Commits made under each signature over all of history, parallel to the
+    /// signatures. Kept so that re-resolving never needs every commit.
+    used: Vec<u32>,
+    /// `SignatureId` -> `AuthorId`, parallel to the signatures.
     person_of: Vec<AuthorId>,
-    authors: Vec<Author>,
+    author_names: Packed,
+    author_emails: Packed,
+    /// Each person's signatures, flattened: person `i` owns
+    /// `members[member_ends[i - 1]..member_ends[i]]`.
+    members: Vec<SignatureId>,
+    member_ends: Vec<u32>,
     /// Suspected-but-unmerged groups of people (ADR-0006). Surfaced to the
     /// user as a prompt to write a `.mailmap`, never merged silently.
     pub suspected_duplicates: Vec<Vec<AuthorId>>,
 }
 
+/// A signature, borrowed from an [`AuthorTable`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SignatureRef<'a> {
+    pub name: &'a str,
+    pub email: &'a str,
+}
+
+/// A person, borrowed from an [`AuthorTable`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AuthorRef<'a> {
+    /// Canonical name, after the mailmap.
+    pub name: &'a str,
+    /// Canonical email, after the mailmap.
+    pub email: &'a str,
+    /// Every signature that resolved to this person, so the interface can
+    /// show its work.
+    pub signatures: &'a [SignatureId],
+}
+
 impl AuthorTable {
-    /// Assembles a resolved table. `person_of` must be parallel to
-    /// `signatures`, and every id in it must index `authors`.
+    /// Assembles a resolved table. `used` and `person_of` must be parallel
+    /// to `signatures`, and every id in `person_of` must index `authors`.
     pub fn new(
         signatures: Vec<Signature>,
+        used: Vec<u32>,
         person_of: Vec<AuthorId>,
         authors: Vec<Author>,
         suspected_duplicates: Vec<Vec<AuthorId>>,
     ) -> Self {
         debug_assert_eq!(signatures.len(), person_of.len());
+        debug_assert_eq!(signatures.len(), used.len());
         debug_assert!(person_of.iter().all(|a| a.idx() < authors.len()));
-        AuthorTable {
-            signatures,
+        let mut t = AuthorTable {
+            used,
             person_of,
-            authors,
             suspected_duplicates,
+            ..AuthorTable::default()
+        };
+        for s in &signatures {
+            t.signature_names.push(s.name.as_bytes());
+            t.signature_emails.push(s.email.as_bytes());
         }
+        for a in &authors {
+            t.author_names.push(a.name.as_bytes());
+            t.author_emails.push(a.email.as_bytes());
+            t.members.extend_from_slice(&a.signatures);
+            t.member_ends.push(t.members.len() as u32);
+        }
+        t
+    }
+
+    /// Commits made under each signature over all of history, by id.
+    pub fn used(&self) -> &[u32] {
+        &self.used
     }
 
     /// The person a signature resolved to.
@@ -211,39 +261,101 @@ impl AuthorTable {
         self.person_of.get(signature.idx()).copied()
     }
 
-    pub fn signature(&self, id: SignatureId) -> Option<&Signature> {
-        self.signatures.get(id.idx())
+    pub fn signature(&self, id: SignatureId) -> Option<SignatureRef<'_>> {
+        Some(SignatureRef {
+            name: self.signature_names.text(id.idx())?,
+            email: self.signature_emails.text(id.idx())?,
+        })
     }
 
-    /// Every signature, in id order.
-    pub fn signatures(&self) -> &[Signature] {
-        &self.signatures
+    /// Number of signatures.
+    pub fn signature_count(&self) -> usize {
+        self.person_of.len()
     }
 
-    /// Gives up the signature list, for re-resolution after it has grown.
-    pub fn into_signatures(self) -> Vec<Signature> {
-        self.signatures
+    /// Copies out the signatures and their commit counts, for re-resolution.
+    pub fn into_signatures(self) -> (Vec<Signature>, Vec<u32>) {
+        let signatures = (0..self.person_of.len())
+            .map(|i| Signature {
+                name: self.signature_names.text(i).unwrap_or_default().to_string(),
+                email: self
+                    .signature_emails
+                    .text(i)
+                    .unwrap_or_default()
+                    .to_string(),
+            })
+            .collect();
+        (signatures, self.used)
     }
 
-    pub fn get(&self, id: AuthorId) -> Option<&Author> {
-        self.authors.get(id.idx())
+    pub fn get(&self, id: AuthorId) -> Option<AuthorRef<'_>> {
+        let end = *self.member_ends.get(id.idx())? as usize;
+        let start = match id.idx() {
+            0 => 0,
+            i => *self.member_ends.get(i - 1)? as usize,
+        };
+        Some(AuthorRef {
+            name: self.author_names.text(id.idx())?,
+            email: self.author_emails.text(id.idx())?,
+            signatures: self.members.get(start..end)?,
+        })
     }
 
     /// Number of people.
     pub fn len(&self) -> usize {
-        self.authors.len()
+        self.member_ends.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.authors.is_empty()
+        self.member_ends.is_empty()
     }
 
     /// Every person, in id order.
-    pub fn iter(&self) -> impl Iterator<Item = (AuthorId, &Author)> {
-        self.authors
-            .iter()
-            .enumerate()
-            .map(|(i, a)| (AuthorId(i as u32), a))
+    pub fn iter(&self) -> impl Iterator<Item = (AuthorId, AuthorRef<'_>)> {
+        (0..self.len()).filter_map(|i| {
+            let id = AuthorId(i as u32);
+            self.get(id).map(|a| (id, a))
+        })
+    }
+}
+
+/// Byte strings packed end to end in one buffer: two allocations for any
+/// number of strings, and a decode that is a copy.
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct Packed {
+    #[serde(with = "serde_bytes")]
+    bytes: Vec<u8>,
+    /// End offset of each string in `bytes`.
+    ends: Vec<u32>,
+}
+
+impl Packed {
+    fn push(&mut self, s: &[u8]) -> usize {
+        self.bytes.extend_from_slice(s);
+        self.ends.push(self.bytes.len() as u32);
+        self.ends.len() - 1
+    }
+
+    fn get(&self, i: usize) -> Option<&[u8]> {
+        let end = *self.ends.get(i)? as usize;
+        let start = match i {
+            0 => 0,
+            i => *self.ends.get(i - 1)? as usize,
+        };
+        self.bytes.get(start..end)
+    }
+
+    /// A string pushed as UTF-8 text.
+    fn text(&self, i: usize) -> Option<&str> {
+        std::str::from_utf8(self.get(i)?).ok()
+    }
+
+    fn len(&self) -> usize {
+        self.ends.len()
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &[u8]> {
+        (0..self.ends.len()).filter_map(|i| self.get(i))
     }
 }
 
@@ -280,7 +392,7 @@ pub enum PathEvent {
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PathTable {
     /// Every distinct path ever touched, by `PathId`.
-    names: Vec<Vec<u8>>,
+    names: Packed,
     /// `PathId` -> the file living at that path now, if any.
     live: Vec<Option<FileId>>,
     /// `FileId` -> the path that file most recently lived at.
@@ -294,8 +406,7 @@ impl PathTable {
     /// here: the builder keeps the reverse map, because a warm start never
     /// needs one and should not pay to rebuild it.
     pub fn push_path(&mut self, path: &[u8]) -> PathId {
-        let id = PathId(self.names.len() as u32);
-        self.names.push(path.to_vec());
+        let id = PathId(self.names.push(path) as u32);
         self.live.push(None);
         id
     }
@@ -349,6 +460,11 @@ impl PathTable {
         self.live.get(at).copied().flatten()
     }
 
+    /// The string of a path id.
+    pub fn path_name(&self, path: PathId) -> Option<&[u8]> {
+        self.names.get(path.idx())
+    }
+
     /// The file living at a path now.
     pub fn live_file(&self, path: PathId) -> Option<FileId> {
         self.live.get(path.idx()).copied().flatten()
@@ -357,7 +473,7 @@ impl PathTable {
     /// The path a file most recently lived at.
     pub fn path(&self, id: FileId) -> Option<&[u8]> {
         let path = self.current.get(id.idx())?;
-        self.names.get(path.idx()).map(|v| v.as_slice())
+        self.names.get(path.idx())
     }
 
     /// The current path as text, replacing invalid UTF-8 rather than failing.
@@ -373,7 +489,7 @@ impl PathTable {
         self.departures
             .iter()
             .filter(move |(file, _)| *file == id)
-            .filter_map(|(_, path)| self.names.get(path.idx()).map(|v| v.as_slice()))
+            .filter_map(|(_, path)| self.names.get(path.idx()))
     }
 
     /// Number of files.
@@ -395,16 +511,15 @@ impl PathTable {
         self.names
             .iter()
             .enumerate()
-            .map(|(i, p)| (PathId(i as u32), p.as_slice()))
+            .map(|(i, p)| (PathId(i as u32), p))
     }
 
     /// Every file with its current path.
     pub fn iter(&self) -> impl Iterator<Item = (FileId, &[u8])> {
-        self.current.iter().enumerate().filter_map(|(i, p)| {
-            self.names
-                .get(p.idx())
-                .map(|name| (FileId(i as u32), name.as_slice()))
-        })
+        self.current
+            .iter()
+            .enumerate()
+            .filter_map(|(i, p)| self.names.get(p.idx()).map(|name| (FileId(i as u32), name)))
     }
 }
 
@@ -462,6 +577,50 @@ pub struct Index {
     /// not a total, and the interface must say so rather than presenting a
     /// truncated number as real.
     pub history_truncated: bool,
+    /// Totals over all of history, correct even when only part is loaded.
+    pub span: HistorySpan,
+    /// When only recent history is loaded: every commit at or after this time
+    /// is present in [`commits`](Self::commits), and older ones may not be.
+    /// `None` when all of history is loaded (ADR-0002's time-sliced read).
+    pub loaded_from: Option<i64>,
+}
+
+/// Totals over all of history.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HistorySpan {
+    pub commits: u64,
+    pub merges: u64,
+    /// Committer time of the oldest commit.
+    pub oldest: Option<i64>,
+    /// Committer time of the newest commit. The anchor that `--json` resolves
+    /// windows against, so its output is reproducible.
+    pub newest: Option<i64>,
+}
+
+impl HistorySpan {
+    /// The span of a set of commits.
+    pub fn of(commits: &[CommitMeta]) -> HistorySpan {
+        HistorySpan {
+            commits: commits.len() as u64,
+            merges: commits.iter().filter(|c| c.is_merge()).count() as u64,
+            oldest: commits.iter().map(|c| c.time).min(),
+            newest: commits.iter().map(|c| c.time).max(),
+        }
+    }
+
+    /// The span of two sets of commits taken together.
+    pub fn joined(self, other: HistorySpan) -> HistorySpan {
+        let pick = |a: Option<i64>, b: Option<i64>, f: fn(i64, i64) -> i64| match (a, b) {
+            (Some(a), Some(b)) => Some(f(a, b)),
+            (a, b) => a.or(b),
+        };
+        HistorySpan {
+            commits: self.commits + other.commits,
+            merges: self.merges + other.merges,
+            oldest: pick(self.oldest, other.oldest, i64::min),
+            newest: pick(self.newest, other.newest, i64::max),
+        }
+    }
 }
 
 impl Index {
@@ -476,7 +635,36 @@ impl Index {
             authors: AuthorTable::default(),
             head: Vec::new(),
             history_truncated: false,
+            span: HistorySpan::default(),
+            loaded_from: None,
         }
+    }
+
+    /// Whether every commit at or after `time` is loaded.
+    pub fn covers(&self, time: i64) -> bool {
+        self.loaded_from.is_none_or(|from| from <= time)
+    }
+
+    /// Adds older history in front of what is loaded, as when the background
+    /// load of a time-sliced read completes. `older` must hold every commit
+    /// between `loaded_from` and the current first commit, in time order.
+    pub fn prepend_history(
+        &mut self,
+        older_commits: Vec<CommitMeta>,
+        older_changes: Vec<FileChange>,
+        loaded_from: Option<i64>,
+    ) {
+        let shift = older_changes.len() as u32;
+        for c in &mut self.commits {
+            c.changes_start += shift;
+        }
+        let mut commits = older_commits;
+        commits.append(&mut self.commits);
+        let mut changes = older_changes;
+        changes.append(&mut self.changes);
+        self.commits = commits;
+        self.changes = changes;
+        self.loaded_from = loaded_from;
     }
 
     /// The changes belonging to one commit.
@@ -487,16 +675,6 @@ impl Index {
     /// The person who authored a commit, after identity resolution.
     pub fn author_of(&self, c: &CommitMeta) -> Option<AuthorId> {
         self.authors.person_of(c.signature)
-    }
-
-    /// Committer time of the newest commit, if any. This is the anchor `--json`
-    /// and `--budget` resolve windows against, so their output is reproducible.
-    pub fn newest_commit_time(&self) -> Option<i64> {
-        self.commits.last().map(|c| c.time)
-    }
-
-    pub fn oldest_commit_time(&self) -> Option<i64> {
-        self.commits.first().map(|c| c.time)
     }
 
     /// Asserts the ascending-time invariant. Cheap enough to run in tests and

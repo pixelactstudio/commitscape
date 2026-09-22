@@ -9,11 +9,14 @@
 // agreement's "outside tests" exemption applies to all of it.
 #![allow(clippy::expect_used)]
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
-use commitscape_core::{ChangeKind, FileId, Index};
-use commitscape_index::{index_from_scratch, index_incremental, Frontier, GixRepo};
+use commitscape_core::{ChangeKind, FileId, Index, Oid};
+use commitscape_index::{
+    index_from_scratch, index_incremental, load, CacheOptions, Freshness, GixRepo, RebuildReason,
+    Since,
+};
 
 /// 2024-01-01T00:00:00Z, the fixtures' day 0. See `docs/fixtures.md`.
 const EPOCH: i64 = 1_704_067_200;
@@ -176,21 +179,22 @@ fn a_merge_records_exactly_what_it_resolved_or_introduced() {
 }
 
 #[test]
-fn resuming_from_a_frontier_finds_older_commits_a_merge_made_reachable() {
+fn resuming_finds_older_commits_a_merge_made_reachable() {
     // ADR-0002's frontier case. Pretend the last index stopped when main's tip
-    // was `main 5`; the side branch had never been seen. A resume keyed on a
-    // single sha or a timestamp would miss side 2 and side 3, which are older
-    // than main 5.
+    // was `main 5`, so it holds days 0, 1, 4 and 5, and the side branch had
+    // never been seen. A resume keyed on a single sha or a timestamp would
+    // miss side 2 and side 3, which are older than main 5.
     let repo = GixRepo::open(&fixture("merges")).expect("opening fixture");
     let full = index_from_scratch(&repo).expect("indexing fixture");
-    let main_5 = full
+    let indexed: HashSet<Oid> = full
         .commits
         .iter()
-        .find(|c| day_of(c.time) == 5)
-        .expect("a commit on day 5");
+        .filter(|c| [0, 1, 4, 5].contains(&day_of(c.time)))
+        .map(|c| c.id)
+        .collect();
+    assert_eq!(indexed.len(), 4);
 
-    let frontier = Frontier::from([main_5.id]);
-    let resumed = index_incremental(&repo, &frontier).expect("resuming");
+    let resumed = index_incremental(&repo, &indexed).expect("resuming");
     let mut days: Vec<i64> = resumed.commits.iter().map(|c| day_of(c.time)).collect();
     days.sort_unstable();
     assert_eq!(days, vec![2, 3, 6]);
@@ -228,10 +232,7 @@ fn ownership_resolves_every_identity_form() {
         idx.authors.len(),
         3,
         "Alice, Bob and Carol — mailmap plus the two rules must collapse the rest: {:?}",
-        idx.authors
-            .iter()
-            .map(|(_, a)| a.email.clone())
-            .collect::<Vec<_>>()
+        idx.authors.iter().map(|(_, a)| a.email).collect::<Vec<_>>()
     );
 
     let alice = idx
@@ -279,4 +280,24 @@ fn an_empty_repository_fails_with_a_clear_message_and_no_panic() {
 fn a_bare_repository_can_be_walked() {
     let idx = index("bare.git");
     assert_eq!(idx.commits.len(), 5, "same history as `linear`");
+}
+
+#[test]
+fn a_real_repository_loads_warm_the_second_time() {
+    let repo = GixRepo::open(&fixture("merges")).expect("opening fixture");
+    let dir = tempfile::tempdir().expect("temp dir");
+    let options = CacheOptions {
+        root: Some(dir.path().to_path_buf()),
+    };
+    let first = load(&repo, &options, Since::All, &mut |_| {}).expect("first load");
+    assert_eq!(
+        first.freshness,
+        Freshness::Built {
+            reason: RebuildReason::NoCache
+        }
+    );
+    let second = load(&repo, &options, Since::All, &mut |_| {}).expect("second load");
+    assert_eq!(second.freshness, Freshness::Warm);
+    assert_eq!(second.index.commits, first.index.commits);
+    assert_eq!(second.index.changes, first.index.changes);
 }

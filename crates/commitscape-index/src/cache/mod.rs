@@ -1,0 +1,496 @@
+//! The cache: ADR-0002's time-sliced read, frontier resume and rebuild rules,
+//! behind one call.
+//!
+//! [`load`] decides everything:
+//!
+//! - **Warm.** The refs fingerprint matches the cache's, so nothing moved.
+//!   Read the head in full and, from the body, only the months the requested
+//!   window needs. No commit or tree is read from the repository.
+//! - **Updated.** Refs moved. If every cached tip is still reachable, walk only
+//!   the commits the cache cannot reach, merge them in, and save. A merge that
+//!   brings in older-dated commits pulls in the months they land in first.
+//! - **Built.** No cache, a different format, damage of any kind, or history
+//!   rewritten under the cache: index from scratch and save. None of these is
+//!   an error the user sees.
+
+mod format;
+mod location;
+
+use std::ops::ControlFlow;
+use std::path::{Path, PathBuf};
+
+use commitscape_core::{CommitMeta, FileChange, Index, Month, RepoIdentity};
+
+use crate::build::IndexBuilder;
+use crate::mailmap::Mailmap;
+use crate::reresolve_authors;
+use crate::source::{CommitSink, RawChange, RawCommit, RepoSource};
+use format::{BlockEntry, Head, Previous, SortedIds, Unusable};
+
+pub use location::default_cache_root;
+
+/// Where to keep the cache.
+#[derive(Debug, Clone, Default)]
+pub struct CacheOptions {
+    /// Directory holding every repository's cache, one subdirectory each.
+    /// `None` disables the cache: nothing is read or written.
+    pub root: Option<PathBuf>,
+}
+
+/// How much history to load before returning.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Since {
+    /// All of it.
+    All,
+    /// Every commit at or after this time. Older history is left for
+    /// [`Loaded::take_rest`].
+    Time(i64),
+    /// Every commit within this many seconds of the newest commit. This is
+    /// how `--json` anchors windows, so its output is reproducible.
+    BeforeNewest(i64),
+}
+
+/// How a load got its index.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Freshness {
+    /// Read from the cache. Nothing had changed.
+    Warm,
+    /// Read from the cache and brought up to date with this many commits.
+    Updated { added: u64 },
+    /// Indexed from scratch.
+    Built { reason: RebuildReason },
+}
+
+/// Why a load indexed from scratch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RebuildReason {
+    /// Caching was turned off.
+    Disabled,
+    /// There was no cache for this repository yet.
+    NoCache,
+    /// The cache was written by a different version of the format.
+    SchemaChanged,
+    /// The cache was damaged, truncated, or half-written.
+    Unreadable,
+    /// Commits the cache recorded are no longer reachable: a force-push, a
+    /// rebase of a published branch, or a deleted unmerged branch.
+    HistoryRewritten,
+}
+
+/// Progress of a load that has to walk history.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Progress {
+    /// Commits diffed so far, of the total this walk will diff.
+    History { done: u64, total: u64 },
+}
+
+/// The result of [`load`].
+pub struct Loaded {
+    pub index: Index,
+    pub freshness: Freshness,
+    rest: Option<Rest>,
+}
+
+impl Loaded {
+    fn complete(index: Index, freshness: Freshness) -> Self {
+        Loaded {
+            index,
+            freshness,
+            rest: None,
+        }
+    }
+
+    /// The older history a time-sliced load left behind, if any. Loading it
+    /// is independent of the index, so it can happen on another thread while
+    /// the recent part is already in use.
+    pub fn take_rest(&mut self) -> Option<Rest> {
+        self.rest.take()
+    }
+}
+
+/// Older history not yet read.
+#[derive(Debug)]
+pub struct Rest {
+    dir: PathBuf,
+    data_file: String,
+    blocks: Vec<BlockEntry>,
+}
+
+/// Older history, read by [`Rest::load`].
+#[derive(Debug)]
+pub struct OlderHistory {
+    commits: Vec<CommitMeta>,
+    changes: Vec<FileChange>,
+}
+
+/// The older history could not be read: the cache was damaged, or replaced
+/// by another process in the meantime. The next load detects either and
+/// rebuilds if it has to.
+#[derive(Debug, thiserror::Error)]
+#[error("older history could not be read from the cache")]
+pub struct RestUnavailable;
+
+impl Rest {
+    pub fn load(self) -> Result<OlderHistory, RestUnavailable> {
+        format::read_blocks(&self.dir, &self.data_file, &self.blocks)
+            .map(|decoded| OlderHistory {
+                commits: decoded.commits,
+                changes: decoded.changes,
+            })
+            .map_err(|_| RestUnavailable)
+    }
+}
+
+impl OlderHistory {
+    /// Completes an index loaded with [`Since::Time`] or
+    /// [`Since::BeforeNewest`].
+    pub fn prepend_to(self, index: &mut Index) {
+        index.prepend_history(self.commits, self.changes, None);
+    }
+}
+
+/// Loads a repository's index, from the cache where it can.
+pub fn load<S: RepoSource>(
+    source: &S,
+    options: &CacheOptions,
+    since: Since,
+    progress: &mut dyn FnMut(Progress),
+) -> Result<Loaded, S::Error> {
+    let identity = source.identity()?;
+    let Some(root) = options.root.as_deref() else {
+        let index = build(source, identity, source.mailmap()?, progress)?;
+        return Ok(Loaded::complete(
+            index,
+            Freshness::Built {
+                reason: RebuildReason::Disabled,
+            },
+        ));
+    };
+    let dir = root.join(identity.cache_key());
+    // Before any walk: if refs move during it, the next run sees a
+    // different fingerprint and resumes rather than trusting this one.
+    let fingerprint = source.refs_fingerprint()?;
+    let mailmap_fingerprint = source.mailmap_fingerprint()?;
+    let ctx = Context {
+        dir: &dir,
+        identity,
+        fingerprint,
+        mailmap_fingerprint,
+    };
+
+    let head = match format::read_head(&dir) {
+        Ok(head) if head.repo == ctx.identity => head,
+        Ok(_) | Err(Unusable::Damaged) => {
+            return rebuild(source, ctx, RebuildReason::Unreadable, progress)
+        }
+        Err(Unusable::Missing) => return rebuild(source, ctx, RebuildReason::NoCache, progress),
+        Err(Unusable::OtherSchema) => {
+            return rebuild(source, ctx, RebuildReason::SchemaChanged, progress)
+        }
+    };
+
+    if head.refs_fingerprint == fingerprint {
+        // Only a changed mailmap needs reading; an unchanged one is already
+        // applied in the cached author table.
+        let mailmap = if head.mailmap_fingerprint == mailmap_fingerprint {
+            None
+        } else {
+            Some(source.mailmap()?)
+        };
+        let r = warm(&ctx, head, since, mailmap.as_ref());
+        return match r {
+            Ok(loaded) => Ok(loaded),
+            Err(_) => rebuild(source, ctx, RebuildReason::Unreadable, progress),
+        };
+    }
+    resume(source, ctx, head, since, progress)
+}
+
+/// What every path through [`load`] needs.
+struct Context<'a> {
+    dir: &'a Path,
+    identity: RepoIdentity,
+    fingerprint: u64,
+    mailmap_fingerprint: u64,
+}
+
+fn build<S: RepoSource>(
+    source: &S,
+    identity: RepoIdentity,
+    mailmap: Mailmap,
+    progress: &mut dyn FnMut(Progress),
+) -> Result<Index, S::Error> {
+    let mut builder = IndexBuilder::new(mailmap);
+    let stats = source.walk_history(
+        &std::collections::HashSet::new(),
+        &mut Reporting {
+            builder: &mut builder,
+            progress,
+        },
+    )?;
+    let tips = source.tips()?;
+    Ok(builder.finish(identity, tips, stats.history_truncated))
+}
+
+fn rebuild<S: RepoSource>(
+    source: &S,
+    ctx: Context<'_>,
+    reason: RebuildReason,
+    progress: &mut dyn FnMut(Progress),
+) -> Result<Loaded, S::Error> {
+    let index = build(source, ctx.identity.clone(), source.mailmap()?, progress)?;
+    let head = format::head_of(&index, ctx.fingerprint, ctx.mailmap_fingerprint, None);
+    // A cache that cannot be written is a slower next run, not an error.
+    let _ = format::write(format::Writing {
+        head,
+        previous: None,
+        fresh: format::encode_blocks(&index.commits, &index.changes),
+        new_ids: SortedIds::run_of(index.commits.iter().map(|c| c.id)),
+        dir: ctx.dir,
+    });
+    Ok(Loaded::complete(index, Freshness::Built { reason }))
+}
+
+/// The time a `since` means, given the newest commit.
+fn resolve_since(since: Since, newest: Option<i64>) -> Option<i64> {
+    match since {
+        Since::All => None,
+        Since::Time(t) => Some(t),
+        Since::BeforeNewest(seconds) => newest.map(|n| n.saturating_sub(seconds)),
+    }
+}
+
+/// The first block a read starting at `time` needs, and the time from which
+/// the read is complete.
+fn first_block(blocks: &[BlockEntry], time: Option<i64>) -> (usize, Option<i64>) {
+    let Some(time) = time else {
+        return (0, None);
+    };
+    let month = Month::of(time);
+    let first = blocks.partition_point(|b| b.month < month);
+    if first == 0 {
+        (0, None)
+    } else {
+        // Loading starts at the month containing `time`, so everything from
+        // that month's first second is present.
+        (first, Some(month.start()))
+    }
+}
+
+/// An index assembled from a head and some decoded blocks.
+fn index_from(
+    head: Head,
+    commits: Vec<CommitMeta>,
+    changes: Vec<FileChange>,
+    loaded_from: Option<i64>,
+) -> Index {
+    Index {
+        schema_version: head.schema_version,
+        repo: head.repo,
+        frontier: head.frontier,
+        commits,
+        changes,
+        paths: head.paths,
+        authors: head.authors,
+        head: head.head,
+        history_truncated: head.history_truncated,
+        span: head.span,
+        loaded_from,
+    }
+}
+
+fn warm(
+    ctx: &Context<'_>,
+    head: Head,
+    since: Since,
+    changed_mailmap: Option<&Mailmap>,
+) -> Result<Loaded, Unusable> {
+    let (first, loaded_from) = first_block(&head.blocks, resolve_since(since, head.span.newest));
+    let decoded = format::read_blocks(
+        ctx.dir,
+        &head.data_file,
+        head.blocks.get(first..).unwrap_or(&[]),
+    )?;
+    let mut rest = Rest {
+        dir: ctx.dir.to_path_buf(),
+        data_file: head.data_file.clone(),
+        blocks: head.blocks.get(..first).unwrap_or(&[]).to_vec(),
+    };
+    let previous = changed_mailmap.map(|_| PreviousParts {
+        data_file: head.data_file.clone(),
+        blocks: head.blocks.clone(),
+        id_runs: head.id_runs.clone(),
+        ids: format::read_ids(ctx.dir, &head),
+    });
+    let head_commit = head.head_commit;
+
+    let mut index = index_from(head, decoded.commits, decoded.changes, loaded_from);
+    if let (Some(mailmap), Some(previous)) = (changed_mailmap, previous) {
+        reresolve_authors(&mut index, mailmap);
+        // Only the author table changed, so only a new head is written; the
+        // history it points at is untouched. Failing to save only costs the
+        // next run another re-resolve.
+        if let Ok(ids) = previous.ids {
+            let written = format::write(format::Writing {
+                head: format::head_of(
+                    &index,
+                    ctx.fingerprint,
+                    ctx.mailmap_fingerprint,
+                    head_commit,
+                ),
+                previous: Some(format::Previous {
+                    data_file: previous.data_file,
+                    blocks: previous.blocks,
+                    id_runs: previous.id_runs,
+                    ids,
+                }),
+                fresh: Vec::new(),
+                new_ids: Vec::new(),
+                dir: ctx.dir,
+            });
+            if let Ok((data_file, blocks)) = written {
+                rest.data_file = data_file;
+                rest.blocks = blocks.get(..first).unwrap_or(&[]).to_vec();
+            }
+        }
+    }
+    Ok(Loaded {
+        index,
+        freshness: Freshness::Warm,
+        rest: (first > 0).then_some(rest),
+    })
+}
+
+/// A write's view of the previous one, before its ids are read.
+struct PreviousParts {
+    data_file: String,
+    blocks: Vec<BlockEntry>,
+    id_runs: Vec<format::Extent>,
+    ids: Result<SortedIds, Unusable>,
+}
+
+fn resume<S: RepoSource>(
+    source: &S,
+    ctx: Context<'_>,
+    head: Head,
+    since: Since,
+    progress: &mut dyn FnMut(Progress),
+) -> Result<Loaded, S::Error> {
+    let tips = source.tips()?;
+    if !source.all_reachable(&head.frontier, &tips)? {
+        return rebuild(source, ctx, RebuildReason::HistoryRewritten, progress);
+    }
+
+    let (mut first, loaded_from) =
+        first_block(&head.blocks, resolve_since(since, head.span.newest));
+    let data_file = head.data_file.clone();
+    let old_blocks = head.blocks.clone();
+    let id_runs = head.id_runs.clone();
+    let indexed = match format::read_ids(ctx.dir, &head) {
+        Ok(ids) => ids,
+        Err(_) => return rebuild(source, ctx, RebuildReason::Unreadable, progress),
+    };
+    let decoded =
+        match format::read_blocks(ctx.dir, &data_file, old_blocks.get(first..).unwrap_or(&[])) {
+            Ok(d) => d,
+            Err(_) => return rebuild(source, ctx, RebuildReason::Unreadable, progress),
+        };
+    let base = index_from(head, decoded.commits, decoded.changes, loaded_from);
+
+    let mut builder = IndexBuilder::resume(base, source.mailmap()?);
+    let stats = source.walk_history(
+        &indexed,
+        &mut Reporting {
+            builder: &mut builder,
+            progress,
+        },
+    )?;
+    let added = builder.commit_count() as u64;
+    let changed_from = builder.oldest_pending_time().map(Month::of);
+
+    // A long-lived branch merged late can bring commits older than anything
+    // loaded. The months they land in must be loaded before merging, so the
+    // re-sort covers them.
+    if let Some(month) = changed_from {
+        let (needed, needed_from) = first_block(&old_blocks, Some(month.start()));
+        if needed < first {
+            let older = match format::read_blocks(
+                ctx.dir,
+                &data_file,
+                old_blocks.get(needed..first).unwrap_or(&[]),
+            ) {
+                Ok(d) => d,
+                Err(_) => return rebuild(source, ctx, RebuildReason::Unreadable, progress),
+            };
+            builder.prepend_base(older.commits, older.changes, needed_from);
+            first = needed;
+        }
+    }
+
+    let new_ids = SortedIds::run_of(builder.added_ids().into_iter());
+    let index = builder.finish(ctx.identity.clone(), tips, stats.history_truncated);
+
+    // Only the months the new commits landed in are re-encoded and
+    // appended; every other month stays where it is in the data file.
+    let (fresh, unchanged) = match changed_from {
+        Some(month) => {
+            let split = index.commits.partition_point(|c| Month::of(c.time) < month);
+            (
+                format::encode_blocks(index.commits.get(split..).unwrap_or(&[]), &index.changes),
+                old_blocks
+                    .iter()
+                    .filter(|b| b.month < month)
+                    .copied()
+                    .collect(),
+            )
+        }
+        None => (Vec::new(), old_blocks.clone()),
+    };
+    let written = format::write(format::Writing {
+        head: format::head_of(&index, ctx.fingerprint, ctx.mailmap_fingerprint, None),
+        previous: Some(Previous {
+            data_file: data_file.clone(),
+            blocks: unchanged,
+            id_runs,
+            ids: indexed,
+        }),
+        fresh,
+        new_ids,
+        dir: ctx.dir,
+    });
+    let rest = (first > 0).then(|| match written {
+        Ok((data_file, blocks)) => Rest {
+            dir: ctx.dir.to_path_buf(),
+            data_file,
+            blocks: blocks.get(..first).unwrap_or(&[]).to_vec(),
+        },
+        // Nothing was replaced, so the previous data file still holds them.
+        Err(_) => Rest {
+            dir: ctx.dir.to_path_buf(),
+            data_file,
+            blocks: old_blocks.get(..first).unwrap_or(&[]).to_vec(),
+        },
+    });
+
+    Ok(Loaded {
+        index,
+        freshness: Freshness::Updated { added },
+        rest,
+    })
+}
+
+/// Passes commits to the builder and progress to the caller.
+struct Reporting<'a> {
+    builder: &'a mut IndexBuilder,
+    progress: &'a mut dyn FnMut(Progress),
+}
+
+impl CommitSink for Reporting<'_> {
+    fn on_commit(&mut self, commit: &RawCommit<'_>, changes: &[RawChange<'_>]) -> ControlFlow<()> {
+        self.builder.on_commit(commit, changes)
+    }
+
+    fn on_progress(&mut self, done: u64, total: u64) {
+        (self.progress)(Progress::History { done, total });
+    }
+}
