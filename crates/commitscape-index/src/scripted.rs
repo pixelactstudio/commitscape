@@ -20,8 +20,8 @@ use commitscape_core::{Oid, RepoIdentity};
 
 use crate::mailmap::Mailmap;
 use crate::source::{
-    BlobSink, CommitSink, HeadChange, HeadEntry, Indexed, RawChange, RawChangeKind, RawCommit,
-    RepoSource, WalkStats,
+    BlobSink, CommitSink, HeadChange, HeadEntry, Indexed, MessageFacts, RawChange, RawChangeKind,
+    RawCommit, RepoSource, WalkStats,
 };
 
 #[derive(Debug, Clone)]
@@ -39,6 +39,10 @@ struct ScriptedCommit {
     email: Vec<u8>,
     parents: Vec<Oid>,
     changes: Vec<ScriptedChange>,
+    message: Vec<u8>,
+    /// Author time, when it differs from the commit time.
+    written: Option<i64>,
+    offset_minutes: i16,
 }
 
 /// A history written out by hand.
@@ -55,6 +59,7 @@ pub struct ScriptedRepo {
     tips: Option<Vec<Oid>>,
     head_blobs: Vec<(Vec<u8>, Vec<u8>)>,
     mailmap: Mailmap,
+    remote: Option<String>,
     truncated: bool,
     reads: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
@@ -69,6 +74,12 @@ impl ScriptedRepo {
 
     pub fn with_mailmap(mut self, mailmap: Mailmap) -> Self {
         self.mailmap = mailmap;
+        self
+    }
+
+    /// Gives the repository a default remote.
+    pub fn with_remote(mut self, url: &str) -> Self {
+        self.remote = Some(url.to_string());
         self
     }
 
@@ -87,6 +98,24 @@ impl ScriptedRepo {
     ) -> Self {
         let parents = self.cursor.into_iter().collect();
         self.push(time, author, parents, changes)
+    }
+
+    /// Gives the commit added last this message.
+    pub fn said(mut self, message: &str) -> Self {
+        if let Some(c) = self.commits.last_mut() {
+            c.message = message.as_bytes().to_vec();
+        }
+        self
+    }
+
+    /// Gives the commit added last an author time and time zone, in minutes
+    /// east of UTC, as a commit rebased or applied later would have.
+    pub fn authored(mut self, time: i64, offset_minutes: i16) -> Self {
+        if let Some(c) = self.commits.last_mut() {
+            c.written = Some(time);
+            c.offset_minutes = offset_minutes;
+        }
+        self
     }
 
     /// Moves the cursor to the nth commit added, counting from 1, so the next
@@ -136,6 +165,9 @@ impl ScriptedRepo {
                     blob: *b,
                 })
                 .collect(),
+            message: Vec::new(),
+            written: None,
+            offset_minutes: 0,
         });
         self.cursor = Some(id);
         self
@@ -268,6 +300,10 @@ impl RepoSource for ScriptedRepo {
         Ok(self.mailmap.fingerprint())
     }
 
+    fn remote_url(&self) -> Option<String> {
+        self.remote.clone()
+    }
+
     fn walk_history(
         &self,
         indexed: &dyn Indexed,
@@ -307,6 +343,9 @@ impl RepoSource for ScriptedRepo {
                 time: c.time,
                 author_name: &c.name,
                 author_email: &c.email,
+                author_time: c.written.unwrap_or(c.time),
+                author_offset: i32::from(c.offset_minutes) * 60,
+                message: MessageFacts::read(&c.message, &c.name, &c.email),
                 parent_count: c.parents.len(),
             };
             stats.commits_visited += 1;

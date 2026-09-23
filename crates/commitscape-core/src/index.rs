@@ -11,7 +11,7 @@ use crate::{AuthorId, FileId, Oid, PathId, SignatureId};
 
 /// Bumped whenever the on-disk layout changes. A mismatch triggers a full
 /// reindex rather than an error.
-pub const SCHEMA_VERSION: u32 = 6;
+pub const SCHEMA_VERSION: u32 = 7;
 
 /// How a commit touched a file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -69,9 +69,25 @@ pub struct CommitMeta {
     pub changes_start: u32,
     /// Length of that slice.
     pub changes_len: u32,
+    /// The author's time zone as recorded on the commit, in minutes east of
+    /// UTC.
+    pub offset_minutes: i16,
+    /// Author time minus committer time, in seconds. Zero unless the commit
+    /// was rebased, amended, or applied from a patch after it was written.
+    pub author_delta: i32,
+    /// What the commit's message says it is.
+    pub kind: CommitKind,
 }
 
 impl CommitMeta {
+    /// When the author made the commit, on the author's own clock: seconds
+    /// since the epoch shifted by their time zone, so that its civil date,
+    /// weekday and hour are the ones the author saw.
+    #[inline]
+    pub fn author_clock(&self) -> i64 {
+        self.time + i64::from(self.author_delta) + i64::from(self.offset_minutes) * 60
+    }
+
     /// This commit's slice of the change arena.
     #[inline]
     pub fn changes(&self) -> std::ops::Range<usize> {
@@ -85,6 +101,61 @@ impl CommitMeta {
     }
 }
 
+/// What a commit's message says it is: the type of a conventional commit
+/// subject (`feat:`, `fix(parser):`, `docs!:`), or a revert. Anything else is
+/// `Other`; free prose is not guessed at.
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
+pub enum CommitKind {
+    Feature,
+    Fix,
+    Docs,
+    Refactor,
+    Test,
+    Performance,
+    Style,
+    /// Build system, dependencies and continuous integration.
+    Build,
+    Chore,
+    Revert,
+    #[default]
+    Other,
+}
+
+impl CommitKind {
+    /// Every kind, in the order the interface lists them.
+    pub const EVERY: [CommitKind; 11] = [
+        CommitKind::Feature,
+        CommitKind::Fix,
+        CommitKind::Docs,
+        CommitKind::Refactor,
+        CommitKind::Test,
+        CommitKind::Performance,
+        CommitKind::Style,
+        CommitKind::Build,
+        CommitKind::Chore,
+        CommitKind::Revert,
+        CommitKind::Other,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            CommitKind::Feature => "features",
+            CommitKind::Fix => "fixes",
+            CommitKind::Docs => "docs",
+            CommitKind::Refactor => "refactors",
+            CommitKind::Test => "tests",
+            CommitKind::Performance => "performance",
+            CommitKind::Style => "style",
+            CommitKind::Build => "build and CI",
+            CommitKind::Chore => "chores",
+            CommitKind::Revert => "reverts",
+            CommitKind::Other => "other",
+        }
+    }
+}
+
 /// Facts about a commit that are cheap to store as bits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommitFlags(pub u8);
@@ -93,6 +164,10 @@ impl CommitFlags {
     pub const EMPTY: CommitFlags = CommitFlags(0);
     /// The commit has more than one parent.
     pub const MERGE: CommitFlags = CommitFlags(1 << 0);
+    /// An AI coding agent co-wrote the commit: its message names one in a
+    /// `Co-authored-by` trailer or says it generated the change, or an agent
+    /// is its author.
+    pub const AGENT: CommitFlags = CommitFlags(1 << 1);
 
     #[inline]
     pub fn contains(self, other: CommitFlags) -> bool {
@@ -830,6 +905,9 @@ mod tests {
             flags: CommitFlags::EMPTY,
             changes_start: 0,
             changes_len: 0,
+            offset_minutes: 0,
+            author_delta: 0,
+            kind: CommitKind::Other,
         };
         idx.commits = vec![mk(10), mk(20), mk(30)];
         assert!(idx.is_time_ordered());

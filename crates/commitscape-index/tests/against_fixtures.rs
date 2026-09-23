@@ -320,3 +320,50 @@ fn the_head_pass_measures_every_file_at_head() {
     assert_eq!(loc("c.txt"), Some((1, commitscape_core::FileClass::Prose)));
     assert!(idx.head_commit.is_some());
 }
+
+#[test]
+fn rhythm_keeps_each_authors_clock_and_what_each_message_says() {
+    use commitscape_core::{civil_from_unix, CommitFlags, CommitKind::*};
+    let idx = index("rhythm");
+    let seen: Vec<_> = idx
+        .commits
+        .iter()
+        .map(|c| {
+            let clock = c.author_clock();
+            let (y, m, d) = civil_from_unix(clock);
+            let minutes = clock.rem_euclid(DAY) / 60;
+            (
+                c.offset_minutes,
+                (y, m, d, minutes / 60, minutes % 60),
+                c.kind,
+                c.flags.contains(CommitFlags::AGENT),
+            )
+        })
+        .collect();
+    assert_eq!(
+        seen,
+        vec![
+            (330, (2024, 1, 1, 9, 15), Feature, false),
+            (330, (2024, 1, 2, 23, 40), Fix, true),
+            (-420, (2024, 1, 6, 2, 5), Docs, false),
+            (0, (2024, 1, 3, 14, 0), Refactor, false),
+            (0, (2024, 1, 7, 12, 0), Revert, false),
+            (60, (2024, 1, 8, 8, 0), Other, false),
+        ]
+    );
+    let rebased = idx.commits.get(3).expect("the fourth commit");
+    assert_eq!(
+        rebased.author_delta, -331_200,
+        "written 3 days 20 hours earlier"
+    );
+}
+
+#[test]
+fn a_clone_knows_where_it_came_from() {
+    use commitscape_index::RepoSource;
+    let bare = GixRepo::open(&fixture("bare.git")).expect("opening fixture");
+    let url = bare.remote_url().expect("a clone has an origin");
+    assert!(url.ends_with("fixtures/linear"), "{url}");
+    let linear = GixRepo::open(&fixture("linear")).expect("opening fixture");
+    assert_eq!(linear.remote_url(), None, "linear was never cloned");
+}

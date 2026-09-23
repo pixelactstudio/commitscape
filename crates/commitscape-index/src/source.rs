@@ -16,6 +16,7 @@ use std::ops::ControlFlow;
 use commitscape_core::Oid;
 
 use crate::mailmap::Mailmap;
+pub use crate::message::MessageFacts;
 
 /// The tips recorded by the last index (ADR-0002).
 ///
@@ -52,6 +53,13 @@ pub struct RawCommit<'a> {
     pub time: i64,
     pub author_name: &'a [u8],
     pub author_email: &'a [u8],
+    /// Author time, seconds since the Unix epoch.
+    pub author_time: i64,
+    /// The author's offset from UTC, in seconds.
+    pub author_offset: i32,
+    /// What the message says, read as the commit was walked
+    /// ([`MessageFacts::read`]).
+    pub message: MessageFacts,
     pub parent_count: usize,
 }
 
@@ -164,6 +172,12 @@ pub trait RepoSource {
     /// can only change when HEAD does, which the refs fingerprint already
     /// covers; only a work-tree file can change behind git's back.
     fn mailmap_fingerprint(&self) -> Result<u64, Self::Error>;
+
+    /// Where the default remote fetches from, if there is one: `origin`, or
+    /// the only remote. Read from configuration, never from the network.
+    fn remote_url(&self) -> Option<String> {
+        None
+    }
 
     /// Pushes into `sink` every commit reachable from [`tips`](Self::tips)
     /// that is not already `indexed`, with its name-status changes. The walk

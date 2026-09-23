@@ -3,10 +3,11 @@
 Running log for Build Run 1 (Phases 0 to 7). Written so a fresh session with
 no context can read this plus `docs/adr/` and continue without asking anything.
 
-**Current position:** Build Run 1 is complete: Phases 0 to 7 all pass their
-gates. The binary opens the interface in a terminal, prints the summary when
-piped, and prints one JSON document with `--json`. What comes after the build
-run is listed under "Where to pick up".
+**Current position:** Build Run 2, Phase 8 complete. Build Run 1 (Phases 0
+to 7) built a correct, fast tool; the user found it hard to read and asked for
+it to be fun and visual: charts, a help window, plain explanations, stats
+about the project and its people, and GitHub numbers through the `gh` CLI.
+Build Run 2 is that redesign. Its phases are listed under "Build Run 2".
 
 ---
 
@@ -243,6 +244,35 @@ Peak memory (GNU `time`, maximum resident set):
 Most of the interface's extra memory is the rest of history, read in the
 background once the first frame is up (decision 20).
 
+### Build Run 2
+
+The user's feedback on the Phase 7 interface, in short: the numbers are right
+but hard to read (what is `p94`, how is complexity measured, what is
+coupling); lists of long paths are not something anyone reads; the selection
+highlight inverts colours; there are no charts and nothing fun. They asked for
+charts and graphs in the terminal, stats about the project and its people, a
+help window that explains every term, and GitHub stats through the `gh` CLI
+(GitHub first, other hosts later). This reverses two lines of the original
+brief, "findings rather than counts" for the Overview and "no network calls",
+at the user's request.
+
+| Phase | What | Status |
+|---|---|---|
+| 8 | The index records each commit's Local Time, Commit Kind and whether an agent co-wrote it; the remote URL is readable | **DONE** |
+| 9 | The repository's story as Analysis methods: languages, activity, rhythm, streaks, people, fun facts | not started |
+| 10 | GitHub numbers through `gh`, in the background and cached | not started |
+| 11 | The interface rebuilt around charts, colour, plain language and a help window | not started |
+| 12 | `commitscape card`: the Overview as a shareable SVG | not started |
+
+### Phase 8 measured numbers
+
+```
+cold-index-rust   24.0s   (n=1; Phase 1 range 23.1 to 26.9s; budget 60s)
+```
+
+Reading each message and author date in the walk's first pass costs nothing
+measurable.
+
 ---
 
 ## Environment
@@ -450,6 +480,21 @@ background once the first frame is up (decision 20).
    formatting and list scrolling). They were removed; both behaviours are
    covered through the render seam, since every snapshot formats numbers and
    one scrolls a list on an eight-row screen.
+
+## Phase 8 findings
+
+1. **A message is read once, as the walk reads its commit, and kept as a few
+   bits.** Keeping Linux's messages until the index is built would cost about
+   700 MB. `MessageFacts::read` is shared by both adapters, so the rules are
+   written and tested once.
+2. **Agents are recognised by their addresses and bot names, never by a bare
+   word.** `noreply@anthropic.com`, `copilot@users.noreply.github.com`,
+   `cursoragent@cursor.com` and the like: a developer named Claude is not an
+   agent. Dependency bots are automation, not agents.
+3. **Local Time uses the author date and the author's zone.** Committer time
+   still orders history. A rebased or applied commit keeps when it was
+   written (`author_delta`), so a team's rhythm is not the maintainer's.
+4. **Schema 7.** Every cache rebuilds once.
 
 ## Decisions made during implementation, not in any ADR
 

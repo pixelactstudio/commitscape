@@ -160,3 +160,99 @@ fn a_mailmap_can_be_applied_to_an_existing_index_without_rewalking() {
     let second = idx.commits.get(1).and_then(|c| idx.author_of(c));
     assert!(first.is_some() && first == second);
 }
+
+/// 2024-01-01T00:00:00Z.
+const JAN_1_2024: i64 = 1_704_067_200;
+const DAY: i64 = 86_400;
+
+#[test]
+fn a_commit_keeps_its_authors_own_clock() {
+    // Written at 18:10 UTC on 2 January 2024 by someone at +05:30, so 23:40
+    // on their clock; committed two days later, as a rebase would.
+    let written = JAN_1_2024 + DAY + 18 * 3600 + 10 * 60;
+    let repo = ScriptedRepo::new()
+        .commit(written + 2 * DAY, ALICE, &[(b"a.rs", Added, blob(1))])
+        .authored(written, 330);
+    let idx = index(&repo);
+    let commit = idx.commits.first().expect("one commit");
+    assert_eq!(commit.offset_minutes, 330);
+    assert_eq!(
+        commitscape_core::civil_from_unix(commit.author_clock()),
+        (2024, 1, 2)
+    );
+    assert_eq!(
+        commit.author_clock().rem_euclid(DAY),
+        23 * 3600 + 40 * 60,
+        "23:40 where the author was"
+    );
+}
+
+#[test]
+fn a_commit_message_gives_its_kind_and_whether_an_agent_co_wrote_it() {
+    use commitscape_core::{CommitFlags, CommitKind::*};
+    const COPILOT_BOT: (&str, &str) = (
+        "copilot-swe-agent[bot]",
+        "198982749+Copilot@users.noreply.github.com",
+    );
+    const DEPENDABOT: (&str, &str) = (
+        "dependabot[bot]",
+        "49699333+dependabot[bot]@users.noreply.github.com",
+    );
+    let cases: &[((&str, &str), &str, commitscape_core::CommitKind, bool)] = &[
+        (ALICE, "feat: add the parser", Feature, false),
+        (ALICE, "feat(ui)!: redesign the header", Feature, false),
+        (ALICE, "fix: stop at EOF", Fix, false),
+        (ALICE, "docs(readme): explain the flags", Docs, false),
+        (ALICE, "refactor: split the walk", Refactor, false),
+        (ALICE, "test: cover renames", Test, false),
+        (ALICE, "perf: cache the tree", Performance, false),
+        (ALICE, "style: format", Style, false),
+        (ALICE, "ci: run on macOS", Build, false),
+        (ALICE, "build(deps): bump gix", Build, false),
+        (ALICE, "chore: release 0.2", Chore, false),
+        (ALICE, "Revert \"feat: add the parser\"", Revert, false),
+        (ALICE, "Merge branch 'main' into topic", Other, false),
+        (ALICE, "Fix the thing", Other, false),
+        (
+            ALICE,
+            "fix: typo\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\n",
+            Fix,
+            true,
+        ),
+        (
+            ALICE,
+            "Add a flag\n\nCo-authored-by: Copilot <175728472+Copilot@users.noreply.github.com>",
+            Other,
+            true,
+        ),
+        (
+            ALICE,
+            "feat: card\n\nGenerated with [Claude Code](https://claude.com/claude-code)",
+            Feature,
+            true,
+        ),
+        (
+            ALICE,
+            "fix: pair\n\nCo-authored-by: Bob Example <bob@example.com>",
+            Fix,
+            false,
+        ),
+        (COPILOT_BOT, "Initial plan", Other, true),
+        (DEPENDABOT, "build(deps): bump serde", Build, false),
+    ];
+    let mut repo = ScriptedRepo::new();
+    for (n, (who, message, _, _)) in cases.iter().enumerate() {
+        repo = repo
+            .commit(n as i64, *who, &[(b"a.rs", Modified, blob(n as u8))])
+            .said(message);
+    }
+    let idx = index(&repo);
+    for (commit, (_, message, kind, agent)) in idx.commits.iter().zip(cases) {
+        assert_eq!(commit.kind, *kind, "{message:?}");
+        assert_eq!(
+            commit.flags.contains(CommitFlags::AGENT),
+            *agent,
+            "{message:?}"
+        );
+    }
+}

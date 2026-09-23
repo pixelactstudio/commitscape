@@ -20,7 +20,7 @@ use gix::ObjectId;
 
 use super::tree_diff::{Changed, TreeDiffer};
 use super::{GixError, GixRepo};
-use crate::source::{CommitSink, Indexed, RawChange, RawCommit, WalkStats};
+use crate::source::{CommitSink, Indexed, MessageFacts, RawChange, RawCommit, WalkStats};
 
 /// Commits per unit of work handed to a diff thread. Consecutive commits
 /// share most of their trees, so a batch keeps one thread's object cache warm.
@@ -54,6 +54,10 @@ struct Walked {
     time: i64,
     /// Index into the walk's signature list.
     signature: usize,
+    author_time: i64,
+    author_offset: i32,
+    /// Read now: the message itself is not kept past this pass.
+    message: MessageFacts,
     tree: ObjectId,
     parents: Vec<ObjectId>,
 }
@@ -94,6 +98,12 @@ pub(super) fn walk(
         )?;
         let author = git_ctx!(commit.author(), "reading an author")?;
         let time = git_ctx!(commit.time(), "reading a commit time")?.seconds;
+        // A malformed author date falls back to the committer's time.
+        let written = author.time().unwrap_or(gix::date::Time {
+            seconds: time,
+            offset: 0,
+        });
+        let message = MessageFacts::read(commit.message, author.name, author.email);
         let key = (author.name.to_vec(), author.email.to_vec());
         let signature = match signature_ids.get(&key) {
             Some(&i) => i,
@@ -107,6 +117,9 @@ pub(super) fn walk(
             id: info.id,
             time,
             signature,
+            author_time: written.seconds,
+            author_offset: written.offset,
+            message,
             tree: commit.tree(),
             parents: commit.parents().collect(),
         });
@@ -216,6 +229,9 @@ pub(super) fn walk(
                         time: w.time,
                         author_name: name,
                         author_email: email,
+                        author_time: w.author_time,
+                        author_offset: w.author_offset,
+                        message: w.message,
                         parent_count: w.parents.len(),
                     };
                     stats.commits_visited += 1;

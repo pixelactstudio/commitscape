@@ -135,6 +135,36 @@ impl Fx {
         Ok(())
     }
 
+    /// Stages everything and commits with explicit dates in git's raw form,
+    /// `<seconds> <+hhmm>`, so each commit carries its own time zone. Each
+    /// entry of `message` becomes a paragraph. Does not advance `day`.
+    fn commit_dated(
+        &mut self,
+        author: Author,
+        message: &[&str],
+        authored: &str,
+        committed: &str,
+    ) -> Result<()> {
+        self.git(&["add", "-A"])?;
+        let mut args = vec!["commit", "-q", "--allow-empty"];
+        for paragraph in message {
+            args.push("-m");
+            args.push(paragraph);
+        }
+        self.git_env(
+            &args,
+            &[
+                ("GIT_AUTHOR_NAME", author.name.to_string()),
+                ("GIT_AUTHOR_EMAIL", author.email.to_string()),
+                ("GIT_AUTHOR_DATE", authored.to_string()),
+                ("GIT_COMMITTER_NAME", author.name.to_string()),
+                ("GIT_COMMITTER_EMAIL", author.email.to_string()),
+                ("GIT_COMMITTER_DATE", committed.to_string()),
+            ],
+        )?;
+        Ok(())
+    }
+
     /// Writes each `(path, contents)` then makes one commit touching all of them.
     fn commit_touching(
         &mut self,
@@ -167,6 +197,7 @@ pub fn build(force: bool) -> Result<()> {
     bulk(&dir)?;
     merges(&dir)?;
     conflict(&dir)?;
+    rhythm(&dir)?;
     empty(&dir)?;
     detached(&dir)?;
     bare(&dir)?;
@@ -467,6 +498,58 @@ fn conflict(dir: &Path) -> Result<()> {
         .to_string();
     fx.git(&["reset", "-q", "--hard", &merge])?;
     fx.day += 1;
+    Ok(())
+}
+
+/// `rhythm`: six commits made in three time zones, one of them rebased, with
+/// conventional messages and an AI co-author. See `docs/fixtures.md`.
+fn rhythm(dir: &Path) -> Result<()> {
+    let mut fx = Fx::init(dir.join("rhythm"))?;
+    let commits: [(Author, &[&str], &str, &str); 6] = [
+        (
+            ALICE,
+            &["feat: first page"],
+            "1704080700 +0530",
+            "1704080700 +0530",
+        ),
+        (
+            ALICE,
+            &[
+                "fix(page): typo",
+                "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>",
+            ],
+            "1704219000 +0530",
+            "1704219000 +0530",
+        ),
+        (
+            BOB,
+            &["docs: readme"],
+            "1704531900 -0700",
+            "1704531900 -0700",
+        ),
+        (
+            ALICE,
+            &["refactor!: split page"],
+            "1704290400 +0000",
+            "1704621600 +0000",
+        ),
+        (
+            BOB,
+            &["Revert \"docs: readme\""],
+            "1704628800 +0000",
+            "1704628800 +0000",
+        ),
+        (
+            CAROL_PLAIN,
+            &["WIP"],
+            "1704697200 +0100",
+            "1704697200 +0100",
+        ),
+    ];
+    for (n, (author, message, authored, committed)) in commits.iter().enumerate() {
+        fx.write("page.txt", &format!("{n}\n"))?;
+        fx.commit_dated(*author, message, authored, committed)?;
+    }
     Ok(())
 }
 

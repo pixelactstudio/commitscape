@@ -7,9 +7,9 @@
 #![allow(dead_code, clippy::expect_used)]
 
 use commitscape_core::{
-    Author, AuthorId, AuthorTable, ChangeKind, CommitFlags, CommitMeta, FileChange, FileClass,
-    FileHistory, FileId, HeadFile, HistorySpan, Index, Oid, PathEvent, PathTable, RepoIdentity,
-    Signature, SignatureId,
+    Author, AuthorId, AuthorTable, ChangeKind, CommitFlags, CommitKind, CommitMeta, FileChange,
+    FileClass, FileHistory, FileId, HeadFile, HistorySpan, Index, Oid, PathEvent, PathTable,
+    RepoIdentity, Signature, SignatureId,
 };
 
 /// 2024-01-01T00:00:00Z.
@@ -17,12 +17,18 @@ pub const EPOCH: i64 = 1_704_067_200;
 pub const DAY: i64 = 86_400;
 
 /// One commit: its day, its author as an email or as `Name <email>`, whether
-/// it is a merge, and the paths it touched.
+/// it is a merge, and the paths it touched. By default it is made at midnight
+/// UTC on its day, says nothing conventional, and no agent helped.
 pub struct C<'a> {
     pub day: i64,
     pub author: &'a str,
     pub merge: bool,
     pub touched: &'a [&'a str],
+    /// Seconds after midnight on the author's clock.
+    pub clock: i64,
+    pub offset_minutes: i16,
+    pub kind: CommitKind,
+    pub agent: bool,
 }
 
 pub fn c<'a>(day: i64, author: &'a str, touched: &'a [&'a str]) -> C<'a> {
@@ -31,15 +37,43 @@ pub fn c<'a>(day: i64, author: &'a str, touched: &'a [&'a str]) -> C<'a> {
         author,
         merge: false,
         touched,
+        clock: 0,
+        offset_minutes: 0,
+        kind: CommitKind::Other,
+        agent: false,
     }
 }
 
 pub fn merge<'a>(day: i64, author: &'a str, touched: &'a [&'a str]) -> C<'a> {
     C {
-        day,
-        author,
         merge: true,
-        touched,
+        ..c(day, author, touched)
+    }
+}
+
+impl C<'_> {
+    /// Made at `hour:minute` on the author's clock, in a time zone
+    /// `offset_minutes` east of UTC. `day` is then the author's own date.
+    pub fn local(mut self, hour: i64, minute: i64, offset_minutes: i16) -> Self {
+        self.clock = hour * 3600 + minute * 60;
+        self.offset_minutes = offset_minutes;
+        self
+    }
+
+    pub fn kind(mut self, kind: CommitKind) -> Self {
+        self.kind = kind;
+        self
+    }
+
+    /// An AI coding agent co-wrote it.
+    pub fn agent(mut self) -> Self {
+        self.agent = true;
+        self
+    }
+
+    /// When the commit was made, in UTC.
+    fn time(&self) -> i64 {
+        EPOCH + self.day * DAY + self.clock - i64::from(self.offset_minutes) * 60
     }
 }
 
@@ -106,7 +140,7 @@ pub fn index_with_suspects(
     let mut emails: Vec<String> = Vec::new();
 
     let mut sorted: Vec<&C<'_>> = commits.iter().collect();
-    sorted.sort_by_key(|c| c.day);
+    sorted.sort_by_key(|c| c.time());
     for (n, commit) in sorted.iter().enumerate() {
         let signature = match emails.iter().position(|e| e == commit.author) {
             Some(i) => SignatureId(i as u32),
@@ -115,7 +149,7 @@ pub fn index_with_suspects(
                 SignatureId(emails.len() as u32 - 1)
             }
         };
-        let time = EPOCH + commit.day * DAY;
+        let time = commit.time();
         let start = idx.changes.len() as u32;
         for path in commit.touched {
             let (id, seen) = match path_ids.get(*path) {
@@ -156,13 +190,21 @@ pub fn index_with_suspects(
             id: Oid(id),
             time,
             signature,
-            flags: if commit.merge {
-                CommitFlags::EMPTY.with(CommitFlags::MERGE)
-            } else {
-                CommitFlags::EMPTY
+            flags: {
+                let mut flags = CommitFlags::EMPTY;
+                if commit.merge {
+                    flags = flags.with(CommitFlags::MERGE);
+                }
+                if commit.agent {
+                    flags = flags.with(CommitFlags::AGENT);
+                }
+                flags
             },
             changes_start: start,
             changes_len: idx.changes.len() as u32 - start,
+            offset_minutes: commit.offset_minutes,
+            author_delta: 0,
+            kind: commit.kind,
         });
     }
 

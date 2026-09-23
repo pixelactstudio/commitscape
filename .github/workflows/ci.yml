@@ -44,7 +44,7 @@ jobs:
         # for merges. Every fixture commit must match `git diff-tree -c`.
         shell: bash
         run: |
-          for f in linear coupling ownership renames bulk merges conflict detached shallow; do
+          for f in linear coupling ownership renames bulk merges conflict rhythm detached shallow; do
             cargo xtask verify-walk "fixtures/$f" --every 1
           done
 

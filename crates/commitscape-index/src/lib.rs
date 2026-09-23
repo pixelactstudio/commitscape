@@ -12,6 +12,7 @@ mod head_pass;
 pub mod identity;
 pub mod mailmap;
 pub mod measure;
+mod message;
 pub mod scripted;
 pub mod source;
 

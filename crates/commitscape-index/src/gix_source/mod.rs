@@ -309,6 +309,12 @@ impl RepoSource for GixRepo {
         Ok(h.digest())
     }
 
+    fn remote_url(&self) -> Option<String> {
+        let direction = gix::remote::Direction::Fetch;
+        let remote = self.repo.find_default_remote(direction)?.ok()?;
+        Some(remote.url(direction)?.to_bstring().to_string())
+    }
+
     fn walk_history(
         &self,
         indexed: &dyn Indexed,

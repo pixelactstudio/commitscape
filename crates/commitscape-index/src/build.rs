@@ -14,8 +14,8 @@ use std::collections::HashMap;
 use std::ops::ControlFlow;
 
 use commitscape_core::{
-    ChangeKind, CommitFlags, CommitMeta, FileChange, FileHistory, HistorySpan, Index, Oid,
-    PathEvent, PathId, PathTable, RepoIdentity, Signature, SignatureId,
+    ChangeKind, CommitFlags, CommitKind, CommitMeta, FileChange, FileHistory, HistorySpan, Index,
+    Oid, PathEvent, PathId, PathTable, RepoIdentity, Signature, SignatureId,
 };
 
 use crate::hash_index::HashIndex;
@@ -41,6 +41,9 @@ struct PendingCommit {
     flags: CommitFlags,
     changes_start: u32,
     changes_len: u32,
+    offset_minutes: i16,
+    author_delta: i32,
+    kind: CommitKind,
 }
 
 fn signature_hash(name: &[u8], email: &[u8]) -> u64 {
@@ -260,6 +263,9 @@ impl IndexBuilder {
                 flags: c.flags,
                 changes_start: start,
                 changes_len: changes.len() as u32 - start,
+                offset_minutes: c.offset_minutes,
+                author_delta: c.author_delta,
+                kind: c.kind,
             });
         }
 
@@ -362,11 +368,13 @@ impl CommitSink for IndexBuilder {
             self.pending.push(change);
         }
 
-        let flags = if commit.parent_count > 1 {
-            CommitFlags::EMPTY.with(CommitFlags::MERGE)
-        } else {
-            CommitFlags::EMPTY
-        };
+        let mut flags = CommitFlags::EMPTY;
+        if commit.parent_count > 1 {
+            flags = flags.with(CommitFlags::MERGE);
+        }
+        if commit.message.agent {
+            flags = flags.with(CommitFlags::AGENT);
+        }
 
         self.commits.push(PendingCommit {
             id: commit.id,
@@ -375,6 +383,11 @@ impl CommitSink for IndexBuilder {
             flags,
             changes_start: start,
             changes_len: self.pending.len() as u32 - start,
+            offset_minutes: (commit.author_offset / 60)
+                .clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16,
+            author_delta: (commit.author_time - commit.time)
+                .clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32,
+            kind: commit.message.kind,
         });
         ControlFlow::Continue(())
     }
