@@ -17,4 +17,4 @@ pub use index::{
     RepoIdentity, Signature, SignatureRef, SCHEMA_VERSION,
 };
 pub use oid::Oid;
-pub use time::{civil_from_unix, iso8601, Month};
+pub use time::{civil_from_unix, iso8601, parse_iso8601, Month};

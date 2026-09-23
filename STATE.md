@@ -3,7 +3,7 @@
 Running log for Build Run 1 (Phases 0 to 7). Written so a fresh session with
 no context can read this plus `docs/adr/` and continue without asking anything.
 
-**Current position:** Build Run 2, Phase 9 complete. Build Run 1 (Phases 0
+**Current position:** Build Run 2, Phase 10 complete. Build Run 1 (Phases 0
 to 7) built a correct, fast tool; the user found it hard to read and asked for
 it to be fun and visual: charts, a help window, plain explanations, stats
 about the project and its people, and GitHub numbers through the `gh` CLI.
@@ -260,7 +260,7 @@ at the user's request.
 |---|---|---|
 | 8 | The index records each commit's Local Time, Commit Kind and whether an agent co-wrote it; the remote URL is readable | **DONE** |
 | 9 | The repository's story as Analysis methods: languages, activity, rhythm, streaks, people, fun facts | **DONE** |
-| 10 | GitHub numbers through `gh`, in the background and cached | not started |
+| 10 | GitHub numbers through `gh`, in the background and cached | **DONE** (the crate; its Panel comes with Phase 11) |
 | 11 | The interface rebuilt around charts, colour, plain language and a help window | not started |
 | 12 | `commitscape card`: the Overview as a shareable SVG | not started |
 
@@ -516,6 +516,24 @@ measurable.
    112-day streak and a 492-commit day. `pixelactstudio` makes 45% of its
    commits on weekends and 39% at night. Its leaderboard lists "Dev Talan"
    twice, under two emails, which the People Panel will need to explain.
+
+## Phase 10 findings
+
+1. **ADR-0009: GitHub numbers come from the `gh` CLI**, one GraphQL query
+   after the first frame, cached by `gh` for an hour. A new crate,
+   `commitscape-forge`, knows nothing of git; `check-layering` keeps it so,
+   and keeps the metrics crate from reaching it.
+2. **One query takes 1.2 to 1.8 seconds** (rust-lang/rust is the slowest);
+   repeated within the hour, 66ms.
+3. **GitHub no longer lists stargazers through its API**: the connection
+   reports zero even for rust-lang/rust. Star totals are available; star
+   growth is not.
+4. **`gh` gets `-f`, never `-F`**: `-F` reads a value starting with `@` as a
+   file and turns numeric names into numbers.
+5. **Tests**: remote URL forms, a response written by hand with its derived
+   numbers worked out, and a real response recorded from pingdotgg/t3code.
+   One ignored test asks GitHub live (`cargo test -p commitscape-forge --
+   --ignored`).
 
 ## Decisions made during implementation, not in any ADR
 

@@ -55,6 +55,40 @@ pub fn iso8601(unix: i64) -> String {
     )
 }
 
+/// Reads a UTC time written as GitHub writes them, `2024-01-05T00:00:00Z`,
+/// as seconds since the epoch. Anything else is `None`.
+pub fn parse_iso8601(text: &str) -> Option<i64> {
+    let number = |range: std::ops::Range<usize>| text.get(range)?.parse::<i64>().ok();
+    let separators = [
+        (4, "-"),
+        (7, "-"),
+        (10, "T"),
+        (13, ":"),
+        (16, ":"),
+        (19, "Z"),
+    ];
+    if text.len() != 20
+        || separators
+            .iter()
+            .any(|&(i, c)| text.get(i..i + 1) != Some(c))
+    {
+        return None;
+    }
+    let (year, month, day) = (number(0..4)?, number(5..7)?, number(8..10)?);
+    let (hour, minute, second) = (number(11..13)?, number(14..16)?, number(17..19)?);
+    let valid = (1..=12).contains(&month)
+        && (1..=31).contains(&day)
+        && hour < 24
+        && minute < 60
+        && second < 61;
+    valid.then(|| {
+        days_from_civil(year, month as u32, day as u32) * SECONDS_PER_DAY
+            + hour * 3600
+            + minute * 60
+            + second
+    })
+}
+
 /// `(year, month, day)` of a Unix timestamp, in UTC.
 pub fn civil_from_unix(unix: i64) -> (i64, u32, u32) {
     civil_from_days(unix.div_euclid(SECONDS_PER_DAY))
@@ -109,6 +143,16 @@ mod tests {
         assert_eq!(iso8601(JAN_1_2024), "2024-01-01T00:00:00Z");
         assert_eq!(iso8601(FEB_1_2024 - 1), "2024-01-31T23:59:59Z");
         assert_eq!(iso8601(-1), "1969-12-31T23:59:59Z");
+    }
+
+    #[test]
+    fn an_iso_8601_time_reads_back_as_the_timestamp_it_was() {
+        assert_eq!(parse_iso8601("2024-01-01T00:00:00Z"), Some(JAN_1_2024));
+        assert_eq!(parse_iso8601("2024-01-31T23:59:59Z"), Some(FEB_1_2024 - 1));
+        assert_eq!(parse_iso8601(&iso8601(FEB_29_2000)), Some(FEB_29_2000));
+        assert_eq!(parse_iso8601("2024-01-01"), None);
+        assert_eq!(parse_iso8601("2024-13-01T00:00:00Z"), None);
+        assert_eq!(parse_iso8601("2024-01-01T00:00:00+01:00"), None);
     }
 
     #[test]

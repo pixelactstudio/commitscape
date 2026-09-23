@@ -1,0 +1,23 @@
+{"data":{"repository":{
+  "nameWithOwner":"acme/rocket","description":"A rocket, in Rust.","url":"https://github.com/acme/rocket","homepageUrl":"https://rocket.example",
+  "createdAt":"2024-01-01T00:00:00Z","pushedAt":"2025-06-30T12:00:00Z","isPrivate":false,"isFork":false,"isArchived":false,
+  "stargazerCount":1234,"forkCount":56,"watchers":{"totalCount":12},
+  "openIssues":{"totalCount":7},"closedIssues":{"totalCount":93},
+  "openPullRequests":{"totalCount":3},"mergedPullRequests":{"totalCount":210},"closedPullRequests":{"totalCount":14},
+  "releases":{"totalCount":9,"nodes":[{"name":"Rocket 1.2","tagName":"v1.2.0","publishedAt":"2025-06-01T09:00:00Z"}]},
+  "licenseInfo":{"spdxId":"MIT","name":"MIT License"},
+  "languages":{"totalSize":1000,"edges":[{"size":900,"node":{"name":"Rust"}},{"size":100,"node":{"name":"Shell"}}]},
+  "repositoryTopics":{"nodes":[{"topic":{"name":"cli"}},{"topic":{"name":"git"}}]},
+  "recentPullRequests":{"nodes":[
+    {"createdAt":"2025-06-01T00:00:00Z","mergedAt":"2025-06-01T06:00:00Z","closedAt":"2025-06-01T06:00:00Z","state":"MERGED","author":{"login":"alice"}},
+    {"createdAt":"2025-06-10T00:00:00Z","mergedAt":"2025-06-12T00:00:00Z","closedAt":"2025-06-12T00:00:00Z","state":"MERGED","author":{"login":"bob"}},
+    {"createdAt":"2025-06-20T00:00:00Z","mergedAt":null,"closedAt":"2025-06-21T00:00:00Z","state":"CLOSED","author":{"login":"alice"}},
+    {"createdAt":"2025-06-25T00:00:00Z","mergedAt":"2025-06-25T01:00:00Z","closedAt":"2025-06-25T01:00:00Z","state":"MERGED","author":null},
+    {"createdAt":"2025-06-29T00:00:00Z","mergedAt":null,"closedAt":null,"state":"OPEN","author":{"login":"carol"}}
+  ]},
+  "recentIssues":{"nodes":[
+    {"createdAt":"2025-05-01T00:00:00Z","closedAt":"2025-05-03T00:00:00Z","state":"CLOSED"},
+    {"createdAt":"2025-06-15T00:00:00Z","closedAt":null,"state":"OPEN"},
+    {"createdAt":"2025-06-28T00:00:00Z","closedAt":"2025-06-29T00:00:00Z","state":"CLOSED"}
+  ]}
+}}}

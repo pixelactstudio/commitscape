@@ -22,9 +22,21 @@ const RULES: &[Rule] = &[
     // as pure.
     Rule {
         package: "commitscape-metrics",
-        forbidden: &["gix", "commitscape-index", "ratatui", "crossterm"],
+        forbidden: &[
+            "gix",
+            "commitscape-index",
+            "commitscape-forge",
+            "ratatui",
+            "crossterm",
+        ],
         why: "The metrics layer is defined as pure functions over the index. If it can see \
-              git, the seam is decorative.",
+              git, or the network, the seam is decorative.",
+    },
+    Rule {
+        package: "commitscape-forge",
+        forbidden: &["gix", "commitscape-index", "ratatui", "crossterm"],
+        why: "The forge turns a remote URL into a host's numbers (ADR-0009). It has no \
+              business with git history or the terminal.",
     },
     Rule {
         package: "commitscape-tui",
