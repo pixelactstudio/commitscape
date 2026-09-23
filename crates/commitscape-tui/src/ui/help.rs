@@ -73,7 +73,7 @@ fn heading(text: &str) -> Line<'static> {
 fn this_screen(panel: Panel) -> &'static [&'static str] {
     match panel {
         Panel::Overview => &[
-            "The repository at a glance. The tiles count all of its history; the chart, the people and the facts cover the window. Press w to change the window.",
+            "The repository at a glance. The tiles count all of its history; the chart, the people and the facts cover the window. Press w to change the window. Over all of history, the tiles also say how many commits land a week and how few people made 80% of them.",
             "Worth a look lists what deserves attention: folders that rest on one person, the hottest file, files that change together across folders. Select one and press Enter to open it.",
         ],
         Panel::Activity => &[

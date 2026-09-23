@@ -1,6 +1,7 @@
 //! The Overview: the repository at a glance, then what is worth a look.
 
 use commitscape_core::CommitKind;
+use commitscape_metrics::Span as Window;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
@@ -44,23 +45,40 @@ pub(super) fn draw(app: &App, frame: &mut Frame, area: Rect, cursor: &mut Cursor
 
     let [facts_area, worth_area] =
         Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).areas(bottom);
-    let inner = boxed(frame, facts_area, "Did you know?", None);
-    // Whole facts only, each wrapped under its own bullet.
-    let mut lines: Vec<Line> = Vec::new();
-    for fact in facts(app, f) {
-        let mut spans = vec![Span::styled("▸ ", Style::new().fg(ACCENT))];
-        spans.extend(fact.spans);
-        let wrapped = super::wrap_spans(spans, usize::from(inner.width), 2);
-        if lines.len() + wrapped.len() > usize::from(inner.height) {
-            break;
-        }
-        lines.extend(wrapped);
-    }
-    frame.render_widget(Paragraph::new(lines), inner);
+    draw_facts(app, f, frame, facts_area, 1);
     draw_worth(app, f, frame, worth_area, cursor);
 }
 
-fn draw_hero(app: &App, f: &Findings, frame: &mut Frame, area: Rect, big: Option<[String; 3]>) {
+/// "Did you know?": the facts, in `columns` side by side, whole facts
+/// only, each wrapped under its own bullet.
+pub(super) fn draw_facts(app: &App, f: &Findings, frame: &mut Frame, area: Rect, columns: u16) {
+    let inner = boxed(frame, area, "Did you know?", None);
+    let areas = Layout::horizontal(vec![Constraint::Fill(1); usize::from(columns.max(1))])
+        .spacing(2)
+        .split(inner);
+    let mut facts = facts(app, f).into_iter();
+    for column in areas.iter() {
+        let mut lines: Vec<Line> = Vec::new();
+        for fact in facts.by_ref() {
+            let mut spans = vec![Span::styled("▸ ", Style::new().fg(ACCENT))];
+            spans.extend(fact.spans);
+            let wrapped = super::wrap_spans(spans, usize::from(column.width), 2);
+            if lines.len() + wrapped.len() > usize::from(column.height) {
+                break;
+            }
+            lines.extend(wrapped);
+        }
+        frame.render_widget(Paragraph::new(lines), *column);
+    }
+}
+
+pub(super) fn draw_hero(
+    app: &App,
+    f: &Findings,
+    frame: &mut Frame,
+    area: Rect,
+    big: Option<[String; 3]>,
+) {
     let description = match &app.github {
         GitHubState::Ready(g) => g.description.clone(),
         _ => None,
@@ -133,9 +151,20 @@ fn badges(app: &App) -> Vec<Line<'static>> {
             })),
             Line::from(vec![
                 bold(grouped(g.open_prs)),
-                faint(" open pull requests"),
+                faint(if g.open_prs == 1 {
+                    " open pull request"
+                } else {
+                    " open pull requests"
+                }),
             ]),
-            Line::from(vec![bold(grouped(g.open_issues)), faint(" open issues")]),
+            Line::from(vec![
+                bold(grouped(g.open_issues)),
+                faint(if g.open_issues == 1 {
+                    " open issue"
+                } else {
+                    " open issues"
+                }),
+            ]),
         ],
         GitHubState::Ready(g) => {
             let mut lines = vec![
@@ -172,7 +201,7 @@ fn badges(app: &App) -> Vec<Line<'static>> {
     }
 }
 
-fn draw_tiles(app: &App, f: &Findings, frame: &mut Frame, area: Rect) {
+pub(super) fn draw_tiles(app: &App, f: &Findings, frame: &mut Frame, area: Rect) {
     let span = short_phrase(app.span);
     let t = &f.totals;
     let areas = Layout::horizontal([Constraint::Ratio(1, 6); 6]).split(area);
@@ -180,21 +209,32 @@ fn draw_tiles(app: &App, f: &Findings, frame: &mut Frame, area: Rect) {
         .first_commit
         .map(|first| short_age((app.anchor - first) / 86_400))
         .unwrap_or_default();
-    let tiles = [
-        (
-            grouped(t.commits),
-            "commits".to_string(),
+    // Over all of history the notes say what the counts do not: how many
+    // a week, how few people made most of it, and how many days there have
+    // been.
+    let all = t.first_commit.filter(|_| app.span == Window::All);
+    let (commits_note, people_note, days_note) = match all {
+        Some(first) => {
+            let days = (app.anchor - first).div_euclid(86_400) + 1;
+            (
+                format!("{} a week", pace(t.commits as f64 * 7.0 / days as f64)),
+                format!("{} made 80%", grouped(most_of_it(&f.contributors) as u64)),
+                format!("of {}", super::many(days as u64, "day", "days")),
+            )
+        }
+        None => (
             format!("{} in {span}", grouped(f.counts.in_window)),
-        ),
-        (
-            grouped(t.people as u64),
-            "people".to_string(),
             format!("{} in {span}", grouped(f.contributors.len() as u64)),
+            format!("in {span}"),
         ),
+    };
+    let tiles = [
+        (grouped(t.commits), "commits".to_string(), commits_note),
+        (grouped(t.people as u64), "people".to_string(), people_note),
         (
             grouped(u64::from(t.files)),
             "files".to_string(),
-            format!("{} of them code", grouped(u64::from(t.code_files))),
+            format!("{} are code", grouped(u64::from(t.code_files))),
         ),
         (
             compact(t.code_lines),
@@ -211,11 +251,35 @@ fn draw_tiles(app: &App, f: &Findings, frame: &mut Frame, area: Rect) {
         (
             grouped(u64::from(f.pulse.active_days)),
             "active days".to_string(),
-            format!("in {span}"),
+            days_note,
         ),
     ];
     for (area, (value, label, note)) in areas.iter().zip(tiles) {
         tile(frame, *area, &value, &label, &note);
+    }
+}
+
+/// The fewest people who together made more than 80% of the commits: the
+/// Bus Factor of the whole repository.
+fn most_of_it(people: &[commitscape_metrics::Contributor]) -> usize {
+    let total: u64 = people.iter().map(|c| u64::from(c.commits)).sum();
+    let mut made = 0u64;
+    for (n, c) in people.iter().enumerate() {
+        made += u64::from(c.commits);
+        if made * 5 > total * 4 {
+            return n + 1;
+        }
+    }
+    people.len()
+}
+
+/// A rate in a few characters: `0.6`, `12`, `1,204`.
+fn pace(rate: f64) -> String {
+    if rate < 10.0 {
+        let one = format!("{rate:.1}");
+        one.trim_end_matches(".0").to_string()
+    } else {
+        grouped(rate.round() as u64)
     }
 }
 
@@ -257,7 +321,7 @@ pub(super) fn language_colours(f: &Findings) -> Vec<(&'static str, u64, Color)> 
     parts
 }
 
-fn draw_languages(f: &Findings, frame: &mut Frame, area: Rect) {
+pub(super) fn draw_languages(f: &Findings, frame: &mut Frame, area: Rect) {
     let parts = language_colours(f);
     let total: u64 = parts.iter().map(|p| p.1).sum();
     let inner = Rect {
@@ -292,7 +356,7 @@ fn draw_languages(f: &Findings, frame: &mut Frame, area: Rect) {
     );
 }
 
-fn draw_activity(app: &App, f: &Findings, frame: &mut Frame, area: Rect) {
+pub(super) fn draw_activity(app: &App, f: &Findings, frame: &mut Frame, area: Rect) {
     let p = &f.pulse;
     let inner = boxed(
         frame,
@@ -328,7 +392,7 @@ fn draw_activity(app: &App, f: &Findings, frame: &mut Frame, area: Rect) {
     );
 }
 
-fn draw_people(app: &App, f: &Findings, frame: &mut Frame, area: Rect) {
+pub(super) fn draw_people(app: &App, f: &Findings, frame: &mut Frame, area: Rect) {
     let inner = boxed(
         frame,
         area,

@@ -60,6 +60,18 @@ frame is drawn, and `gh` keeps the answer for an hour. Nothing else needs the
 network; `--offline` never asks. Repositories on other hosts, such as GitLab,
 show everything but that screen.
 
+To share a repository's story, draw its card:
+
+```sh
+commitscape card .                   # writes <repository>-card.svg here
+commitscape card . --out story.svg   # somewhere else
+commitscape card . --window 90d      # the last 90 days instead of all of history
+```
+
+The card is a 1,080 by 684 pixel SVG: the repository's name, size, age and
+languages, commits over time, who writes the code, and facts worth sharing.
+Its text stays text, so it can be searched and copied.
+
 Other ways to run it:
 
 ```sh

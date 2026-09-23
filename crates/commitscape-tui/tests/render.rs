@@ -297,3 +297,19 @@ fn a_quiet_window_says_so_rather_than_showing_blanks() {
     let (mut app, _) = App::new(session);
     insta::assert_snapshot!(screen(&mut app));
 }
+
+#[test]
+fn the_card_tells_the_story_of_all_of_history() {
+    // All of acme's history: 58 commits by four people since 31 July 2023,
+    // 542 lines of code, 77% of it Rust, and the facts the Overview finds.
+    let card = commitscape_tui::card(support::session(Span::All));
+    insta::assert_snapshot!(support::text(&card));
+    // 120 by 36 cells of 9 by 19 pixels.
+    let svg = commitscape_tui::svg(&card);
+    assert!(svg.starts_with(r#"<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="684""#));
+    assert!(svg.trim_end().ends_with("</svg>"), "a whole SVG document");
+    assert!(
+        svg.contains(">all of history · made with</text>"),
+        "words stay together, so the image's text can be searched and copied"
+    );
+}

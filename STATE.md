@@ -3,7 +3,7 @@
 Running log for Build Run 1 (Phases 0 to 7). Written so a fresh session with
 no context can read this plus `docs/adr/` and continue without asking anything.
 
-**Current position:** Build Run 2, Phase 11 complete. Build Run 1 (Phases 0
+**Current position:** Build Run 2 complete (Phases 8 to 12). Build Run 1 (Phases 0
 to 7) built a correct, fast tool; the user found it hard to read and asked for
 it to be fun and visual: charts, a help window, plain explanations, stats
 about the project and its people, and GitHub numbers through the `gh` CLI.
@@ -262,7 +262,7 @@ at the user's request.
 | 9 | The repository's story as Analysis methods: languages, activity, rhythm, streaks, people, fun facts | **DONE** |
 | 10 | GitHub numbers through `gh`, in the background and cached | **DONE** (the crate; its Panel comes with Phase 11) |
 | 11 | The interface rebuilt around charts, colour, plain language and a help window | **DONE**: nine screens, a help window, search; 28 render tests; first paint 55.1ms rust-lang/rust, 77.4ms Linux |
-| 12 | `commitscape card`: the Overview as a shareable SVG | not started |
+| 12 | `commitscape card`: the Overview as a shareable SVG | **DONE**: a 1,080 by 684 pixel card, 19 to 27 KB on real repositories |
 
 ### Phase 8 measured numbers
 
@@ -607,6 +607,28 @@ What the first Window cost on Linux, measured part by part: the Map 61 to
     it had a 52-day streak and a 194-commit day, and its team commits at
     every hour of the week.
 
+## Phase 12 findings
+
+1. **`commitscape card [repo]`** reads all of history, asks GitHub unless
+   `--offline`, and writes `<repository>-card.svg`, or `--out`'s path. It
+   tells all of history unless `--window` says otherwise.
+2. **The card is the Overview's story at a fixed size**, 120 by 36 cells:
+   the name in the pixel font with GitHub's badges, the tiles, the language
+   bar, commits over time, who writes the code, and six facts in two
+   columns, framed and signed "made with commitscape". It is drawn by the
+   same functions as the Overview, into an off-screen buffer.
+3. **Over all of history, the tiles say what the counts do not**: commits
+   a week, how few people made 80% of the commits (the repository's own Bus
+   Factor), and active days out of the days there have been. acme: 0.6 a
+   week, 2 made 80%, 57 of 701 days; t3code: 239 a week, 5 made 80%, 185 of
+   228 days.
+4. **The SVG keeps words together**: a run of characters in one style is one
+   `<text>` with each character placed at its cell, so the card's text can
+   be searched and copied and still keeps its shape in any font. Full
+   blocks side by side are one rectangle, and touching box lines one path
+   per colour and width. t3code's card went from 168 KB to 27 KB with no
+   visible change.
+
 ## Decisions made during implementation, not in any ADR
 
 1. **`bincode` pinned to `=2.0.1`.** `cargo add` resolves to 3.0.0, which is a
@@ -725,25 +747,26 @@ What the first Window cost on Linux, measured part by part: the Map 61 to
 
 ## Where to pick up
 
-Build Run 2, Phase 12: `commitscape card`, the Overview as a shareable SVG
-through `commitscape_tui::svg`. After that, in rough order of value:
+Build Run 2 is done. In rough order of value:
 
 1. **Distribution (ADR-0003):** the npm package with per-platform binaries,
    and a release workflow. Nobody can use the tool without building it from
    source today.
-2. **Other hosts:** GitLab and others for the GitHub screen, through their
+2. **The card as PNG**, for the sites that take no SVG: a rasterizer such
+   as `resvg` with an embedded font, which is a dependency worth an ADR.
+3. **Other hosts:** GitLab and others for the GitHub screen, through their
    CLIs as ADR-0009 does for GitHub.
-3. **Agent-era metrics:** Context Weight, Stale Rule and Agent Footprint, as
+4. **Agent-era metrics:** Context Weight, Stale Rule and Agent Footprint, as
    defined in `CONTEXT.md`. Agent Commits are counted already.
-4. **`--deep`:** blame for line-level Code Age and line counts per change,
+5. **`--deep`:** blame for line-level Code Age and line counts per change,
    which ADR-0004 keeps out of the default path.
-5. **A smaller head write.** The head file is rewritten on every update
+6. **A smaller head write.** The head file is rewritten on every update
    (about 15 MB for rust-lang/rust); only its changed sections need writing.
-6. **Classification gaps:** a vendored tree with no lockfile of its own
+7. **Classification gaps:** a vendored tree with no lockfile of its own
    still needs `linguist-vendored` in `.gitattributes`, and rust-lang/rust's
    generated shell completions and blessed MIR test output rank as code. A
    hint in the interface could suggest the `.gitattributes` lines.
-7. **`bincode` is archived upstream.** It works and its format is frozen;
+8. **`bincode` is archived upstream.** It works and its format is frozen;
    moving to `postcard` or `rkyv` is a decision to make before it becomes a
    forced one.
 

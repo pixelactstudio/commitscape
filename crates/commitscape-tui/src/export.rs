@@ -6,6 +6,7 @@
 //! are drawn as shapes rather than as characters: fonts disagree about them,
 //! and a picture meant for sharing must look the same everywhere.
 
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
 use ratatui::buffer::Buffer;
@@ -55,44 +56,87 @@ pub fn svg(buffer: &Buffer) -> String {
         }
     }
 
-    // Glyphs.
+    // Glyphs: runs of text in one style as one element, each character
+    // placed at its own cell, so the words can be searched and copied;
+    // shapes on their own. Straight box lines are gathered and drawn after,
+    // joined where they touch.
+    let mut strokes = Strokes::default();
     for y in 0..rows {
+        let mut run = Run::default();
+        // Full blocks side by side in one colour are one rectangle: a bar
+        // is a few shapes rather than one a cell.
+        let mut blocks: Option<(f64, f64, String)> = None;
+        let top = f64::from(y) * CELL_H;
+        let flush = |blocks: &mut Option<(f64, f64, String)>, out: &mut String| {
+            if let Some((from, to, colour)) = blocks.take() {
+                let _ = write!(
+                    out,
+                    r#"<rect x="{from}" y="{top}" width="{}" height="{CELL_H}" fill="{colour}"/>"#,
+                    to - from
+                );
+            }
+        };
         for x in 0..cols {
             let Some(cell) = buffer.cell((area.x + x, area.y + y)) else {
                 continue;
             };
             let symbol = cell.symbol();
+            let left = f64::from(x) * CELL_W;
+            if symbol != "█" {
+                flush(&mut blocks, &mut out);
+            }
             if symbol.is_empty() || symbol == " " {
+                run.space(left);
                 continue;
             }
             let reversed = cell.modifier.contains(Modifier::REVERSED);
             let fg = if reversed { cell.bg } else { cell.fg };
             let colour = hex(fg, TEXT);
-            let (left, top) = (f64::from(x) * CELL_W, f64::from(y) * CELL_H);
+            let straight = symbol
+                .chars()
+                .next()
+                .and_then(arms)
+                .filter(|&(_, _, rounded)| !rounded && symbol.chars().count() == 1);
+            if let Some((sides, width, _)) = straight {
+                run.write(&mut out, top);
+                strokes.add(&colour, width, sides, left, top);
+                continue;
+            }
+            if symbol == "█" && !cell.modifier.contains(Modifier::UNDERLINED) {
+                run.write(&mut out, top);
+                match &mut blocks {
+                    Some((_, to, same)) if *same == colour && *to == left => *to = left + CELL_W,
+                    _ => {
+                        flush(&mut blocks, &mut out);
+                        blocks = Some((left, left + CELL_W, colour));
+                    }
+                }
+                continue;
+            }
             let mut chars = symbol.chars();
-            let shape = match (chars.next(), chars.next()) {
-                (Some(c), None) => shape(c, left, top, &colour),
+            let single = match (chars.next(), chars.next()) {
+                (Some(c), None) => Some(c),
                 _ => None,
             };
-            match shape {
-                Some(shape) => out.push_str(&shape),
+            match single.and_then(|c| shape(c, left, top, &colour)) {
+                Some(shape) => {
+                    run.write(&mut out, top);
+                    out.push_str(&shape);
+                }
                 None => {
-                    let weight = if cell.modifier.contains(Modifier::BOLD) {
-                        r#" font-weight="700""#
-                    } else {
-                        ""
+                    let style = Style {
+                        colour: colour.clone(),
+                        bold: cell.modifier.contains(Modifier::BOLD),
+                        dim: cell.modifier.contains(Modifier::DIM),
                     };
-                    let faint = if cell.modifier.contains(Modifier::DIM) {
-                        r#" opacity="0.6""#
-                    } else {
-                        ""
-                    };
-                    let _ = write!(
-                        out,
-                        r#"<text x="{left}" y="{}" fill="{colour}"{weight}{faint}>{}</text>"#,
-                        top + CELL_H * 0.75,
-                        escape(symbol)
-                    );
+                    if single.is_none() || run.style.as_ref() != Some(&style) {
+                        run.write(&mut out, top);
+                        run.style = Some(style);
+                    }
+                    run.push(left, symbol);
+                    if single.is_none() {
+                        run.write(&mut out, top);
+                    }
                 }
             }
             if cell.modifier.contains(Modifier::UNDERLINED) {
@@ -103,9 +147,72 @@ pub fn svg(buffer: &Buffer) -> String {
                 );
             }
         }
+        flush(&mut blocks, &mut out);
+        run.write(&mut out, top);
     }
+    strokes.write(&mut out);
     out.push_str("</svg>\n");
     out
+}
+
+/// How a run of text is drawn.
+#[derive(PartialEq)]
+struct Style {
+    colour: String,
+    bold: bool,
+    dim: bool,
+}
+
+/// Characters in one style along a row, each with its own position.
+#[derive(Default)]
+struct Run {
+    style: Option<Style>,
+    xs: Vec<f64>,
+    text: String,
+    /// Spaces seen since the last character, kept only if one follows.
+    gap: Vec<f64>,
+}
+
+impl Run {
+    fn push(&mut self, x: f64, symbol: &str) {
+        if !self.text.is_empty() {
+            for &at in &self.gap {
+                self.xs.push(at);
+                self.text.push(' ');
+            }
+        }
+        self.gap.clear();
+        self.xs.push(x);
+        self.text.push_str(symbol);
+    }
+
+    fn space(&mut self, x: f64) {
+        if !self.text.is_empty() {
+            self.gap.push(x);
+        }
+    }
+
+    /// Writes the run, if it holds anything, and starts another.
+    fn write(&mut self, out: &mut String, top: f64) {
+        if let Some(style) = self.style.take().filter(|_| !self.text.is_empty()) {
+            let xs: Vec<String> = self.xs.iter().map(f64::to_string).collect();
+            let weight = if style.bold {
+                r#" font-weight="700""#
+            } else {
+                ""
+            };
+            let faint = if style.dim { r#" opacity="0.6""# } else { "" };
+            let _ = write!(
+                out,
+                r#"<text x="{}" y="{}" fill="{}"{weight}{faint}>{}</text>"#,
+                xs.join(" "),
+                top + CELL_H * 0.75,
+                style.colour,
+                escape(&self.text)
+            );
+        }
+        *self = Run::default();
+    }
 }
 
 fn background(buffer: &Buffer, x: u16, y: u16) -> Color {
@@ -226,9 +333,85 @@ fn shape(c: char, x: f64, y: f64, colour: &str) -> Option<String> {
 }
 
 /// Box-drawing characters as strokes from the cell's centre to its edges.
-fn lines(c: char, x: f64, y: f64, colour: &str) -> Option<String> {
-    // Arms: left, right, up, down.
-    let (arms, width, rounded) = match c {
+/// A straight segment in hundredths of a unit: the row or column it runs
+/// along, and where it starts and ends on it.
+type Segment = (i64, i64, i64);
+
+/// Straight box lines by colour and width in tenths: horizontal segments,
+/// then vertical ones.
+#[derive(Default)]
+struct Strokes {
+    styles: BTreeMap<(String, u32), (Vec<Segment>, Vec<Segment>)>,
+}
+
+impl Strokes {
+    /// A cell's arms, from its middle to the edges it reaches.
+    fn add(
+        &mut self,
+        colour: &str,
+        width: f64,
+        [left, right, up, down]: [bool; 4],
+        x: f64,
+        y: f64,
+    ) {
+        let at = |v: f64| (v * 100.0).round() as i64;
+        let (cx, cy) = (at(x + CELL_W / 2.0), at(y + CELL_H / 2.0));
+        let (x0, x1, y0, y1) = (at(x), at(x + CELL_W), at(y), at(y + CELL_H));
+        let (across, down_) = self
+            .styles
+            .entry((colour.to_string(), (width * 10.0).round() as u32))
+            .or_default();
+        if left {
+            across.push((cy, x0, cx));
+        }
+        if right {
+            across.push((cy, cx, x1));
+        }
+        if up {
+            down_.push((cx, y0, cy));
+        }
+        if down {
+            down_.push((cx, cy, y1));
+        }
+    }
+
+    /// One path for each colour and width, each run of touching segments
+    /// one line in it.
+    fn write(self, out: &mut String) {
+        let unit = |v: i64| v as f64 / 100.0;
+        for ((colour, tenths), (mut across, mut down)) in self.styles {
+            let mut d = String::new();
+            for (segments, horizontal) in [(&mut across, true), (&mut down, false)] {
+                segments.sort_unstable();
+                let mut joined: Vec<Segment> = Vec::new();
+                for &(line, from, to) in segments.iter() {
+                    match joined.last_mut() {
+                        Some(last) if last.0 == line && last.2 >= from => last.2 = last.2.max(to),
+                        _ => joined.push((line, from, to)),
+                    }
+                }
+                for (line, from, to) in joined {
+                    let (a, b, c) = (unit(line), unit(from), unit(to));
+                    let _ = if horizontal {
+                        write!(d, "M{b},{a}H{c}")
+                    } else {
+                        write!(d, "M{a},{b}V{c}")
+                    };
+                }
+            }
+            let _ = write!(
+                out,
+                r#"<path d="{d}" stroke="{colour}" stroke-width="{}" fill="none" stroke-linecap="square"/>"#,
+                f64::from(tenths) / 10.0
+            );
+        }
+    }
+}
+
+/// A box-drawing character's arms (left, right, up, down), its stroke
+/// width, and whether its corner is rounded.
+fn arms(c: char) -> Option<([bool; 4], f64, bool)> {
+    Some(match c {
         '─' => ([true, true, false, false], 1.0, false),
         '━' => ([true, true, false, false], 2.5, false),
         '│' => ([false, false, true, true], 1.0, false),
@@ -251,7 +434,11 @@ fn lines(c: char, x: f64, y: f64, colour: &str) -> Option<String> {
         '┴' => ([true, true, true, false], 1.0, false),
         '┼' => ([true, true, true, true], 1.0, false),
         _ => return None,
-    };
+    })
+}
+
+fn lines(c: char, x: f64, y: f64, colour: &str) -> Option<String> {
+    let (arms, width, rounded) = arms(c)?;
     let (cx, cy) = (x + CELL_W / 2.0, y + CELL_H / 2.0);
     let [left, right, up, down] = arms;
     let mut path = String::new();

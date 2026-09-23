@@ -356,6 +356,18 @@ pub fn screen_sized(app: &mut App, width: u16, height: u16) -> String {
     terminal.backend().to_string()
 }
 
+/// A drawn buffer's text, a line per row.
+pub fn text(buffer: &ratatui::buffer::Buffer) -> String {
+    (0..buffer.area.height)
+        .map(|y| {
+            (0..buffer.area.width)
+                .map(|x| buffer.cell((x, y)).map_or(" ", |c| c.symbol()))
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// Presses keys in order. Work a key starts finishes before the next key,
 /// as if it took no time.
 pub fn press(app: &mut App, keys: &[KeyCode]) {

@@ -3,6 +3,7 @@
 
 mod activity;
 mod age;
+pub(crate) mod card;
 pub(crate) mod charts;
 mod coupling;
 mod detail;

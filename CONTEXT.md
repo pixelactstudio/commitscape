@@ -115,7 +115,7 @@ The code at HEAD drawn as nested rectangles, each as large as its lines of code,
 _Avoid_: treemap, tree view, file browser.
 
 **Card**:
-A composited image summarizing a repository, rendered for sharing rather than for reading in a terminal. The tool's growth mechanism, treated as a product feature.
+A composited image summarizing a repository, rendered for sharing rather than for reading in a terminal: the Overview's story of all of history, unless a shorter Window is asked for. The tool's growth mechanism, treated as a product feature.
 _Avoid_: report, summary image, badge.
 
 ### Agent-era terms

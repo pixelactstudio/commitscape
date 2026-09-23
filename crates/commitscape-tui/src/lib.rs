@@ -20,6 +20,9 @@ use std::sync::mpsc::{self, Sender};
 use commitscape_core::Index;
 use commitscape_forge::GitHub;
 use commitscape_metrics::{Options, Span};
+use ratatui::backend::TestBackend;
+use ratatui::buffer::Buffer;
+use ratatui::Terminal;
 
 pub use app::{App, Command, Event};
 pub use export::svg;
@@ -50,6 +53,20 @@ pub struct Session {
     pub older: Option<LoadOlder>,
     /// How to ask GitHub about the repository, or why it will not be asked.
     pub github: Result<LoadGitHub, String>,
+}
+
+/// A repository's story on one card, to share: the Overview's picture of
+/// the session's Window, framed and signed, 120 by 36 cells. The work the
+/// interface would start after its first frame, asking GitHub among it, is
+/// done first. [`svg`] makes the card an image.
+pub fn card(session: Session) -> Buffer {
+    let (mut app, mut work) = App::new(session);
+    while let Some(command) = work.pop() {
+        work.extend(app.update(command.run()));
+    }
+    let Ok(mut terminal) = Terminal::new(TestBackend::new(ui::card::WIDTH, ui::card::HEIGHT));
+    let Ok(_) = terminal.draw(|frame| ui::card::draw(&app, frame));
+    terminal.backend().buffer().clone()
 }
 
 /// Opens the interface in the terminal and runs it until the user quits.

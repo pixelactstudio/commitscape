@@ -1,0 +1,41 @@
+---
+source: crates/commitscape-tui/tests/render.rs
+assertion_line: 306
+expression: "support::text(&card)"
+---
+╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│                                                                                                                      │
+│   ▄▀▄ ▄▀▀ █▄█ █▀▀                                                                                                    │
+│   █▀█ █   █▀█ █▀▀                                                                                                    │
+│   ▀ ▀  ▀▀ ▀ ▀ ▀▀▀                                                                                                    │
+│   A Rust repository, 1 year and 11 months old.                                                                       │
+│                                                                                                                      │
+│  ╭─────────────────╮╭─────────────────╮╭─────────────────╮╭─────────────────╮╭─────────────────╮╭─────────────────╮  │
+│  │58               ││4                ││7                ││542              ││1.9 years        ││57               │  │
+│  │commits          ││people           ││files            ││lines of code    ││old              ││active days      │  │
+│  │0.6 a week       ││2 made 80%       ││6 are code       ││3 of prose       ││since 31 Jul 2023││of 701 days      │  │
+│  ╰─────────────────╯╰─────────────────╯╰─────────────────╯╰─────────────────╯╰─────────────────╯╰─────────────────╯  │
+│   ████████████████████████████████████████████████████████████████████████████████████████████████████████████████   │
+│   ● Rust 77%   ● TypeScript 23%                                                                                      │
+│                                                                                                                      │
+│  ╭ Commits over time ─────────────────────────────── 57 in all time ╮╭ Who writes the code ───────────── all time ╮  │
+│  │each bar is 11 days, the tallest 7 commits                        ││● Alice Example (exampl… ██████     35  61% │  │
+│  │                                                            ███   ││● Bob Builder            ██         11  19% │  │
+│  │                                                           ▅███   ││● Carol Coder            █▍          8  14% │  │
+│  │                                                         ▂▂████   ││● Alice Example (home.e… ▋           3   5% │  │
+│  │                                                         ██████   ││                                            │  │
+│  │                                                        ▆██████   ││                                            │  │
+│  │                                                        ███████▃  ││                                            │  │
+│  │                                                        ████████  ││                                            │  │
+│  │                                                       ▇████████  ││                                            │  │
+│  │▄        ▄        ▄      ▄ ▄        ▄   ▄   ▄▄    ▄ ▄  █████████  ││                                            │  │
+│  │█        █        █      █ █        █   █   ██    █ █  █████████  ││                                            │  │
+│  │Aug 2023   Dec  Feb   Apr  Jun   Aug  Oct   Dec   Feb  Apr   Jun  ││                                            │  │
+│  ╰──────────────────────────────────────────────────────────────────╯╰────────────────────────────────────────────╯  │
+│  ╭ Did you know? ─────────────────────────────────────────────────────────────────────────────────────────────────╮  │
+│  │▸ Most commits land around 10:00, local time.            ▸ core.rs changed in 36 commits, more than any other   │  │
+│  │▸ Weekend warriors: 26% of commits land on a weekend.      file.                                                │  │
+│  │▸ 5% of commits were written with an AI agent.           ▸ The biggest file is core.rs, with 210 lines.         │  │
+│  │▸ Longest streak: 4 days in a row, from 17 Jun 2025.     ▸ old.rs has not been touched in 1 year and 7 months.  │  │
+│  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯  │
+╰────────────────────────────────────────────────────────────────────────────── all of history · made with commitscape ╯

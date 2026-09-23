@@ -7,7 +7,7 @@ use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use clap::Parser;
+use clap::{Args, Parser, Subcommand};
 use commitscape_core::Index;
 use commitscape_forge::{GitHub, Remote};
 use commitscape_index::RepoSource;
@@ -20,9 +20,13 @@ use commitscape_tui::{LoadGitHub, LoadOlder, Session};
 #[command(
     name = "commitscape",
     version,
-    about = "Reads a git repository and reports what changes what you do next."
+    about = "Reads a git repository and reports what changes what you do next.",
+    args_conflicts_with_subcommands = true
 )]
 struct Cli {
+    #[command(subcommand)]
+    command: Option<Command>,
+
     /// Path to the repository. Defaults to the current directory.
     #[arg(default_value = ".")]
     repo: PathBuf,
@@ -45,6 +49,43 @@ struct Cli {
     #[arg(long, default_value_t = 20, value_name = "ROWS")]
     top: usize,
 
+    #[command(flatten)]
+    common: Common,
+
+    /// Draw the interface's first frame and exit: what the first-paint
+    /// benchmark times.
+    #[arg(long, hide = true)]
+    exit_after_first_paint: bool,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Draw the repository's story on a card to share, as an SVG image.
+    Card(CardArgs),
+}
+
+#[derive(Args)]
+struct CardArgs {
+    /// Path to the repository. Defaults to the current directory.
+    #[arg(default_value = ".")]
+    repo: PathBuf,
+
+    /// Where to write the card. Defaults to <repository>-card.svg in the
+    /// current directory.
+    #[arg(long, value_name = "FILE")]
+    out: Option<PathBuf>,
+
+    /// The Window the card tells: 30d, 90d, 1y or all.
+    #[arg(long, default_value = "all", value_parser = parse_span)]
+    window: Span,
+
+    #[command(flatten)]
+    common: Common,
+}
+
+/// Options every way of running it shares.
+#[derive(Args)]
+struct Common {
     /// A commit touching more files than this is a Bulk Commit, left out of
     /// Churn, Ownership and Change Coupling.
     #[arg(long, value_name = "FILES")]
@@ -67,11 +108,29 @@ struct Cli {
     /// Never ask GitHub (through the gh CLI) about the repository.
     #[arg(long)]
     offline: bool,
+}
 
-    /// Draw the interface's first frame and exit: what the first-paint
-    /// benchmark times.
-    #[arg(long, hide = true)]
-    exit_after_first_paint: bool,
+impl Common {
+    fn cache(&self) -> CacheOptions {
+        CacheOptions {
+            root: if self.no_cache {
+                None
+            } else {
+                self.cache_dir.clone().or_else(default_cache_root)
+            },
+        }
+    }
+
+    fn metrics(&self) -> Options {
+        let defaults = Options::default();
+        Options {
+            max_changeset_size: self
+                .max_changeset_size
+                .unwrap_or(defaults.max_changeset_size),
+            coupling_support: self.coupling_support.unwrap_or(defaults.coupling_support),
+            ..defaults
+        }
+    }
 }
 
 fn parse_span(s: &str) -> Result<Span, String> {
@@ -90,14 +149,11 @@ fn main() -> ExitCode {
 }
 
 fn run(cli: Cli) -> anyhow::Result<()> {
+    if let Some(Command::Card(args)) = cli.command {
+        return card(args);
+    }
     let repo = GixRepo::open(&cli.repo)?;
-    let options = CacheOptions {
-        root: if cli.no_cache {
-            None
-        } else {
-            cli.cache_dir.clone().or_else(default_cache_root)
-        },
-    };
+    let options = cli.common.cache();
     // `--json` ends the Window at the newest commit so its output is
     // reproducible; the summary ends it now, as the interface does.
     let since = match (cli.window.days(), cli.json) {
@@ -121,14 +177,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
     } else {
         now()
     };
-    let defaults = Options::default();
-    let metrics = Options {
-        max_changeset_size: cli
-            .max_changeset_size
-            .unwrap_or(defaults.max_changeset_size),
-        coupling_support: cli.coupling_support.unwrap_or(defaults.coupling_support),
-        ..defaults
-    };
+    let metrics = cli.common.metrics();
 
     if interactive {
         // The rest of history is read on another thread once the first frame
@@ -143,7 +192,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             span: cli.window,
             options: metrics,
             older,
-            github: github(&repo, cli.offline || cli.exit_after_first_paint),
+            github: github(&repo, cli.common.offline || cli.exit_after_first_paint),
         };
         if cli.exit_after_first_paint {
             commitscape_tui::paint_once(session)?;
@@ -163,6 +212,32 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         let summary = text::summary(&cli.repo, &loaded.index, loaded.freshness);
         write!(out, "{summary}{}", text::rankings(&analysis, cli.window))?;
     }
+    Ok(())
+}
+
+/// Draws the card and writes it where it was asked to go.
+fn card(args: CardArgs) -> anyhow::Result<()> {
+    let repo = GixRepo::open(&args.repo)?;
+    let mut meter = ProgressLine::new();
+    let loaded = load(&repo, &args.common.cache(), Since::All, &mut |p| {
+        meter.show(p)
+    })?;
+    meter.clear();
+    let name = repo_name(&loaded.index);
+    let session = Session {
+        name: name.clone(),
+        index: loaded.index,
+        anchor: now(),
+        span: args.window,
+        options: args.common.metrics(),
+        older: None,
+        github: github(&repo, args.common.offline),
+    };
+    let out = args
+        .out
+        .unwrap_or_else(|| PathBuf::from(format!("{name}-card.svg")));
+    std::fs::write(&out, commitscape_tui::svg(&commitscape_tui::card(session)))?;
+    println!("wrote {}", out.display());
     Ok(())
 }
 
