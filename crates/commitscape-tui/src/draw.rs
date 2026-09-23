@@ -65,8 +65,9 @@ pub(crate) fn header(
         )
         .into(),
     ];
-    if let Some(f) = findings {
-        line.push(
+    match findings {
+        Some(f) if f.counts.in_window == 0 => line.push(" · no commits".into()),
+        Some(f) => line.push(
             format!(
                 " · {}; {} and {} not counted",
                 counted(f.counts.in_window, "commit", "commits"),
@@ -74,7 +75,8 @@ pub(crate) fn header(
                 counted(f.counts.bulk, "bulk commit", "bulk commits"),
             )
             .into(),
-        );
+        ),
+        None => {}
     }
     frame.render_widget(Paragraph::new(Line::from(line)), area);
 }
@@ -154,12 +156,68 @@ fn overview(frame: &mut Frame, area: Rect, f: &Findings, cx: &Context<'_>, curso
             UNSELECTED
         }
     };
+    let mut lines: Vec<Line<'static>> = Vec::new();
+    if f.counts.in_window == 0 {
+        lines.push(heading(format!(
+            "Nothing was committed in {}. Press w for a longer Window.",
+            phrase(cx.span)
+        )));
+    } else {
+        changes(&mut lines, &items, f, cx, &mark);
+    }
+
+    lines.push(Line::default());
+    lines.push(heading("Staleness".to_string()));
+    let older = f
+        .staleness
+        .buckets
+        .iter()
+        .find(|b| b.age == Age::Older)
+        .map_or(0, |b| b.files);
+    lines.push(Line::from(format!(
+        "{}{} of the {} files people wrote untouched for a year or more",
+        mark(Headline::Stale),
+        grouped(u64::from(older)),
+        grouped(u64::from(f.files())),
+    )));
+
+    if !f.duplicates.is_empty() {
+        lines.push(Line::default());
+        lines.push(heading("People".to_string()));
+        lines.push(Line::from(format!(
+            "{}{} may be one person each. Nothing was merged.",
+            mark(Headline::People),
+            counted(
+                f.duplicates.len() as u64,
+                "group of people",
+                "groups of people"
+            ),
+        )));
+    }
+    frame.render_widget(
+        Paragraph::new(lines).block(titled("Overview".to_string(), None)),
+        area,
+    );
+}
+
+/// The Overview's findings about the Window's changes: the directories one
+/// person holds, the top Hotspot, and the first pair across directories.
+fn changes(
+    lines: &mut Vec<Line<'static>>,
+    items: &[Headline],
+    f: &Findings,
+    cx: &Context<'_>,
+    mark: &dyn Fn(Headline) -> &'static str,
+) {
     let path = |file| cx.index.paths.path_lossy(file);
     let min = cx.options.ownership_min_commits;
-    let mut lines: Vec<Line> = Vec::new();
-
     let own = &f.ownership;
-    lines.push(if own.bus_factor_one == 0 {
+    lines.push(if own.directory_count == 0 {
+        heading(format!(
+            "No directory had {min} or more commits in {}",
+            phrase(cx.span)
+        ))
+    } else if own.bus_factor_one == 0 {
         heading(format!(
             "No directory is held by one person: each of the {} with {min} or more commits takes two or more",
             grouped(u64::from(own.directory_count)),
@@ -171,7 +229,7 @@ fn overview(frame: &mut Frame, area: Rect, f: &Findings, cx: &Context<'_>, curso
             grouped(u64::from(own.directory_count)),
         ))
     });
-    for item in &items {
+    for item in items {
         let Headline::Directory(i) = *item else {
             continue;
         };
@@ -235,39 +293,6 @@ fn overview(frame: &mut Frame, area: Rect, f: &Findings, cx: &Context<'_>, curso
             f.coupling.support
         ),
     }));
-
-    lines.push(Line::default());
-    lines.push(heading("Staleness".to_string()));
-    let older = f
-        .staleness
-        .buckets
-        .iter()
-        .find(|b| b.age == Age::Older)
-        .map_or(0, |b| b.files);
-    lines.push(Line::from(format!(
-        "{}{} of the {} files people wrote untouched for a year or more",
-        mark(Headline::Stale),
-        grouped(u64::from(older)),
-        grouped(u64::from(f.files())),
-    )));
-
-    if !f.duplicates.is_empty() {
-        lines.push(Line::default());
-        lines.push(heading("People".to_string()));
-        lines.push(Line::from(format!(
-            "{}{} may be one person each. Nothing was merged.",
-            mark(Headline::People),
-            counted(
-                f.duplicates.len() as u64,
-                "group of people",
-                "groups of people"
-            ),
-        )));
-    }
-    frame.render_widget(
-        Paragraph::new(lines).block(titled("Overview".to_string(), None)),
-        area,
-    );
 }
 
 fn hotspots(frame: &mut Frame, area: Rect, f: &Findings, cx: &Context<'_>, cursor: &mut Cursor) {

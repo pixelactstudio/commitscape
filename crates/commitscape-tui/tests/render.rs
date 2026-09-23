@@ -183,3 +183,13 @@ fn a_list_taller_than_the_screen_scrolls_to_keep_the_selection_in_view() {
     press(&mut app, &[Char('2'), Down, Down, Down]);
     insta::assert_snapshot!(screen_sized(&mut app, 100, 8));
 }
+
+#[test]
+fn a_quiet_window_says_so_rather_than_showing_blanks() {
+    // A year and a half after acme's last commit, the last 90 days hold
+    // nothing; Staleness still covers every file.
+    let mut session = support::session(Span::Quarter);
+    session.anchor = support::ANCHOR + 540 * 86_400;
+    let (mut app, _) = App::new(session);
+    insta::assert_snapshot!(screen(&mut app));
+}

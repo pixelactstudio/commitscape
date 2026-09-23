@@ -22,7 +22,7 @@ run is listed under "Where to pick up".
 | — | Throwaway ratatui spike, captured then deleted | **DONE**: findings below; the code was deleted from `.scratch/` |
 | 5 | Pair-map size + changeset histogram reported; `--max-changeset-size` chosen from data | **PASS**: seven repositories reported below; default stays 50, now with the data behind it |
 | 6 | `--json` run against ≥3 structurally different repos | **PASS: five** (pixelactstudio, t3code, maihs, rust-lang/rust, Linux), each checked against 16 invariants; golden files for all ten non-empty fixtures |
-| 7 | TUI: every Panel covered by an `insta` snapshot through `TestBackend`; first paint from a warm cache measured under 100ms | **PASS**: all seven Panels and every detail they open have snapshots (19 tests, 17 snapshots); first paint median **51.2ms rust-lang/rust, 67.5ms Linux** (n=20, in a pseudo-terminal, its start-up included) |
+| 7 | TUI: every Panel covered by an `insta` snapshot through `TestBackend`; first paint from a warm cache measured under 100ms | **PASS**: all seven Panels and every detail they open have snapshots (20 tests, 18 snapshots); first paint median **51.2ms rust-lang/rust, 67.5ms Linux** (n=20, in a pseudo-terminal, its start-up included) |
 
 ### Phase 0 measured numbers
 
