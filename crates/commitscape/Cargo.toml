@@ -17,6 +17,7 @@ path = "src/main.rs"
 anyhow = "1.0.104"
 clap = { version = "4.6.6", features = ["derive"] }
 commitscape-core = { path = "../commitscape-core" }
+commitscape-forge = { path = "../commitscape-forge" }
 commitscape-index = { path = "../commitscape-index" }
 commitscape-metrics = { path = "../commitscape-metrics" }
 commitscape-tui = { path = "../commitscape-tui" }

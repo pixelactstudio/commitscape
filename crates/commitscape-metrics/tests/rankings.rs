@@ -125,6 +125,59 @@ fn a_hotspot_is_churn_percentile_times_complexity_percentile() {
 }
 
 #[test]
+fn a_hotspot_says_where_it_stands_among_the_files_it_was_ranked_with() {
+    // The history above. Days 1 to 3: churn a 3 and b 1, so among the two
+    // files with churn a is 1st and b 2nd. Complexity c 80, a 40, b 10, so
+    // among all three a is 2nd and b 3rd.
+    let idx = index(
+        &[
+            c(0, "a@x.org", &["a.rs", "b.rs", "c.rs"]),
+            c(1, "a@x.org", &["a.rs", "b.rs"]),
+            c(2, "a@x.org", &["a.rs"]),
+            c(3, "a@x.org", &["a.rs"]),
+        ],
+        &[h("a.rs", 100, 40), h("b.rs", 50, 10), h("c.rs", 300, 80)],
+    );
+    let a = Analysis::new(&idx, Window::last(2, EPOCH + 3 * DAY), options(50)).expect("covered");
+    type Places = (String, (u32, u32), (u32, u32));
+    let ranks: Vec<Places> = a
+        .hotspots()
+        .iter()
+        .map(|s| {
+            (
+                path(&idx, s.file),
+                (s.churn_rank.place, s.churn_rank.of),
+                (s.complexity_rank.place, s.complexity_rank.of),
+            )
+        })
+        .collect();
+    assert_eq!(
+        ranks,
+        vec![
+            ("a.rs".into(), (1, 2), (2, 3)),
+            ("b.rs".into(), (2, 2), (3, 3)),
+        ]
+    );
+
+    // Files that tie share the higher place: d and e both changed twice
+    // and are both indented 5 levels.
+    let tied = index(
+        &[
+            c(0, "a@x.org", &["d.rs", "e.rs"]),
+            c(1, "a@x.org", &["d.rs", "e.rs"]),
+        ],
+        &[h("d.rs", 10, 5), h("e.rs", 10, 5)],
+    );
+    let t = Analysis::new(&tied, Window::all(EPOCH + DAY), options(50)).expect("covered");
+    let places: Vec<(u32, u32)> = t
+        .hotspots()
+        .iter()
+        .map(|s| (s.churn_rank.place, s.complexity_rank.place))
+        .collect();
+    assert_eq!(places, vec![(1, 1), (1, 1)]);
+}
+
+#[test]
 fn one_pathological_file_does_not_flatten_every_other_score() {
     // rust-lang/rust has a parser stress test whose Complexity Proxy is four
     // million, over a hundred times any real source file. Dividing by the

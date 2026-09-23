@@ -2,8 +2,9 @@
 //! and the helpers that drive the interface without a terminal.
 //!
 //! Anchored at 2025-07-01T00:00:00Z. A commit made `d` days ago is stamped
-//! an hour before `anchor - d days`, so it is exactly `d` days old and never
-//! sits on a Window's edge. The Bulk Commit threshold is 5 files.
+//! on the day before `anchor - d days`, at its author's hour (see Rhythm
+//! below), so it is `d` whole days old and never sits on a Window's edge.
+//! The Bulk Commit threshold is 5 files.
 //!
 //! History older than a year:
 //!
@@ -54,12 +55,31 @@
 //!   `client.ts` 42 (122).
 //! - One group of people who may be one person: Alice (35 commits) and
 //!   Alice at home (3).
+//!
+//! Rhythm. Alice commits at 10:00, Bob at 21:00 and Carol at 15:00, all in
+//! UTC. Alice's commits that touch `parser.rs` say `feat(engine): ...` and
+//! her others `fix(engine): ...`; the last three name Claude as co-author.
+//! Bob's pairs say `feat(api): ...`, his two single-file commits `fix`, his
+//! bulk commit `style`; Carol's `core.rs` commits `refactor`, her guide
+//! commits `docs`. Worked values for the last 90 days, merges left out:
+//!
+//! - 46 commits, each on a day of its own: 46 active days.
+//! - Features 21 (Alice 15, Bob 6), fixes 17 (Alice 15, Bob 2), refactors
+//!   4, docs 3, style 1. Agent Commits 3.
+//! - Hours: 30 at 10:00, 7 at 15:00, 9 at 21:00. None at night.
+//! - 1 July 2025 is a Tuesday, so a commit made `d` days before falls on a
+//!   weekend when `d` is 1 or 2 more than a multiple of 7: 9 of Alice's, 2
+//!   of Bob's (days 71 and 50) and 2 of Carol's (15 and 8), 13 in all.
+//! - The longest streak is 4 days: days 13, 12, 11 and 10 (Alice, Carol,
+//!   Bob, Alice), from 17 June 2025. Days 26 to 24 make 3.
+//! - Every day holds one commit, so no day is busier than another.
 
 #![allow(dead_code, clippy::expect_used)]
 
 use std::path::Path;
 
 use commitscape_core::{Index, Oid};
+use commitscape_forge::{GitHub, Issue, PrState, PullRequest, Release};
 use commitscape_index::source::RawChangeKind::{self, Added, Modified};
 use commitscape_index::{index_from_scratch, load, CacheOptions, ScriptedRepo, Since};
 use commitscape_metrics::{Options, Span};
@@ -95,6 +115,16 @@ struct Script {
     blobs: u16,
 }
 
+/// The hour, in UTC, each person commits at.
+fn hour_of(who: (&str, &str)) -> i64 {
+    match who.1 {
+        "alice@example.com" => 10,
+        "bob@example.com" => 21,
+        "carol@example.com" => 15,
+        _ => 23,
+    }
+}
+
 impl Script {
     fn commit(
         mut self,
@@ -102,6 +132,7 @@ impl Script {
         who: (&str, &str),
         kind: RawChangeKind,
         paths: &[&str],
+        message: &str,
     ) -> Self {
         let mut changes = Vec::new();
         for path in paths {
@@ -110,13 +141,14 @@ impl Script {
             id[..2].copy_from_slice(&self.blobs.to_be_bytes());
             changes.push((path.as_bytes(), kind, Oid(id)));
         }
-        self.repo = self
-            .repo
-            .commit(ANCHOR - days_ago * DAY - 3600, who, &changes);
+        let time = ANCHOR - (days_ago + 1) * DAY + hour_of(who) * 3600;
+        self.repo = self.repo.commit(time, who, &changes).said(message);
         self.commits += 1;
         self
     }
 }
+
+const AGENT: &str = "\n\nCo-Authored-By: Claude <noreply@anthropic.com>";
 
 /// `lines` lines of code whose indentation climbs from none to `depth`
 /// levels of `unit`, then starts again.
@@ -132,55 +164,119 @@ pub fn acme() -> ScriptedRepo {
         commits: 0,
         blobs: 0,
     }
-    .commit(700, ALICE, Added, &[CORE, PARSER, OLD, GUIDE, LOCK])
-    .commit(600, ALICE, Modified, &[OLD])
-    .commit(500, ALICE, Added, &[STRINGS])
-    .commit(420, ALICE, Modified, &[CORE, LOCK])
-    .commit(400, BOB, Added, &[HANDLERS, CLIENT])
-    .commit(300, ALICE_HOME, Modified, &[PARSER])
-    .commit(250, ALICE_HOME, Modified, &[PARSER])
-    .commit(210, ALICE, Modified, &[STRINGS])
-    .commit(200, ALICE_HOME, Modified, &[PARSER])
-    .commit(150, CAROL, Modified, &[GUIDE])
-    .commit(120, BOB, Modified, &[HANDLERS, CLIENT]);
+    .commit(
+        700,
+        ALICE,
+        Added,
+        &[CORE, PARSER, OLD, GUIDE, LOCK],
+        "feat: first version",
+    )
+    .commit(600, ALICE, Modified, &[OLD], "fix: an old bug")
+    .commit(500, ALICE, Added, &[STRINGS], "feat(util): strings")
+    .commit(
+        420,
+        ALICE,
+        Modified,
+        &[CORE, LOCK],
+        "chore: update dependencies",
+    )
+    .commit(
+        400,
+        BOB,
+        Added,
+        &[HANDLERS, CLIENT],
+        "feat(api): first endpoints",
+    )
+    .commit(
+        300,
+        ALICE_HOME,
+        Modified,
+        &[PARSER],
+        "fix(parser): stop at EOF",
+    )
+    .commit(250, ALICE_HOME, Modified, &[PARSER], "fix(parser): quotes")
+    .commit(210, ALICE, Modified, &[STRINGS], "refactor(util): tidy")
+    .commit(200, ALICE_HOME, Modified, &[PARSER], "fix(parser): escapes")
+    .commit(150, CAROL, Modified, &[GUIDE], "docs: first guide")
+    .commit(
+        120,
+        BOB,
+        Modified,
+        &[HANDLERS, CLIENT],
+        "feat(api): version 2",
+    );
 
-    let mut recent: Vec<(i64, (&str, &str), Vec<&str>)> = Vec::new();
+    // Day, author, paths and message of each commit in the last 90 days.
+    type Planned<'a> = (i64, (&'a str, &'a str), Vec<&'a str>, &'a str);
+    let mut recent: Vec<Planned> = Vec::new();
     for k in 0..27 {
         let day = 88 - 3 * k;
-        let paths = if k % 2 == 0 {
-            vec![CORE, PARSER]
+        if k % 2 == 0 {
+            recent.push((
+                day,
+                ALICE,
+                vec![CORE, PARSER],
+                "feat(engine): parse a new form",
+            ));
         } else {
-            vec![CORE]
-        };
-        recent.push((day, ALICE, paths));
+            recent.push((day, ALICE, vec![CORE], "fix(engine): handle an edge case"));
+        }
     }
     for day in [80, 71, 60, 50, 41, 32] {
-        recent.push((day, BOB, vec![HANDLERS, CLIENT]));
+        recent.push((
+            day,
+            BOB,
+            vec![HANDLERS, CLIENT],
+            "feat(api): an endpoint and its client",
+        ));
     }
-    recent.push((20, BOB, vec![CLIENT]));
-    recent.push((11, BOB, vec![HANDLERS]));
+    recent.push((20, BOB, vec![CLIENT], "fix(web): retry on timeout"));
+    recent.push((11, BOB, vec![HANDLERS], "fix(api): validate input"));
     for day in [45, 35, 26, 15] {
-        recent.push((day, CAROL, vec![CORE]));
+        recent.push((day, CAROL, vec![CORE], "refactor(engine): simplify"));
     }
-    recent.push((38, CAROL, vec![GUIDE]));
-    recent.push((12, CAROL, vec![GUIDE]));
-    recent.push((24, BOB, vec![CORE, PARSER, HANDLERS, CLIENT, GUIDE, LOCK]));
-    recent.sort_by_key(|(day, _, _)| -day);
-    for (day, who, paths) in recent {
-        s = s.commit(day, who, Modified, &paths);
+    recent.push((38, CAROL, vec![GUIDE], "docs: explain setup"));
+    recent.push((12, CAROL, vec![GUIDE], "docs: explain flags"));
+    recent.push((
+        24,
+        BOB,
+        vec![CORE, PARSER, HANDLERS, CLIENT, GUIDE, LOCK],
+        "style: format everything",
+    ));
+    recent.sort_by_key(|(day, _, _, _)| -day);
+    for (day, who, paths, message) in recent {
+        s = s.commit(day, who, Modified, &paths, message);
     }
 
     // Day 10 is Alice's last commit before Carol's branch.
     let base = s.commits;
-    s = s.commit(8, CAROL, Modified, &[GUIDE]);
+    s = s.commit(8, CAROL, Modified, &[GUIDE], "docs: explain the map");
     let side = s.commits;
     s.repo = s.repo.at(base);
-    s = s.commit(7, ALICE, Modified, &[CORE]);
+    s = s.commit(
+        7,
+        ALICE,
+        Modified,
+        &[CORE],
+        &format!("fix(engine): handle an edge case{AGENT}"),
+    );
     s.repo = s.repo.merge(ANCHOR - 6 * DAY - 3600, CAROL, side, &[]);
     s.commits += 1;
     s = s
-        .commit(4, ALICE, Modified, &[CORE, PARSER])
-        .commit(1, ALICE, Modified, &[CORE]);
+        .commit(
+            4,
+            ALICE,
+            Modified,
+            &[CORE, PARSER],
+            &format!("feat(engine): parse a new form{AGENT}"),
+        )
+        .commit(
+            1,
+            ALICE,
+            Modified,
+            &[CORE],
+            &format!("fix(engine): handle an edge case{AGENT}"),
+        );
 
     s.repo
         .head_file(CORE.as_bytes(), &code(210, 6, "    "))
@@ -216,6 +312,7 @@ pub fn session(span: Span) -> Session {
         span,
         options: options(),
         older: None,
+        github: Err("not asked in tests".to_string()),
     }
 }
 
@@ -244,6 +341,7 @@ pub fn sliced(span: Span, dir: &Path) -> Session {
         span,
         options: options(),
         older,
+        github: Err("not asked in tests".to_string()),
     }
 }
 
@@ -280,7 +378,66 @@ pub fn settle(app: &mut App, mut commands: Vec<Command>) {
     }
 }
 
-/// A fresh interface on all of `acme`'s history.
+/// A fresh interface on all of `acme`'s history, with the work it starts
+/// done: the Map laid out.
 pub fn opened(span: Span) -> App {
-    App::new(session(span)).0
+    let (mut app, work) = App::new(session(span));
+    settle(&mut app, work);
+    app
+}
+
+/// What GitHub might say about acme, for the GitHub Panel.
+pub fn github() -> GitHub {
+    let at = |days: i64, hours: i64| ANCHOR - days * DAY + hours * 3600;
+    let pr = |created: i64, merged: Option<i64>, author: &str| PullRequest {
+        created,
+        merged,
+        closed: merged,
+        state: if merged.is_some() {
+            PrState::Merged
+        } else {
+            PrState::Open
+        },
+        author: author.to_string(),
+    };
+    GitHub {
+        name_with_owner: "acme/acme".to_string(),
+        description: Some("An engine, an API and a web client.".to_string()),
+        url: "https://github.com/acme/acme".to_string(),
+        homepage: None,
+        created: Some(ANCHOR - 700 * DAY),
+        pushed: Some(ANCHOR - DAY),
+        private: false,
+        fork: false,
+        archived: false,
+        stars: 1234,
+        forks: 56,
+        watchers: 12,
+        open_issues: 7,
+        closed_issues: 93,
+        open_prs: 1,
+        merged_prs: 210,
+        closed_prs: 14,
+        releases: 9,
+        latest_release: Some(Release {
+            name: Some("acme 1.2".to_string()),
+            tag: "v1.2.0".to_string(),
+            published: Some(ANCHOR - 30 * DAY),
+        }),
+        license: Some("MIT".to_string()),
+        topics: vec!["engine".to_string(), "api".to_string()],
+        languages: vec![("Rust".to_string(), 900), ("TypeScript".to_string(), 300)],
+        // Merged 1, 8 and 15 days ago after 6 hours each; one still open.
+        recent_prs: vec![
+            pr(at(15, -6), Some(at(15, 0)), "alice"),
+            pr(at(8, -6), Some(at(8, 0)), "bob"),
+            pr(at(1, -6), Some(at(1, 0)), "alice"),
+            pr(at(0, -2), None, "carol"),
+        ],
+        recent_issues: vec![Issue {
+            created: at(3, 0),
+            closed: None,
+            open: true,
+        }],
+    }
 }

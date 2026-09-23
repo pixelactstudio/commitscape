@@ -3,7 +3,7 @@
 Running log for Build Run 1 (Phases 0 to 7). Written so a fresh session with
 no context can read this plus `docs/adr/` and continue without asking anything.
 
-**Current position:** Build Run 2, Phase 10 complete. Build Run 1 (Phases 0
+**Current position:** Build Run 2, Phase 11 complete. Build Run 1 (Phases 0
 to 7) built a correct, fast tool; the user found it hard to read and asked for
 it to be fun and visual: charts, a help window, plain explanations, stats
 about the project and its people, and GitHub numbers through the `gh` CLI.
@@ -261,7 +261,7 @@ at the user's request.
 | 8 | The index records each commit's Local Time, Commit Kind and whether an agent co-wrote it; the remote URL is readable | **DONE** |
 | 9 | The repository's story as Analysis methods: languages, activity, rhythm, streaks, people, fun facts | **DONE** |
 | 10 | GitHub numbers through `gh`, in the background and cached | **DONE** (the crate; its Panel comes with Phase 11) |
-| 11 | The interface rebuilt around charts, colour, plain language and a help window | not started |
+| 11 | The interface rebuilt around charts, colour, plain language and a help window | **DONE**: nine screens, a help window, search; 28 render tests; first paint 55.1ms rust-lang/rust, 77.4ms Linux |
 | 12 | `commitscape card`: the Overview as a shareable SVG | not started |
 
 ### Phase 8 measured numbers
@@ -272,6 +272,23 @@ cold-index-rust   24.0s   (n=1; Phase 1 range 23.1 to 26.9s; budget 60s)
 
 Reading each message and author date in the walk's first pass costs nothing
 measurable.
+
+### Phase 11 measured numbers
+
+`cargo xtask bench --filter first-paint`, as in Phase 7 (n=20, medians):
+
+| Step | rust-lang/rust | Linux |
+|---|---|---|
+| Phase 7 interface | 51.2ms | 67.5ms |
+| New interface, first version | 108.2ms | 185.5ms |
+| The Map laid out after the first frame | 69.1ms | 118.5ms |
+| Shared names counted without a String each | 63.1ms | 97.8ms |
+| Ownership, languages and duplicates on their own threads | **55.1ms** | **77.4ms** |
+
+What the first Window cost on Linux, measured part by part: the Map 61 to
+100ms, Ownership 10 to 16ms, languages 9 to 13ms, suspected duplicates 4 to
+11ms, everything else together about 15ms; counting shared names 27ms, and
+3ms after.
 
 ---
 
@@ -535,6 +552,61 @@ measurable.
    One ignored test asks GitHub live (`cargo test -p commitscape-forge --
    --ignored`).
 
+## Phase 11 findings
+
+1. **Nine screens**: Overview, Activity, People, Map, Hotspots, Coupling,
+   Ownership, Age and GitHub, on keys 1 to 9. The Overview opens on the
+   repository's name in a pixel font, its size and age, its language bar,
+   commits over time, who writes the code, facts worth sharing and what is
+   worth a look. Every screen explains itself in a sentence or two, `?`
+   opens a help window with every term, and `/` searches a list.
+2. **Colour has a job each.** People keep one of eight categorical colours,
+   given out by all-time commits, on every screen; everyone else is grey.
+   Magnitude uses one-hue ramps, blue for counts and age and orange for
+   heat. Red, amber and green are kept for bus-factor status and always come
+   with a symbol and a word. Every palette was checked with the dataviz
+   validator against the `#1a1a19` surface; the first orange ramp failed its
+   light-end contrast and was re-derived. Without truecolor the colours are
+   mapped to the 256-colour palette each frame.
+3. **A selected row keeps its colours** and gains a dark blue background and
+   a bar at its left edge. Inverting it turned its bars into blocks of
+   background.
+4. **Percentiles are shown as Ranks.** "p94" meant nothing to the user; a
+   Hotspot now says "the 2nd most changed of 40 files · the 3rd most nested
+   of 120". `Hotspot` gained `churn_rank` and `complexity_rank`.
+5. **A commit counts on its Landing Day.** t3code's 90-day chart reached back
+   to April: rebased pull requests keep the date they were written, and the
+   chart placed them there although the Window holds commits by when they
+   landed. Days, streaks and active days now count the day a commit landed on
+   its author's calendar; hours and weekdays still count when it was
+   written. The `rhythm` fixture's worked values changed with it.
+6. **A copy of another repository with its own `.github/` is vendored.**
+   t3code keeps alchemy-effect under `.repos/`, with a lockfile but no
+   license, so the lockfile-and-license rule missed it: 1.1 million lines,
+   61% of what the Overview called the project's code. GitHub reads
+   `.github/` only at a repository's root, so a folder with its own
+   `.github/` and its own lockfile is a nested project. `CLASSIFIER_VERSION`
+   is 5. t3code now reports 697,000 lines instead of 1.8 million.
+7. **Two people sharing a name are told apart** by the start of their email
+   (the login, for GitHub's noreply addresses), or by its domain when that
+   is shared too.
+8. **GitHub counts from the latest hundred pull requests and issues say so.**
+   t3code's last hundred pull requests were opened in one day, so their chart
+   draws days, not weeks, and a count of issues whose sample does not reach
+   back a month reads "100+".
+9. **The Map comes after the first frame**, from a background job, and says
+   "Drawing the map…" until it arrives. The rest of the first Window's
+   findings are computed on four threads.
+10. **`cargo xtask preview <repo>`** drives the interface through key presses
+    and writes every screen as SVG, and as PNG through headless Chromium, to
+    `target/preview/`. The SVG exporter (`commitscape_tui::svg`) draws
+    blocks, braille, squares and box lines as shapes, so it looks the same in
+    any font; the Card will use it.
+11. **On real repositories:** 31% of t3code's commits in 90 days were written
+    with an AI agent, and "Cursor Agent" holds two of its folders alone;
+    it had a 52-day streak and a 194-commit day, and its team commits at
+    every hour of the week.
+
 ## Decisions made during implementation, not in any ADR
 
 1. **`bincode` pinned to `=2.0.1`.** `cargo add` resolves to 3.0.0, which is a
@@ -622,7 +694,16 @@ measurable.
 23. **`commitscape-tui` depends on core and metrics only.** Older history
     arrives through `Session::older`, a function the binary provides, and
     `cargo xtask check-layering` now asserts the interface cannot reach gix or
-    `commitscape-index`.
+    `commitscape-index`. Since Phase 11 it also depends on
+    `commitscape-forge`, for GitHub's numbers, which the binary asks for
+    through `Session::github`.
+24. **ratatui's `unstable-rendered-line-info` feature is on**, for
+    `Paragraph::line_count`: a panel's opening paragraph and the help window
+    are exactly as tall as their wrapped text. The API is marked unstable;
+    `Cargo.lock` pins the version it was written against.
+25. **Keys since Phase 11**: `1` to `9` choose a screen; `j` and `k` move as
+    `↓` and `↑` do; `/` searches; `c` changes the Map's colours; `?` opens
+    help. Decision 21 still holds for the rest.
 
 ---
 
@@ -644,21 +725,22 @@ measurable.
 
 ## Where to pick up
 
-Build Run 1 is done. In rough order of value:
+Build Run 2, Phase 12: `commitscape card`, the Overview as a shareable SVG
+through `commitscape_tui::svg`. After that, in rough order of value:
 
 1. **Distribution (ADR-0003):** the npm package with per-platform binaries,
    and a release workflow. Nobody can use the tool without building it from
    source today.
-2. **The Card (`CONTEXT.md`):** a shareable image of a repository's findings,
-   the growth feature the glossary names.
+2. **Other hosts:** GitLab and others for the GitHub screen, through their
+   CLIs as ADR-0009 does for GitHub.
 3. **Agent-era metrics:** Context Weight, Stale Rule and Agent Footprint, as
-   defined in `CONTEXT.md`.
+   defined in `CONTEXT.md`. Agent Commits are counted already.
 4. **`--deep`:** blame for line-level Code Age and line counts per change,
    which ADR-0004 keeps out of the default path.
 5. **A smaller head write.** The head file is rewritten on every update
    (about 15 MB for rust-lang/rust); only its changed sections need writing.
-6. **Classification gaps:** a vendored tree without its own lockfile and
-   license needs `linguist-vendored` in `.gitattributes`, and rust-lang/rust's
+6. **Classification gaps:** a vendored tree with no lockfile of its own
+   still needs `linguist-vendored` in `.gitattributes`, and rust-lang/rust's
    generated shell completions and blessed MIR test output rank as code. A
    hint in the interface could suggest the `.gitattributes` lines.
 7. **`bincode` is archived upstream.** It works and its format is frozen;
@@ -667,4 +749,5 @@ Build Run 1 is done. In rough order of value:
 
 Seams signed off by the user and not open for revision:
 `RepoSource` (fake + real), `Index`, the `Analysis` methods, `--json` golden
-files, TUI render via `insta`/`TestBackend`.
+files, TUI render via `insta`/`TestBackend`. Phase 10 added one: the forge,
+tested with a response written by hand and one GitHub really sent.

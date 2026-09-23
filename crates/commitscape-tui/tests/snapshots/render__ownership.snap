@@ -1,15 +1,17 @@
 ---
 source: crates/commitscape-tui/tests/render.rs
-assertion_line: 41
-expression: screen(&mut app)
+assertion_line: 61
+expression: "panel('7')"
 ---
-" commitscape  acme · 90d: 2025-04-02 to 2025-07-01 · 47 commits; 1 merge and 1 bulk commit not counted        "
-" 1 Overview │ 2 Hotspots │ 3 Coupling │ 4 Ownership │ 5 Staleness │ 6 Code Age │ 7 People                     "
-"┌ Ownership: directories with 10 or more commits, fewest owners first ─────────────────────────────── 1 of 3 ┐"
-"│    #   Bus factor  Commits  Top owner               Share  Directory                                       │"
-"│›    1           1       34  Alice Example             88%  src/engine/                                     │"
-"│     2           2       45  Alice Example             67%  (root)                                          │"
-"│     3           2       41  Alice Example             73%  src/                                            │"
+" commitscape   acme   58 commits · 4 people · since 31 Jul 2023                    window  30d  90d  1y  all  "
+" 1 Overview   2 Activity   3 People   4 Map   5 Hotspots   6 Coupling   7 Ownership   8 Age   9 GitHub        "
+"────────────────────────────────────────────────────────────────────────━━━━━━━━━━━───────────────────────────"
+" Who made the commits under each folder. The bus factor is the fewest people who together made more than 80%  "
+" of them: ▲ 1 means one person leaving would take most of what anyone knows about it.                         "
+"╭ Ownership ────────────────────────────── 1 of 3 folders rest on one person · 10 or more commits in 90 days ╮"
+"│▌src/engine/                          ████████████████  ▲ 1 person  Alice Example (example.…  88% of 34     │"
+"│ whole project                        ████████████████  ● 2 people  Alice Example (example.…  67% of 45     │"
+"│ src/                                 ████████████████  ● 2 people  Alice Example (example.…  73% of 41     │"
 "│                                                                                                            │"
 "│                                                                                                            │"
 "│                                                                                                            │"
@@ -25,7 +27,5 @@ expression: screen(&mut app)
 "│                                                                                                            │"
 "│                                                                                                            │"
 "│                                                                                                            │"
-"│                                                                                                            │"
-"│                                                                                                            │"
-"└────────────────────────────────────────────────────────────────────────────────────────────────────────────┘"
-" ↑↓ move  enter open  ←→ panel  q quit                                           w window  30d [90d] 1y  all  "
+"╰────────────────────────────────────────────────────────────────────────────────────────────────────────────╯"
+" ↑↓ move  enter open  ←→ panels  w window  / find  ? help  q quit                                             "

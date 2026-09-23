@@ -1,15 +1,16 @@
 ---
 source: crates/commitscape-tui/tests/render.rs
-assertion_line: 90
+assertion_line: 117
 expression: screen(&mut app)
 ---
-" commitscape  acme · 90d: 2025-04-02 to 2025-07-01 · 47 commits; 1 merge and 1 bulk commit not counted        "
-" 1 Overview │ 2 Hotspots │ 3 Coupling │ 4 Ownership │ 5 Staleness │ 6 Code Age │ 7 People                     "
-"┌ Files people wrote, last touched under a month ago ──────────────────────────────────────────────── 1 of 3 ┐"
-"│      Days  Last touched  File                                                                              │"
-"│›       20    2025-06-10  web/src/client.ts                                                                 │"
-"│        11    2025-06-19  src/api/handlers.ts                                                               │"
-"│         8    2025-06-22  docs/guide.md                                                                     │"
+" commitscape   acme   58 commits · 4 people · since 31 Jul 2023                    window  30d  90d  1y  all  "
+" 1 Overview   2 Activity   3 People   4 Map   5 Hotspots   6 Coupling   7 Ownership   8 Age   9 GitHub        "
+"──────────────────────────────────────────────────────────────────────────────────────━━━━━───────────────────"
+"╭ Files last touched under a month ago ──────────────────────────────────────────────────── enter for a file ╮"
+"│ file                                   days   last touched   folder                                        │"
+"│▌client.ts                                20     2025-06-10   web/src/                                      │"
+"│ handlers.ts                              11     2025-06-19   src/api/                                      │"
+"│ guide.md                                  8     2025-06-22   docs/                                         │"
 "│                                                                                                            │"
 "│                                                                                                            │"
 "│                                                                                                            │"
@@ -26,6 +27,5 @@ expression: screen(&mut app)
 "│                                                                                                            │"
 "│                                                                                                            │"
 "│                                                                                                            │"
-"│                                                                                                            │"
-"└────────────────────────────────────────────────────────────────────────────────────────────────────────────┘"
-" ↑↓ move  enter open  esc back  q quit                                           w window  30d [90d] 1y  all  "
+"╰────────────────────────────────────────────────────────────────────────────────────────────────────────────╯"
+" ↑↓ move  enter open  esc back  ←→ panels  w window  ? help  q quit                                           "

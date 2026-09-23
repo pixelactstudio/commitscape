@@ -1,13 +1,16 @@
 ---
 source: crates/commitscape-tui/tests/render.rs
-assertion_line: 62
-expression: screen(&mut app)
+assertion_line: 41
+expression: "panel('3')"
 ---
-" commitscape  acme · 90d: 2025-04-02 to 2025-07-01 · 47 commits; 1 merge and 1 bulk commit not counted        "
-" 1 Overview │ 2 Hotspots │ 3 Coupling │ 4 Ownership │ 5 Staleness │ 6 Code Age │ 7 People                     "
-"┌ People who may be one person ────────────────────────────────────────────────────────────────────── 1 of 1 ┐"
-"│    #   Commits       People                                                                                │"
-"│›    1  35 · 3        Alice Example <alice@example.com> · Alice Example <alice@home.example.net>            │"
+" commitscape   acme   58 commits · 4 people · since 31 Jul 2023                    window  30d  90d  1y  all  "
+" 1 Overview   2 Activity   3 People   4 Map   5 Hotspots   6 Coupling   7 Ownership   8 Age   9 GitHub        "
+"───────────────────────────━━━━━━━━───────────────────────────────────────────────────────────────────────────"
+"╭ People ────────────────────────────────────────────────────── 3 committed in 90 days · enter for a profile ╮"
+"│  #  person                                                   commits share     active last commit   AI help│"
+"│▌ 1  ● Alice Example (example.com)  ██████████████████████████     30   65%    30 days   1 day ago       10%│"
+"│  2  ● Bob Builder                  ███████▉                        9   20%     9 days 11 days ago      none│"
+"│  3  ● Carol Coder                  ██████▏                         7   15%     7 days  8 days ago      none│"
 "│                                                                                                            │"
 "│                                                                                                            │"
 "│                                                                                                            │"
@@ -19,13 +22,10 @@ expression: screen(&mut app)
 "│                                                                                                            │"
 "│                                                                                                            │"
 "│                                                                                                            │"
+"╰────────────────────────────────────────────────────────────────────────────────────────────────────────────╯"
+"╭ Same person? ──────────────────────────────────────────────────── open one of them to see how to join them ╮"
+"│1 pair of identities shares a name or an email name. Nothing was merged:                                    │"
+"│  ● Alice Example <alice@example.com>  ·  ● Alice Example <alice@home.example.net>                          │"
 "│                                                                                                            │"
-"│                                                                                                            │"
-"│                                                                                                            │"
-"│                                                                                                            │"
-"│                                                                                                            │"
-"│                                                                                                            │"
-"│                                                                                                            │"
-"│                                                                                                            │"
-"└ Nothing was merged. Open a group for the .mailmap lines that would join it ────────────────────────────────┘"
-" ↑↓ move  enter open  ←→ panel  q quit                                           w window  30d [90d] 1y  all  "
+"╰────────────────────────────────────────────────────────────────────────────────────────────────────────────╯"
+" ↑↓ move  enter open  ←→ panels  w window  / find  ? help  q quit                                             "

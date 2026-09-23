@@ -1,0 +1,31 @@
+---
+source: crates/commitscape-tui/tests/render.rs
+assertion_line: 82
+expression: screen(&mut app)
+---
+" commitscape   acme   58 commits · 4 people · since 31 Jul 2023                    window  30d  90d  1y  all  "
+" 1 Overview   2 Activity   3 People   4 Map   5 Hotspots   6 Coupling   7 Ownership   8 Age   9 GitHub        "
+"──────────────────────────────────────────────────────────────────────────────────────────────━━━━━━━━────────"
+" acme/acme                                                                                                    "
+" An engine, an API and a web client.                                                                          "
+"  engine   api                                                                                                "
+"╭────────────────╮╭─────────────────╮╭────────────────╮╭────────────────╮╭─────────────────╮╭────────────────╮"
+"│1,234           ││56               ││12              ││7               ││1                ││9               │"
+"│stars           ││forks            ││watching        ││open issues     ││open pull request││releases        │"
+"│                ││                 ││                ││93 closed       ││210 merged       ││v1.2.0          │"
+"╰────────────────╯╰─────────────────╯╰────────────────╯╰────────────────╯╰─────────────────╯╰────────────────╯"
+"╭ Pull requests merged each day ────────────── the last 4 opened ╮╭ Who opens pull requests ───────── recent ╮"
+"│4 opened in 16 days · 3 merged, half within 6 hours             ││ alice             ████████    2  50%     │"
+"│███                         ███                         ███     ││ bob               ████        1  25%     │"
+"│███                         ███                         ███     ││ carol             ████        1  25%     │"
+"│███                         ███                         ███     ││                                          │"
+"│███                         ███                         ███     ││                                          │"
+"│15 days ago                                                today││                                          │"
+"╰────────────────────────────────────────────────────────────────╯╰──────────────────────────────────────────╯"
+"╭ About ─────────────────────────────────────────────────────────────────────────────────────────────────────╮"
+"│ created 1 Aug 2023, 23 months ago   last push 1 day ago                                                    │"
+"│ latest release acme 1.2, 4 weeks ago                                                                       │"
+"│ issues opened in 30 days 1   closed 0   license MIT                                                        │"
+"│                                                                                                            │"
+"╰────────────────────────────────────────────────────────────────────────────────────────────────────────────╯"
+" ↑↓ move  ←→ panels  w window  ? help  q quit                                                                 "

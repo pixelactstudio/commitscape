@@ -15,8 +15,12 @@ A language-agnostic stand-in for structural complexity, derived from the indenta
 _Avoid_: complexity, cyclomatic complexity, difficulty.
 
 **Hotspot**:
-A file that is both heavily changed and structurally complex, scored as the product of its Churn percentile and its Complexity Proxy percentile: where it ranks among the files that changed in the Window, times where it ranks among all the files people wrote. The central finding of the tool.
+A file that is both heavily changed and structurally complex, scored as the product of its Churn percentile and its Complexity Proxy percentile: where it ranks among the files that changed in the Window, times where it ranks among all the files people wrote. The central finding of the tool. Shown to people as Ranks, never as percentiles.
 _Avoid_: problem file, risk file, tech debt.
+
+**Rank**:
+Where a file stands among the files it was compared with, counted from the top: the 2nd most changed of 40 files. Files that tie share the higher place.
+_Avoid_: percentile, p90, score.
 
 **Change Coupling**:
 The tendency of two files to appear in the same commit. Reported symmetrically as a Jaccard degree, and directionally as the probability that one changes given the other did.
@@ -73,8 +77,12 @@ One name-and-email pair exactly as it appears on commits. The Index records Sign
 _Avoid_: alias, raw identity, email.
 
 **Local Time**:
-When a commit's author made it, on the author's own clock and calendar: the time zone recorded on the commit, applied to the author time rather than the committer time. The rhythm of a team (its busiest hours, its weekends, its streaks) is measured in Local Time.
+When a commit's author made it, on the author's own clock and calendar: the time zone recorded on the commit, applied to the author time rather than the committer time. The rhythm of a team (its busiest hours and weekdays, its nights and weekends) is measured in Local Time.
 _Avoid_: timestamp, commit date, time of day.
+
+**Landing Day**:
+The day a commit entered history, on its author's calendar. It is what places a commit in a Window, so calendars, active days and streaks count Landing Days. It differs from the day of its Local Time only for a commit rebased or amended after it was written.
+_Avoid_: commit date, merge date.
 
 **Commit Kind**:
 What a commit says it is, read from a conventional commit subject (`feat:`, `fix:`, `docs:` and the rest) or from a revert. A commit whose message follows no convention is Other; the tool does not guess from prose.
@@ -99,8 +107,12 @@ One screen of the interface, computed from the Index over the active Window. A P
 _Avoid_: view, screen, tab, page.
 
 **Overview**:
-The Panel the interface opens on: what a repository's history says first. The directories one person holds, the top Hotspot, the files in different directories that change together, how much has gone untouched for a year, and the people who may be one person. Findings rather than counts, each of which can be entered.
+The Panel the interface opens on: the repository's story at a glance, then what is worth a look. Its size, age and languages, how the Window's commits fell over time, who wrote them, facts worth sharing, and the findings that change what you do next: the directories one person holds, the top Hotspot, the files in different directories that change together, how much has gone untouched for a year, and the people who may be one person. Each finding can be entered.
 _Avoid_: dashboard, home, summary.
+
+**Map**:
+The code at HEAD drawn as nested rectangles, each as large as its lines of code, coloured by Churn, by Staleness or by who holds it. Entered one directory at a time.
+_Avoid_: treemap, tree view, file browser.
 
 **Card**:
 A composited image summarizing a repository, rendered for sharing rather than for reading in a terminal. The tool's growth mechanism, treated as a product feature.

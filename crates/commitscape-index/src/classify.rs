@@ -15,7 +15,7 @@ use globset::{Glob, GlobBuilder, GlobSet, GlobSetBuilder};
 
 /// Bumped whenever a rule here changes. A cache classified by another version
 /// has its HEAD table classified again; its history is kept.
-pub const CLASSIFIER_VERSION: u32 = 3;
+pub const CLASSIFIER_VERSION: u32 = 5;
 
 /// Files that a package manager or build tool writes.
 const LOCKFILES: &[&str] = &[
@@ -84,6 +84,15 @@ const GENERATED_SUFFIXES: &[&str] = &[
 /// Fragments of a file name that mark generator output: `routeTree.gen.ts`,
 /// `schema.generated.ts`, `zz_generated.deepcopy.go`.
 const GENERATED_INFIXES: &[&str] = &[".gen.", ".generated.", "_generated.", "zz_generated"];
+
+/// Directories an IDE writes its project files into: JetBrains keeps
+/// `.idea/`, Xcode `App.xcodeproj/` and `App.xcworkspace/`. People commit
+/// them; nobody writes them.
+fn is_ide_project(path: &str) -> bool {
+    path.split('/').rev().skip(1).any(|segment| {
+        segment == ".idea" || segment.ends_with(".xcodeproj") || segment.ends_with(".xcworkspace")
+    })
+}
 
 /// Path segments package managers and vendoring tools write into.
 const VENDOR_DIRS: &[&str] = &[
@@ -340,9 +349,10 @@ fn parse_line(dir: &str, line: &str) -> Option<(Glob, Rule)> {
 
 /// Whether a change to `path` can change how *other* files are classified,
 /// so every class has to be decided again. Any change to a `.gitattributes`
-/// does. A lockfile or license file appearing or disappearing can make or
-/// unmake a nested project; editing one in place, which happens in most
-/// commits that add a dependency, cannot.
+/// does. A lockfile, a license file or a nested `.github/` folder's file
+/// appearing or disappearing can make or unmake a nested project; editing
+/// one in place, which happens in most commits that add a dependency,
+/// cannot.
 pub fn is_classification_input(path: &[u8], added_or_deleted: bool) -> bool {
     let name = path.rsplit(|&b| b == b'/').next().unwrap_or(path);
     let name = String::from_utf8_lossy(name);
@@ -352,16 +362,28 @@ pub fn is_classification_input(path: &[u8], added_or_deleted: bool) -> bool {
             && (LOCKFILES.contains(&name.as_ref())
                 || ["LICENSE", "LICENCE", "COPYING"]
                     .iter()
-                    .any(|l| upper.starts_with(l))))
+                    .any(|l| upper.starts_with(l))
+                || github_home(path).is_some()))
 }
 
-/// Directories below the root holding both a lockfile and a license file:
-/// another project's checkout, committed whole. A monorepo's own packages
-/// share the root's lockfile; a project with its own lockfile and its own
-/// license was brought in from elsewhere. Each result ends in `/`.
+/// The directory a nested `.github/` folder sits in, ending in `/`, for a
+/// path inside one: `vendor/x/` for `vendor/x/.github/ci.yml`. `None` at
+/// the root, where `.github/` is this repository's own.
+fn github_home(path: &[u8]) -> Option<&[u8]> {
+    const MARK: &[u8] = b"/.github/";
+    let at = path.windows(MARK.len()).position(|w| w == MARK)?;
+    path.get(..=at)
+}
+
+/// Directories below the root holding a lockfile and either a license file
+/// or a `.github/` folder: another project's checkout, committed whole. A
+/// monorepo's own packages share the root's lockfile; a project with its
+/// own lockfile and its own license, or the `.github/` GitHub only reads at
+/// a repository's root, was brought in from elsewhere. Each result ends in
+/// `/`.
 pub fn nested_projects<'p>(paths: impl Iterator<Item = &'p [u8]>) -> Vec<Vec<u8>> {
     let mut lockfile_dirs = std::collections::BTreeSet::new();
-    let mut license_dirs = std::collections::BTreeSet::new();
+    let mut own_dirs = std::collections::BTreeSet::new();
     for path in paths {
         let Some(slash) = path.iter().rposition(|&b| b == b'/') else {
             continue;
@@ -376,10 +398,13 @@ pub fn nested_projects<'p>(paths: impl Iterator<Item = &'p [u8]>) -> Vec<Vec<u8>
             .iter()
             .any(|l| upper.starts_with(l))
         {
-            license_dirs.insert(dir.to_vec());
+            own_dirs.insert(dir.to_vec());
+        }
+        if let Some(home) = github_home(path) {
+            own_dirs.insert(home.to_vec());
         }
     }
-    let mut found: Vec<Vec<u8>> = lockfile_dirs.intersection(&license_dirs).cloned().collect();
+    let mut found: Vec<Vec<u8>> = lockfile_dirs.intersection(&own_dirs).cloned().collect();
     // A project nested inside another nested project is already covered.
     found.sort();
     let mut out: Vec<Vec<u8>> = Vec::new();
@@ -417,6 +442,7 @@ fn is_generated(path: &str, contents: &[u8]) -> bool {
         || GENERATED_INFIXES.iter().any(|s| name.contains(s))
         || is_orm_snapshot(path, name)
         || path.contains("__snapshots__/")
+        || is_ide_project(path)
     {
         return true;
     }
@@ -552,6 +578,25 @@ mod tests {
         ] {
             assert_eq!(class(&c, path, "x\n"), FileClass::Generated, "{path}");
         }
+    }
+
+    #[test]
+    fn project_files_an_ide_writes_are_generated() {
+        let c = plain();
+        for path in [
+            ".idea/workspace.xml",
+            ".idea/codeStyles/Project.xml",
+            "apps/api/.idea/modules.xml",
+            "ios/App.xcodeproj/project.pbxproj",
+            "ios/App.xcworkspace/contents.xcworkspacedata",
+        ] {
+            assert_eq!(class(&c, path, "<xml/>\n"), FileClass::Generated, "{path}");
+        }
+        assert_eq!(
+            class(&c, ".vscode/settings.json", "{}\n"),
+            FileClass::Source,
+            "people write these on purpose"
+        );
     }
 
     #[test]
@@ -765,6 +810,40 @@ mod tests {
             FileClass::Source,
             "the repository's own declaration wins"
         );
+    }
+
+    #[test]
+    fn a_checkout_with_its_own_github_folder_is_vendored_without_a_license() {
+        // t3code keeps a copy of alchemy-effect under .repos/ with its own
+        // bun.lock and .github/ but no license. GitHub reads .github/ only at
+        // a repository's root, so one further down came with a copied
+        // repository. A package with a .github/ but no lockfile of its own
+        // is still this project's.
+        let paths: Vec<&[u8]> = vec![
+            b"bun.lock",
+            b".github/workflows/ci.yml",
+            b".repos/alchemy/bun.lock",
+            b".repos/alchemy/.github/workflows/ci.yml",
+            b".repos/alchemy/src/index.ts",
+            b"packages/ui/.github/CODEOWNERS",
+            b"packages/ui/src/button.tsx",
+        ];
+        assert_eq!(
+            nested_projects(paths.into_iter()),
+            vec![b".repos/alchemy/".to_vec()]
+        );
+
+        // Adding or removing such a folder's files can make or unmake a
+        // nested project; the root's own .github/ cannot.
+        assert!(is_classification_input(
+            b".repos/alchemy/.github/workflows/ci.yml",
+            true
+        ));
+        assert!(!is_classification_input(
+            b".repos/alchemy/.github/workflows/ci.yml",
+            false
+        ));
+        assert!(!is_classification_input(b".github/workflows/ci.yml", true));
     }
 
     #[test]

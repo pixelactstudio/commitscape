@@ -88,6 +88,15 @@ impl CommitMeta {
         self.time + i64::from(self.author_delta) + i64::from(self.offset_minutes) * 60
     }
 
+    /// When the commit landed, on its author's clock: the day it counts on
+    /// in a Window, which holds commits by when they landed. The same as
+    /// [`author_clock`](Self::author_clock) unless the commit was rebased
+    /// or amended after it was written.
+    #[inline]
+    pub fn landed_clock(&self) -> i64 {
+        self.time + i64::from(self.offset_minutes) * 60
+    }
+
     /// This commit's slice of the change arena.
     #[inline]
     pub fn changes(&self) -> std::ops::Range<usize> {

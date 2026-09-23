@@ -29,6 +29,9 @@ pub struct C<'a> {
     pub offset_minutes: i16,
     pub kind: CommitKind,
     pub agent: bool,
+    /// Author time minus commit time, for a commit rebased after it was
+    /// written.
+    pub author_delta: i32,
 }
 
 pub fn c<'a>(day: i64, author: &'a str, touched: &'a [&'a str]) -> C<'a> {
@@ -41,6 +44,7 @@ pub fn c<'a>(day: i64, author: &'a str, touched: &'a [&'a str]) -> C<'a> {
         offset_minutes: 0,
         kind: CommitKind::Other,
         agent: false,
+        author_delta: 0,
     }
 }
 
@@ -68,6 +72,14 @@ impl C<'_> {
     /// An AI coding agent co-wrote it.
     pub fn agent(mut self) -> Self {
         self.agent = true;
+        self
+    }
+
+    /// Written at `hour:00` on `day` of the author's clock, and committed
+    /// as `day` and `local` say: a commit rebased after it was written.
+    pub fn written(mut self, day: i64, hour: i64) -> Self {
+        let written = EPOCH + day * DAY + hour * 3600 - i64::from(self.offset_minutes) * 60;
+        self.author_delta = (written - self.time()) as i32;
         self
     }
 
@@ -203,7 +215,7 @@ pub fn index_with_suspects(
             changes_start: start,
             changes_len: idx.changes.len() as u32 - start,
             offset_minutes: commit.offset_minutes,
-            author_delta: 0,
+            author_delta: commit.author_delta,
             kind: commit.kind,
         });
     }

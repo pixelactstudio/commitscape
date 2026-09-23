@@ -1,22 +1,20 @@
 ---
 source: crates/commitscape-tui/tests/render.rs
-assertion_line: 83
+assertion_line: 103
 expression: screen(&mut app)
 ---
-" commitscape  acme · 90d: 2025-04-02 to 2025-07-01 · 47 commits; 1 merge and 1 bulk commit not counted        "
-" 1 Overview │ 2 Hotspots │ 3 Coupling │ 4 Ownership │ 5 Staleness │ 6 Code Age │ 7 People                     "
-"┌ src/engine/ ───────────────────────────────────────────────────────────────────────────────────────────────┐"
-"│34 commits in the last 90 days touched files people wrote here.                                             │"
-"│Bus factor 1: the fewest people who together made more than 80% of them.                                    │"
+" commitscape   acme   58 commits · 4 people · since 31 Jul 2023                    window  30d  90d  1y  all  "
+" 1 Overview   2 Activity   3 People   4 Map   5 Hotspots   6 Coupling   7 Ownership   8 Age   9 GitHub        "
+"────────────────────────────────────────────────────────────────────────━━━━━━━━━━━───────────────────────────"
+"╭ Who holds src/engine/ ─────────────────────────────────────────────────────────────────────────────────────╮"
+"│ 34 commits in 90 days touched files people wrote in src/engine/.                                           │"
+"│ Bus factor 1: the fewest people who together made more than 80% of them.                                   │"
 "│                                                                                                            │"
-"│  Person                 Email                          Commits Share Running                               │"
-"│  Alice Example          alice@example.com                   30   88%     88%   past 80%                    │"
-"│  Carol Coder            carol@example.com                    4   12%    100%                               │"
+"│ ████████████████████████████████████████████████████████████████████████████████████████████████████████   │"
 "│                                                                                                            │"
-"│                                                                                                            │"
-"│                                                                                                            │"
-"│                                                                                                            │"
-"│                                                                                                            │"
+"│ person                   email                           commits  share  running                           │"
+"│ ● Alice Example (exampl… alice@example.com                    30    88%      88%   past 80%                │"
+"│ ● Carol Coder            carol@example.com                     4    12%     100%                           │"
 "│                                                                                                            │"
 "│                                                                                                            │"
 "│                                                                                                            │"
@@ -27,5 +25,7 @@ expression: screen(&mut app)
 "│                                                                                                            │"
 "│                                                                                                            │"
 "│                                                                                                            │"
-"└────────────────────────────────────────────────────────────────────────────────────────────────────────────┘"
-" ↑↓ move  enter open  esc back  q quit                                           w window  30d [90d] 1y  all  "
+"│                                                                                                            │"
+"│                                                                                                            │"
+"╰────────────────────────────────────────────────────────────────────────────────────────────────────────────╯"
+" ↑↓ move  enter open  esc back  ←→ panels  w window  ? help  q quit                                           "

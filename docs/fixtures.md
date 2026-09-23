@@ -192,16 +192,19 @@ Expected, in committer-time order:
   -331,200 seconds.
 
 Its pulse over all of history, anchored at the newest commit (Monday 8
-January, 07:00 UTC), on each author's clock:
+January, 07:00 UTC). A commit counts on the day it landed on its author's
+calendar, and at the hour it was written:
 
-- One commit on each of Monday 1, Tuesday 2, Wednesday 3 (commit 4, by when
-  it was written), Saturday 6, Sunday 7 and Monday 8 January: 6 active days
-  from 1 to 8 January.
-- The longest streak is Monday 1 to Wednesday 3: 3 days.
-- Weekend commits: 2 (Saturday 02:05 and Sunday 12:00). Night commits,
-  22:00 to 04:59: 2 (Tuesday 23:40 and Saturday 02:05).
+- Commits landed on Monday 1, Tuesday 2, Saturday 6, Sunday 7 (two: commit
+  4, rebased that morning, and commit 5) and Monday 8 January: 5 active
+  days from 1 to 8 January.
+- The longest streak is Saturday 6 to Monday 8: 3 days. The busiest day is
+  Sunday 7, with 2 commits.
+- Weekend commits: 2 (Saturday 02:05 and Sunday 12:00; commit 4 was written
+  on a Wednesday). Night commits, 22:00 to 04:59: 2 (Tuesday 23:40 and
+  Saturday 02:05).
 - Every hour holds at most one commit, so the busiest hour is the earliest,
-  02:00, and the busiest day the earliest, 1 January.
+  02:00.
 
 ## Edge-case repositories
 

@@ -167,11 +167,11 @@
     "days": [
       1,
       1,
-      1,
       0,
       0,
+      0,
       1,
-      1,
+      2,
       1
     ],
     "week": [
@@ -405,14 +405,14 @@
       }
     ],
     "agent_commits": 1,
-    "active_days": 6,
+    "active_days": 5,
     "longest_streak": {
-      "first_day": "2024-01-01",
+      "first_day": "2024-01-06",
       "days": 3
     },
     "busiest_day": {
-      "day": "2024-01-01",
-      "commits": 1
+      "day": "2024-01-07",
+      "commits": 2
     },
     "busiest_hour": 2,
     "weekend_commits": 2,
@@ -426,7 +426,7 @@
       "active_days": 3,
       "agent_commits": 1,
       "first": "2024-01-01T09:15:00",
-      "last": "2024-01-03T14:00:00"
+      "last": "2024-01-07T10:00:00"
     },
     {
       "name": "Bob Example",

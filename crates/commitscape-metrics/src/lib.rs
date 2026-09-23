@@ -19,7 +19,8 @@ mod window;
 
 pub use ages::{Age, AgeCount, QuarterAge, StaleFile, Staleness};
 pub use analysis::{
-    Analysis, Churn, CommitCounts, Hotspot, LargeFile, NotLoaded, Options, Totals, RANKING_LIMIT,
+    Analysis, Churn, CommitCounts, Hotspot, LargeFile, NotLoaded, Options, Rank, Totals,
+    RANKING_LIMIT,
 };
 pub use code_map::{CodeMap, MapNode};
 pub use coupling::{ChangesetSizes, CoupledPair, Coupling, SizeBucket};

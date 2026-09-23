@@ -146,6 +146,9 @@ pub enum ForgeError {
     Unreadable(String),
 }
 
+/// How many of the latest pull requests and issues [`QUERY`] asks for.
+const RECENT: usize = 100;
+
 /// One query for everything the interface shows.
 const QUERY: &str = "query($owner: String!, $name: String!) {
   repository(owner: $owner, name: $name) {
@@ -319,6 +322,13 @@ impl GitHub {
             .count()
     }
 
+    /// Whether the recent issues reach back to `since`, so that what they
+    /// count since then is whole. When they do not, only the last hundred
+    /// were asked for and there were more.
+    pub fn issues_reach(&self, since: i64) -> bool {
+        self.recent_issues.len() < RECENT || self.recent_issues.iter().any(|i| i.created < since)
+    }
+
     /// Recent issues closed at or after `since`.
     pub fn issues_closed_since(&self, since: i64) -> usize {
         self.recent_issues
@@ -455,4 +465,15 @@ struct IssueNode {
     created_at: String,
     closed_at: Option<String>,
     state: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{QUERY, RECENT};
+
+    #[test]
+    fn the_query_asks_for_as_many_recent_items_as_the_counts_assume() {
+        assert!(QUERY.contains(&format!("pullRequests(last: {RECENT})")));
+        assert!(QUERY.contains(&format!("issues(last: {RECENT})")));
+    }
 }

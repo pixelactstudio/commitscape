@@ -104,6 +104,19 @@ pub struct Hotspot {
     pub complexity_percentile: f64,
     /// `churn_percentile * complexity_percentile`.
     pub score: f64,
+    /// Where `churn` stands among files with any Churn in the Window.
+    pub churn_rank: Rank,
+    /// Where `complexity` stands among every file that can be ranked.
+    pub complexity_rank: Rank,
+}
+
+/// Where a value stands among the files it was compared with: 2nd of 4.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct Rank {
+    /// 1 for the highest value. Files that tie share the higher place.
+    pub place: u32,
+    /// How many files were compared.
+    pub of: u32,
 }
 
 /// A file at HEAD, by size.
@@ -260,6 +273,8 @@ impl<'i> Analysis<'i> {
                     churn_percentile,
                     complexity_percentile,
                     score: churn_percentile * complexity_percentile,
+                    churn_rank: rank(&churns, churn),
+                    complexity_rank: rank(&complexities, h.indent_levels),
                 })
             })
             .collect();
@@ -362,6 +377,15 @@ fn percentile(sorted: &[u32], value: u32) -> f64 {
         return 0.0;
     }
     sorted.partition_point(|&v| v <= value) as f64 / sorted.len() as f64
+}
+
+/// Where `value` stands in a sorted population, counting from the top.
+fn rank(sorted: &[u32], value: u32) -> Rank {
+    let above = sorted.len() - sorted.partition_point(|&v| v <= value);
+    Rank {
+        place: u32::try_from(above + 1).unwrap_or(u32::MAX),
+        of: u32::try_from(sorted.len()).unwrap_or(u32::MAX),
+    }
 }
 
 /// Keeps the first [`RANKING_LIMIT`] rows in `order`, sorted: a linear

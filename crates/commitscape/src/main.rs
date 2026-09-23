@@ -9,10 +9,12 @@ use std::process::ExitCode;
 
 use clap::Parser;
 use commitscape_core::Index;
+use commitscape_forge::{GitHub, Remote};
+use commitscape_index::RepoSource;
 use commitscape_index::{default_cache_root, load, CacheOptions, GixRepo, Progress, Since};
 use commitscape_metrics::{Analysis, Options, Span};
 use commitscape_tui::format::grouped;
-use commitscape_tui::{LoadOlder, Session};
+use commitscape_tui::{LoadGitHub, LoadOlder, Session};
 
 #[derive(Parser)]
 #[command(
@@ -61,6 +63,10 @@ struct Cli {
     /// Index from scratch and neither read nor write a cache.
     #[arg(long)]
     no_cache: bool,
+
+    /// Never ask GitHub (through the gh CLI) about the repository.
+    #[arg(long)]
+    offline: bool,
 
     /// Draw the interface's first frame and exit: what the first-paint
     /// benchmark times.
@@ -137,6 +143,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             span: cli.window,
             options: metrics,
             older,
+            github: github(&repo, cli.offline || cli.exit_after_first_paint),
         };
         if cli.exit_after_first_paint {
             commitscape_tui::paint_once(session)?;
@@ -160,6 +167,22 @@ fn run(cli: Cli) -> anyhow::Result<()> {
 }
 
 const DAY: i64 = 86_400;
+
+/// How the interface asks GitHub about the repository, or why it will not
+/// (ADR-0009).
+fn github(repo: &GixRepo, offline: bool) -> Result<LoadGitHub, String> {
+    if offline {
+        return Err("--offline was given".to_string());
+    }
+    let url = repo
+        .remote_url()
+        .ok_or_else(|| "this repository has no remote".to_string())?;
+    let remote =
+        Remote::parse(&url).ok_or_else(|| format!("its remote is not on GitHub ({url})"))?;
+    Ok(Box::new(move || {
+        GitHub::fetch(&remote).map_err(|e| e.to_string())
+    }))
+}
 
 /// The repository's directory name: the parent of `.git`, or a bare
 /// repository's own directory.

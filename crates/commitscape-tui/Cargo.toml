@@ -14,8 +14,9 @@ workspace = true
 # caller provides (`Session::older`).
 [dependencies]
 commitscape-core = { path = "../commitscape-core" }
+commitscape-forge = { path = "../commitscape-forge" }
 commitscape-metrics = { path = "../commitscape-metrics" }
-ratatui = "0.30.2"
+ratatui = { version = "0.30.2", features = ["unstable-rendered-line-info"] }
 
 [dev-dependencies]
 commitscape-index = { path = "../commitscape-index" }

@@ -1,0 +1,31 @@
+---
+source: crates/commitscape-tui/tests/render.rs
+assertion_line: 110
+expression: screen(&mut app)
+---
+" commitscape   acme   58 commits · 4 people · since 31 Jul 2023                    window  30d  90d  1y  all  "
+" 1 Overview   2 Activity   3 People   4 Map   5 Hotspots   6 Coupling   7 Ownership   8 Age   9 GitHub        "
+"───────────────────────────━━━━━━━━───────────────────────────────────────────────────────────────────────────"
+" ● Alice Example (example.com)   alice@example.com                                                            "
+"╭────────────────╮╭─────────────────╮╭────────────────╮╭────────────────╮╭─────────────────╮╭────────────────╮"
+"│30              ││30               ││1 day           ││3 Apr 2025      ││29 Jun 2025      ││10%             │"
+"│commits         ││active days      ││longest streak  ││first commit    ││last commit      ││with an AI agent│"
+"│in 90 days      ││in 90 days       ││no two in a row ││in 90 days      ││1 day ago        ││3 commits       │"
+"╰────────────────╯╰─────────────────╯╰────────────────╯╰────────────────╯╰─────────────────╯╰────────────────╯"
+"╭ Calendar ──────────────────── each square is a day ╮╭ Hours of the week ─────────── on each author's clock ╮"
+"│    Apr       May     Jun                           ││    00          06          12          18            │"
+"│Mon   ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■                     ││Mon ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■   │"
+"│      ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■                     ││Tue ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■   │"
+"│Wed ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■                       ││Wed ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■   │"
+"│    ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■                       ││Thu ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■   │"
+"│Fri ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■                       ││Fri ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■   │"
+"│    ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■                       ││Sat ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■   │"
+"│Sun ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■                       ││Sun ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■   │"
+"╰─────────────────────────────── less ■ ■ ■ ■ ■ more ╯╰ busiest Thursdays around 10:00 ─ less ■ ■ ■ ■ ■ more ╯"
+"╭ Works on ──────────────────────────────────────── 90 days ╮╭ Folders that rest on them ────────── 1–4 of 6 ╮"
+"│ core.rs            ████████████   30  src/engine/         ││ ▲ src/engine/              88% of its commits │"
+"│ parser.rs          ██████         15  src/engine/         ││                                               │"
+"│                                                           ││ May also be                                   │"
+"│                                                           ││  alice@home.example.net, 3 commits            │"
+"╰───────────────────────────────────────────────────────────╯╰───────────────────────────────────────────────╯"
+" ↑↓ move  enter open  esc back  ←→ panels  w window  ? help  q quit                                           "

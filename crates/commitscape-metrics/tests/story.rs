@@ -115,6 +115,48 @@ fn the_pulse_counts_each_day_and_hour_on_the_authors_own_clock() {
     assert_eq!(pulse.agent, 1);
 }
 
+#[test]
+fn a_rebased_commit_counts_on_the_day_it_landed_and_the_hour_it_was_written() {
+    // Written on Monday at 09:00 and rebased onto the main line on Thursday
+    // at 16:00; another commit on Friday at 10:00, all in London. The
+    // Window runs from Wednesday 23:00 to Friday 23:00 and holds both, by
+    // when they landed. The days are the Window's, Wednesday to Friday,
+    // with the rebased commit on Thursday; the hours are when the work was
+    // done, so its hour is Monday's 09:00.
+    let idx = index(
+        &[
+            c(3, "alice@x.org", &["a.rs"]).local(16, 0, 0).written(0, 9),
+            c(4, "alice@x.org", &["a.rs"]).local(10, 0, 0),
+        ],
+        &[h("a.rs", 10, 5)],
+    );
+    let a = Analysis::new(
+        &idx,
+        Window::last(2, EPOCH + 4 * DAY + 23 * 3600),
+        options(),
+    )
+    .expect("all of it is loaded");
+    let pulse = a.pulse(None);
+    assert_eq!(pulse.first_day, MONDAY + 2, "Wednesday");
+    assert_eq!(pulse.days, vec![0, 1, 1], "Wednesday to Friday");
+    assert_eq!(
+        pulse.longest_streak.map(|s| (s.first_day, s.days)),
+        Some((MONDAY + 3, 2)),
+        "Thursday and Friday"
+    );
+    let at = |weekday: usize, hour: usize| {
+        pulse
+            .week
+            .get(weekday)
+            .and_then(|hours| hours.get(hour))
+            .copied()
+            .unwrap_or(0)
+    };
+    assert_eq!(at(0, 9), 1, "written on Monday at 09:00");
+    assert_eq!(at(3, 16), 0, "not when it landed");
+    assert_eq!(at(4, 10), 1);
+}
+
 fn person(idx: &commitscape_core::Index, email: &str) -> commitscape_core::AuthorId {
     idx.authors
         .iter()

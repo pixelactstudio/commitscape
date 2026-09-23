@@ -298,6 +298,7 @@ dependencies = [
  "anyhow",
  "clap",
  "commitscape-core",
+ "commitscape-forge",
  "commitscape-index",
  "commitscape-metrics",
  "commitscape-tui",
@@ -353,6 +354,7 @@ name = "commitscape-tui"
 version = "0.1.0"
 dependencies = [
  "commitscape-core",
+ "commitscape-forge",
  "commitscape-index",
  "commitscape-metrics",
  "insta",
@@ -3131,8 +3133,11 @@ dependencies = [
  "anyhow",
  "clap",
  "commitscape-core",
+ "commitscape-forge",
  "commitscape-index",
  "commitscape-metrics",
+ "commitscape-tui",
+ "ratatui",
 ]
 
 [[package]]

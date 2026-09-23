@@ -1,13 +1,21 @@
 ---
 source: crates/commitscape-tui/tests/render.rs
-assertion_line: 181
-expression: "screen_sized(&mut app, 100, 8)"
+assertion_line: 273
+expression: "screen_sized(&mut app, 110, 16)"
 ---
-" commitscape  acme · 90d: 2025-04-02 to 2025-07-01 · 47 commits; 1 merge and 1 bulk commit not count"
-" 1 Overview │ 2 Hotspots │ 3 Coupling │ 4 Ownership │ 5 Staleness │ 6 Code Age │ 7 People           "
-"┌ Hotspots: code both changed often and deeply nested ───────────────────────────────────── 4 of 4 ┐"
-"│    #   Score   Churn        Complexity        File                                               │"
-"│     3   0.33       7  p50          120  p66   src/api/handlers.ts                                │"
-"│›    4   0.17       7  p50           42  p33   web/src/client.ts                                  │"
-"└──────────────────────────────────────────────────────────────────────────────────────────────────┘"
-" ↑↓ move  enter open  ←→ panel  q quit                                 w window  30d [90d] 1y  all  "
+" commitscape   acme   58 commits · 4 people · since 31 Jul 2023                    window  30d  90d  1y  all  "
+" 1 Overview   2 Activity   3 People   4 Map   5 Hotspots   6 Coupling   7 Ownership   8 Age   9 GitHub        "
+"──────────────────────────────────────────────━━━━━━━━━━──────────────────────────────────────────────────────"
+" A hotspot is code that changes often and is deeply nested. Bugs and slow changes gather in it, so it is the  "
+" first code worth simplifying or testing. The longer both bars, the hotter the file. Press ? for how each is  "
+" measured.                                                                                                    "
+"╭ Hotspots ───────────────────────────────────────── changes in 90 days · nesting at HEAD · enter for a file ╮"
+"│  2  parser.rs                    changes ████████▉               15   nesting ███████▋                 240 │"
+"│     src/engine/                  the 2nd most changed of 4 files · the 2nd most nested of 6                │"
+"│  3  handlers.ts                  changes ████▏                    7   nesting ███▉                     120 │"
+"│     src/api/                     the 3rd most changed of 4 files · the 3rd most nested of 6                │"
+"│▌ 4  client.ts                    changes ████▏                    7   nesting █▍                        42 │"
+"│▌    web/src/                     the 3rd most changed of 4 files · the 5th most nested of 6                │"
+"│                                                                                                            │"
+"╰────────────────────────────────────────────────────────────────────────────────────────────────────────────╯"
+" ↑↓ move  enter open  ←→ panels  w window  / find  ? help  q quit                                             "

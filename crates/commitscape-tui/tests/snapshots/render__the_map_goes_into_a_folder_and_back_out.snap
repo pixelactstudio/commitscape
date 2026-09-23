@@ -1,0 +1,31 @@
+---
+source: crates/commitscape-tui/tests/render.rs
+assertion_line: 127
+expression: screen(&mut app)
+---
+" commitscape   acme   58 commits · 4 people · since 31 Jul 2023                    window  30d  90d  1y  all  "
+" 1 Overview   2 Activity   3 People   4 Map   5 Hotspots   6 Coupling   7 Ownership   8 Age   9 GitHub        "
+"──────────────────────────────────────━━━━━───────────────────────────────────────────────────────────────────"
+"╭ Map of src/ ─────────────────────────────────────────── sized by lines · coloured by commits · c to change ╮"
+"│┏ engine/  330 lines ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓  api/  80 lines    legacy/  60 lin…  │"
+"│┃ core.rs                                    parser.rs               ┃   handlers.ts       old.rs           │"
+"│┃ 210 lines                                  120 lines               ┃   80 lines          60 lines         │"
+"│┃                                                                    ┃                                      │"
+"│┃                                                                    ┃                                      │"
+"│┃                                                                    ┃                                      │"
+"│┃                                                                    ┃                                      │"
+"│┃                                                                    ┃                                      │"
+"│┃                                                                    ┃                                      │"
+"│┃                                                                    ┃                                      │"
+"│┃                                                                    ┃                                      │"
+"│┃                                                                    ┃                    util/             │"
+"│┃                                                                    ┃                    30 lines          │"
+"│┃                                                                    ┃                                      │"
+"│┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛                                      │"
+"│                                                                                                            │"
+"╰────────────────────────────────────────────────────────────────────────────────────────────────────────────╯"
+" engine/   330 lines in 2 files · 66% of this folder   enter to go in                                         "
+" 34 commits in 90 days · last touched 1 day ago · 88% by ● Alice Example (example.com)                        "
+" fewer commits ■ ■ ■ ■ ■ more commits                                                                         "
+"                                                                                                              "
+" ↑↓ move  enter open  esc back  ←→ panels  w window  c colour  ? help  q quit                                 "

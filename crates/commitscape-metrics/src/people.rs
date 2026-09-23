@@ -63,12 +63,12 @@ pub struct Contributor {
     pub author: AuthorId,
     /// Their commits in the Window that are not merges.
     pub commits: u32,
-    /// Days, on their Local Time, with at least one of those commits.
+    /// Days on their calendar on which at least one of those commits landed.
     pub active_days: u32,
     /// Of those commits, how many were Agent Commits.
     pub agent: u32,
-    /// Their earliest and latest commit, on their own clock
-    /// ([`CommitMeta::author_clock`](commitscape_core::CommitMeta::author_clock)).
+    /// When their earliest and latest commit landed, on their own clock
+    /// ([`CommitMeta::landed_clock`](commitscape_core::CommitMeta::landed_clock)).
     pub first: i64,
     pub last: i64,
 }
@@ -210,7 +210,7 @@ impl Analysis<'_> {
                 let author = index.author_of(c)?;
                 Some((
                     author,
-                    c.author_clock(),
+                    c.landed_clock(),
                     c.flags.contains(CommitFlags::AGENT),
                 ))
             })

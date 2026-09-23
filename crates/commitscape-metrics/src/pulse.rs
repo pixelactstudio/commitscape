@@ -1,5 +1,6 @@
 //! The Pulse: when and how a Window's commits were made, each on its
-//! author's Local Time.
+//! author's Local Time. A commit counts on the day it landed, as the
+//! Window holds it, and at the hour it was written.
 
 use commitscape_core::{AuthorId, CommitFlags, CommitKind, CommitMeta};
 use serde::Serialize;
@@ -31,10 +32,11 @@ pub struct Pulse {
     pub commits: u32,
     /// The day `days` starts on, in days since the epoch.
     pub first_day: i64,
-    /// Commits per day of Local Time, from `first_day` through the Window's
-    /// last day.
+    /// Commits per day, by the day each landed on its author's calendar,
+    /// from `first_day` through the Window's last day.
     pub days: Vec<u32>,
-    /// Commits by weekday, Monday first, and by hour of Local Time.
+    /// Commits by weekday, Monday first, and by hour of Local Time: when the
+    /// work was done, which for a rebased commit is before it landed.
     pub week: [[u32; 24]; 7],
     /// Every Commit Kind, in [`CommitKind::EVERY`] order.
     pub kinds: Vec<KindCount>,
@@ -95,9 +97,9 @@ fn busiest(counts: impl Iterator<Item = u32>) -> Option<usize> {
     best.map(|(i, _)| i)
 }
 
-/// Days since the epoch on a commit author's Local Time.
-fn local_day(commit: &CommitMeta) -> i64 {
-    commit.author_clock().div_euclid(DAY)
+/// The day, since the epoch, a commit landed on its author's calendar.
+fn landed_day(commit: &CommitMeta) -> i64 {
+    commit.landed_clock().div_euclid(DAY)
 }
 
 impl Analysis<'_> {
@@ -113,17 +115,17 @@ impl Analysis<'_> {
             .filter(|c| who.is_none_or(|w| index.author_of(c) == Some(w)))
             .collect();
 
-        // The Window's days, widened to hold any commit whose author's date
-        // falls just outside it.
+        // The Window's days, widened to hold any commit whose date on its
+        // author's calendar falls just outside it.
         let last_day = commits
             .iter()
-            .map(|c| local_day(c))
+            .map(|c| landed_day(c))
             .chain([window.to.div_euclid(DAY)])
             .max()
             .unwrap_or_default();
         let first_day = commits
             .iter()
-            .map(|c| local_day(c))
+            .map(|c| landed_day(c))
             .chain(window.from.map(|f| f.div_euclid(DAY)))
             .min()
             .unwrap_or(last_day);
@@ -136,13 +138,12 @@ impl Analysis<'_> {
             .collect();
         let mut agent = 0;
         for c in &commits {
-            let clock = c.author_clock();
-            let day = clock.div_euclid(DAY);
-            if let Some(n) = days.get_mut((day - first_day) as usize) {
+            if let Some(n) = days.get_mut((landed_day(c) - first_day) as usize) {
                 *n += 1;
             }
+            let clock = c.author_clock();
             // 1 January 1970 was a Thursday.
-            let weekday = (day + 3).rem_euclid(7) as usize;
+            let weekday = (clock.div_euclid(DAY) + 3).rem_euclid(7) as usize;
             let hour = (clock.rem_euclid(DAY) / 3600) as usize;
             if let Some(n) = week.get_mut(weekday).and_then(|h| h.get_mut(hour)) {
                 *n += 1;

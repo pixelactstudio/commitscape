@@ -1,17 +1,17 @@
 ---
 source: crates/commitscape-tui/tests/render.rs
-assertion_line: 48
+assertion_line: 155
 expression: screen(&mut app)
 ---
-" commitscape  acme · 90d: 2025-04-02 to 2025-07-01 · 47 commits; 1 merge and 1 bulk commit not counted        "
-" 1 Overview │ 2 Hotspots │ 3 Coupling │ 4 Ownership │ 5 Staleness │ 6 Code Age │ 7 People                     "
-"┌ Staleness: when each of the 7 files people wrote was last touched ─────────────────────────────────────────┐"
-"│  Last touched        Files  Share                                                                          │"
-"│› under a week            2    29%  ███████████████████████████                                             │"
-"│  under a month           3    43%  ████████████████████████████████████████                                │"
-"│  under 3 months          0     0%                                                                          │"
-"│  under a year            1    14%  █████████████                                                           │"
-"│  a year or more          1    14%  █████████████                                                           │"
+" commitscape   acme   58 commits · 4 people · since 31 Jul 2023                    window  30d  90d  1y  all  "
+" 1 Overview   2 Activity   3 People   4 Map   5 Hotspots   6 Coupling   7 Ownership   8 Age   9 GitHub        "
+"──────────────────────────────────────────────━━━━━━━━━━──────────────────────────────────────────────────────"
+" A hotspot is code that changes often and is deeply nested. Bugs and slow changes gather in it, so it is the  "
+" first code worth simplifying or testing. The longer both bars, the hotter the file. Press ? for how each is  "
+" measured.                                                                                                    "
+"╭ Hotspots ───────────────────────────────────────── changes in 90 days · nesting at HEAD · enter for a file ╮"
+"│▌ 4  client.ts                    changes ████▏                    7   nesting █▍                        42 │"
+"│▌    web/src/                     the 3rd most changed of 4 files · the 5th most nested of 6                │"
 "│                                                                                                            │"
 "│                                                                                                            │"
 "│                                                                                                            │"
@@ -27,5 +27,5 @@ expression: screen(&mut app)
 "│                                                                                                            │"
 "│                                                                                                            │"
 "│                                                                                                            │"
-"└────────────────────────────────────────────────────────────────────────────────────────────────────────────┘"
-" ↑↓ move  enter open  ←→ panel  q quit                                           w window  30d [90d] 1y  all  "
+"╰────────────────────────────────────────────────────────────────────────────────────────────────────────────╯"
+" ↑↓ move  enter open  ←→ panels  w window  / find  ? help  q quit   showing "cli"                             "

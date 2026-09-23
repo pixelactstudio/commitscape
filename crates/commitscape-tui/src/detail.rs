@@ -5,7 +5,7 @@
 
 use commitscape_core::{AuthorId, CommitMeta, FileHistory, FileId, HeadFile, Index};
 use commitscape_metrics::{
-    Age, Analysis, CoupledPair, DirectoryOwnership, Hotspot, QuarterAge, SuspectedDuplicate,
+    Age, Analysis, Contributor, CoupledPair, DirectoryOwnership, Hotspot, Pulse,
 };
 
 use crate::findings::Findings;
@@ -21,8 +21,7 @@ pub(crate) enum Target {
     Pair(CoupledPair),
     Directory(DirectoryOwnership),
     Bucket(Age),
-    Quarter(QuarterAge),
-    Group(SuspectedDuplicate),
+    Person(AuthorId),
 }
 
 pub(crate) struct Person {
@@ -66,6 +65,24 @@ pub(crate) struct DirectoryDetail {
     pub owners: Vec<Person>,
 }
 
+pub(crate) struct PersonDetail {
+    pub author: AuthorId,
+    pub email: String,
+    /// Their row among the Window's contributors, if they committed in it.
+    pub contributor: Option<Contributor>,
+    /// When they commit, on their own clock.
+    pub pulse: Pulse,
+    /// The files they changed most, with how many commits.
+    pub work: Vec<(String, u32)>,
+    /// Directories only they hold: bus factor 1 with them as the owner, with
+    /// their share of its commits.
+    pub held: Vec<(String, f64)>,
+    /// Others who may be the same person, and the `.mailmap` lines that
+    /// would join them.
+    pub maybe_also: Vec<Person>,
+    pub mailmap: String,
+}
+
 pub(crate) struct ListedFile {
     pub file: FileId,
     pub path: String,
@@ -79,18 +96,8 @@ pub(crate) enum Detail {
     File(Box<FileDetail>),
     Pair(PairDetail),
     Directory(DirectoryDetail),
-    Bucket {
-        age: Age,
-        files: Vec<ListedFile>,
-    },
-    Quarter {
-        quarter: QuarterAge,
-        files: Vec<ListedFile>,
-    },
-    Group {
-        people: Vec<Person>,
-        mailmap: String,
-    },
+    Bucket { age: Age, files: Vec<ListedFile> },
+    Person(Box<PersonDetail>),
 }
 
 /// A detail on the stack, with where its list or text is scrolled to.
@@ -112,7 +119,7 @@ impl Opened {
     /// Rows with a selection, for details that are lists.
     pub fn list_len(&self) -> Option<usize> {
         match &self.detail {
-            Detail::Bucket { files, .. } | Detail::Quarter { files, .. } => Some(files.len()),
+            Detail::Bucket { files, .. } => Some(files.len()),
             _ => None,
         }
     }
@@ -120,7 +127,7 @@ impl Opened {
     /// What Enter opens from here.
     pub fn target(&self) -> Option<Target> {
         match &self.detail {
-            Detail::Bucket { files, .. } | Detail::Quarter { files, .. } => files
+            Detail::Bucket { files, .. } => files
                 .get(self.cursor.selected())
                 .map(|f| Target::File(f.file)),
             _ => None,
@@ -164,28 +171,59 @@ impl Detail {
                     })
                     .collect(),
             },
-            Target::Quarter(quarter) => Detail::Quarter {
-                files: analysis
-                    .code_age_files(quarter.year, quarter.quarter)
-                    .iter()
-                    .map(|f| ListedFile {
-                        file: f.file,
-                        path: index.paths.path_lossy(f.file),
-                        number: i64::from(f.loc),
-                        other: i64::from(f.complexity),
-                    })
-                    .collect(),
-                quarter,
-            },
-            Target::Group(group) => Detail::Group {
-                mailmap: analysis.mailmap_for(&group),
-                people: group
-                    .people
-                    .iter()
-                    .zip(&group.commits)
-                    .map(|(p, commits)| person(index, *p, *commits))
-                    .collect(),
-            },
+            Target::Person(author) => {
+                let found = index.authors.get(author);
+                Detail::Person(Box::new(PersonDetail {
+                    author,
+                    email: found.map(|a| a.email.to_string()).unwrap_or_default(),
+                    contributor: findings
+                        .contributors
+                        .iter()
+                        .find(|c| c.author == author)
+                        .copied(),
+                    pulse: analysis.pulse(Some(author)),
+                    work: analysis
+                        .work_of(author)
+                        .iter()
+                        .take(12)
+                        .map(|c| (index.paths.path_lossy(c.file), c.commits))
+                        .collect(),
+                    held: findings
+                        .ownership
+                        .directories
+                        .iter()
+                        .filter(|d| d.bus_factor == 1)
+                        .filter_map(|d| {
+                            let top = d.owners.first()?;
+                            (top.author == author).then(|| {
+                                (
+                                    d.label(),
+                                    f64::from(top.commits) / f64::from(d.commits.max(1)),
+                                )
+                            })
+                        })
+                        .collect(),
+                    maybe_also: findings
+                        .duplicates
+                        .iter()
+                        .find(|g| g.people.contains(&author))
+                        .map(|g| {
+                            g.people
+                                .iter()
+                                .zip(&g.commits)
+                                .filter(|(p, _)| **p != author)
+                                .map(|(p, n)| person(index, *p, *n))
+                                .collect()
+                        })
+                        .unwrap_or_default(),
+                    mailmap: findings
+                        .duplicates
+                        .iter()
+                        .find(|g| g.people.contains(&author))
+                        .map(|g| analysis.mailmap_for(g))
+                        .unwrap_or_default(),
+                }))
+            }
         }
     }
 }

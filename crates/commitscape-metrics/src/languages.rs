@@ -1,5 +1,7 @@
 //! What a repository is written in: its code at HEAD, by language.
 
+use std::collections::HashMap;
+
 use serde::Serialize;
 
 use crate::analysis::Analysis;
@@ -37,6 +39,9 @@ impl Analysis<'_> {
             other_files: 0,
             other_lines: 0,
         };
+        // Each extension is looked up once: Linux has seventy thousand code
+        // files and a few hundred extensions.
+        let mut seen: HashMap<&[u8], Written> = HashMap::new();
         for h in self.code() {
             let lines = u64::from(h.loc);
             let name = index
@@ -44,7 +49,14 @@ impl Analysis<'_> {
                 .path_name(h.path)
                 .map(file_name)
                 .unwrap_or_default();
-            match written_in(name) {
+            let written = match by_name(name) {
+                Some(written) => written,
+                None => match extension(name) {
+                    Some(e) => *seen.entry(e).or_insert_with(|| by_extension(e)),
+                    None => Written::Unknown,
+                },
+            };
+            match written {
                 Written::Code(language) => {
                     match out.languages.iter_mut().find(|l| l.name == language) {
                         Some(l) => {
@@ -74,6 +86,7 @@ impl Analysis<'_> {
     }
 }
 
+#[derive(Clone, Copy)]
 enum Written {
     Code(&'static str),
     Data,
@@ -88,22 +101,33 @@ fn file_name(path: &[u8]) -> &[u8] {
     }
 }
 
-fn written_in(name: &[u8]) -> Written {
-    let name = String::from_utf8_lossy(name);
-    if let Some(&(_, language)) = BY_NAME.iter().find(|(n, _)| *n == name) {
-        return Written::Code(language);
+/// A file known by its whole name, such as a `Makefile`.
+fn by_name(name: &[u8]) -> Option<Written> {
+    if let Some(&(_, language)) = BY_NAME.iter().find(|(n, _)| n.as_bytes() == name) {
+        return Some(Written::Code(language));
     }
-    if name.starts_with("Dockerfile.") || name.starts_with("Containerfile.") {
-        return Written::Code("Dockerfile");
-    }
-    let Some((_, extension)) = name.rsplit_once('.') else {
-        return Written::Unknown;
-    };
-    let extension = extension.to_ascii_lowercase();
-    if DATA.contains(&extension.as_str()) {
+    (name.starts_with(b"Dockerfile.") || name.starts_with(b"Containerfile."))
+        .then_some(Written::Code("Dockerfile"))
+}
+
+/// What follows a name's last dot.
+fn extension(name: &[u8]) -> Option<&[u8]> {
+    let dot = name.iter().rposition(|&b| b == b'.')?;
+    name.get(dot + 1..)
+}
+
+/// A file by its extension, in any case.
+fn by_extension(extension: &[u8]) -> Written {
+    if DATA
+        .iter()
+        .any(|e| e.as_bytes().eq_ignore_ascii_case(extension))
+    {
         return Written::Data;
     }
-    match BY_EXTENSION.iter().find(|(e, _)| *e == extension) {
+    match BY_EXTENSION
+        .iter()
+        .find(|(e, _)| e.as_bytes().eq_ignore_ascii_case(extension))
+    {
         Some(&(_, language)) => Written::Code(language),
         None => Written::Unknown,
     }

@@ -102,6 +102,22 @@ fn a_response_github_really_sent_parses() {
 }
 
 #[test]
+fn counts_from_recent_issues_say_when_there_were_more() {
+    // Only the last 100 issues are asked for. acme's three are all it has,
+    // so what they count is whole. t3code's last 100 were all opened
+    // between 19 September 2026 at 23:15 and 23 September: over the thirty
+    // days before then there were more than 100, but they do reach back to
+    // 20 September.
+    let since = JULY_1_2025 - 30 * 24 * HOUR;
+    assert!(acme().issues_reach(since));
+    let t3code = GitHub::from_graphql(include_bytes!("t3code.json")).expect("the response parses");
+    // 2026-09-23T00:00:00Z and 2026-09-20T00:00:00Z.
+    let (september_23, september_20) = (1_790_121_600, 1_789_862_400);
+    assert!(!t3code.issues_reach(september_23 - 30 * 24 * HOUR));
+    assert!(t3code.issues_reach(september_20));
+}
+
+#[test]
 #[ignore = "asks GitHub over the network through gh; run with --ignored"]
 fn fetches_a_public_repository_through_gh() {
     let remote = Remote::parse("https://github.com/rust-lang/rust").expect("a GitHub remote");
