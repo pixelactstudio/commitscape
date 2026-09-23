@@ -131,11 +131,7 @@ impl<'i> Analysis<'i> {
     /// Refuses a Window reaching past the history loaded so far, rather than
     /// computing numbers from part of it.
     pub fn new(index: &'i Index, window: Window, options: Options) -> Result<Self, NotLoaded> {
-        let covered = match window.from {
-            Some(from) => index.covers(from),
-            None => index.loaded_from.is_none(),
-        };
-        if !covered {
+        if !window.is_loaded(index) {
             return Err(NotLoaded);
         }
         let start = window
@@ -270,6 +266,22 @@ impl<'i> Analysis<'i> {
             b.loc.cmp(&a.loc).then_with(|| self.by_path(a.file, b.file))
         });
         out
+    }
+
+    /// The Window's counted commits that touched every one of `files`,
+    /// newest first: the commits behind a Churn number or a coupled pair.
+    /// Merge Commits and Bulk Commits are left out, as they are from both.
+    pub fn commits_touching(&self, files: &[FileId]) -> Vec<&'i CommitMeta> {
+        let index = self.index;
+        self.window_commits()
+            .iter()
+            .rev()
+            .filter(|c| counts(c, &self.options))
+            .filter(|c| {
+                let changes = index.changes_of(c);
+                files.iter().all(|f| changes.iter().any(|ch| ch.file == *f))
+            })
+            .collect()
     }
 
     /// Churn of one file in the Window.

@@ -1,10 +1,12 @@
-//! The plain-text summary, printed when `--json` was not asked for.
+//! The plain-text summary: what the binary prints when its output is not a
+//! terminal, or with `--summary`.
 
 use std::path::Path;
 
-use commitscape_core::{civil_from_unix, Index};
+use commitscape_core::Index;
 use commitscape_index::{Freshness, RebuildReason};
 use commitscape_metrics::{Age, Analysis, Span};
+use commitscape_tui::format::{counted, date, grouped};
 
 /// How many rows each ranking shows.
 const TOP: usize = 10;
@@ -164,40 +166,4 @@ pub fn rankings(analysis: &Analysis<'_>, span: Span) -> String {
         }
     }
     out
-}
-
-fn counted(n: u64, one: &str, many: &str) -> String {
-    format!("{} {}", grouped(n), if n == 1 { one } else { many })
-}
-
-fn date(unix: i64) -> String {
-    let (y, m, d) = civil_from_unix(unix);
-    format!("{y:04}-{m:02}-{d:02}")
-}
-
-/// `1234567` as `1,234,567`.
-pub fn grouped(n: u64) -> String {
-    let digits = n.to_string();
-    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
-    for (i, c) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(c);
-    }
-    out
-}
-
-#[cfg(test)]
-mod tests {
-    use super::grouped;
-
-    #[test]
-    fn large_numbers_are_grouped_in_thousands() {
-        assert_eq!(grouped(0), "0");
-        assert_eq!(grouped(999), "999");
-        assert_eq!(grouped(1000), "1,000");
-        assert_eq!(grouped(345_135), "345,135");
-        assert_eq!(grouped(1_489_215), "1,489,215");
-    }
 }

@@ -2,10 +2,10 @@
 
 use std::collections::BTreeMap;
 
-use commitscape_core::{FileId, Month};
+use commitscape_core::{FileId, HeadFile, Month};
 use serde::Serialize;
 
-use crate::analysis::{top, Analysis};
+use crate::analysis::{top, Analysis, LargeFile};
 
 const DAY: i64 = 86_400;
 
@@ -91,19 +91,7 @@ impl Analysis<'_> {
     /// from the Window's anchor. Unlike Churn it counts Bulk Commits and a
     /// merge's own resolutions: a file that was touched was touched.
     pub fn staleness(&self) -> Staleness {
-        let index = self.index();
-        let anchor = self.window().to;
-        let mut files: Vec<StaleFile> = self
-            .ranked()
-            .filter_map(|h| {
-                let history = index.history_of(h.file)?;
-                Some(StaleFile {
-                    file: h.file,
-                    last_touched: history.last_touched,
-                    days: ((anchor - history.last_touched) / DAY).max(0),
-                })
-            })
-            .collect();
+        let mut files: Vec<StaleFile> = self.stale().collect();
         let mut buckets: Vec<AgeCount> = Age::EVERY
             .iter()
             .map(|&age| AgeCount { age, files: 0 })
@@ -113,26 +101,45 @@ impl Analysis<'_> {
                 b.files += 1;
             }
         }
-        top(&mut files, |a, b| {
-            b.days
-                .cmp(&a.days)
-                .then_with(|| self.by_path(a.file, b.file))
-        });
+        top(&mut files, |a, b| self.stalest_first(a, b));
         Staleness { buckets, files }
+    }
+
+    /// The files in one Staleness bucket, stalest first.
+    pub fn stale_files(&self, age: Age) -> Vec<StaleFile> {
+        let mut files: Vec<StaleFile> = self
+            .stale()
+            .filter(|f| Age::of_days(f.days) == age)
+            .collect();
+        top(&mut files, |a, b| self.stalest_first(a, b));
+        files
+    }
+
+    fn stale(&self) -> impl Iterator<Item = StaleFile> + '_ {
+        let index = self.index();
+        let anchor = self.window().to;
+        self.ranked().filter_map(move |h| {
+            let history = index.history_of(h.file)?;
+            Some(StaleFile {
+                file: h.file,
+                last_touched: history.last_touched,
+                days: ((anchor - history.last_touched) / DAY).max(0),
+            })
+        })
+    }
+
+    fn stalest_first(&self, a: &StaleFile, b: &StaleFile) -> std::cmp::Ordering {
+        b.days
+            .cmp(&a.days)
+            .then_with(|| self.by_path(a.file, b.file))
     }
 
     /// Code surviving at HEAD, by the quarter each file first appeared,
     /// oldest first. Measured per file until line-level history exists: a
     /// file's lines all count toward the quarter it was created in.
     pub fn code_age(&self) -> Vec<QuarterAge> {
-        let index = self.index();
         let mut quarters: BTreeMap<(i64, u32), (u64, u32)> = BTreeMap::new();
-        for h in self.code() {
-            let Some(history) = index.history_of(h.file) else {
-                continue;
-            };
-            let month = Month::of(history.first_seen);
-            let key = (month.year(), (month.number() - 1) / 3 + 1);
+        for (h, key) in self.created() {
             let entry = quarters.entry(key).or_default();
             entry.0 += h.loc as u64;
             entry.1 += 1;
@@ -146,5 +153,33 @@ impl Analysis<'_> {
                 files,
             })
             .collect()
+    }
+
+    /// The code files behind one quarter of Code Age: those first seen in
+    /// it, most lines first.
+    pub fn code_age_files(&self, year: i64, quarter: u32) -> Vec<LargeFile> {
+        let mut files: Vec<LargeFile> = self
+            .created()
+            .filter(|&(_, key)| key == (year, quarter))
+            .map(|(h, _)| LargeFile {
+                file: h.file,
+                loc: h.loc,
+                bytes: h.bytes,
+                complexity: h.indent_levels,
+            })
+            .collect();
+        top(&mut files, |a, b| {
+            b.loc.cmp(&a.loc).then_with(|| self.by_path(a.file, b.file))
+        });
+        files
+    }
+
+    /// Each code file at HEAD with the (year, quarter) it first appeared in.
+    fn created(&self) -> impl Iterator<Item = (&HeadFile, (i64, u32))> + '_ {
+        let index = self.index();
+        self.code().filter_map(move |h| {
+            let month = Month::of(index.history_of(h.file)?.first_seen);
+            Some((h, (month.year(), (month.number() - 1) / 3 + 1)))
+        })
     }
 }

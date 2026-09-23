@@ -8,10 +8,11 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::Parser;
+use commitscape_core::Index;
 use commitscape_index::{default_cache_root, load, CacheOptions, GixRepo, Progress, Since};
 use commitscape_metrics::{Analysis, Options, Span};
-
-use crate::text::grouped;
+use commitscape_tui::format::grouped;
+use commitscape_tui::{LoadOlder, Session};
 
 #[derive(Parser)]
 #[command(
@@ -32,6 +33,11 @@ struct Cli {
     /// commit rather than now, so the same repository gives the same output.
     #[arg(long)]
     json: bool,
+
+    /// Print the plain-text summary even in a terminal, instead of opening
+    /// the interface.
+    #[arg(long, conflicts_with = "json")]
+    summary: bool,
 
     /// Rows in each ranking of the JSON output.
     #[arg(long, default_value_t = 20, value_name = "ROWS")]
@@ -55,6 +61,11 @@ struct Cli {
     /// Index from scratch and neither read nor write a cache.
     #[arg(long)]
     no_cache: bool,
+
+    /// Draw the interface's first frame and exit: what the first-paint
+    /// benchmark times.
+    #[arg(long, hide = true)]
+    exit_after_first_paint: bool,
 }
 
 fn parse_span(s: &str) -> Result<Span, String> {
@@ -89,8 +100,14 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         (Some(days), false) => Since::Time(now() - i64::from(days) * DAY),
     };
 
+    let interactive = cli.exit_after_first_paint
+        || (!cli.json
+            && !cli.summary
+            && std::io::stdout().is_terminal()
+            && std::io::stdin().is_terminal());
+
     let mut meter = ProgressLine::new();
-    let loaded = load(&repo, &options, since, &mut |p| meter.show(p))?;
+    let mut loaded = load(&repo, &options, since, &mut |p| meter.show(p))?;
     meter.clear();
 
     let anchor = if cli.json {
@@ -106,6 +123,29 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         coupling_support: cli.coupling_support.unwrap_or(defaults.coupling_support),
         ..defaults
     };
+
+    if interactive {
+        // The rest of history is read on another thread once the first frame
+        // is up, so a longer Window is ready by the time anyone asks for it.
+        let older = loaded.take_rest().map(|rest| -> LoadOlder {
+            Box::new(move |recent: &Index| rest.complete(recent).ok())
+        });
+        let session = Session {
+            name: repo_name(&loaded.index),
+            index: loaded.index,
+            anchor,
+            span: cli.window,
+            options: metrics,
+            older,
+        };
+        if cli.exit_after_first_paint {
+            commitscape_tui::paint_once(session)?;
+        } else {
+            commitscape_tui::run(session)?;
+        }
+        return Ok(());
+    }
+
     let analysis = Analysis::new(&loaded.index, cli.window.window(anchor), metrics)?;
 
     let mut out = std::io::stdout().lock();
@@ -120,6 +160,20 @@ fn run(cli: Cli) -> anyhow::Result<()> {
 }
 
 const DAY: i64 = 86_400;
+
+/// The repository's directory name: the parent of `.git`, or a bare
+/// repository's own directory.
+fn repo_name(index: &Index) -> String {
+    let git_dir = std::path::Path::new(&index.repo.git_dir);
+    let dir = if git_dir.file_name().is_some_and(|n| n == ".git") {
+        git_dir.parent()
+    } else {
+        Some(git_dir)
+    };
+    dir.and_then(|d| d.file_name())
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "repository".to_string())
+}
 
 fn now() -> i64 {
     std::time::SystemTime::now()

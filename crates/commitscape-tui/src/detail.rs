@@ -1,0 +1,255 @@
+//! What opens when a number is entered: the facts behind one row.
+//!
+//! Each detail resolves its paths and names when it opens, so drawing it
+//! needs neither the Index nor an Analysis.
+
+use commitscape_core::{AuthorId, CommitMeta, FileHistory, FileId, HeadFile, Index};
+use commitscape_metrics::{
+    Age, Analysis, CoupledPair, DirectoryOwnership, Hotspot, QuarterAge, SuspectedDuplicate,
+};
+
+use crate::findings::Findings;
+use crate::list::Cursor;
+
+/// The most commits a file or pair lists: enough to see a pattern without
+/// holding every commit of a file changed thousands of times.
+const COMMITS_SHOWN: usize = 50;
+
+/// A row that can be entered.
+pub(crate) enum Target {
+    File(FileId),
+    Pair(CoupledPair),
+    Directory(DirectoryOwnership),
+    Bucket(Age),
+    Quarter(QuarterAge),
+    Group(SuspectedDuplicate),
+}
+
+pub(crate) struct Person {
+    pub name: String,
+    pub email: String,
+    pub commits: u32,
+}
+
+pub(crate) struct CommitLine {
+    pub time: i64,
+    pub id: String,
+    pub author: String,
+}
+
+pub(crate) struct FileDetail {
+    pub path: String,
+    pub head: Option<HeadFile>,
+    pub history: Option<FileHistory>,
+    pub churn: u32,
+    pub hotspot: Option<Hotspot>,
+    pub former: Vec<String>,
+    pub owners: Vec<Person>,
+    /// The other file of each coupled pair it is in, with the pair.
+    pub coupled: Vec<(String, CoupledPair)>,
+    /// Newest first.
+    pub commits: Vec<CommitLine>,
+    /// Commits in the Window beyond those listed.
+    pub more: usize,
+}
+
+pub(crate) struct PairDetail {
+    pub first: String,
+    pub second: String,
+    pub pair: CoupledPair,
+    pub commits: Vec<CommitLine>,
+    pub more: usize,
+}
+
+pub(crate) struct DirectoryDetail {
+    pub ownership: DirectoryOwnership,
+    pub owners: Vec<Person>,
+}
+
+pub(crate) struct ListedFile {
+    pub file: FileId,
+    pub path: String,
+    /// Days since last touched, or lines at HEAD.
+    pub number: i64,
+    /// The date last touched, or the Complexity Proxy.
+    pub other: i64,
+}
+
+pub(crate) enum Detail {
+    File(Box<FileDetail>),
+    Pair(PairDetail),
+    Directory(DirectoryDetail),
+    Bucket {
+        age: Age,
+        files: Vec<ListedFile>,
+    },
+    Quarter {
+        quarter: QuarterAge,
+        files: Vec<ListedFile>,
+    },
+    Group {
+        people: Vec<Person>,
+        mailmap: String,
+    },
+}
+
+/// A detail on the stack, with where its list or text is scrolled to.
+pub(crate) struct Opened {
+    pub detail: Detail,
+    pub cursor: Cursor,
+    pub scroll: usize,
+}
+
+impl Opened {
+    pub fn open(target: Target, analysis: &Analysis<'_>, findings: &Findings) -> Opened {
+        Opened {
+            detail: Detail::open(target, analysis, findings),
+            cursor: Cursor::default(),
+            scroll: 0,
+        }
+    }
+
+    /// Rows with a selection, for details that are lists.
+    pub fn list_len(&self) -> Option<usize> {
+        match &self.detail {
+            Detail::Bucket { files, .. } | Detail::Quarter { files, .. } => Some(files.len()),
+            _ => None,
+        }
+    }
+
+    /// What Enter opens from here.
+    pub fn target(&self) -> Option<Target> {
+        match &self.detail {
+            Detail::Bucket { files, .. } | Detail::Quarter { files, .. } => files
+                .get(self.cursor.selected())
+                .map(|f| Target::File(f.file)),
+            _ => None,
+        }
+    }
+}
+
+impl Detail {
+    fn open(target: Target, analysis: &Analysis<'_>, findings: &Findings) -> Detail {
+        let index = analysis.index();
+        match target {
+            Target::File(file) => Detail::File(Box::new(file_detail(file, analysis, findings))),
+            Target::Pair(pair) => {
+                let commits = analysis.commits_touching(&[pair.first, pair.second]);
+                Detail::Pair(PairDetail {
+                    first: index.paths.path_lossy(pair.first),
+                    second: index.paths.path_lossy(pair.second),
+                    pair,
+                    more: commits.len().saturating_sub(COMMITS_SHOWN),
+                    commits: commit_lines(index, &commits),
+                })
+            }
+            Target::Directory(ownership) => Detail::Directory(DirectoryDetail {
+                owners: ownership
+                    .owners
+                    .iter()
+                    .map(|o| person(index, o.author, o.commits))
+                    .collect(),
+                ownership,
+            }),
+            Target::Bucket(age) => Detail::Bucket {
+                age,
+                files: analysis
+                    .stale_files(age)
+                    .iter()
+                    .map(|f| ListedFile {
+                        file: f.file,
+                        path: index.paths.path_lossy(f.file),
+                        number: f.days,
+                        other: f.last_touched,
+                    })
+                    .collect(),
+            },
+            Target::Quarter(quarter) => Detail::Quarter {
+                files: analysis
+                    .code_age_files(quarter.year, quarter.quarter)
+                    .iter()
+                    .map(|f| ListedFile {
+                        file: f.file,
+                        path: index.paths.path_lossy(f.file),
+                        number: i64::from(f.loc),
+                        other: i64::from(f.complexity),
+                    })
+                    .collect(),
+                quarter,
+            },
+            Target::Group(group) => Detail::Group {
+                mailmap: analysis.mailmap_for(&group),
+                people: group
+                    .people
+                    .iter()
+                    .zip(&group.commits)
+                    .map(|(p, commits)| person(index, *p, *commits))
+                    .collect(),
+            },
+        }
+    }
+}
+
+fn file_detail(file: FileId, analysis: &Analysis<'_>, findings: &Findings) -> FileDetail {
+    let index = analysis.index();
+    let commits = analysis.commits_touching(&[file]);
+    FileDetail {
+        path: index.paths.path_lossy(file),
+        head: index.head.iter().find(|h| h.file == file).copied(),
+        history: index.history_of(file),
+        churn: analysis.churn_of(file),
+        hotspot: findings.hotspots.iter().find(|h| h.file == file).copied(),
+        former: index
+            .paths
+            .former_paths(file)
+            .map(|p| String::from_utf8_lossy(p).into_owned())
+            .collect(),
+        owners: analysis
+            .owners_of(file)
+            .iter()
+            .map(|o| person(index, o.author, o.commits))
+            .collect(),
+        coupled: findings
+            .coupling
+            .pairs
+            .iter()
+            .filter_map(|p| {
+                let other = if p.first == file {
+                    p.second
+                } else if p.second == file {
+                    p.first
+                } else {
+                    return None;
+                };
+                Some((index.paths.path_lossy(other), *p))
+            })
+            .collect(),
+        more: commits.len().saturating_sub(COMMITS_SHOWN),
+        commits: commit_lines(index, &commits),
+    }
+}
+
+fn commit_lines(index: &Index, commits: &[&CommitMeta]) -> Vec<CommitLine> {
+    commits
+        .iter()
+        .take(COMMITS_SHOWN)
+        .map(|c| CommitLine {
+            time: c.time,
+            id: c.id.short(),
+            author: index
+                .author_of(c)
+                .and_then(|a| index.authors.get(a))
+                .map(|a| a.name.to_string())
+                .unwrap_or_default(),
+        })
+        .collect()
+}
+
+fn person(index: &Index, author: AuthorId, commits: u32) -> Person {
+    let found = index.authors.get(author);
+    Person {
+        name: found.map(|a| a.name.to_string()).unwrap_or_default(),
+        email: found.map(|a| a.email.to_string()).unwrap_or_default(),
+        commits,
+    }
+}

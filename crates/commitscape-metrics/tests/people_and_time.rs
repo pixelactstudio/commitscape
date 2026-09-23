@@ -68,6 +68,39 @@ fn staleness_puts_every_file_in_an_age_bucket() {
 }
 
 #[test]
+fn a_staleness_bucket_lists_its_own_files_stalest_first() {
+    // Anchored at day 400. The Year bucket holds year.rs (300 days) and
+    // later.rs (200 days); older.rs (400) and week.rs (1) are in others.
+    let idx = index(
+        &[
+            c(0, "a@x.org", &["older.rs"]),
+            c(100, "a@x.org", &["year.rs"]),
+            c(200, "a@x.org", &["later.rs"]),
+            c(399, "a@x.org", &["week.rs"]),
+        ],
+        &[
+            h("older.rs", 1, 0),
+            h("year.rs", 1, 0),
+            h("later.rs", 1, 0),
+            h("week.rs", 1, 0),
+        ],
+    );
+    let a = Analysis::new(&idx, Window::all(EPOCH + 400 * DAY), options()).expect("covered");
+    let files = |age| -> Vec<(String, i64)> {
+        a.stale_files(age)
+            .iter()
+            .map(|f| (path(&idx, f.file), f.days))
+            .collect()
+    };
+    assert_eq!(
+        files(Age::Year),
+        vec![("year.rs".to_string(), 300), ("later.rs".to_string(), 200)]
+    );
+    assert_eq!(files(Age::Week), vec![("week.rs".to_string(), 1)]);
+    assert_eq!(files(Age::Quarter), vec![]);
+}
+
+#[test]
 fn staleness_counts_bulk_commits_and_merge_resolutions() {
     // Days 0 and 1 touch a.rs normally; day 5 is a bulk commit (four files at
     // a threshold of three) and day 6 a merge resolving b.rs. A file that was
@@ -181,6 +214,27 @@ fn ownership_is_commit_weighted_per_directory_and_bus_factor_follows_the_80_perc
 }
 
 #[test]
+fn a_files_owners_are_who_made_its_counted_commits() {
+    // alpha/f.rs: Alice 9 and Bob 1. The bot's merge and bulk commit touched
+    // it too, and count for neither.
+    let idx = team();
+    let a = Analysis::new(&idx, Window::all(EPOCH + 40 * DAY), options()).expect("covered");
+    let file = idx.paths.get(b"alpha/f.rs").expect("the file exists");
+    let owners: Vec<(String, u32)> = a
+        .owners_of(file)
+        .iter()
+        .map(|o| {
+            let who = idx.authors.get(o.author).map(|p| p.email.to_string());
+            (who.unwrap_or_default(), o.commits)
+        })
+        .collect();
+    assert_eq!(
+        owners,
+        vec![("alice@x.org".into(), 9), ("bob@x.org".into(), 1)]
+    );
+}
+
+#[test]
 fn directories_with_too_few_commits_are_not_reported() {
     let idx = team();
     let options = Options {
@@ -250,6 +304,15 @@ fn code_age_counts_each_code_files_lines_in_the_quarter_it_appeared() {
         .map(|q| (q.year, q.quarter, q.lines, q.files))
         .collect();
     assert_eq!(age, vec![(2024, 1, 100, 1), (2024, 2, 50, 2)]);
+
+    // Behind 2024 Q2's 50 lines: q2.rs with 30 and q2b.rs with 20.
+    let files: Vec<(String, u32)> = a
+        .code_age_files(2024, 2)
+        .iter()
+        .map(|f| (path(&idx, f.file), f.loc))
+        .collect();
+    assert_eq!(files, vec![("q2.rs".into(), 30), ("q2b.rs".into(), 20)]);
+    assert!(a.code_age_files(2023, 4).is_empty());
 }
 
 #[test]

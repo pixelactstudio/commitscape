@@ -1,0 +1,23 @@
+[package]
+name = "commitscape-tui"
+description = "The terminal interface: Panels over an Index, one Window at a time."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+# The interface reads an Index and computes with commitscape-metrics. It never
+# reaches git or the cache: older history arrives through a function the
+# caller provides (`Session::older`).
+[dependencies]
+commitscape-core = { path = "../commitscape-core" }
+commitscape-metrics = { path = "../commitscape-metrics" }
+ratatui = "0.30.2"
+
+[dev-dependencies]
+commitscape-index = { path = "../commitscape-index" }
+insta = "1.48"
+tempfile = "3.27.0"

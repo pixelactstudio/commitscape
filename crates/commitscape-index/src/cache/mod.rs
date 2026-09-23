@@ -142,6 +142,16 @@ impl Rest {
             })
             .map_err(|_| RestUnavailable)
     }
+
+    /// Reads the older history and returns a copy of `recent` completed with
+    /// it, leaving `recent` as it was: an interface showing `recent` keeps
+    /// using it while this runs on another thread.
+    pub fn complete(self, recent: &Index) -> Result<Index, RestUnavailable> {
+        let older = self.load()?;
+        let mut full = recent.clone();
+        older.prepend_to(&mut full);
+        Ok(full)
+    }
 }
 
 impl OlderHistory {

@@ -49,6 +49,9 @@ jobs:
           done
 
       - name: Test
+        # A snapshot that differs fails the run; none is ever written here.
+        env:
+          INSTA_UPDATE: "no"
         run: cargo test --workspace --all-targets
 
       - name: Doc tests

@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use commitscape_core::AuthorId;
+use commitscape_core::{AuthorId, FileId};
 use serde::Serialize;
 
 use crate::analysis::{counts, top, Analysis};
@@ -179,6 +179,26 @@ impl Analysis<'_> {
             bus_factor_one,
             directories: out,
         }
+    }
+
+    /// Who made the counted commits that touched one file, most first.
+    pub fn owners_of(&self, file: FileId) -> Vec<Owner> {
+        let index = self.index();
+        let mut authors: Vec<AuthorId> = self
+            .commits_touching(&[file])
+            .into_iter()
+            .filter_map(|c| index.author_of(c))
+            .collect();
+        authors.sort_unstable();
+        let mut owners: Vec<Owner> = Vec::new();
+        for author in authors {
+            match owners.last_mut() {
+                Some(o) if o.author == author => o.commits += 1,
+                _ => owners.push(Owner { author, commits: 1 }),
+            }
+        }
+        owners.sort_by(|a, b| b.commits.cmp(&a.commits).then(a.author.cmp(&b.author)));
+        owners
     }
 
     /// People who might be one person (ADR-0006), each group with the most

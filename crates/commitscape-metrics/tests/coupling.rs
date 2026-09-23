@@ -87,3 +87,35 @@ fn the_changeset_histogram_counts_non_merge_commits_by_size() {
     assert_eq!(sizes.median, 2);
     assert_eq!(sizes.max, 60);
 }
+
+#[test]
+fn a_pair_opens_onto_the_commits_it_shared_newest_first() {
+    // a and b shared the counted commits of days 0 and 3. The merge (day 1)
+    // and the bulk commit (day 2) touched both and do not count; a alone was
+    // also changed on day 4.
+    let idx = index(
+        &[
+            c(0, "x@x.org", &["a.rs", "b.rs"]),
+            merge(1, "x@x.org", &["a.rs", "b.rs"]),
+            c(2, "x@x.org", &["a.rs", "b.rs", "c.rs", "d.rs"]),
+            c(3, "x@x.org", &["a.rs", "b.rs"]),
+            c(4, "x@x.org", &["a.rs"]),
+        ],
+        &[
+            h("a.rs", 1, 0),
+            h("b.rs", 1, 0),
+            h("c.rs", 1, 0),
+            h("d.rs", 1, 0),
+        ],
+    );
+    let file = |p: &str| idx.paths.get(p.as_bytes()).expect("the file exists");
+    let a = Analysis::new(&idx, Window::all(EPOCH + 4 * DAY), options(1)).expect("covered");
+    let days = |files: &[commitscape_core::FileId]| -> Vec<i64> {
+        a.commits_touching(files)
+            .iter()
+            .map(|c| (c.time - EPOCH) / DAY)
+            .collect()
+    };
+    assert_eq!(days(&[file("a.rs"), file("b.rs")]), vec![3, 0]);
+    assert_eq!(days(&[file("a.rs")]), vec![4, 3, 0]);
+}

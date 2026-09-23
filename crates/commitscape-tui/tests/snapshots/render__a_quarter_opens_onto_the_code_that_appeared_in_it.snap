@@ -1,0 +1,31 @@
+---
+source: crates/commitscape-tui/tests/render.rs
+assertion_line: 99
+expression: screen(&mut app)
+---
+" commitscape  acme · 90d: 2025-04-02 to 2025-07-01 · 47 commits; 1 merge and 1 bulk commit not counted        "
+" 1 Overview │ 2 Hotspots │ 3 Coupling │ 4 Ownership │ 5 Staleness │ 6 Code Age │ 7 People                     "
+"┌ Code from 2023-Q3: 390 lines in 3 files ─────────────────────────────────────────────────────────── 1 of 3 ┐"
+"│     Lines  Complexity    File                                                                              │"
+"│›      210           630  src/engine/core.rs                                                                │"
+"│       120           240  src/engine/parser.rs                                                              │"
+"│        60            90  src/legacy/old.rs                                                                 │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"└────────────────────────────────────────────────────────────────────────────────────────────────────────────┘"
+" ↑↓ move  enter open  esc back  q quit                                           w window  30d [90d] 1y  all  "

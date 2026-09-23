@@ -205,9 +205,11 @@ fn blob_of(contents: &[u8]) -> Oid {
 }
 
 /// Deterministic, human-readable object ids so a failing test prints something
-/// you can reason about.
+/// you can reason about. The number is at both ends, so an abbreviated id
+/// shows it too.
 pub fn synthetic_oid(n: u32) -> Oid {
     let mut b = [0u8; 20];
+    b[..4].copy_from_slice(&n.to_be_bytes());
     b[16..20].copy_from_slice(&n.to_be_bytes());
     Oid(b)
 }

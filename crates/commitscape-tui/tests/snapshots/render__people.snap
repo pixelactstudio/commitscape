@@ -1,0 +1,31 @@
+---
+source: crates/commitscape-tui/tests/render.rs
+assertion_line: 62
+expression: screen(&mut app)
+---
+" commitscape  acme · 90d: 2025-04-02 to 2025-07-01 · 47 commits; 1 merge and 1 bulk commit not counted        "
+" 1 Overview │ 2 Hotspots │ 3 Coupling │ 4 Ownership │ 5 Staleness │ 6 Code Age │ 7 People                     "
+"┌ People who may be one person ────────────────────────────────────────────────────────────────────── 1 of 1 ┐"
+"│    #   Commits       People                                                                                │"
+"│›    1  35 · 3        Alice Example <alice@example.com> · Alice Example <alice@home.example.net>            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"└ Nothing was merged. Open a group for the .mailmap lines that would join it ────────────────────────────────┘"
+" ↑↓ move  enter open  ←→ panel  q quit                                           w window  30d [90d] 1y  all  "

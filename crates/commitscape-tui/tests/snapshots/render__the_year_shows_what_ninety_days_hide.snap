@@ -1,0 +1,31 @@
+---
+source: crates/commitscape-tui/tests/render.rs
+assertion_line: 151
+expression: screen(&mut app)
+---
+" commitscape  acme · 1y: 2024-07-01 to 2025-07-01 · 53 commits; 1 merge and 1 bulk commit not counted         "
+" 1 Overview │ 2 Hotspots │ 3 Coupling │ 4 Ownership │ 5 Staleness │ 6 Code Age │ 7 People                     "
+"┌ Ownership: directories with 10 or more commits, fewest owners first ─────────────────────────────── 1 of 3 ┐"
+"│    #   Bus factor  Commits  Top owner               Share  Directory                                       │"
+"│›    1           1       37  Alice Example             81%  src/engine/                                     │"
+"│     2           2       46  Alice Example             67%  src/                                            │"
+"│     3           3       51  Alice Example             61%  (root)                                          │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"└────────────────────────────────────────────────────────────────────────────────────────────────────────────┘"
+" ↑↓ move  enter open  ←→ panel  q quit                                           w window  30d  90d [1y] all  "

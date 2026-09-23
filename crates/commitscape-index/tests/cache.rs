@@ -293,6 +293,26 @@ fn a_recent_window_reads_only_the_months_it_needs_and_the_rest_later() {
 }
 
 #[test]
+fn the_rest_completes_a_copy_while_the_recent_index_stays_in_use() {
+    const MAR_1_2024: i64 = 1_709_251_200;
+    let dir = tempfile::tempdir().expect("temp dir");
+    let repo = four_months();
+    load_all(&repo, dir.path());
+
+    let mut recent = load_with(&repo, Some(dir.path()), Since::Time(MAR_1_2024 + 20 * DAY));
+    let rest = recent.take_rest().expect("older months remain");
+    let full = rest
+        .complete(&recent.index)
+        .expect("reading the older months");
+    assert_eq!(observe(&full), observe(&scratch(&repo)));
+    assert_eq!(
+        recent.index.commits.len(),
+        2,
+        "the recent index is untouched"
+    );
+}
+
+#[test]
 fn a_window_relative_to_the_newest_commit_resolves_against_the_cache() {
     const APR_1_2024: i64 = 1_711_929_600;
     let dir = tempfile::tempdir().expect("temp dir");

@@ -1,0 +1,13 @@
+---
+source: crates/commitscape-tui/tests/render.rs
+assertion_line: 181
+expression: "screen_sized(&mut app, 100, 8)"
+---
+" commitscape  acme · 90d: 2025-04-02 to 2025-07-01 · 47 commits; 1 merge and 1 bulk commit not count"
+" 1 Overview │ 2 Hotspots │ 3 Coupling │ 4 Ownership │ 5 Staleness │ 6 Code Age │ 7 People           "
+"┌ Hotspots: code both changed often and deeply nested ───────────────────────────────────── 4 of 4 ┐"
+"│    #   Score   Churn        Complexity        File                                               │"
+"│     3   0.33       7  p50          120  p66   src/api/handlers.ts                                │"
+"│›    4   0.17       7  p50           42  p33   web/src/client.ts                                  │"
+"└──────────────────────────────────────────────────────────────────────────────────────────────────┘"
+" ↑↓ move  enter open  ←→ panel  q quit                                 w window  30d [90d] 1y  all  "

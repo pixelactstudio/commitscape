@@ -1,0 +1,31 @@
+---
+source: crates/commitscape-tui/tests/render.rs
+assertion_line: 48
+expression: screen(&mut app)
+---
+" commitscape  acme · 90d: 2025-04-02 to 2025-07-01 · 47 commits; 1 merge and 1 bulk commit not counted        "
+" 1 Overview │ 2 Hotspots │ 3 Coupling │ 4 Ownership │ 5 Staleness │ 6 Code Age │ 7 People                     "
+"┌ Staleness: when each of the 7 files people wrote was last touched ─────────────────────────────────────────┐"
+"│  Last touched        Files  Share                                                                          │"
+"│› under a week            2    29%  ███████████████████████████                                             │"
+"│  under a month           3    43%  ████████████████████████████████████████                                │"
+"│  under 3 months          0     0%                                                                          │"
+"│  under a year            1    14%  █████████████                                                           │"
+"│  a year or more          1    14%  █████████████                                                           │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"└────────────────────────────────────────────────────────────────────────────────────────────────────────────┘"
+" ↑↓ move  enter open  ←→ panel  q quit                                           w window  30d [90d] 1y  all  "

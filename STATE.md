@@ -3,10 +3,10 @@
 Running log for Build Run 1 (Phases 0 to 7). Written so a fresh session with
 no context can read this plus `docs/adr/` and continue without asking anything.
 
-**Current position:** Phase 6 complete. `--json` prints one document with
-every metric, byte-identical across runs, cache states and fixture rebuilds,
-with golden files for every fixture and a run against five real repositories.
-Phase 7 (the TUI) is next.
+**Current position:** Build Run 1 is complete: Phases 0 to 7 all pass their
+gates. The binary opens the interface in a terminal, prints the summary when
+piped, and prints one JSON document with `--json`. What comes after the build
+run is listed under "Where to pick up".
 
 ---
 
@@ -22,7 +22,7 @@ Phase 7 (the TUI) is next.
 | — | Throwaway ratatui spike, captured then deleted | **DONE**: findings below; the code was deleted from `.scratch/` |
 | 5 | Pair-map size + changeset histogram reported; `--max-changeset-size` chosen from data | **PASS**: seven repositories reported below; default stays 50, now with the data behind it |
 | 6 | `--json` run against ≥3 structurally different repos | **PASS: five** (pixelactstudio, t3code, maihs, rust-lang/rust, Linux), each checked against 16 invariants; golden files for all ten non-empty fixtures |
-| 7 | TUI: every Panel covered by an `insta` snapshot through `TestBackend`; first paint from a warm cache measured under 100ms | NOT YET RUN |
+| 7 | TUI: every Panel covered by an `insta` snapshot through `TestBackend`; first paint from a warm cache measured under 100ms | **PASS**: all seven Panels and every detail they open have snapshots (19 tests, 17 snapshots); first paint median **51.2ms rust-lang/rust, 67.5ms Linux** (n=20, in a pseudo-terminal, its start-up included) |
 
 ### Phase 0 measured numbers
 
@@ -221,6 +221,28 @@ shares summing to 1 and owner commits to the directory's; bus factor between
 1 and the number of owners; changeset buckets summing to the commit count;
 median ≤ p90 ≤ p99 ≤ max; rankings in order.
 
+### Phase 7 measured numbers
+
+`cargo xtask bench --filter first-paint`: process start to the interface's
+first frame, then exit, warm cache, 90-day Window. The binary runs under
+util-linux `script` for a pseudo-terminal; `script -qec true` alone takes
+about 15ms, so these are upper bounds.
+
+```
+first-paint-rust    min 49.19ms   median 51.23ms   mean 51.85ms   max 60.02ms   n=20
+first-paint-linux   min 63.88ms   median 67.50ms   mean 67.63ms   max 77.22ms   n=20
+```
+
+Peak memory (GNU `time`, maximum resident set):
+
+| Repository | Summary, 90 days | Interface, 90 days | Interface, then all history |
+|---|---|---|---|
+| rust-lang/rust | 43 MB | 115 MB | 148 MB |
+| Linux | 51 MB | 234 MB | 325 MB |
+
+Most of the interface's extra memory is the rest of history, read in the
+background once the first frame is up (decision 20).
+
 ---
 
 ## Environment
@@ -402,6 +424,33 @@ median ≤ p90 ≤ p99 ≤ max; rankings in order.
    whose field names are the schema. `schema` is bumped when a field is
    removed or changes meaning, not when one is added.
 
+## Phase 7 findings
+
+1. **A Staleness bucket could not list its own files.** `staleness().files`
+   keeps the 1,000 stalest, so on Linux the "under a week" bucket would have
+   opened onto nothing. `Analysis::stale_files(age)` ranks one bucket's files.
+   Code Age kept only per-quarter totals; `Analysis::code_age_files` lists the
+   files behind a quarter.
+2. **Entering a number needs the commits behind it.**
+   `Analysis::commits_touching(files)` returns the counted commits that
+   touched every given file, which serves both a file's commit list and a
+   coupled pair's shared commits; `Analysis::owners_of(file)` counts them per
+   person.
+3. **The interface keeps drawing while the rest of history loads.**
+   `Rest::complete(recent)` returns a completed copy and leaves the recent
+   index in use. Whether a Window is loaded moved to `Window::is_loaded`, so
+   the interface can ask without building an Analysis.
+4. **Scripted commit ids carried their number only in their last bytes**, so
+   every abbreviated id read `000000000` and a snapshot could not tell commits
+   apart. The number is now at both ends.
+5. **A pseudo-terminal without a size draws nothing.** Under `script` with its
+   input piped, every frame is 0 by 0. The smoke test sets
+   `stty rows 30 cols 110` first; a real terminal always has a size.
+6. **Two unit tests I wrote were below the signed-off seams** (number
+   formatting and list scrolling). They were removed; both behaviours are
+   covered through the render seam, since every snapshot formats numbers and
+   one scrolls a list on an eight-row screen.
+
 ## Decisions made during implementation, not in any ADR
 
 1. **`bincode` pinned to `=2.0.1`.** `cargo add` resolves to 3.0.0, which is a
@@ -471,6 +520,25 @@ median ≤ p90 ≤ p99 ≤ max; rankings in order.
 18. **Code Age is per file for now**: each code file's lines count toward the
     quarter it first appeared. Line-level age needs blame, which ADR-0004
     defers to `--deep`.
+19. **The interface is a state machine** (`commitscape_tui::App`): events in,
+    commands out, and every frame drawn from the state alone. The runtime runs
+    commands on threads; tests run them in place, through the same
+    interface. Findings are computed once per Window, off the main thread,
+    except the first Window's, which is computed before the first frame so
+    that frame shows findings (ADR-0002).
+20. **The rest of history is read eagerly**, in the background, once the
+    first frame is up. Switching Window is the point of the tool and should
+    not wait; on Linux this costs about 180 MB whether or not anyone switches.
+21. **Keys**: `1` to `7`, the arrow keys or Tab choose a Panel; `↑↓`, PgUp,
+    PgDn, Home and End move; Enter opens a row; Esc goes back; `w` and `W`
+    step the Window forward and back; `q` quits.
+22. **The interface opens only when stdin and stdout are both terminals.**
+    Otherwise, or with `--summary`, the binary prints the summary; `--json`
+    prints the document.
+23. **`commitscape-tui` depends on core and metrics only.** Older history
+    arrives through `Session::older`, a function the binary provides, and
+    `cargo xtask check-layering` now asserts the interface cannot reach gix or
+    `commitscape-index`.
 
 ---
 
@@ -492,19 +560,26 @@ median ≤ p90 ≤ p99 ≤ max; rankings in order.
 
 ## Where to pick up
 
-Phase 7: the TUI, in a `commitscape-tui` crate so the metrics crate stays free
-of ratatui and crossterm (`cargo xtask check-layering` enforces it). Panels:
-Overview (bus-factor-1 directories, the top Hotspot, the top cross-directory
-coupled pair), Hotspots, Coupling, Ownership, Staleness, Code Age, and the
-duplicates hint, paged. Window switching loads the rest of history in the
-background for `all`. View models are computed per Window, never per frame.
-Snapshot tests through `insta` and `TestBackend`, built from code files, and
-first paint from a warm cache measured under 100ms. The binary opens the TUI
-when stdout is a terminal and prints the summary otherwise.
+Build Run 1 is done. In rough order of value:
 
-Known limits to carry forward: the head file is rewritten on every update
-(about 15 MB for rust-lang/rust), and a vendored tree without its own lockfile
-and license needs `linguist-vendored` in `.gitattributes`.
+1. **Distribution (ADR-0003):** the npm package with per-platform binaries,
+   and a release workflow. Nobody can use the tool without building it from
+   source today.
+2. **The Card (`CONTEXT.md`):** a shareable image of a repository's findings,
+   the growth feature the glossary names.
+3. **Agent-era metrics:** Context Weight, Stale Rule and Agent Footprint, as
+   defined in `CONTEXT.md`.
+4. **`--deep`:** blame for line-level Code Age and line counts per change,
+   which ADR-0004 keeps out of the default path.
+5. **A smaller head write.** The head file is rewritten on every update
+   (about 15 MB for rust-lang/rust); only its changed sections need writing.
+6. **Classification gaps:** a vendored tree without its own lockfile and
+   license needs `linguist-vendored` in `.gitattributes`, and rust-lang/rust's
+   generated shell completions and blessed MIR test output rank as code. A
+   hint in the interface could suggest the `.gitattributes` lines.
+7. **`bincode` is archived upstream.** It works and its format is frozen;
+   moving to `postcard` or `rkyv` is a decision to make before it becomes a
+   forced one.
 
 Seams signed off by the user and not open for revision:
 `RepoSource` (fake + real), `Index`, the `Analysis` methods, `--json` golden

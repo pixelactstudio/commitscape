@@ -1,0 +1,31 @@
+---
+source: crates/commitscape-tui/tests/render.rs
+assertion_line: 76
+expression: screen(&mut app)
+---
+" commitscape  acme · 90d: 2025-04-02 to 2025-07-01 · 47 commits; 1 merge and 1 bulk commit not counted        "
+" 1 Overview │ 2 Hotspots │ 3 Coupling │ 4 Ownership │ 5 Staleness │ 6 Code Age │ 7 People                     "
+"┌ Change coupling ───────────────────────────────────────────────────────────────────────────────────────────┐"
+"│  src/api/handlers.ts                                                                                       │"
+"│  web/src/client.ts                                                                                         │"
+"│  in different directories                                                                                  │"
+"│                                                                                                            │"
+"│Changed together in 6 of the 8 commits that changed either: a degree of 75%.                                │"
+"│When web/src/client.ts changed, src/api/handlers.ts changed too: 6 of 7 times (86%).                        │"
+"│When src/api/handlers.ts changed, web/src/client.ts changed too: 6 of 7 times (86%).                        │"
+"│                                                                                                            │"
+"│Commits in the last 90 days that changed both, newest first                                                 │"
+"│  2025-05-29  000000270  Bob Builder                                                                        │"
+"│  2025-05-20  000000210  Bob Builder                                                                        │"
+"│  2025-05-11  0000001c0  Bob Builder                                                                        │"
+"│  2025-05-01  000000180  Bob Builder                                                                        │"
+"│  2025-04-20  000000130  Bob Builder                                                                        │"
+"│  2025-04-11  0000000f0  Bob Builder                                                                        │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"└────────────────────────────────────────────────────────────────────────────────────────────────────────────┘"
+" ↑↓ move  enter open  esc back  q quit                                           w window  30d [90d] 1y  all  "

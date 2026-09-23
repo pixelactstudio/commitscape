@@ -1,0 +1,31 @@
+---
+source: crates/commitscape-tui/tests/render.rs
+assertion_line: 69
+expression: screen(&mut app)
+---
+" commitscape  acme · 90d: 2025-04-02 to 2025-07-01 · 47 commits; 1 merge and 1 bulk commit not counted        "
+" 1 Overview │ 2 Hotspots │ 3 Coupling │ 4 Ownership │ 5 Staleness │ 6 Code Age │ 7 People                     "
+"┌ src/engine/core.rs ────────────────────────────────────────────────────────────────────── lines 1–21 of 48 ┐"
+"│Code · 210 lines · 3.4 KB                                                                                   │"
+"│Complexity Proxy 630: 3.0 indentation levels per line on average, spread 2.0                                │"
+"│Churn 34 commits in the last 90 days                                                                        │"
+"│Hotspot score 1.00: churn p100 × complexity p100                                                            │"
+"│First seen 2023-07-31 · last touched 2025-06-29 (1 day ago)                                                 │"
+"│                                                                                                            │"
+"│Who changed it in the last 90 days                                                                          │"
+"│  Alice Example          alice@example.com                   30   88%                                       │"
+"│  Carol Coder            carol@example.com                    4   12%                                       │"
+"│                                                                                                            │"
+"│Changes with                                                                                                │"
+"│  src/engine/parser.rs   together in 44% of their commits (15 commits)                                      │"
+"│                                                                                                            │"
+"│Its commits in the last 90 days, newest first                                                               │"
+"│  2025-06-29  0000003a0  Alice Example                                                                      │"
+"│  2025-06-26  000000390  Alice Example                                                                      │"
+"│  2025-06-23  000000370  Alice Example                                                                      │"
+"│  2025-06-20  000000350  Alice Example                                                                      │"
+"│  2025-06-17  000000320  Alice Example                                                                      │"
+"│  2025-06-15  000000310  Carol Coder                                                                        │"
+"│  2025-06-14  000000300  Alice Example                                                                      │"
+"└────────────────────────────────────────────────────────────────────────────────────────────────────────────┘"
+" ↑↓ move  enter open  esc back  q quit                                           w window  30d [90d] 1y  all  "

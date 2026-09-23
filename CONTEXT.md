@@ -57,7 +57,7 @@ A commit with more than one parent. Its Changeset is usually empty. Excluded fro
 _Avoid_: merge, pull request.
 
 **Bulk Commit**:
-A commit touching more than a configured number of files. Excluded from Churn and Change Coupling because reformats, lockfile regenerations, and vendored drops would otherwise dominate every ranking.
+A commit touching more than a configured number of files. Excluded from Churn, Change Coupling and Ownership because reformats, lockfile regenerations, and vendored drops would otherwise dominate every ranking.
 _Avoid_: large commit, mega commit, noise.
 
 **File Identity**:
@@ -85,6 +85,10 @@ _Avoid_: artifact, build output, ignored file.
 **Panel**:
 One screen of the interface, computed from the Index over the active Window. A Panel whose numbers cannot be entered should have been a command-line flag instead.
 _Avoid_: view, screen, tab, page.
+
+**Overview**:
+The Panel the interface opens on: what a repository's history says first. The directories one person holds, the top Hotspot, the files in different directories that change together, how much has gone untouched for a year, and the people who may be one person. Findings rather than counts, each of which can be entered.
+_Avoid_: dashboard, home, summary.
 
 **Card**:
 A composited image summarizing a repository, rendered for sharing rather than for reading in a terminal. The tool's growth mechanism, treated as a product feature.

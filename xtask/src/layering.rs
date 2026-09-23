@@ -8,18 +8,45 @@
 use anyhow::{bail, Context, Result};
 use std::process::Command;
 
-/// Crates that must never appear anywhere in the metrics crate's dependency
-/// tree. `gix` is the one that matters; the rest are listed because their
-/// presence would mean something has reached for I/O from a layer defined as
-/// pure.
-const FORBIDDEN_IN_METRICS: &[&str] = &["gix", "commitscape-index", "ratatui", "crossterm"];
+/// A crate, and the crates that must never appear anywhere in its normal
+/// dependency tree.
+struct Rule {
+    package: &'static str,
+    forbidden: &'static [&'static str],
+    why: &'static str,
+}
+
+const RULES: &[Rule] = &[
+    // `gix` is the one that matters; the rest are listed because their
+    // presence would mean something has reached for I/O from a layer defined
+    // as pure.
+    Rule {
+        package: "commitscape-metrics",
+        forbidden: &["gix", "commitscape-index", "ratatui", "crossterm"],
+        why: "The metrics layer is defined as pure functions over the index. If it can see \
+              git, the seam is decorative.",
+    },
+    Rule {
+        package: "commitscape-tui",
+        forbidden: &["gix", "commitscape-index"],
+        why: "The interface draws an Index and receives older history through a function \
+              its caller provides. If it can see git or the cache, it can go around both.",
+    },
+];
 
 pub fn check() -> Result<()> {
+    for rule in RULES {
+        check_rule(rule)?;
+    }
+    Ok(())
+}
+
+fn check_rule(rule: &Rule) -> Result<()> {
     let output = Command::new(env!("CARGO"))
         .args([
             "tree",
             "--package",
-            "commitscape-metrics",
+            rule.package,
             "--edges",
             "normal",
             "--prefix",
@@ -28,7 +55,7 @@ pub fn check() -> Result<()> {
         ])
         .current_dir(crate::workspace_root())
         .output()
-        .context("running `cargo tree` for commitscape-metrics")?;
+        .with_context(|| format!("running `cargo tree` for {}", rule.package))?;
 
     if !output.status.success() {
         bail!(
@@ -46,10 +73,8 @@ pub fn check() -> Result<()> {
         let Some(name) = line.split_whitespace().next() else {
             continue;
         };
-        for forbidden in FORBIDDEN_IN_METRICS {
-            let matches = name == *forbidden
-                || (*forbidden == "gix" && name.starts_with("gix-"))
-                || (*forbidden == "gix" && name == "gix");
+        for forbidden in rule.forbidden {
+            let matches = name == *forbidden || (*forbidden == "gix" && name.starts_with("gix-"));
             if matches {
                 violations.push(name.to_string());
             }
@@ -60,13 +85,16 @@ pub fn check() -> Result<()> {
 
     if !violations.is_empty() {
         bail!(
-            "ADR-0001 layering violated: commitscape-metrics can reach {}.\n\
-             The metrics layer is defined as pure functions over the index. If it can see \
-             git, the seam is decorative.",
-            violations.join(", ")
+            "ADR-0001 layering violated: {} can reach {}.\n{}",
+            rule.package,
+            violations.join(", "),
+            rule.why
         );
     }
 
-    println!("layering ok: commitscape-metrics cannot reach any of {FORBIDDEN_IN_METRICS:?}");
+    println!(
+        "layering ok: {} cannot reach any of {:?}",
+        rule.package, rule.forbidden
+    );
     Ok(())
 }
