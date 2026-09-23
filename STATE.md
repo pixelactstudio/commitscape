@@ -3,7 +3,7 @@
 Running log for Build Run 1 (Phases 0 to 7). Written so a fresh session with
 no context can read this plus `docs/adr/` and continue without asking anything.
 
-**Current position:** Build Run 2, Phase 8 complete. Build Run 1 (Phases 0
+**Current position:** Build Run 2, Phase 9 complete. Build Run 1 (Phases 0
 to 7) built a correct, fast tool; the user found it hard to read and asked for
 it to be fun and visual: charts, a help window, plain explanations, stats
 about the project and its people, and GitHub numbers through the `gh` CLI.
@@ -259,7 +259,7 @@ at the user's request.
 | Phase | What | Status |
 |---|---|---|
 | 8 | The index records each commit's Local Time, Commit Kind and whether an agent co-wrote it; the remote URL is readable | **DONE** |
-| 9 | The repository's story as Analysis methods: languages, activity, rhythm, streaks, people, fun facts | not started |
+| 9 | The repository's story as Analysis methods: languages, activity, rhythm, streaks, people, fun facts | **DONE** |
 | 10 | GitHub numbers through `gh`, in the background and cached | not started |
 | 11 | The interface rebuilt around charts, colour, plain language and a help window | not started |
 | 12 | `commitscape card`: the Overview as a shareable SVG | not started |
@@ -495,6 +495,27 @@ measurable.
    still orders history. A rebased or applied commit keeps when it was
    written (`author_delta`), so a team's rhythm is not the maintainer's.
 4. **Schema 7.** Every cache rebuilds once.
+
+## Phase 9 findings
+
+1. **New Analysis methods**: `pulse(who)` (commits per day and per weekday
+   and hour of Local Time, Commit Kinds, Agent Commits, streaks, the busiest
+   day and hour), `contributors()`, `work_of(person)`, `languages()`,
+   `totals()` and `code_map()` (every directory's lines, the Window's
+   commits and top owner, for the treemap). All are in `--json`.
+2. **Totals come from facts the index always holds** (the history span, the
+   author table, HEAD), so the Overview's big numbers are right at first
+   paint even when only 90 days of history are loaded.
+3. **The Pulse counts every commit that is not a merge, Bulk Commits
+   included**: it measures when work happened, not what it changed.
+4. **Configuration and data (JSON, YAML, TOML, XML) are code but not a
+   language**, as on GitHub. They count toward lines of code and are left
+   out of the language bar.
+5. **On real repositories:** 30% of `t3code`'s 7,610 commits were written
+   with an AI agent, 1,447 of them authored by "Cursor Agent"; it has a
+   112-day streak and a 492-commit day. `pixelactstudio` makes 45% of its
+   commits on weekends and 39% at night. Its leaderboard lists "Dev Talan"
+   twice, under two emails, which the People Panel will need to explain.
 
 ## Decisions made during implementation, not in any ADR
 

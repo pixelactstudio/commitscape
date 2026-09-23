@@ -191,6 +191,18 @@ Expected, in committer-time order:
 - Commit 4's author time is 3 days 20 hours before its committer time:
   -331,200 seconds.
 
+Its pulse over all of history, anchored at the newest commit (Monday 8
+January, 07:00 UTC), on each author's clock:
+
+- One commit on each of Monday 1, Tuesday 2, Wednesday 3 (commit 4, by when
+  it was written), Saturday 6, Sunday 7 and Monday 8 January: 6 active days
+  from 1 to 8 January.
+- The longest streak is Monday 1 to Wednesday 3: 3 days.
+- Weekend commits: 2 (Saturday 02:05 and Sunday 12:00). Night commits,
+  22:00 to 04:59: 2 (Tuesday 23:40 and Saturday 02:05).
+- Every hour holds at most one commit, so the busiest hour is the earliest,
+  02:00, and the busiest day the earliest, 1 January.
+
 ## Edge-case repositories
 
 | Fixture | Shape | Required behaviour |

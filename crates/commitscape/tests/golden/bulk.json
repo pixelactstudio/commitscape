@@ -8,6 +8,10 @@
     "last_commit": "2024-01-04T00:00:00Z",
     "history_truncated": false,
     "files_at_head": 60,
+    "files_people_wrote": 60,
+    "code_lines": 0,
+    "prose_lines": 60,
+    "generated_files": 0,
     "people": 1
   },
   "window": {
@@ -244,5 +248,276 @@
     "p99": 60,
     "max": 60
   },
-  "suspected_duplicates": []
+  "suspected_duplicates": [],
+  "languages": {
+    "languages": [],
+    "data_files": 0,
+    "data_lines": 0,
+    "other_files": 0,
+    "other_lines": 0
+  },
+  "pulse": {
+    "commits": 4,
+    "first_day": "2024-01-01",
+    "days": [
+      1,
+      1,
+      1,
+      1
+    ],
+    "week": [
+      [
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    ],
+    "kinds": [
+      {
+        "kind": "feature",
+        "commits": 0
+      },
+      {
+        "kind": "fix",
+        "commits": 0
+      },
+      {
+        "kind": "docs",
+        "commits": 0
+      },
+      {
+        "kind": "refactor",
+        "commits": 0
+      },
+      {
+        "kind": "test",
+        "commits": 0
+      },
+      {
+        "kind": "performance",
+        "commits": 0
+      },
+      {
+        "kind": "style",
+        "commits": 0
+      },
+      {
+        "kind": "build",
+        "commits": 0
+      },
+      {
+        "kind": "chore",
+        "commits": 0
+      },
+      {
+        "kind": "revert",
+        "commits": 0
+      },
+      {
+        "kind": "other",
+        "commits": 4
+      }
+    ],
+    "agent_commits": 0,
+    "active_days": 4,
+    "longest_streak": {
+      "first_day": "2024-01-01",
+      "days": 4
+    },
+    "busiest_day": {
+      "day": "2024-01-01",
+      "commits": 1
+    },
+    "busiest_hour": 0,
+    "weekend_commits": 0,
+    "night_commits": 4
+  },
+  "contributors": [
+    {
+      "name": "Alice Example",
+      "email": "alice@example.com",
+      "commits": 4,
+      "active_days": 4,
+      "agent_commits": 0,
+      "first": "2024-01-01T00:00:00",
+      "last": "2024-01-04T00:00:00"
+    }
+  ]
 }

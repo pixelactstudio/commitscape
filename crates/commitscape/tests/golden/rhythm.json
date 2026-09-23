@@ -1,25 +1,25 @@
 {
   "schema": 1,
   "repository": {
-    "head": "c4a860b7273c0bc48dd1e4030e1cd1496d5d6f81",
-    "commits": 21,
+    "head": "cd1065502d36c6e1d758eca950e1325bd73ee1a8",
+    "commits": 6,
     "merges": 0,
-    "first_commit": "2024-01-01T00:00:00Z",
-    "last_commit": "2024-01-21T00:00:00Z",
+    "first_commit": "2024-01-01T03:45:00Z",
+    "last_commit": "2024-01-08T07:00:00Z",
     "history_truncated": false,
-    "files_at_head": 3,
-    "files_people_wrote": 3,
-    "code_lines": 1,
-    "prose_lines": 2,
+    "files_at_head": 1,
+    "files_people_wrote": 1,
+    "code_lines": 0,
+    "prose_lines": 1,
     "generated_files": 0,
     "people": 3
   },
   "window": {
     "span": "all",
     "from": null,
-    "to": "2024-01-21T00:00:00Z",
+    "to": "2024-01-08T07:00:00Z",
     "anchor": "newest-commit",
-    "commits": 21,
+    "commits": 6,
     "merges_excluded": 0,
     "bulk_excluded": 0
   },
@@ -29,102 +29,23 @@
     "ownership_min_commits": 10
   },
   "hotspots": [],
-  "largest": [
-    {
-      "path": ".mailmap",
-      "lines": 1,
-      "bytes": 59,
-      "complexity": 0
-    }
-  ],
+  "largest": [],
   "churn": [
     {
-      "path": "alpha/f.txt",
-      "commits": 10
-    },
-    {
-      "path": "beta/g.txt",
-      "commits": 10
-    },
-    {
-      "path": ".mailmap",
-      "commits": 1
+      "path": "page.txt",
+      "commits": 6
     }
   ],
   "coupling": {
     "support": 5,
-    "files": 2,
+    "files": 1,
     "pairs_seen": 0,
     "pairs": []
   },
   "ownership": {
-    "directories": 3,
-    "bus_factor_one": 1,
-    "by_directory": [
-      {
-        "directory": "alpha/",
-        "commits": 10,
-        "bus_factor": 1,
-        "owners": [
-          {
-            "name": "Alice Example",
-            "email": "alice@example.com",
-            "commits": 9,
-            "share": 0.9
-          },
-          {
-            "name": "Bob Example",
-            "email": "bob@example.com",
-            "commits": 1,
-            "share": 0.1
-          }
-        ]
-      },
-      {
-        "directory": "beta/",
-        "commits": 10,
-        "bus_factor": 2,
-        "owners": [
-          {
-            "name": "Bob Example",
-            "email": "bob@example.com",
-            "commits": 5,
-            "share": 0.5
-          },
-          {
-            "name": "Carol",
-            "email": "carol@users.noreply.github.com",
-            "commits": 5,
-            "share": 0.5
-          }
-        ]
-      },
-      {
-        "directory": "",
-        "commits": 21,
-        "bus_factor": 3,
-        "owners": [
-          {
-            "name": "Alice Example",
-            "email": "alice@example.com",
-            "commits": 10,
-            "share": 0.47619047619047616
-          },
-          {
-            "name": "Bob Example",
-            "email": "bob@example.com",
-            "commits": 6,
-            "share": 0.2857142857142857
-          },
-          {
-            "name": "Carol",
-            "email": "carol@users.noreply.github.com",
-            "commits": 5,
-            "share": 0.23809523809523808
-          }
-        ]
-      }
-    ]
+    "directories": 0,
+    "bus_factor_one": 0,
+    "by_directory": []
   },
   "staleness": {
     "buckets": [
@@ -136,7 +57,7 @@
       {
         "age": "month",
         "label": "under a month",
-        "files": 2
+        "files": 0
       },
       {
         "age": "quarter",
@@ -156,31 +77,15 @@
     ],
     "stalest": [
       {
-        "path": ".mailmap",
-        "last_touched": "2024-01-01T00:00:00Z",
-        "days": 20
-      },
-      {
-        "path": "alpha/f.txt",
-        "last_touched": "2024-01-11T00:00:00Z",
-        "days": 10
-      },
-      {
-        "path": "beta/g.txt",
-        "last_touched": "2024-01-21T00:00:00Z",
+        "path": "page.txt",
+        "last_touched": "2024-01-08T07:00:00Z",
         "days": 0
       }
     ]
   },
-  "code_age": [
-    {
-      "quarter": "2024-Q1",
-      "lines": 1,
-      "files": 1
-    }
-  ],
+  "code_age": [],
   "changeset_sizes": {
-    "commits": 21,
+    "commits": 6,
     "buckets": [
       {
         "from": 0,
@@ -190,7 +95,7 @@
       {
         "from": 1,
         "to": 1,
-        "commits": 21
+        "commits": 6
       },
       {
         "from": 2,
@@ -253,38 +158,103 @@
     "languages": [],
     "data_files": 0,
     "data_lines": 0,
-    "other_files": 1,
-    "other_lines": 1
+    "other_files": 0,
+    "other_lines": 0
   },
   "pulse": {
-    "commits": 21,
+    "commits": 6,
     "first_day": "2024-01-01",
     "days": [
       1,
       1,
       1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
+      0,
+      0,
       1,
       1,
       1
     ],
     "week": [
       [
-        3,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
         0,
         0,
         0,
@@ -310,33 +280,7 @@
         0
       ],
       [
-        3,
         0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0
-      ],
-      [
-        3,
         0,
         0,
         0,
@@ -362,35 +306,9 @@
         0
       ],
       [
-        3,
         0,
         0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0
-      ],
-      [
-        3,
-        0,
-        0,
+        1,
         0,
         0,
         0,
@@ -414,7 +332,6 @@
         0
       ],
       [
-        3,
         0,
         0,
         0,
@@ -427,32 +344,7 @@
         0,
         0,
         0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0
-      ],
-      [
-        3,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
+        1,
         0,
         0,
         0,
@@ -469,19 +361,19 @@
     "kinds": [
       {
         "kind": "feature",
-        "commits": 0
+        "commits": 1
       },
       {
         "kind": "fix",
-        "commits": 0
+        "commits": 1
       },
       {
         "kind": "docs",
-        "commits": 0
+        "commits": 1
       },
       {
         "kind": "refactor",
-        "commits": 0
+        "commits": 1
       },
       {
         "kind": "test",
@@ -505,54 +397,54 @@
       },
       {
         "kind": "revert",
-        "commits": 0
+        "commits": 1
       },
       {
         "kind": "other",
-        "commits": 21
+        "commits": 1
       }
     ],
-    "agent_commits": 0,
-    "active_days": 21,
+    "agent_commits": 1,
+    "active_days": 6,
     "longest_streak": {
       "first_day": "2024-01-01",
-      "days": 21
+      "days": 3
     },
     "busiest_day": {
       "day": "2024-01-01",
       "commits": 1
     },
-    "busiest_hour": 0,
-    "weekend_commits": 6,
-    "night_commits": 21
+    "busiest_hour": 2,
+    "weekend_commits": 2,
+    "night_commits": 2
   },
   "contributors": [
     {
       "name": "Alice Example",
       "email": "alice@example.com",
-      "commits": 10,
-      "active_days": 10,
-      "agent_commits": 0,
-      "first": "2024-01-01T00:00:00",
-      "last": "2024-01-10T00:00:00"
+      "commits": 3,
+      "active_days": 3,
+      "agent_commits": 1,
+      "first": "2024-01-01T09:15:00",
+      "last": "2024-01-03T14:00:00"
     },
     {
       "name": "Bob Example",
       "email": "bob@example.com",
-      "commits": 6,
-      "active_days": 6,
+      "commits": 2,
+      "active_days": 2,
       "agent_commits": 0,
-      "first": "2024-01-11T00:00:00",
-      "last": "2024-01-21T00:00:00"
+      "first": "2024-01-06T02:05:00",
+      "last": "2024-01-07T12:00:00"
     },
     {
       "name": "Carol",
       "email": "carol@users.noreply.github.com",
-      "commits": 5,
-      "active_days": 5,
+      "commits": 1,
+      "active_days": 1,
       "agent_commits": 0,
-      "first": "2024-01-12T00:00:00",
-      "last": "2024-01-16T00:00:00"
+      "first": "2024-01-08T08:00:00",
+      "last": "2024-01-08T08:00:00"
     }
   ]
 }

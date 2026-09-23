@@ -115,6 +115,27 @@ pub struct LargeFile {
     pub complexity: u32,
 }
 
+/// The repository in numbers: all of its history, and what is at HEAD. The
+/// history numbers are there even when only part of history is loaded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct Totals {
+    pub commits: u64,
+    pub merges: u64,
+    /// Committer time of the oldest and newest commit.
+    pub first_commit: Option<i64>,
+    pub last_commit: Option<i64>,
+    /// Everyone who ever committed, after identities are resolved.
+    pub people: usize,
+    /// Files people wrote at HEAD: code and prose.
+    pub files: u32,
+    pub code_files: u32,
+    pub code_lines: u64,
+    pub prose_lines: u64,
+    /// Files at HEAD no person wrote: lockfiles, generated and vendored
+    /// code, binaries.
+    pub generated_files: u32,
+}
+
 /// Every metric over one Window of one Index.
 pub struct Analysis<'i> {
     index: &'i Index,
@@ -282,6 +303,36 @@ impl<'i> Analysis<'i> {
                 files.iter().all(|f| changes.iter().any(|ch| ch.file == *f))
             })
             .collect()
+    }
+
+    /// The repository in numbers, whatever the Window.
+    pub fn totals(&self) -> Totals {
+        let index = self.index;
+        let mut t = Totals {
+            commits: index.span.commits,
+            merges: index.span.merges,
+            first_commit: index.span.oldest,
+            last_commit: index.span.newest,
+            people: index.authors.len(),
+            files: 0,
+            code_files: 0,
+            code_lines: 0,
+            prose_lines: 0,
+            generated_files: 0,
+        };
+        for h in &index.head {
+            if !h.class.is_rankable() {
+                t.generated_files += 1;
+            } else if h.class.is_code() {
+                t.files += 1;
+                t.code_files += 1;
+                t.code_lines += u64::from(h.loc);
+            } else {
+                t.files += 1;
+                t.prose_lines += u64::from(h.loc);
+            }
+        }
+        t
     }
 
     /// Churn of one file in the Window.

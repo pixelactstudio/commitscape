@@ -107,6 +107,7 @@ impl CommitMeta {
 #[derive(
     Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
 )]
+#[serde(rename_all = "lowercase")]
 pub enum CommitKind {
     Feature,
     Fix,

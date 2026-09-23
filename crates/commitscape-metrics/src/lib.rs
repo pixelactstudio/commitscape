@@ -10,14 +10,20 @@
 
 mod ages;
 mod analysis;
+mod code_map;
 mod coupling;
+mod languages;
 mod people;
+mod pulse;
 mod window;
 
 pub use ages::{Age, AgeCount, QuarterAge, StaleFile, Staleness};
 pub use analysis::{
-    Analysis, Churn, CommitCounts, Hotspot, LargeFile, NotLoaded, Options, RANKING_LIMIT,
+    Analysis, Churn, CommitCounts, Hotspot, LargeFile, NotLoaded, Options, Totals, RANKING_LIMIT,
 };
+pub use code_map::{CodeMap, MapNode};
 pub use coupling::{ChangesetSizes, CoupledPair, Coupling, SizeBucket};
-pub use people::{DirectoryOwnership, Owner, Ownership, SuspectedDuplicate};
+pub use languages::{Language, Languages};
+pub use people::{Contributor, DirectoryOwnership, Owner, Ownership, SuspectedDuplicate};
+pub use pulse::{KindCount, Pulse, Streak};
 pub use window::{Span, Window};

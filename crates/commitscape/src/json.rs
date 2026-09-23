@@ -11,7 +11,7 @@
 //! themselves do: a Hotspot's score with its churn and complexity and their
 //! percentiles, a coupled pair's Jaccard degree with its commit counts.
 
-use commitscape_core::{iso8601, FileId, Index};
+use commitscape_core::{civil_from_unix, iso8601, FileId, Index};
 use commitscape_metrics::{Analysis, Span};
 use serde::Serialize;
 
@@ -34,6 +34,9 @@ pub struct Report {
     pub code_age: Vec<Quarter>,
     pub changeset_sizes: commitscape_metrics::ChangesetSizes,
     pub suspected_duplicates: Vec<Duplicate>,
+    pub languages: commitscape_metrics::Languages,
+    pub pulse: Pulse,
+    pub contributors: Vec<Contributor>,
 }
 
 #[derive(Serialize)]
@@ -47,7 +50,60 @@ pub struct Repository {
     /// A shallow clone: `commits` is a floor, not a total.
     pub history_truncated: bool,
     pub files_at_head: usize,
+    /// Of those, the files people wrote: code and prose.
+    pub files_people_wrote: u32,
+    pub code_lines: u64,
+    pub prose_lines: u64,
+    /// Lockfiles, generated and vendored code, binaries.
+    pub generated_files: u32,
     pub people: usize,
+}
+
+/// When the Window's commits were made, on each author's Local Time.
+#[derive(Serialize)]
+pub struct Pulse {
+    /// Commits that are not merges.
+    pub commits: u32,
+    /// The date `days` starts on.
+    pub first_day: String,
+    /// Commits per day, from `first_day` on.
+    pub days: Vec<u32>,
+    /// Commits by weekday, Monday first, and hour.
+    pub week: [[u32; 24]; 7],
+    pub kinds: Vec<commitscape_metrics::KindCount>,
+    pub agent_commits: u32,
+    pub active_days: u32,
+    pub longest_streak: Option<Streak>,
+    pub busiest_day: Option<Day>,
+    pub busiest_hour: Option<usize>,
+    /// Commits on a Saturday or Sunday.
+    pub weekend_commits: u32,
+    /// Commits between 22:00 and 04:59.
+    pub night_commits: u32,
+}
+
+#[derive(Serialize)]
+pub struct Streak {
+    pub first_day: String,
+    pub days: u32,
+}
+
+#[derive(Serialize)]
+pub struct Day {
+    pub day: String,
+    pub commits: u32,
+}
+
+#[derive(Serialize)]
+pub struct Contributor {
+    pub name: String,
+    pub email: String,
+    pub commits: u32,
+    pub active_days: u32,
+    pub agent_commits: u32,
+    /// Their first and last commit in the Window, on their own clock.
+    pub first: String,
+    pub last: String,
 }
 
 #[derive(Serialize)]
@@ -191,7 +247,7 @@ pub fn report(analysis: &Analysis<'_>, span: Span, top: usize) -> Report {
 
     Report {
         schema: SCHEMA,
-        repository: repository(index),
+        repository: repository(index, &analysis.totals()),
         window: WindowReport {
             span,
             from: window.from.map(iso8601),
@@ -314,6 +370,25 @@ pub fn report(analysis: &Analysis<'_>, span: Span, top: usize) -> Report {
             })
             .collect(),
         changeset_sizes: analysis.changeset_sizes(),
+        languages: analysis.languages(),
+        pulse: pulse(&analysis.pulse(None)),
+        contributors: analysis
+            .contributors()
+            .iter()
+            .take(top)
+            .map(|c| {
+                let person = index.authors.get(c.author);
+                Contributor {
+                    name: person.map(|p| p.name.to_string()).unwrap_or_default(),
+                    email: person.map(|p| p.email.to_string()).unwrap_or_default(),
+                    commits: c.commits,
+                    active_days: c.active_days,
+                    agent_commits: c.agent,
+                    first: local(c.first),
+                    last: local(c.last),
+                }
+            })
+            .collect(),
         suspected_duplicates: analysis
             .suspected_duplicates()
             .into_iter()
@@ -338,7 +413,41 @@ pub fn report(analysis: &Analysis<'_>, span: Span, top: usize) -> Report {
     }
 }
 
-fn repository(index: &Index) -> Repository {
+fn pulse(p: &commitscape_metrics::Pulse) -> Pulse {
+    Pulse {
+        commits: p.commits,
+        first_day: date(p.first_day),
+        days: p.days.clone(),
+        week: p.week,
+        kinds: p.kinds.clone(),
+        agent_commits: p.agent,
+        active_days: p.active_days,
+        longest_streak: p.longest_streak.map(|s| Streak {
+            first_day: date(s.first_day),
+            days: s.days,
+        }),
+        busiest_day: p.busiest_day.map(|(day, commits)| Day {
+            day: date(day),
+            commits,
+        }),
+        busiest_hour: p.busiest_hour(),
+        weekend_commits: p.weekend(),
+        night_commits: p.night(),
+    }
+}
+
+/// A day, as days since the epoch, as a date: `2024-01-05`.
+fn date(day: i64) -> String {
+    let (y, m, d) = civil_from_unix(day * 86_400);
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
+/// A time on someone's own clock, without a zone: `2024-01-05T23:40:00`.
+fn local(clock: i64) -> String {
+    iso8601(clock).trim_end_matches('Z').to_string()
+}
+
+fn repository(index: &Index, totals: &commitscape_metrics::Totals) -> Repository {
     Repository {
         head: index.head_commit.map(|c| c.to_hex()),
         commits: index.span.commits,
@@ -347,6 +456,10 @@ fn repository(index: &Index) -> Repository {
         last_commit: index.span.newest.map(iso8601),
         history_truncated: index.history_truncated,
         files_at_head: index.head.len(),
+        files_people_wrote: totals.files,
+        code_lines: totals.code_lines,
+        prose_lines: totals.prose_lines,
+        generated_files: totals.generated_files,
         people: index.authors.len(),
     }
 }

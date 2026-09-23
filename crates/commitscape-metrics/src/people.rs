@@ -2,14 +2,16 @@
 
 use std::collections::HashMap;
 
-use commitscape_core::{AuthorId, FileId};
+use commitscape_core::{AuthorId, CommitFlags, FileId};
 use serde::Serialize;
 
-use crate::analysis::{counts, top, Analysis};
+use crate::analysis::{counts, top, Analysis, Churn};
 
 /// The share of a directory's commits that makes a group of people its
 /// holders. Bus Factor counts how many people it takes to pass it.
 const BUS_FACTOR_LINE: f64 = 0.8;
+
+const DAY: i64 = 86_400;
 
 /// One person's commits to a directory in the Window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -53,6 +55,22 @@ pub struct Ownership {
     pub bus_factor_one: u32,
     /// Fewest owners first, then most commits.
     pub directories: Vec<DirectoryOwnership>,
+}
+
+/// Someone who made commits in the Window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct Contributor {
+    pub author: AuthorId,
+    /// Their commits in the Window that are not merges.
+    pub commits: u32,
+    /// Days, on their Local Time, with at least one of those commits.
+    pub active_days: u32,
+    /// Of those commits, how many were Agent Commits.
+    pub agent: u32,
+    /// Their earliest and latest commit, on their own clock
+    /// ([`CommitMeta::author_clock`](commitscape_core::CommitMeta::author_clock)).
+    pub first: i64,
+    pub last: i64,
 }
 
 /// People who might be one person.
@@ -179,6 +197,96 @@ impl Analysis<'_> {
             bus_factor_one,
             directories: out,
         }
+    }
+
+    /// Everyone who made commits in the Window, most commits first.
+    pub fn contributors(&self) -> Vec<Contributor> {
+        let index = self.index();
+        let mut made: Vec<(AuthorId, i64, bool)> = self
+            .window_commits()
+            .iter()
+            .filter(|c| !c.is_merge())
+            .filter_map(|c| {
+                let author = index.author_of(c)?;
+                Some((
+                    author,
+                    c.author_clock(),
+                    c.flags.contains(CommitFlags::AGENT),
+                ))
+            })
+            .collect();
+        made.sort_unstable();
+
+        let mut out: Vec<Contributor> = Vec::new();
+        let mut last_day = None;
+        for (author, clock, agent) in made {
+            let day = clock.div_euclid(DAY);
+            match out.last_mut() {
+                Some(c) if c.author == author => {
+                    c.commits += 1;
+                    c.last = clock;
+                    if last_day != Some(day) {
+                        c.active_days += 1;
+                    }
+                    c.agent += u32::from(agent);
+                }
+                _ => out.push(Contributor {
+                    author,
+                    commits: 1,
+                    active_days: 1,
+                    agent: u32::from(agent),
+                    first: clock,
+                    last: clock,
+                }),
+            }
+            last_day = Some(day);
+        }
+        top(&mut out, |a, b| {
+            b.commits.cmp(&a.commits).then(a.author.cmp(&b.author))
+        });
+        out
+    }
+
+    /// The files one person changed most in the Window, counting the same
+    /// commits Churn does. Files people wrote at HEAD only.
+    pub fn work_of(&self, author: AuthorId) -> Vec<Churn> {
+        let index = self.index();
+        let options = self.options();
+        let mut written = vec![false; index.paths.len()];
+        for h in self.ranked() {
+            if let Some(w) = written.get_mut(h.file.idx()) {
+                *w = true;
+            }
+        }
+        let mut commits = vec![0u32; index.paths.len()];
+        for commit in self.window_commits() {
+            if !counts(commit, &options) || index.author_of(commit) != Some(author) {
+                continue;
+            }
+            for change in index.changes_of(commit) {
+                if written.get(change.file.idx()).copied().unwrap_or(false) {
+                    if let Some(n) = commits.get_mut(change.file.idx()) {
+                        *n += 1;
+                    }
+                }
+            }
+        }
+        let mut out: Vec<Churn> = self
+            .ranked()
+            .filter_map(|h| {
+                let n = commits.get(h.file.idx()).copied().unwrap_or(0);
+                (n > 0).then_some(Churn {
+                    file: h.file,
+                    commits: n,
+                })
+            })
+            .collect();
+        top(&mut out, |a, b| {
+            b.commits
+                .cmp(&a.commits)
+                .then_with(|| self.by_path(a.file, b.file))
+        });
+        out
     }
 
     /// Who made the counted commits that touched one file, most first.

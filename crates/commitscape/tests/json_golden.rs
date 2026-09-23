@@ -111,6 +111,11 @@ fn conflict() {
 }
 
 #[test]
+fn rhythm() {
+    golden("rhythm");
+}
+
+#[test]
 fn shallow() {
     golden("shallow");
 }
