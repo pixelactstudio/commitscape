@@ -82,12 +82,12 @@ pub(super) fn draw(app: &App, frame: &mut Frame, area: Rect, cursor: &mut Cursor
     }
     let most = f.contributors.first().map_or(0, |c| u64::from(c.commits));
     let name_width = 30usize;
-    let fixed = 3 + 2 + name_width + 1 + 7 + 6 + 15 + 7 + 11 + 12;
+    let fixed = 3 + 2 + name_width + 1 + 7 + 6 + 15 + 7 + 11 + 14;
     let bar_width = inner.width.saturating_sub(fixed as u16).clamp(4, 40);
 
     // Each heading as wide as the values under it.
     let header = Line::from(vec![faint(format!(
-        "{:>3}  {:<nw$} {:<bw$}{:>7}{:>6}{:>15}{:>7}{:>11}{:>12}",
+        "{:>3}  {:<nw$} {:<bw$}{:>7}{:>6}{:>15}{:>7}{:>11}{:>14}",
         "#",
         "person",
         "",
@@ -141,7 +141,7 @@ pub(super) fn draw(app: &App, frame: &mut Frame, area: Rect, cursor: &mut Cursor
                     _ => faint(format!(" {:>6}", "·")),
                 },
                 plain(format!(" {:>5} days", grouped(u64::from(c.active_days)))),
-                plain(format!(" {:>11}", ago(last))),
+                plain(format!(" {:>13}", ago(last))),
             ])
         })
         .collect();

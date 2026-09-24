@@ -92,6 +92,36 @@ impl GixRepo {
         gix::ObjectId::try_from(id.0.as_slice()).ok()
     }
 
+    /// Tags that name a release, `v1.2.3` or `1.2`, pre-releases left out,
+    /// with the time of the commit each points at, oldest first. Read after
+    /// the first screen: peeling a tag reads its object.
+    pub fn version_tags(&self) -> Vec<(String, i64)> {
+        let Ok(platform) = self.repo.references() else {
+            return Vec::new();
+        };
+        let Ok(tags) = platform.tags() else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for mut reference in tags.flatten() {
+            let name = reference.name().shorten().to_string();
+            if !is_release(&name) {
+                continue;
+            }
+            let Ok(id) = reference.peel_to_id() else {
+                continue;
+            };
+            let Ok(commit) = self.repo.find_commit(id.detach()) else {
+                continue;
+            };
+            if let Ok(time) = commit.time() {
+                out.push((name, time.seconds));
+            }
+        }
+        out.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
+        out
+    }
+
     /// Every history tip as `(name, commit)`, HEAD first.
     fn tips_gix(&self) -> Result<Vec<(String, gix::ObjectId)>, GixError> {
         let mut tips = Vec::new();
@@ -426,4 +456,16 @@ impl RepoSource for GixRepo {
             .map(|t| crate::lines::parse_ignore_revs(&t))
             .unwrap_or_default())
     }
+}
+
+/// Whether a tag names a release: a version, `v` in front or not, and no
+/// pre-release word.
+fn is_release(name: &str) -> bool {
+    let bare = name.strip_prefix(['v', 'V']).unwrap_or(name);
+    let lower = bare.to_ascii_lowercase();
+    bare.starts_with(|c: char| c.is_ascii_digit())
+        && bare.contains('.')
+        && !["rc", "alpha", "beta", "pre", "dev", "nightly"]
+            .iter()
+            .any(|w| lower.contains(w))
 }

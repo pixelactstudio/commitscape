@@ -119,3 +119,51 @@ fn a_pair_opens_onto_the_commits_it_shared_newest_first() {
     assert_eq!(days(&[file("a.rs"), file("b.rs")]), vec![3, 0]);
     assert_eq!(days(&[file("a.rs")]), vec![4, 3, 0]);
 }
+
+#[test]
+fn files_that_all_change_together_form_a_group() {
+    // Commits 1 to 6 change api/a.rs, api/b.rs and web/c.ts together; 7 to
+    // 11 change db/d.sql and db/e.sql; 12 changes api/a.rs and db/d.sql.
+    // Every pair of a, b, c has a Jaccard degree of 6/7 (a changed 7 times);
+    // d and e 5/6; a and d 1/12, too weak to join the two groups.
+    let mut commits = Vec::new();
+    for day in 1..=6 {
+        commits.push(c(day, "x@x.org", &["api/a.rs", "api/b.rs", "web/c.ts"]));
+    }
+    for day in 7..=11 {
+        commits.push(c(day, "x@x.org", &["db/d.sql", "db/e.sql"]));
+    }
+    commits.push(c(12, "x@x.org", &["api/a.rs", "db/d.sql"]));
+    let files = ["api/a.rs", "api/b.rs", "web/c.ts", "db/d.sql", "db/e.sql"];
+    let head: Vec<_> = files.iter().map(|f| h(f, 1, 0)).collect();
+    let idx = index(&commits, &head);
+    let a = Analysis::new(&idx, Window::all(EPOCH + 13 * DAY), options(5)).expect("covered");
+    let groups: Vec<(Vec<String>, u32, bool)> = a
+        .change_groups()
+        .iter()
+        .map(|g| {
+            let mut paths: Vec<String> = g.files.iter().map(|f| idx.paths.path_lossy(*f)).collect();
+            paths.sort();
+            (paths, g.together, g.cross_directory)
+        })
+        .collect();
+    assert_eq!(
+        groups,
+        vec![
+            (
+                vec![
+                    "api/a.rs".to_string(),
+                    "api/b.rs".to_string(),
+                    "web/c.ts".to_string()
+                ],
+                6,
+                true
+            ),
+            (
+                vec!["db/d.sql".to_string(), "db/e.sql".to_string()],
+                5,
+                false
+            ),
+        ]
+    );
+}

@@ -327,6 +327,8 @@ pub fn session_of(repo: ScriptedRepo, span: Span) -> Session {
         people: Some(people()),
         link_accounts: None,
         lines: None,
+        releases: None,
+        theme: commitscape_tui::Theme::Dark,
     }
 }
 
@@ -359,6 +361,8 @@ pub fn sliced(span: Span, dir: &Path) -> Session {
         people: Some(people()),
         link_accounts: None,
         lines: None,
+        releases: None,
+        theme: commitscape_tui::Theme::Dark,
     }
 }
 

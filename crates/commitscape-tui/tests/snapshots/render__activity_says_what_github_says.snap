@@ -1,6 +1,6 @@
 ---
 source: crates/commitscape-tui/tests/render.rs
-expression: "panel('2')"
+expression: screen(&mut app)
 ---
 " commitscape   acme   58 commits · 4 people · since 31 Jul 2023                    window  30d  90d  1y  all  "
 " 1 Overview   2 Activity   3 People   4 Map   5 Risk                                                          "
@@ -23,8 +23,8 @@ expression: "panel('2')"
 "│Sun ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■                       ││Sun ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■   │"
 "╰─────────────────────────────── less ■ ■ ■ ■ ■ more ╯╰ busiest Sundays around 10:00 ─── less ■ ■ ■ ■ ■ more ╯"
 "╭ What kind of work ──────────────────────────────────╮╭ Rhythm and GitHub ──────────────────────────────────╮"
-"│ features      ███████████████████████████    21  46%││ No GitHub numbers: not asked in tests.              │"
-"│ fixes         █████████████████████▉         17  37%││ at night          0%  22:00 to 05:00                │"
-"│ and refactors 4, docs 3, style 1                    ││ on weekends       28%  Saturdays and Sundays        │"
+"│ features      ███████████████████████████    21  46%││ pull requests     3 merged of the latest 4, half wi…│"
+"│ fixes         █████████████████████▉         17  37%││ issues            7 open, 93 closed                 │"
+"│ and refactors 4, docs 3, style 1                    ││ at night          0%  22:00 to 05:00                │"
 "╰─────────────────────────────────────────────────────╯╰─────────────────────────────────────────────────────╯"
 " ↑↓ move  ←→ panels  w window  ? help  q quit                                                                 "

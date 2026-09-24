@@ -6,9 +6,10 @@
 //! and orange ramps pass the ordinal checks (STATE.md, Phase 11). The app
 //! paints its own background so the checks hold in any terminal theme.
 //!
-//! Everything is drawn in 24-bit colour. A terminal without it gets each
-//! colour mapped to the nearest of the 256 standard ones, once per frame, by
-//! [`fit_to_terminal`].
+//! Everything is drawn in 24-bit colour, in the dark palette. A [`Theme`]
+//! then maps each frame's colours to its own, and a terminal without 24-bit
+//! colour gets what is left mapped to the nearest of the 256 standard ones,
+//! once per frame, by [`fit_to_terminal`].
 
 use ratatui::buffer::Buffer;
 use ratatui::style::{Color, Modifier, Style};
@@ -56,7 +57,6 @@ pub(crate) const BLUES: [Color; 4] = [rgb(0x184f95), rgb(0x2a78d6), rgb(0x6da7ec
 pub(crate) const HEAT: [Color; 4] = [rgb(0xa42602), rgb(0xce4e2f), rgb(0xfc7856), rgb(0xfec1af)];
 
 /// Reserved for state, always with a word or a mark beside it.
-pub(crate) const GOOD: Color = rgb(0x0ca30c);
 pub(crate) const WARNING: Color = rgb(0xfab219);
 pub(crate) const CRITICAL: Color = rgb(0xd03b3b);
 
@@ -94,7 +94,7 @@ pub(crate) fn ink_on(fill: Color) -> Color {
         Color::Rgb(r, g, b) => {
             let luminance = 0.2126 * f64::from(r) + 0.7152 * f64::from(g) + 0.0722 * f64::from(b);
             if luminance > 150.0 {
-                rgb(0x0b0b0b)
+                INK
             } else {
                 TEXT
             }
@@ -154,5 +154,141 @@ fn nearest_256(r: u8, g: u8, b: u8) -> u8 {
         gray
     } else {
         cube
+    }
+}
+
+/// How the interface is coloured. Everything is drawn in the dark palette
+/// above; a theme maps each colour of a drawn frame to its own, so drawing
+/// never needs to know which one is on.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Theme {
+    /// The terminal's own colours: its background, its text and its sixteen
+    /// named colours, so the terminal's theme applies. Ramps of magnitude
+    /// keep their 24-bit colours, which sixteen colours cannot step.
+    #[default]
+    Terminal,
+    /// The validated palette on its own dark surface.
+    Dark,
+    /// The validated light palette on its own light surface.
+    Light,
+}
+
+impl Theme {
+    pub const EVERY: [Theme; 3] = [Theme::Terminal, Theme::Dark, Theme::Light];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Theme::Terminal => "terminal",
+            Theme::Dark => "dark",
+            Theme::Light => "light",
+        }
+    }
+
+    pub fn parse(name: &str) -> Option<Theme> {
+        Theme::EVERY.into_iter().find(|t| t.name() == name)
+    }
+
+    pub(crate) fn next(self) -> Theme {
+        match self {
+            Theme::Terminal => Theme::Dark,
+            Theme::Dark => Theme::Light,
+            Theme::Light => Theme::Terminal,
+        }
+    }
+}
+
+/// Near-black ink, for text on a light fill.
+const INK: Color = rgb(0x0b0b0b);
+
+/// The light palette: each dark colour's counterpart, from the reference
+/// palette's light steps, checked with its validator on the light surface
+/// `#fcfcfb` (STATE.md, Phase 16). Ramps run light to dark there, so the
+/// least is the lightest.
+const LIGHT: &[(Color, Color)] = &[
+    (SURFACE, rgb(0xfcfcfb)),
+    (GRID, rgb(0xf0efec)),
+    (LINE, rgb(0xd3d1ca)),
+    (SELECTED, rgb(0xcde2fb)),
+    (TEXT, INK),
+    (TEXT_2, rgb(0x52514e)),
+    (MUTED, rgb(0x6b6a65)),
+    (rgb(0x3987e5), rgb(0x2a78d6)),
+    (rgb(0xd95926), rgb(0xeb6834)),
+    (rgb(0x199e70), rgb(0x1baf7a)),
+    (rgb(0xc98500), rgb(0xeda100)),
+    (rgb(0xd55181), rgb(0xe87ba4)),
+    (rgb(0x008300), rgb(0x008300)),
+    (rgb(0x9085e9), rgb(0x4a3aa7)),
+    (rgb(0xe66767), rgb(0xe34948)),
+    (rgb(0x184f95), rgb(0x86b6ef)),
+    (rgb(0x2a78d6), rgb(0x3987e5)),
+    (rgb(0x6da7ec), rgb(0x1c5cab)),
+    (rgb(0xb7d3f6), rgb(0x0d366b)),
+    (rgb(0xa42602), rgb(0xfc7856)),
+    (rgb(0xce4e2f), rgb(0xce4e2f)),
+    (rgb(0xfc7856), rgb(0xa42602)),
+    (rgb(0xfec1af), rgb(0x6e1a00)),
+];
+
+/// The terminal's colours for the dark palette's chrome, people and
+/// states. What is not listed keeps its colour.
+fn terminal(colour: Color, background: bool) -> Color {
+    let named = |hex: u32| -> Option<Color> {
+        Some(match hex {
+            0x1a1a19 if background => Color::Reset,
+            0x1a1a19 => Color::Black,
+            0x2c2c2a | 0x383835 | 0x898781 => Color::DarkGray,
+            0x0d366b => Color::Blue,
+            0xffffff | 0xc3c2b7 => Color::Reset,
+            0x3987e5 => Color::Blue,
+            0xd95926 => Color::LightRed,
+            0x199e70 => Color::Cyan,
+            0xc98500 | 0xfab219 => Color::Yellow,
+            0xd55181 => Color::Magenta,
+            0x008300 => Color::Green,
+            0x9085e9 => Color::LightMagenta,
+            0xe66767 | 0xd03b3b => Color::Red,
+            _ => return None,
+        })
+    };
+    match colour {
+        Color::Rgb(r, g, b) => {
+            named(u32::from(r) << 16 | u32::from(g) << 8 | u32::from(b)).unwrap_or(colour)
+        }
+        other => other,
+    }
+}
+
+/// Recolours a drawn frame for `theme`.
+pub(crate) fn apply(buffer: &mut Buffer, theme: Theme) {
+    match theme {
+        Theme::Dark => {}
+        Theme::Terminal => {
+            for cell in buffer.content.iter_mut() {
+                cell.fg = terminal(cell.fg, false);
+                cell.bg = terminal(cell.bg, true);
+            }
+        }
+        Theme::Light => {
+            let light = |c: Color| {
+                LIGHT
+                    .iter()
+                    .find(|(dark, _)| *dark == c)
+                    .map_or(c, |(_, l)| *l)
+            };
+            for cell in buffer.content.iter_mut() {
+                let ink = cell.fg == TEXT || cell.fg == INK;
+                cell.bg = light(cell.bg);
+                // Text on a coloured fill is inked for the fill it now has.
+                cell.fg = if ink && cell.bg != light(SURFACE) && matches!(cell.bg, Color::Rgb(..)) {
+                    ink_on(cell.bg)
+                } else {
+                    light(cell.fg)
+                };
+                if cell.fg == TEXT {
+                    cell.fg = INK;
+                }
+            }
+        }
     }
 }

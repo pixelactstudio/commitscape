@@ -1,20 +1,19 @@
 ---
 source: crates/commitscape-tui/tests/render.rs
-assertion_line: 117
-expression: screen(&mut app)
+expression: "panel('5')"
 ---
 " commitscape   acme   58 commits · 4 people · since 31 Jul 2023                    window  30d  90d  1y  all  "
-" 1 Overview   2 Activity   3 People   4 Map   5 Hotspots   6 Coupling   7 Ownership   8 Age   9 GitHub        "
-"──────────────────────────────────────────────────────────────────────────────────────━━━━━───────────────────"
-"╭ Files last touched under a month ago ──────────────────────────────────────────────────── enter for a file ╮"
-"│ file                                   days   last touched   folder                                        │"
-"│▌client.ts                                20     2025-06-10   web/src/                                      │"
-"│ handlers.ts                              11     2025-06-19   src/api/                                      │"
-"│ guide.md                                  8     2025-06-22   docs/                                         │"
+" 1 Overview   2 Activity   3 People   4 Map   5 Risk                                                          "
+"──────────────────────────────────────────────━━━━━━──────────────────────────────────────────────────────────"
+"╭ Risk ────────────────────────────────────────────────────────────────────────── in 90 days · enter to open ╮"
+"│ Hotspots   code that changes often and is deeply nested · 4                                                │"
+"│▌ ◆ core.rs      src/engine/            changed 34 times · the most changed of 4 · the most nested of 6     │"
+"│  ◆ parser.rs    src/engine/            changed 15 times · the 2nd most changed of 4 · the 2nd most nested …│"
+"│  ◆ handlers.ts  src/api/               changed 7 times · the 3rd most changed of 4 · the 3rd most nested o…│"
+"│  ◆ client.ts    web/src/               changed 7 times · the 3rd most changed of 4 · the 5th most nested o…│"
 "│                                                                                                            │"
-"│                                                                                                            │"
-"│                                                                                                            │"
-"│                                                                                                            │"
+"│ Change groups   files that keep changing in the same commits · 1                                           │"
+"│  ⇄ 6 times together, across folders: handlers.ts, client.ts                                                │"
 "│                                                                                                            │"
 "│                                                                                                            │"
 "│                                                                                                            │"
@@ -28,4 +27,4 @@ expression: screen(&mut app)
 "│                                                                                                            │"
 "│                                                                                                            │"
 "╰────────────────────────────────────────────────────────────────────────────────────────────────────────────╯"
-" ↑↓ move  enter open  esc back  ←→ panels  w window  ? help  q quit                                           "
+" ↑↓ move  enter open  ←→ panels  w window  / find  ? help  q quit                                             "

@@ -280,7 +280,7 @@ gate for each phase.
 | 13 | Remove everything AI-related, end to end | **DONE**: no agent or AI term in the UI, JSON, card, help or glossary; cache schema 8; JSON schema 2 |
 | 14 | Trust fixes: identity merging (ADR-0011), `w` keeps your place, mouse, review fixes | **DONE**: maihs one Dev Talan and one Ryan, pixelactstudio one Dev Talan; render tests for each fix |
 | 15 | Line counts in a background pass (new ADR amending ADR-0004); People contribution views | **DONE**: ADR-0012; rust-lang/rust 53 s and Linux 195 s cold, background; hand-worked `lines` fixture |
-| 16 | Terminal UI: nine screens to five, themes, Kinds of work from files, unusual facts only; then frozen | not started |
+| 16 | Terminal UI: nine screens to five, themes, Kinds of work from files, unusual facts only; then frozen | **DONE**: snapshots of all five screens; first paint 52.0 ms rust-lang/rust, 69.6 ms Linux; frozen |
 | 17 | GitHub, deeper: full PR, issue, review and release history, incremental (amends ADR-0009) | not started |
 | 18 | Browser UI foundation (ADR-0010): server, API, generated types, token, default choice, SSH | not started |
 | 19 | Browser screens, filters, themes, PNG card, `commitscape report` | not started |
@@ -790,6 +790,54 @@ What the first Window cost on Linux, measured part by part: the Map 61 to
 10. **Bug caught by a snapshot:** the interface said "counting…" forever
    when no line counter was given, because the state moved before it was
    checked.
+
+## Phase 16 findings
+
+1. **Five screens**: Overview, Activity, People, Map, Risk, on keys 1 to 5.
+   Hotspots, Coupling and Ownership became Risk (`ui/risk.rs`): Hotspots
+   one line each in words, Change Groups, and knowledge silos with who
+   could take each over. Age became the Map's age colouring and the
+   Overview's "Code age" chart; the untouched files are one Enter from
+   "Worth a look". The GitHub screen went: its pull requests and issues
+   are in Activity's "Rhythm and GitHub", its stars in the Overview's
+   badges. The five old screen files were deleted.
+2. **New Analysis methods, hand-worked tests:** `work()` judges each commit
+   from its files first (tests, docs, dependencies or CI only), then its
+   Commit Kind; `commits_by_person(top)` splits commits over time among the
+   top five and everyone else; `change_groups()` grows a group only with a
+   file strongly coupled (Jaccard ≥ 0.5) to every member, at most eight;
+   `silos()` names who else made the most commits in the nearest folder
+   more than one person works in. Each has a `…_in` form taking what the
+   interface already computed.
+3. **Activity** stacks commits over time by person in each person's fixed
+   colour, grey for everyone else, with a legend, and marks releases with
+   `▾`: tags named like versions, pre-releases left out
+   (`GixRepo::version_tags`), read after the first frame. Kinds of work
+   are hidden when most commits can be told neither way (maihs).
+4. **Facts only when unusual,** each against a stated bar (night ≥ 25%,
+   weekend ≥ 30%, a day ≥ 5× a usual one with ≥ 10 commits, a streak ≥ 21
+   days, twice as many fixes as features, a file in ≥ 20% of commits, a
+   file ≥ 5,000 lines, untouched ≥ 3 years), and "Nothing unusual stands
+   out" otherwise. acme now shows one fact.
+5. **Themes** (`theme::Theme`, `--theme`, `t`): *terminal*, the default,
+   maps text, surface, lines, people and states to the terminal's own
+   sixteen colours so its theme applies, and keeps the magnitude ramps in
+   24-bit colour, which sixteen colours cannot step; *dark* is the
+   palette validated in Phase 11; *light* uses the reference palette's
+   light steps, run through the validator on `#fcfcfb`: categorical all
+   checks pass (worst adjacent CVD ΔE 9.1, normal-vision 19.6; three slots
+   under 3:1, relieved by the names beside every colour), the blue ramp
+   `#86b6ef…#0d366b` and the orange `#fc7856…#6e1a00` pass the ordinal
+   checks. A theme recolours each drawn frame, so drawing code never knows
+   which is on; the card and previews stay dark.
+6. **First paint** after this phase: rust-lang/rust 52.0 ms, Linux 69.6 ms
+   (n=20). On the way it reached 94.8 ms on Linux: judging each changed
+   file's role took 8 ms (now on the Map's job, after the first frame),
+   group counting scanned the Window once per group (one pass now), and a
+   restructure made the main thread wait for Ownership before its own work
+   (found by timing the Phase 15 binary beside this one).
+7. **The terminal interface is frozen** from here: bug fixes only. New
+   features go to the browser and the command line.
 
 ## Decisions made during implementation, not in any ADR
 

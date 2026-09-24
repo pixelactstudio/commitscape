@@ -36,19 +36,15 @@ well under a tenth of a second.
 
 | Screen | Shows |
 |---|---|
-| 1 Overview | The repository at a glance: its size, age and languages, commits over time, who writes the code, facts worth sharing, and what is worth a look |
-| 2 Activity | Commits by day, a calendar, the hours of the week people work, what kind of work the commit messages say, and the team's rhythm |
-| 3 People | Everyone who committed, with a profile for each: when they work, what they work on, and which folders rest on them |
-| 4 Map | The code as rectangles sized by lines, coloured by where the work is, how long since it was touched, or who holds it |
-| 5 Hotspots | Files that change often and are deeply nested |
-| 6 Coupling | Files that keep changing in the same commits |
-| 7 Ownership | Who made the commits under each folder, and how few people it rests on |
-| 8 Age | How long since each file was touched, and when the code was written |
-| 9 GitHub | Stars, forks, pull requests, issues and releases |
+| 1 Overview | The repository at a glance: its size, age and languages, commits over time, who writes the code, how old the code is, what is unusual about it, and what is worth a look |
+| 2 Activity | Commits over time by person with releases marked, a calendar, the hours of the week, what kind of work the commits were (judged from their files first), the team's rhythm and GitHub's pull requests and issues |
+| 3 People | Everyone who committed, with their commits, lines added and removed, and the folders that depend on them; bots listed apart; a profile for each |
+| 4 Map | The code as rectangles sized by lines, coloured by activity, by age, or by who holds it |
+| 5 Risk | Hotspots, groups of files that change together, and folders only one person knows, with who could take each over |
 
 | Key | Does |
 |---|---|
-| `1` to `9`, `←` `→`, Tab | Choose a screen |
+| `1` to `5`, `←` `→`, Tab | Choose a screen |
 | `↑` `↓`, `j` `k`, PgUp, PgDn, Home, End | Move through a list |
 | Enter | Open what is selected: a file, a pair of files, a folder, a person |
 | Esc | Go back |
@@ -57,14 +53,15 @@ well under a tenth of a second.
 | `c` | Colour the Map by activity, age or owner |
 | `u` | On a person: undo a merge of their identities, or redo it |
 | Mouse | Click a screen, a Window, a row or a Map block; the wheel scrolls |
+| `t` | Colours: the terminal's own (the default), dark, or light |
 | `?` | Help: what the screen shows and what every word means |
 | `q` | Quit |
 
-The GitHub screen needs the [GitHub CLI](https://cli.github.com), signed in
+GitHub's numbers need the [GitHub CLI](https://cli.github.com), signed in
 once with `gh auth login`. commitscape asks it one question after the first
 frame is drawn, and `gh` keeps the answer for an hour. Nothing else needs the
 network; `--offline` never asks. Repositories on other hosts, such as GitLab,
-show everything but that screen.
+show everything but those numbers.
 
 To share a repository's story, draw its card:
 

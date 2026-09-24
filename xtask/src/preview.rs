@@ -21,19 +21,15 @@ use ratatui::Terminal;
 /// Overview.
 const SCREENS: &[(&str, &str)] = &[
     ("1-overview", ""),
+    ("1b-folder", "enter"),
     ("2-activity", "2"),
     ("3-people", "3"),
     ("3b-person", "3 enter"),
     ("4-map", "4"),
-    ("4b-map-owners", "4 c c"),
-    ("5-hotspots", "5"),
+    ("4b-map-age", "4 c"),
+    ("4c-map-owners", "4 c c"),
+    ("5-risk", "5"),
     ("5b-hotspot-file", "5 enter"),
-    ("6-coupling", "6"),
-    ("6b-pair", "6 enter"),
-    ("7-ownership", "7"),
-    ("7b-folder", "7 enter"),
-    ("8-age", "8"),
-    ("9-github", "9"),
     ("help", "5 ?"),
 ];
 
@@ -94,6 +90,15 @@ pub fn run(
             Some(Box::new(move |index: &commitscape_core::Index| {
                 let source = GixRepo::open(&path).ok()?;
                 commitscape_index::line_pass(&source, index, store.as_ref(), &mut |_, _| {}).ok()
+            }))
+        },
+        theme: commitscape_tui::Theme::Dark,
+        releases: {
+            let path = repo.to_path_buf();
+            Some(Box::new(move || {
+                GixRepo::open(&path)
+                    .map(|r| r.version_tags())
+                    .unwrap_or_default()
             }))
         },
     };

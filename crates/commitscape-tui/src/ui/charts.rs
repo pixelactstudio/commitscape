@@ -7,7 +7,7 @@ use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 
 use crate::format::month_name;
-use crate::theme::{self, GRID, MUTED};
+use crate::theme::{self, GRID, MUTED, TEXT_2};
 
 const EIGHTHS: [char; 8] = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇'];
 const LEFT_EIGHTHS: [char; 8] = [' ', '▏', '▎', '▍', '▌', '▋', '▊', '▉'];
@@ -32,6 +32,90 @@ pub(crate) fn bucket(values: &[u32], slots: usize) -> (Vec<u64>, usize) {
             .collect(),
         per,
     )
+}
+
+/// Columns stacked from several series, oldest on the left: each column's
+/// parts bottom up in `colours` order, scaled so the tallest column reaches
+/// the top of `area`. A cell two parts share takes the colour of the part
+/// at its middle. `marks` are columns to mark with `▾` in the top row, which
+/// is then kept free of bars. Labels as [`columns`] draws them.
+pub(crate) fn stacked_columns(
+    buf: &mut Buffer,
+    area: Rect,
+    stacks: &[Vec<u64>],
+    colours: &[Color],
+    marks: &[usize],
+    label: impl Fn(usize) -> Option<String>,
+) {
+    if area.height < 3 || area.width == 0 || stacks.is_empty() {
+        return;
+    }
+    let top = u16::from(!marks.is_empty());
+    let plot = Rect {
+        y: area.y + top,
+        height: area.height - 1 - top,
+        ..area
+    };
+    let n = stacks.len();
+    let width = usize::from(plot.width);
+    let span = (width / n).max(1);
+    let bar = if span >= 3 { span - 1 } else { span };
+    let most = stacks
+        .iter()
+        .map(|s| s.iter().sum::<u64>())
+        .max()
+        .unwrap_or(0);
+    let eighths_high = u64::from(plot.height) * 8;
+    for (i, parts) in stacks.iter().enumerate() {
+        let x0 = plot.x + (i * span) as u16;
+        if usize::from(x0 - plot.x) + bar > width {
+            break;
+        }
+        let total: u64 = parts.iter().sum();
+        if total == 0 || most == 0 {
+            continue;
+        }
+        let h = (total * eighths_high).div_ceil(most).max(1);
+        // Where each part ends, in eighths of a row from the bottom.
+        let mut ends = Vec::with_capacity(parts.len());
+        let mut sum = 0;
+        for &v in parts {
+            sum += v;
+            ends.push((sum * h + total / 2) / total);
+        }
+        for row in 0..plot.height {
+            let filled = h.saturating_sub(u64::from(row) * 8).min(8);
+            if filled == 0 {
+                break;
+            }
+            let middle = u64::from(row) * 8 + filled.div_ceil(2);
+            let part = ends
+                .iter()
+                .position(|&e| middle <= e)
+                .unwrap_or(parts.len() - 1);
+            let colour = colours.get(part).copied().unwrap_or(MUTED);
+            let symbol = if filled == 8 {
+                "█".to_string()
+            } else {
+                EIGHTHS
+                    .get(filled as usize)
+                    .copied()
+                    .unwrap_or(' ')
+                    .to_string()
+            };
+            let y = plot.y + plot.height - 1 - row;
+            for dx in 0..bar as u16 {
+                put(buf, x0 + dx, y, &symbol, Style::new().fg(colour));
+            }
+        }
+    }
+    for &m in marks {
+        let x = area.x + (m * span) as u16 + (bar as u16) / 2;
+        if x < area.x + area.width {
+            put(buf, x, area.y, "▾", Style::new().fg(TEXT_2));
+        }
+    }
+    columns_labels(buf, area, n, span, label);
 }
 
 /// A column chart of `values`, oldest on the left, in `colour`, scaled so
@@ -85,27 +169,7 @@ pub(crate) fn columns(
             }
         }
     }
-    // Labels, left to right, never overlapping. One that would run past
-    // the right edge ends there instead, if that keeps it clear of the one
-    // before.
-    let y = area.y + area.height - 1;
-    let mut free_from = area.x;
-    for i in 0..n {
-        let x = area.x + (i * span) as u16;
-        if x < free_from || x >= area.x + area.width {
-            continue;
-        }
-        if let Some(text) = label(i) {
-            let long = text.chars().count() as u16;
-            let x = x
-                .min((area.x + area.width).saturating_sub(long))
-                .max(free_from);
-            let room = usize::from(area.x + area.width - x);
-            let text: String = text.chars().take(room).collect();
-            buf.set_string(x, y, &text, Style::new().fg(MUTED));
-            free_from = x + text.chars().count() as u16 + 1;
-        }
-    }
+    columns_labels(buf, area, n, span, label);
 }
 
 /// Labels for a run of days: the month's name at the first column in which
@@ -381,5 +445,36 @@ pub(crate) fn blend(from: Color, to: Color, t: f64) -> Color {
             Color::Rgb(mix(r1, r2), mix(g1, g2), mix(b1, b2))
         }
         _ => from,
+    }
+}
+
+/// The labels under a chart of `n` columns, each `span` wide.
+fn columns_labels(
+    buf: &mut Buffer,
+    area: Rect,
+    n: usize,
+    span: usize,
+    label: impl Fn(usize) -> Option<String>,
+) {
+    // Labels, left to right, never overlapping. One that would run past
+    // the right edge ends there instead, if that keeps it clear of the one
+    // before.
+    let y = area.y + area.height - 1;
+    let mut free_from = area.x;
+    for i in 0..n {
+        let x = area.x + (i * span) as u16;
+        if x < free_from || x >= area.x + area.width {
+            continue;
+        }
+        if let Some(text) = label(i) {
+            let long = text.chars().count() as u16;
+            let x = x
+                .min((area.x + area.width).saturating_sub(long))
+                .max(free_from);
+            let room = usize::from(area.x + area.width - x);
+            let text: String = text.chars().take(room).collect();
+            buf.set_string(x, y, &text, Style::new().fg(MUTED));
+            free_from = x + text.chars().count() as u16 + 1;
+        }
     }
 }

@@ -1,6 +1,7 @@
 //! The Overview: the repository at a glance, then what is worth a look.
 
-use commitscape_core::CommitKind;
+use commitscape_core::civil_from_unix;
+use commitscape_metrics::QuarterAge;
 use commitscape_metrics::Span as Window;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Style};
@@ -12,7 +13,7 @@ use super::charts::{self, blend};
 use super::{bold, boxed, dot, faint, highlight, plain, short_phrase, split_path, tile};
 use crate::app::{headlines, App, GitHubState, Headline};
 use crate::findings::Findings;
-use crate::format::{compact, grouped, hour, long_date, share, short_date, span_of_days};
+use crate::format::{compact, grouped, long_date, share, short_date, span_of_days};
 use crate::list::Cursor;
 use crate::theme::{self, ACCENT, CRITICAL, HEAT, MUTED, SERIES, WARNING};
 
@@ -38,10 +39,15 @@ pub(super) fn draw(app: &App, frame: &mut Frame, area: Rect, cursor: &mut Cursor
     draw_tiles(app, f, frame, tiles);
     draw_languages(f, frame, languages);
 
-    let [activity, people] =
-        Layout::horizontal([Constraint::Percentage(60), Constraint::Percentage(40)]).areas(middle);
+    let [activity, people, age] = Layout::horizontal([
+        Constraint::Fill(1),
+        Constraint::Percentage(34),
+        Constraint::Percentage(24),
+    ])
+    .areas(middle);
     draw_activity(app, f, frame, activity);
     draw_people(app, f, frame, people);
+    draw_code_age(app, f, frame, age);
 
     let [facts_area, worth_area] =
         Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).areas(bottom);
@@ -447,98 +453,108 @@ pub(super) fn draw_people(app: &App, f: &Findings, frame: &mut Frame, area: Rect
     frame.render_widget(Paragraph::new(lines), inner);
 }
 
-/// Things the Window's commits say that are fun to know, most striking
-/// first.
+/// What is unusual about the Window's commits, most striking first. Each
+/// fact has a bar to clear, set where most repositories fall short of it;
+/// what every repository has is not a fact worth telling.
 fn facts(app: &App, f: &Findings) -> Vec<Line<'static>> {
     let mut out = Vec::new();
     let p = &f.pulse;
     let total = u64::from(p.commits);
     let name = |path: String| split_path(&path).1.to_string();
-    if total > 0 {
+    if total >= 20 {
         let night = u64::from(p.night());
         let weekend = u64::from(p.weekend());
+        // A team working office hours makes under a tenth of its commits
+        // at night and about as few at the weekend.
         if night * 4 >= total {
             out.push(Line::from(vec![
                 plain("Night owls: "),
                 bold(share(night, total)),
                 plain(" of commits land between 22:00 and 05:00."),
             ]));
-        } else if let Some(h) = p.busiest_hour() {
-            out.push(Line::from(vec![
-                plain("Most commits land around "),
-                bold(hour(h)),
-                plain(", local time."),
-            ]));
         }
-        if weekend * 5 >= total {
+        if weekend * 10 >= total * 3 {
             out.push(Line::from(vec![
                 plain("Weekend warriors: "),
                 bold(share(weekend, total)),
-                plain(" of commits land on a weekend."),
+                plain(" of commits land on a Saturday or Sunday."),
             ]));
         }
-        if let Some((day, n)) = p.busiest_day.filter(|&(_, n)| n >= 2) {
-            out.push(Line::from(vec![
-                plain("The busiest day was "),
-                bold(long_date(day * 86_400)),
-                plain(", with "),
-                bold(grouped(u64::from(n))),
-                plain(if n == 1 { " commit." } else { " commits." }),
-            ]));
+        if let Some((day, n)) = p.busiest_day {
+            let per_day = total as f64 / f64::from(p.active_days.max(1));
+            if n >= 10 && f64::from(n) >= 5.0 * per_day {
+                out.push(Line::from(vec![
+                    plain("The busiest day, "),
+                    bold(long_date(day * 86_400)),
+                    plain(", had "),
+                    bold(grouped(u64::from(n))),
+                    plain(format!(
+                        " commits, {:.0} times a usual day.",
+                        f64::from(n) / per_day
+                    )),
+                ]));
+            }
         }
-        if let Some(s) = p.longest_streak.filter(|s| s.days >= 3) {
+        if let Some(s) = p.longest_streak.filter(|s| s.days >= 21) {
             out.push(Line::from(vec![
-                plain("Longest streak: "),
+                plain("A streak of "),
                 bold(format!("{} days", s.days)),
-                plain(" in a row, from "),
+                plain(" in a row with commits, from "),
                 bold(short_date(s.first_day * 86_400)),
                 plain("."),
             ]));
         }
-        let other = p
-            .kinds
+        let fixes = p
+            .work
             .iter()
-            .find(|k| k.kind == CommitKind::Other)
-            .map_or(0, |k| u64::from(k.commits));
-        if (total - other) * 10 >= total * 3 {
-            let of = |kind: CommitKind| {
-                p.kinds
-                    .iter()
-                    .find(|k| k.kind == kind)
-                    .map_or(0, |k| u64::from(k.commits))
-            };
-            out.push(Line::from(vec![
-                bold(share(of(CommitKind::Feature), total)),
-                plain(" of commits are features and "),
-                bold(share(of(CommitKind::Fix), total)),
-                plain(" are fixes."),
-            ]));
+            .find(|w| w.work == commitscape_metrics::Work::Fix);
+        let features = p
+            .work
+            .iter()
+            .find(|w| w.work == commitscape_metrics::Work::Feature);
+        if let (Some(x), Some(y)) = (fixes, features) {
+            if x.commits >= 10 && x.commits >= 2 * y.commits {
+                out.push(Line::from(vec![
+                    plain("Twice as many fixes as features: "),
+                    bold(grouped(u64::from(x.commits))),
+                    plain(" to "),
+                    bold(grouped(u64::from(y.commits))),
+                    plain("."),
+                ]));
+            }
+        }
+        if let Some(c) = f.churn.first() {
+            if u64::from(c.commits) * 5 >= total {
+                out.push(Line::from(vec![
+                    bold(name(app.index.paths.path_lossy(c.file))),
+                    plain(" changed in "),
+                    bold(share(u64::from(c.commits), total)),
+                    plain(" of all commits."),
+                ]));
+            }
         }
     }
-    if let Some(c) = f.churn.first() {
+    if let Some(l) = f.largest.first().filter(|l| l.loc >= 5_000) {
         out.push(Line::from(vec![
-            bold(name(app.index.paths.path_lossy(c.file))),
-            plain(" changed in "),
-            bold(grouped(u64::from(c.commits))),
-            plain(" commits, more than any other file."),
-        ]));
-    }
-    if let Some(l) = f.largest.first() {
-        out.push(Line::from(vec![
-            plain("The biggest file is "),
+            plain("The biggest file, "),
             bold(name(app.index.paths.path_lossy(l.file))),
-            plain(", with "),
+            plain(", has "),
             bold(grouped(u64::from(l.loc))),
             plain(" lines."),
         ]));
     }
-    if let Some(s) = f.staleness.files.first().filter(|s| s.days >= 180) {
+    if let Some(s) = f.staleness.files.first().filter(|s| s.days >= 3 * 365) {
         out.push(Line::from(vec![
             bold(name(app.index.paths.path_lossy(s.file))),
             plain(" has not been touched in "),
             bold(span_of_days(s.days)),
             plain("."),
         ]));
+    }
+    if out.is_empty() {
+        out.push(Line::from(faint(
+            "Nothing unusual stands out in this window: no late nights, no marathons, no giant files.",
+        )));
     }
     out
 }
@@ -658,4 +674,79 @@ fn draw_worth(app: &App, f: &Findings, frame: &mut Frame, area: Rect, cursor: &m
         highlight(frame, inner, inner.y + at as u16);
         super::clickable_rows(app, inner, shown, 1);
     }
+}
+
+/// When the code at HEAD was written: its lines by the quarter their file
+/// first appeared, one column a quarter.
+pub(super) fn draw_code_age(app: &App, f: &Findings, frame: &mut Frame, area: Rect) {
+    let inner = boxed(frame, area, "Code age", None);
+    let quarters = every_quarter(&f.code_age, app.anchor);
+    if quarters.is_empty() {
+        super::empty(frame, inner, "There is no code at HEAD.");
+        return;
+    }
+    let values: Vec<u64> = quarters.iter().map(|q| q.2).collect();
+    let most = values.iter().copied().max().unwrap_or(0);
+    frame.render_widget(
+        Paragraph::new(super::fit_line(
+            Line::from(vec![
+                faint("tallest "),
+                bold(compact(most)),
+                faint(" lines"),
+            ]),
+            usize::from(inner.width),
+        )),
+        Rect { height: 1, ..inner },
+    );
+    // Quarters summed in twos, fours and so on when there are more than
+    // columns to show them in.
+    let per = values
+        .len()
+        .div_ceil(usize::from(inner.width).max(1))
+        .max(1);
+    let summed: Vec<u64> = values.chunks(per).map(|c| c.iter().sum()).collect();
+    let year = |i: usize| quarters.get(i * per).map(|q| q.0);
+    charts::columns(
+        frame.buffer_mut(),
+        Rect {
+            y: inner.y + 1,
+            height: inner.height.saturating_sub(1),
+            ..inner
+        },
+        &summed,
+        theme::BLUES[2],
+        |i| {
+            let this = year(i)?;
+            (i == 0 || year(i - 1) != Some(this)).then(|| this.to_string())
+        },
+    );
+}
+
+/// Every quarter from the first with code to the one `anchor` falls in, as
+/// (year, quarter, lines), with no lines where no code appeared.
+fn every_quarter(quarters: &[QuarterAge], anchor: i64) -> Vec<(i64, u32, u64)> {
+    let Some(first) = quarters.first() else {
+        return Vec::new();
+    };
+    let (year, month, _) = civil_from_unix(anchor);
+    let now = (year, (month - 1) / 3 + 1);
+    let last = quarters
+        .last()
+        .map_or(now, |q| (q.year, q.quarter))
+        .max(now);
+    let mut out = Vec::new();
+    let mut at = (first.year, first.quarter);
+    while at <= last {
+        let lines = quarters
+            .iter()
+            .find(|q| (q.year, q.quarter) == at)
+            .map_or(0, |q| q.lines);
+        out.push((at.0, at.1, lines));
+        at = if at.1 == 4 {
+            (at.0 + 1, 1)
+        } else {
+            (at.0, at.1 + 1)
+        };
+    }
+    out
 }

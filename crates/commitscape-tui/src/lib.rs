@@ -27,7 +27,7 @@ use ratatui::Terminal;
 pub use app::{App, Command, Event};
 
 pub use export::svg;
-pub use theme::truecolor;
+pub use theme::{truecolor, Theme};
 
 /// Completes an index with the history it does not hold yet. Called once,
 /// off the main thread, after the first frame. `None` when that history
@@ -62,6 +62,10 @@ pub type LinkAccounts = Box<dyn FnOnce(&Index) -> Option<AuthorTable> + Send>;
 /// not be counted.
 pub type CountLines = Box<dyn FnOnce(&Index) -> Option<LinePass> + Send>;
 
+/// Reads the repository's releases, as names and times, oldest first.
+/// Called once, off the main thread, after the first frame.
+pub type LoadReleases = Box<dyn FnOnce() -> Vec<(String, i64)> + Send>;
+
 /// What the interface opens on.
 pub struct Session {
     /// The repository's name, for the header.
@@ -84,6 +88,10 @@ pub struct Session {
     pub link_accounts: Option<LinkAccounts>,
     /// How to count lines, if they can be kept.
     pub lines: Option<CountLines>,
+    /// How to read the releases, to mark them on charts.
+    pub releases: Option<LoadReleases>,
+    /// The colours to start with; `t` changes them.
+    pub theme: Theme,
 }
 
 /// A repository's story on one card, to share: the Overview's picture of

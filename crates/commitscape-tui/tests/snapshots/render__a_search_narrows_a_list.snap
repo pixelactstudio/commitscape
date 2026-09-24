@@ -1,17 +1,16 @@
 ---
 source: crates/commitscape-tui/tests/render.rs
-assertion_line: 155
 expression: screen(&mut app)
 ---
 " commitscape   acme   58 commits · 4 people · since 31 Jul 2023                    window  30d  90d  1y  all  "
-" 1 Overview   2 Activity   3 People   4 Map   5 Hotspots   6 Coupling   7 Ownership   8 Age   9 GitHub        "
-"──────────────────────────────────────────────━━━━━━━━━━──────────────────────────────────────────────────────"
-" A hotspot is code that changes often and is deeply nested. Bugs and slow changes gather in it, so it is the  "
-" first code worth simplifying or testing. The longer both bars, the hotter the file. Press ? for how each is  "
-" measured.                                                                                                    "
-"╭ Hotspots ───────────────────────────────────────── changes in 90 days · nesting at HEAD · enter for a file ╮"
-"│▌ 4  client.ts                    changes ████▏                    7   nesting █▍                        42 │"
-"│▌    web/src/                     the 3rd most changed of 4 files · the 5th most nested of 6                │"
+" 1 Overview   2 Activity   3 People   4 Map   5 Risk                                                          "
+"──────────────────────────────────────────────━━━━━━──────────────────────────────────────────────────────────"
+"╭ Risk ────────────────────────────────────────────────────────────────────────── in 90 days · enter to open ╮"
+"│ Hotspots   code that changes often and is deeply nested · 4                                                │"
+"│▌ ◆ client.ts    web/src/               changed 7 times · the 3rd most changed of 4 · the 5th most nested o…│"
+"│                                                                                                            │"
+"│ Change groups   files that keep changing in the same commits · 1                                           │"
+"│  ⇄ 6 times together, across folders: handlers.ts, client.ts                                                │"
 "│                                                                                                            │"
 "│                                                                                                            │"
 "│                                                                                                            │"

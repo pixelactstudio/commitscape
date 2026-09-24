@@ -5,10 +5,14 @@
 //! took 13ms.
 
 use commitscape_metrics::{
-    Analysis, Churn, CodeMap, CommitCounts, Contribution, Contributor, Coupling, Hotspot,
-    Languages, LargeFile, MapNode, Ownership, Pulse, QuarterAge, Staleness, SuspectedDuplicate,
-    Totals, Window,
+    Analysis, ChangeGroup, Churn, CodeMap, CommitCounts, CommitsByPerson, Contribution,
+    Contributor, Coupling, Hotspot, Languages, LargeFile, MapNode, Ownership, Pulse, QuarterAge,
+    Silo, Staleness, SuspectedDuplicate, Totals, Window,
 };
+
+/// The people a chart of commits over time tells apart; everyone else is
+/// one grey series.
+pub(crate) const PEOPLE_SHOWN: usize = 5;
 
 pub(crate) struct Findings {
     pub window: Window,
@@ -33,6 +37,12 @@ pub(crate) struct Findings {
     pub staleness: Staleness,
     pub code_age: Vec<QuarterAge>,
     pub duplicates: Vec<SuspectedDuplicate>,
+    /// Sets of files that change together.
+    pub groups: Vec<ChangeGroup>,
+    /// Folders only one person touched.
+    pub silos: Vec<Silo>,
+    /// Commits per day among the five who made the most, and everyone else.
+    pub by_person: CommitsByPerson,
     /// The Map, once laid out. The first Window's comes after the first
     /// frame: on Linux it takes 70ms, most of the 100ms that frame has.
     pub map: Option<CodeMap>,
@@ -41,41 +51,73 @@ pub(crate) struct Findings {
 impl Findings {
     /// Everything for a Window.
     pub fn of(analysis: &Analysis<'_>) -> Findings {
-        Findings {
+        let mut f = Findings {
             map: Some(analysis.code_map()),
             ..Findings::without_map(analysis)
-        }
+        };
+        f.pulse.work = analysis.work(None);
+        f
     }
 
-    /// Everything but the Map: what the first frame needs.
+    /// Everything but the Map and the kinds of work: what the first frame
+    /// needs. On Linux the kinds of work take 6 ms, judging every changed
+    /// file's role, and come with the Map instead.
     ///
     /// The parts are independent, and on Linux Ownership, the languages and
     /// the suspected duplicates take about 10ms each, so those three run
     /// beside the rest: 40ms one after another, about 15 side by side.
     pub fn without_map(analysis: &Analysis<'_>) -> Findings {
         let mut f = std::thread::scope(|s| {
-            let ownership = s.spawn(|| analysis.ownership());
+            // The folders one person knows follow from Ownership, and the
+            // groups of files from Coupling, on the same threads.
+            let ownership = s.spawn(|| {
+                let o = analysis.ownership();
+                let silos = analysis.silos_in(&o);
+                (o, silos)
+            });
+            let coupling = s.spawn(|| {
+                let c = analysis.coupling();
+                let groups = analysis.change_groups_in(&c);
+                (c, groups)
+            });
             let languages = s.spawn(|| analysis.languages());
             let duplicates = s.spawn(|| analysis.suspected_duplicates());
             let lines = s.spawn(|| analysis.lines_by_person());
-            // Fields are computed in the order written, so the threads'
-            // answers are waited for last.
+            let pulse = analysis.pulse_in_time(None);
+            let contributors = analysis.contributors();
+            let by_person = analysis.commits_by_person_in(&pulse, &contributors, PEOPLE_SHOWN);
+            let (window, counts, totals, bots) = (
+                analysis.window(),
+                analysis.commits(),
+                analysis.totals(),
+                analysis.bots(),
+            );
+            let (churn, hotspots, largest) =
+                (analysis.churn(), analysis.hotspots(), analysis.largest());
+            let (staleness, code_age) = (analysis.staleness(), analysis.code_age());
+            // The threads' answers are waited for last, once everything this
+            // thread computes is done.
+            let (ownership, silos) = joined(ownership);
+            let (coupling, groups) = joined(coupling);
             Findings {
-                window: analysis.window(),
-                counts: analysis.commits(),
-                totals: analysis.totals(),
-                pulse: analysis.pulse(None),
-                contributors: analysis.contributors(),
-                bots: analysis.bots(),
+                window,
+                counts,
+                totals,
+                pulse,
+                contributors,
+                bots,
                 contributions: Vec::new(),
-                churn: analysis.churn(),
-                hotspots: analysis.hotspots(),
-                largest: analysis.largest(),
-                coupling: analysis.coupling(),
-                staleness: analysis.staleness(),
-                code_age: analysis.code_age(),
+                groups,
+                silos,
+                by_person,
+                churn,
+                hotspots,
+                largest,
+                coupling,
+                staleness,
+                code_age,
                 map: None,
-                ownership: joined(ownership),
+                ownership,
                 languages: joined(languages),
                 duplicates: joined(duplicates),
                 lines_by_person: joined(lines),

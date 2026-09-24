@@ -20,7 +20,10 @@ use crate::findings::Findings;
 use crate::list::Cursor;
 use crate::theme;
 use crate::ui;
-use crate::{ChangePeople, CountLines, LinkAccounts, LoadGitHub, LoadOlder, PeopleChange, Session};
+use crate::{
+    ChangePeople, CountLines, LinkAccounts, LoadGitHub, LoadOlder, LoadReleases, PeopleChange,
+    Session,
+};
 
 /// The Panels, in tab order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,24 +32,16 @@ pub(crate) enum Panel {
     Activity,
     People,
     Map,
-    Hotspots,
-    Coupling,
-    Ownership,
-    Age,
-    GitHub,
+    Risk,
 }
 
 impl Panel {
-    pub const EVERY: [Panel; 9] = [
+    pub const EVERY: [Panel; 5] = [
         Panel::Overview,
         Panel::Activity,
         Panel::People,
         Panel::Map,
-        Panel::Hotspots,
-        Panel::Coupling,
-        Panel::Ownership,
-        Panel::Age,
-        Panel::GitHub,
+        Panel::Risk,
     ];
 
     pub fn title(self) -> &'static str {
@@ -55,11 +50,7 @@ impl Panel {
             Panel::Activity => "Activity",
             Panel::People => "People",
             Panel::Map => "Map",
-            Panel::Hotspots => "Hotspots",
-            Panel::Coupling => "Coupling",
-            Panel::Ownership => "Ownership",
-            Panel::Age => "Age",
-            Panel::GitHub => "GitHub",
+            Panel::Risk => "Risk",
         }
     }
 
@@ -68,13 +59,24 @@ impl Panel {
     }
 
     /// Panels whose rows a search narrows.
-    fn searchable(self) -> bool {
-        matches!(
-            self,
-            Panel::People | Panel::Hotspots | Panel::Coupling | Panel::Ownership
-        )
+    pub(crate) fn searchable(self) -> bool {
+        matches!(self, Panel::People | Panel::Risk)
     }
 }
+
+/// A row of the Risk screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RiskRow {
+    /// By place among the Hotspots.
+    Hotspot(usize),
+    /// By place among the Change Groups.
+    Group(usize),
+    /// By place among the silos.
+    Silo(usize),
+}
+
+/// The most rows each section of the Risk screen lists.
+pub(crate) const RISK_ROWS: usize = 12;
 
 /// One finding the Overview leads with. Each can be entered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -142,10 +144,12 @@ enum Happened {
         span: Span,
         generation: u32,
         map: Option<CodeMap>,
+        work: Vec<commitscape_metrics::WorkCount>,
     },
     /// Everyone re-resolved, after an undo or GitHub's accounts.
     People(Option<Box<AuthorTable>>),
     Lines(Option<Box<LinePass>>),
+    Releases(Vec<(String, i64)>),
 }
 
 impl Event {
@@ -212,6 +216,7 @@ enum Job {
         index: Arc<Index>,
         count: CountLines,
     },
+    Releases(LoadReleases),
 }
 
 impl Command {
@@ -238,13 +243,15 @@ impl Command {
                 generation,
                 window,
                 options,
-            } => Event(Happened::Mapped {
-                span,
-                generation,
-                map: Analysis::new(&index, window, options)
-                    .ok()
-                    .map(|a| a.code_map()),
-            }),
+            } => {
+                let analysis = Analysis::new(&index, window, options).ok();
+                Event(Happened::Mapped {
+                    span,
+                    generation,
+                    map: analysis.as_ref().map(|a| a.code_map()),
+                    work: analysis.map(|a| a.work(None)).unwrap_or_default(),
+                })
+            }
             Job::People {
                 change,
                 table,
@@ -252,6 +259,7 @@ impl Command {
             } => Event(Happened::People(change(&table, what).map(Box::new))),
             Job::Link { index, link } => Event(Happened::People(link(&index).map(Box::new))),
             Job::Lines { index, count } => Event(Happened::Lines(count(&index).map(Box::new))),
+            Job::Releases(load) => Event(Happened::Releases(load())),
         }
     }
 }
@@ -340,7 +348,7 @@ pub struct App {
     computing: [bool; 4],
     pub(crate) older: Older,
     /// By position in [`Panel::EVERY`].
-    pub(crate) cursors: [Cursor; 9],
+    pub(crate) cursors: [Cursor; 5],
     /// Details entered, innermost last.
     pub(crate) opened: Vec<Opened>,
     /// Details to open again once the new Window's findings arrive, after
@@ -366,6 +374,9 @@ pub struct App {
     /// How to link commits to GitHub accounts, until it is asked.
     link: Option<LinkAccounts>,
     pub(crate) lines: Lines,
+    /// Releases, by name and time, oldest first; none until read.
+    pub(crate) releases: Vec<(String, i64)>,
+    pub(crate) theme: theme::Theme,
     /// Bumped whenever people are re-resolved, so that findings computed
     /// for the people before are not kept.
     generation: u32,
@@ -390,6 +401,8 @@ impl App {
             people,
             link_accounts,
             lines,
+            releases,
+            theme,
         } = session;
         let older_state = match (&older, index.loaded_from) {
             (_, None) => Older::Complete,
@@ -408,7 +421,7 @@ impl App {
             findings: Default::default(),
             computing: [false; 4],
             older: older_state,
-            cursors: [Cursor::default(); 9],
+            cursors: [Cursor::default(); 5],
             opened: Vec::new(),
             reopen: Vec::new(),
             github: GitHubState::Asking,
@@ -426,6 +439,8 @@ impl App {
             people,
             link: link_accounts,
             lines: lines.map_or(Lines::Off, Lines::Waiting),
+            releases: Vec::new(),
+            theme,
             generation: 0,
             hits: Default::default(),
             done: false,
@@ -450,6 +465,9 @@ impl App {
                 load,
             })),
             _ => {}
+        }
+        if let Some(load) = releases {
+            commands.push(Command(Job::Releases(load)));
         }
         match github {
             Ok(load) => commands.push(Command(Job::GitHub(load))),
@@ -519,15 +537,22 @@ impl App {
                 };
                 Vec::new()
             }
-            Happened::Mapped { span, map, .. } => {
+            Happened::Mapped {
+                span, map, work, ..
+            } => {
                 if let Some(Some(known)) = self.findings.get_mut(slot(span)) {
                     known.map = map;
+                    known.pulse.work = work;
                 }
                 Vec::new()
             }
             Happened::People(Some(table)) => self.repeople(*table),
             Happened::People(None) => Vec::new(),
             Happened::Lines(Some(pass)) => self.with_lines(*pass),
+            Happened::Releases(r) => {
+                self.releases = r;
+                Vec::new()
+            }
             Happened::Lines(None) => {
                 self.lines = Lines::Off;
                 Vec::new()
@@ -637,6 +662,7 @@ impl App {
 
     pub fn draw(&mut self, frame: &mut Frame) {
         ui::draw(self, frame);
+        theme::apply(frame.buffer_mut(), self.theme);
     }
 
     /// The findings for the current Window, once computed.
@@ -716,11 +742,12 @@ impl App {
                 self.map.colour = self.map.colour.next();
             }
             KeyCode::Char('u') => return self.change_people().into_iter().collect(),
+            KeyCode::Char('t') => self.theme = self.theme.next(),
             KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => self.show(self.panel_after(1)),
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
                 self.show(self.panel_after(-1))
             }
-            KeyCode::Char(c @ '1'..='9') => {
+            KeyCode::Char(c @ '1'..='5') => {
                 let n = c as usize - '1' as usize;
                 if let Some(panel) = Panel::EVERY.get(n) {
                     self.show(*panel);
@@ -945,11 +972,9 @@ impl App {
         match self.panel {
             Panel::Overview => headlines(f).len(),
             Panel::Map => f.nodes().get(self.map.at).map_or(0, |n| n.children.len()),
-            Panel::Activity | Panel::GitHub => 0,
-            Panel::Age => f.staleness.buckets.len(),
-            Panel::People | Panel::Hotspots | Panel::Coupling | Panel::Ownership => {
-                self.rows(f).len()
-            }
+            Panel::Activity => 0,
+            Panel::People => self.rows(f).len(),
+            Panel::Risk => self.risk_rows(f).len(),
         }
     }
 
@@ -958,7 +983,6 @@ impl App {
     pub(crate) fn rows(&self, f: &Findings) -> Vec<usize> {
         let query = self.search.query.to_lowercase();
         let matches = |text: &str| query.is_empty() || text.to_lowercase().contains(&query);
-        let path = |file| self.index.paths.path_lossy(file);
         let person = |author| {
             self.index
                 .authors
@@ -975,28 +999,45 @@ impl App {
                         .is_some_and(|c| keep(vec![person(c.author)]))
                 })
                 .collect(),
-            Panel::Hotspots => (0..f.hotspots.len())
-                .filter(|&i| f.hotspots.get(i).is_some_and(|h| keep(vec![path(h.file)])))
-                .collect(),
-            Panel::Coupling => (0..f.coupling.pairs.len())
-                .filter(|&i| {
-                    f.coupling
-                        .pairs
-                        .get(i)
-                        .is_some_and(|p| keep(vec![path(p.first), path(p.second)]))
-                })
-                .collect(),
-            Panel::Ownership => (0..f.ownership.directories.len())
-                .filter(|&i| {
-                    f.ownership.directories.get(i).is_some_and(|d| {
-                        let owners = d.owners.iter().map(|o| person(o.author));
-                        let label = crate::ui::folder(&d.label()).to_string();
-                        keep(std::iter::once(label).chain(owners).collect())
-                    })
-                })
-                .collect(),
             _ => Vec::new(),
         }
+    }
+
+    /// The Risk screen's rows that match the search, in order: Hotspots,
+    /// Change Groups, silos, each at most [`RISK_ROWS`].
+    pub(crate) fn risk_rows(&self, f: &Findings) -> Vec<RiskRow> {
+        let query = self.search.query.to_lowercase();
+        let matches = |text: &str| query.is_empty() || text.to_lowercase().contains(&query);
+        let path = |file| self.index.paths.path_lossy(file);
+        let person = |author| {
+            self.index
+                .authors
+                .get(author)
+                .map(|a| format!("{} {}", a.name, a.email))
+                .unwrap_or_default()
+        };
+        let hotspots = f
+            .hotspots
+            .iter()
+            .enumerate()
+            .filter(|(_, h)| matches(&path(h.file)))
+            .map(|(i, _)| RiskRow::Hotspot(i))
+            .take(RISK_ROWS);
+        let groups = f
+            .groups
+            .iter()
+            .enumerate()
+            .filter(|(_, g)| g.files.iter().any(|&file| matches(&path(file))))
+            .map(|(i, _)| RiskRow::Group(i))
+            .take(RISK_ROWS);
+        let silos = f
+            .silos
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| matches(&s.directory.label()) || matches(&person(s.holder)))
+            .map(|(i, _)| RiskRow::Silo(i))
+            .take(RISK_ROWS);
+        hotspots.chain(groups).chain(silos).collect()
     }
 
     fn open(&mut self) {
@@ -1046,7 +1087,7 @@ impl App {
                 Headline::Stale => Some(open(Target::Bucket(Age::Older))),
                 Headline::People => Some(Entry::Show(Panel::People)),
             },
-            Panel::Activity | Panel::GitHub => None,
+            Panel::Activity => None,
             Panel::People => f
                 .contributors
                 .get(row()?)
@@ -1060,14 +1101,22 @@ impl App {
                     None => Entry::Zoom(child),
                 })
             }
-            Panel::Hotspots => f.hotspots.get(row()?).map(|h| open(Target::File(h.file))),
-            Panel::Coupling => f.coupling.pairs.get(row()?).map(|p| open(Target::Pair(*p))),
-            Panel::Ownership => f
-                .ownership
-                .directories
-                .get(row()?)
-                .map(|d| open(Target::Directory(d.clone()))),
-            Panel::Age => Age::EVERY.get(i).map(|a| open(Target::Bucket(*a))),
+            Panel::Risk => match *self.risk_rows(f).get(i)? {
+                RiskRow::Hotspot(h) => f.hotspots.get(h).map(|h| open(Target::File(h.file))),
+                RiskRow::Group(g) => {
+                    let g = f.groups.get(g)?;
+                    let (a, b) = (*g.files.first()?, *g.files.get(1)?);
+                    f.coupling
+                        .pairs
+                        .iter()
+                        .find(|p| (p.first, p.second) == (a, b) || (p.first, p.second) == (b, a))
+                        .map(|p| open(Target::Pair(*p)))
+                }
+                RiskRow::Silo(s) => f
+                    .silos
+                    .get(s)
+                    .map(|s| open(Target::Directory(s.directory.clone()))),
+            },
         }
     }
 

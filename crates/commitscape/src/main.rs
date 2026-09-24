@@ -58,6 +58,11 @@ struct Cli {
     #[arg(long, default_value_t = 20, value_name = "ROWS")]
     top: usize,
 
+    /// The interface's colours: terminal (its own colours), dark or light.
+    /// Press t to change them.
+    #[arg(long, default_value = "terminal", value_parser = parse_theme)]
+    theme: commitscape_tui::Theme,
+
     #[command(flatten)]
     common: Common,
 
@@ -142,6 +147,11 @@ impl Common {
     }
 }
 
+fn parse_theme(s: &str) -> Result<commitscape_tui::Theme, String> {
+    commitscape_tui::Theme::parse(s)
+        .ok_or_else(|| format!("expected terminal, dark or light, got {s:?}"))
+}
+
 fn parse_span(s: &str) -> Result<Span, String> {
     Span::from_label(s).ok_or_else(|| format!("expected 30d, 90d, 1y or all, got {s:?}"))
 }
@@ -217,6 +227,8 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             people: change,
             link_accounts: link,
             lines: Some(count_lines(&cli.repo, &options, &loaded_repo)),
+            releases: Some(releases(&cli.repo)),
+            theme: cli.theme,
         };
         if cli.exit_after_first_paint {
             commitscape_tui::paint_once(session)?;
@@ -276,6 +288,8 @@ fn card(args: CardArgs) -> anyhow::Result<()> {
         people: change,
         link_accounts: link,
         lines: None,
+        releases: None,
+        theme: commitscape_tui::Theme::Dark,
     };
     let out = args
         .out
@@ -301,6 +315,16 @@ fn github(repo: &GixRepo, offline: bool) -> Result<LoadGitHub, String> {
     Ok(Box::new(move || {
         GitHub::fetch(&remote).map_err(|e| e.to_string())
     }))
+}
+
+/// How the interface reads the releases: the repository's version tags.
+fn releases(path: &std::path::Path) -> commitscape_tui::LoadReleases {
+    let path = path.to_path_buf();
+    Box::new(move || {
+        GixRepo::open(&path)
+            .map(|r| r.version_tags())
+            .unwrap_or_default()
+    })
 }
 
 /// How the interface counts lines (ADR-0012): in the background, kept in

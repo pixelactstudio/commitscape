@@ -2,18 +2,14 @@
 //! computes a metric.
 
 mod activity;
-mod age;
 pub(crate) mod card;
 pub(crate) mod charts;
-mod coupling;
 mod detail;
-mod github;
 mod help;
-mod hotspots;
 mod map;
 mod overview;
-mod ownership;
 mod people;
+mod risk;
 
 use commitscape_metrics::Span;
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
@@ -85,10 +81,6 @@ fn dim(frame: &mut Frame, area: Rect) {
 }
 
 fn draw_body(app: &mut App, frame: &mut Frame, area: Rect) {
-    if app.panel == Panel::GitHub && app.opened.is_empty() {
-        github::draw(app, frame, area);
-        return;
-    }
     if app.current().is_none() {
         let message = app.waiting();
         frame.render_widget(
@@ -118,11 +110,7 @@ fn draw_body(app: &mut App, frame: &mut Frame, area: Rect) {
             map::draw(app, frame, area, &mut map_cursor);
             app.map.cursor = map_cursor;
         }
-        Panel::Hotspots => hotspots::draw(app, frame, area, &mut cursor),
-        Panel::Coupling => coupling::draw(app, frame, area, &mut cursor),
-        Panel::Ownership => ownership::draw(app, frame, area, &mut cursor),
-        Panel::Age => age::draw(app, frame, area, &mut cursor),
-        Panel::GitHub => {}
+        Panel::Risk => risk::draw(app, frame, area, &mut cursor),
     }
     if let Some(slot) = app.cursors.get_mut(position) {
         *slot = cursor;
@@ -271,7 +259,7 @@ fn draw_footer(app: &App, frame: &mut Frame, area: Rect) {
             spans.push(say(s));
         };
         add(&mut spans, "↑↓", " move  ");
-        if app.panel != Panel::Activity && app.panel != Panel::GitHub {
+        if app.panel != Panel::Activity {
             add(&mut spans, "enter", " open  ");
         }
         if !app.opened.is_empty() || (app.panel == Panel::Map && app.map.at != 0) {
@@ -301,11 +289,7 @@ fn draw_footer(app: &App, frame: &mut Frame, area: Rect) {
             }
             spans.push(say("  "));
         }
-        if matches!(
-            app.panel,
-            Panel::People | Panel::Hotspots | Panel::Coupling | Panel::Ownership
-        ) && app.opened.is_empty()
-        {
+        if app.panel.searchable() && app.opened.is_empty() {
             add(&mut spans, "/", " find  ");
         }
         add(&mut spans, "?", " help  ");
@@ -364,18 +348,6 @@ pub(crate) fn prose(frame: &mut Frame, area: Rect, lines: Vec<Line<'static>>) {
 pub(crate) fn prose_height(lines: &[Line<'static>], width: u16) -> u16 {
     let paragraph = Paragraph::new(lines.to_vec()).wrap(Wrap { trim: false });
     u16::try_from(paragraph.line_count(width.saturating_sub(2))).unwrap_or(u16::MAX)
-}
-
-/// A Panel's opening paragraph, as tall as it needs to be up to half the
-/// Panel, drawn at the top of `area`. Returns the rest of `area`.
-pub(crate) fn intro(frame: &mut Frame, area: Rect, lines: Vec<Line<'static>>) -> Rect {
-    let height = prose_height(&lines, area.width).min(area.height / 2);
-    prose(frame, Rect { height, ..area }, lines);
-    Rect {
-        y: area.y + height,
-        height: area.height - height,
-        ..area
-    }
 }
 
 /// `area` less a column on each side.

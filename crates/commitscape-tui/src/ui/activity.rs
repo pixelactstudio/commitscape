@@ -1,7 +1,7 @@
 //! Activity: when the work happens, on each author's own clock.
 
-use commitscape_core::{civil_from_unix, CommitKind};
-use commitscape_metrics::{Pulse, Span as Window};
+use commitscape_core::civil_from_unix;
+use commitscape_metrics::{Pulse, Span as Window, Work};
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
@@ -10,7 +10,7 @@ use ratatui::Frame;
 
 use super::charts;
 use super::{bold, boxed, faint, many, plain, short_phrase};
-use crate::app::App;
+use crate::app::{App, GitHubState};
 use crate::format::{grouped, hour, month_name, share, short_date, weekday_name};
 use crate::theme::{ACCENT, MUTED};
 
@@ -24,11 +24,11 @@ pub(super) fn draw(app: &App, frame: &mut Frame, area: Rect) {
     // The grids need ten rows; the kinds of work as many as there are,
     // and at least the five of the rhythm; the chart of commits the rest.
     let kinds = p
-        .kinds
+        .work
         .iter()
-        .filter(|k| k.commits > 0 && k.kind != CommitKind::Other)
+        .filter(|w| w.commits > 0 && w.work != Work::Unclassified)
         .count() as u16;
-    let lists = (kinds.max(5) + 3)
+    let lists = (kinds.max(7) + 3)
         .min(area.height.saturating_sub(17))
         .max(5);
     let [top, middle, bottom] = Layout::vertical([
@@ -38,38 +38,7 @@ pub(super) fn draw(app: &App, frame: &mut Frame, area: Rect) {
     ])
     .areas(area);
 
-    let inner = boxed(
-        frame,
-        top,
-        "Commits over time",
-        Some(format!(
-            "{} on {} in {}",
-            grouped(u64::from(p.commits)),
-            many(u64::from(p.active_days), "active day", "active days"),
-            short_phrase(app.span)
-        )),
-    );
-    if p.commits == 0 {
-        super::empty(frame, inner, "No commits in this window.");
-    } else {
-        let (values, per) = charts::bucket(&p.days, usize::from(inner.width));
-        let most = values.iter().copied().max().unwrap_or(0);
-        frame.render_widget(
-            Paragraph::new(caption(per, most)),
-            Rect { height: 1, ..inner },
-        );
-        charts::columns(
-            frame.buffer_mut(),
-            Rect {
-                y: inner.y + 1,
-                height: inner.height.saturating_sub(1),
-                ..inner
-            },
-            &values,
-            ACCENT,
-            charts::month_labels(p.first_day, per),
-        );
-    }
+    draw_by_person(app, f, frame, top);
 
     let [calendar, week] =
         Layout::horizontal([Constraint::Fill(1), Constraint::Length(56)]).areas(middle);
@@ -83,7 +52,93 @@ pub(super) fn draw(app: &App, frame: &mut Frame, area: Rect) {
     let [kinds, rhythm] =
         Layout::horizontal([Constraint::Fill(1), Constraint::Fill(1)]).areas(bottom);
     draw_kinds(p, frame, kinds);
-    draw_rhythm(p, frame, rhythm);
+    draw_rhythm(app, p, frame, rhythm);
+}
+
+/// Commits over time, each column split among the five who made the most
+/// and everyone else, in each person's colour, with a legend, and releases
+/// marked above.
+fn draw_by_person(app: &App, f: &crate::findings::Findings, frame: &mut Frame, area: Rect) {
+    let p = &f.pulse;
+    let inner = boxed(
+        frame,
+        area,
+        "Commits over time, by person",
+        Some(format!(
+            "{} on {} in {}",
+            grouped(u64::from(p.commits)),
+            many(u64::from(p.active_days), "active day", "active days"),
+            short_phrase(app.span)
+        )),
+    );
+    if p.commits == 0 {
+        super::empty(frame, inner, "No commits in this window.");
+        return;
+    }
+    let by = &f.by_person;
+    let slots = usize::from(inner.width).max(1);
+    let per = by.days.len().div_ceil(slots).max(1);
+    let stacks: Vec<Vec<u64>> = by
+        .days
+        .chunks(per)
+        .map(|chunk| {
+            let mut sum = vec![0u64; by.people.len() + 1];
+            for day in chunk {
+                for (s, &n) in sum.iter_mut().zip(day) {
+                    *s += u64::from(n);
+                }
+            }
+            sum
+        })
+        .collect();
+    let mut colours: Vec<_> = by.people.iter().map(|&a| app.colour_of(a)).collect();
+    colours.push(MUTED);
+    let most = stacks
+        .iter()
+        .map(|s| s.iter().sum::<u64>())
+        .max()
+        .unwrap_or(0);
+    let marks: Vec<usize> = app
+        .releases
+        .iter()
+        .filter_map(|(_, time)| {
+            let day = time.div_euclid(DAY) - by.first_day;
+            (day >= 0 && (day as usize) < by.days.len()).then(|| day as usize / per)
+        })
+        .collect();
+
+    let mut legend = caption(per, most).spans;
+    legend.push(faint("   "));
+    for (&person, &colour) in by.people.iter().zip(&colours) {
+        legend.push(super::dot(colour));
+        legend.push(plain(format!("{}  ", app.display_name(person))));
+    }
+    if stacks.iter().any(|s| s.last().is_some_and(|&n| n > 0)) {
+        legend.push(super::dot(MUTED));
+        legend.push(plain("everyone else  "));
+    }
+    if !marks.is_empty() {
+        legend.push(faint("▾ release"));
+    }
+    frame.render_widget(
+        Paragraph::new(super::fit_line(
+            Line::from(legend),
+            usize::from(inner.width),
+        )),
+        Rect { height: 1, ..inner },
+    );
+    charts::stacked_columns(
+        frame.buffer_mut(),
+        Rect {
+            y: inner.y + 1,
+            height: inner.height.saturating_sub(1),
+            ..inner
+        },
+        &stacks,
+        &colours,
+        &marks,
+        charts::month_labels(by.first_day, per),
+    );
 }
 
 /// What a column of commits over time stands for: `each bar is 7 days,
@@ -295,33 +350,33 @@ fn draw_kinds(p: &Pulse, frame: &mut Frame, area: Rect) {
         frame,
         area,
         "What kind of work",
-        Some("from commit messages".to_string()),
+        Some("from the files, then the message".to_string()),
     );
     let total = u64::from(p.commits);
-    let other = p
-        .kinds
+    let unclassified = p
+        .work
         .iter()
-        .find(|k| k.kind == CommitKind::Other)
-        .map_or(0, |k| u64::from(k.commits));
-    if total == 0 || (total - other) * 10 < total * 3 {
+        .find(|w| w.work == Work::Unclassified)
+        .map_or(0, |w| u64::from(w.commits));
+    if total == 0 || unclassified * 2 > total {
         super::empty(
             frame,
             inner,
-            "Most commit messages here follow no convention (feat:, fix: ...), so their kind is unknown.",
+            "Most commits here change code of every kind and say nothing conventional (feat:, fix: ...), so what they were is unknown.",
         );
         return;
     }
-    let mut kinds: Vec<(CommitKind, u64)> = p
-        .kinds
+    let mut kinds: Vec<(Work, u64)> = p
+        .work
         .iter()
-        .filter(|k| k.commits > 0 && k.kind != CommitKind::Other)
-        .map(|k| (k.kind, u64::from(k.commits)))
+        .filter(|w| w.commits > 0 && w.work != Work::Unclassified)
+        .map(|w| (w.work, u64::from(w.commits)))
         .collect();
     kinds.sort_by_key(|k| std::cmp::Reverse(k.1));
     let most = kinds.first().map_or(0, |k| k.1);
-    let bar_width = inner.width.saturating_sub(24).max(4);
+    let bar_width = inner.width.saturating_sub(26).max(4);
     // When they do not all fit, the last row names the rest.
-    let rows = usize::from(inner.height).saturating_sub(usize::from(other > 0));
+    let rows = usize::from(inner.height).saturating_sub(usize::from(unclassified > 0));
     let shown = if kinds.len() > rows {
         rows.saturating_sub(1)
     } else {
@@ -330,9 +385,9 @@ fn draw_kinds(p: &Pulse, frame: &mut Frame, area: Rect) {
     let mut lines: Vec<Line> = kinds
         .iter()
         .take(shown)
-        .map(|(kind, n)| {
+        .map(|(work, n)| {
             Line::from(vec![
-                plain(format!(" {:<12}", kind.label())),
+                plain(format!(" {:<14}", work.label())),
                 Span::styled(
                     format!(
                         "{:<width$}",
@@ -349,24 +404,24 @@ fn draw_kinds(p: &Pulse, frame: &mut Frame, area: Rect) {
     if let Some(rest) = kinds.get(shown..).filter(|rest| !rest.is_empty()) {
         let named: Vec<String> = rest
             .iter()
-            .map(|(kind, n)| format!("{} {}", kind.label(), grouped(*n)))
+            .map(|(work, n)| format!("{} {}", work.label(), grouped(*n)))
             .collect();
         lines.push(super::fit_line(
             Line::from(faint(format!(" and {}", named.join(", ")))),
             usize::from(inner.width),
         ));
     }
-    if other > 0 {
+    if unclassified > 0 {
         lines.push(Line::from(faint(format!(
-            " and {} with no convention",
-            grouped(other)
+            " and {} that could not be told",
+            grouped(unclassified)
         ))));
     }
     frame.render_widget(Paragraph::new(lines), inner);
 }
 
-fn draw_rhythm(p: &Pulse, frame: &mut Frame, area: Rect) {
-    let inner = boxed(frame, area, "Rhythm", None);
+fn draw_rhythm(app: &App, p: &Pulse, frame: &mut Frame, area: Rect) {
+    let inner = boxed(frame, area, "Rhythm and GitHub", None);
     let total = u64::from(p.commits);
     if total == 0 {
         return;
@@ -378,7 +433,8 @@ fn draw_rhythm(p: &Pulse, frame: &mut Frame, area: Rect) {
             faint(format!("  {note}")),
         ])
     };
-    let mut lines = vec![
+    let mut lines = github_lines(app);
+    lines.extend(vec![
         row(
             "at night",
             share(u64::from(p.night()), total),
@@ -389,7 +445,7 @@ fn draw_rhythm(p: &Pulse, frame: &mut Frame, area: Rect) {
             share(u64::from(p.weekend()), total),
             "Saturdays and Sundays".to_string(),
         ),
-    ];
+    ]);
     if let Some(s) = p.longest_streak.filter(|s| s.days >= 2) {
         lines.push(row(
             "longest streak",
@@ -404,5 +460,55 @@ fn draw_rhythm(p: &Pulse, frame: &mut Frame, area: Rect) {
             format!("{} commits", grouped(u64::from(n))),
         ));
     }
+    let width = usize::from(inner.width);
+    let lines: Vec<Line> = lines
+        .into_iter()
+        .map(|l| super::fit_line(l, width))
+        .collect();
     frame.render_widget(Paragraph::new(lines), inner);
+}
+
+/// What GitHub says about pull requests and issues, or why it says nothing.
+fn github_lines(app: &App) -> Vec<Line<'static>> {
+    let g = match &app.github {
+        GitHubState::Ready(g) => g,
+        GitHubState::Asking => return vec![Line::from(faint(" asking GitHub…"))],
+        GitHubState::Unavailable(why) => {
+            return vec![Line::from(faint(format!(" No GitHub numbers: {why}.")))]
+        }
+    };
+    let oldest = g
+        .recent_prs
+        .iter()
+        .map(|p| p.created)
+        .min()
+        .unwrap_or(app.anchor);
+    let median = g.median_hours_to_merge().map(|h| {
+        if h < 1.0 {
+            many((h * 60.0).round().max(1.0) as u64, "minute", "minutes")
+        } else if h < 48.0 {
+            many(h.round() as u64, "hour", "hours")
+        } else {
+            many((h / 24.0).round() as u64, "day", "days")
+        }
+    });
+    let mut prs = vec![
+        plain(format!(" {:<18}", "pull requests")),
+        bold(grouped(g.prs_merged_since(oldest) as u64)),
+        faint(format!(" merged of the latest {}", g.recent_prs.len())),
+    ];
+    if let Some(m) = median {
+        prs.push(faint(", half within "));
+        prs.push(bold(m));
+    }
+    vec![
+        Line::from(prs),
+        Line::from(vec![
+            plain(format!(" {:<18}", "issues")),
+            bold(grouped(g.open_issues)),
+            faint(" open, "),
+            bold(grouped(g.closed_issues)),
+            faint(" closed"),
+        ]),
+    ]
 }

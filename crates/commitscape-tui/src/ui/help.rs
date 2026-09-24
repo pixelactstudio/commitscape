@@ -75,12 +75,16 @@ fn this_screen(panel: Panel) -> &'static [&'static str] {
         Panel::Overview => &[
             "The repository at a glance. The tiles count all of its history; the chart, the people and the facts cover the window. Press w to change the window. Over all of history, the tiles also say how many commits land a week and how few people made 80% of them.",
             "Worth a look lists what deserves attention: folders that rest on one person, the hottest file, files that change together across folders. Select one and press Enter to open it.",
+            "Did you know? tells only what is unusual: most commits at night or at the weekend, a streak of three weeks or more, a day five times as busy as a usual one, a file changed in a fifth of all commits, a file of 5,000 lines or more, one untouched for three years. When nothing is, it says so.",
+            "Code age counts today's lines of code by the quarter their file first appeared.",
         ],
         Panel::Activity => &[
             "When commits are made. Every time is on the author's own clock, so 23:00 means 23:00 where they were, from the time zone recorded in the commit.",
             "A commit counts on the day it landed, which is what puts it in the window, and at the hour it was written. The two differ only for a commit rebased or amended after it was written.",
             "In the calendar and the hours of the week, each square is a day or an hour; the lighter it is, the more commits it holds.",
-            "What kind of work comes from commit messages written as feat: ..., fix: ... and so on (the Conventional Commits style). Repositories that do not write messages that way show no breakdown.",
+            "Commits over time are split among the five people who made the most, each in their own colour, and everyone else in grey. ▾ marks a release: a tag named like a version.",
+            "What kind of work is judged from the files first: a commit that changed only tests is tests, only documentation docs, only manifests and lockfiles dependencies, only CI files CI. Otherwise its message decides, if it is written as feat: ..., fix: ... (Conventional Commits). When most commits can be told neither way, the breakdown is not shown.",
+            "GitHub's numbers come from the latest hundred pull requests and issues, asked through the GitHub CLI (gh).",
         ],
         Panel::People => &[
             "Everyone who committed in the window, most commits first. Each person keeps the same colour on every screen.",
@@ -88,28 +92,13 @@ fn this_screen(panel: Panel) -> &'static [&'static str] {
         ],
         Panel::Map => &[
             "The code at HEAD as rectangles, each as large as its lines of code. Enter goes into a folder, Esc comes back out, and Enter on a file opens it.",
-            "c changes the colours: commits in the window, which shows where the work is; time since last touched, which shows what has been left alone; or who made most of the commits there.",
+            "c colours it by activity (commits in the window: where the work is), by age (time since last touched: what has been left alone), or by owner (who made most of the commits there).",
         ],
-        Panel::Hotspots => &[
-            "Files that change often and are deeply nested. Bugs and slow changes gather in them, so they are the first code worth simplifying or covering with tests.",
-            "Each row has two bars: blue for how often the file changed in the window, orange for how deeply nested it is. Both bars are measured against the largest among the hotspots, so a file with two long bars is high on both.",
-            "Under each file is where it ranks. \"The 2nd most changed of 40 files\" compares it with the files that changed in the window; \"the 3rd most nested of 120\" compares it with all the code.",
-        ],
-        Panel::Coupling => &[
-            "Pairs of files that keep changing in the same commits. 75% means three of every four commits that changed either file changed both.",
-            "Two files in one folder changing together is normal. In different folders, it often means one depends on the other in a way nobody wrote down, and changing one will break the other.",
-        ],
-        Panel::Ownership => &[
-            "Who made the commits under each folder. The bar splits its commits by person, in each person's colour.",
-            "The bus factor is the fewest people who together made more than 80% of those commits. A bus factor of 1 means one person leaving would take most of what anyone knows about the folder.",
-        ],
-        Panel::Age => &[
-            "How long since each file was last changed, and when the code that exists today first appeared.",
-            "Old, untouched code is not bad by itself. It is code that few people remember, so it is worth knowing where it is before changing it.",
-        ],
-        Panel::GitHub => &[
-            "What GitHub says about the repository: stars, forks, issues, pull requests and releases, asked through the GitHub CLI (gh) and kept by it for up to an hour.",
-            "Nothing else in the app needs GitHub. Start with --offline to never ask it.",
+        Panel::Risk => &[
+            "Where a change is most likely to hurt, in three lists. Enter opens a row.",
+            "Hotspots: files that change often and are deeply nested. Bugs and slow changes gather in them, so they are the first code worth simplifying or testing. \"The 2nd most changed of 40 files\" compares a file with the files that changed in the window; \"the 3rd most nested of 120\" with all the code.",
+            "Change groups: files that keep changing in the same commits, every two of them in at least half of the commits that changed either. Files in different folders changing together often depend on each other in a way nobody wrote down.",
+            "Knowledge silos: folders only one person committed to in the window. If they left, nobody would know the folder. Next to each is who else made the most commits in the nearest folder around it, who could take it over.",
         ],
     }
 }
@@ -144,6 +133,7 @@ const KEYS: &[(&str, &str)] = &[
     ("/", "find a file, folder or person in a list"),
     ("c", "colour the Map by activity, age or owner"),
     ("u", "on a person: undo a merge of identities, or redo it"),
+    ("t", "the colours: the terminal's own, dark, or light"),
     (
         "mouse",
         "click a screen, a window, a row or a Map block; the wheel scrolls",

@@ -3,8 +3,8 @@ source: crates/commitscape-tui/tests/render.rs
 expression: screen(&mut app)
 ---
 " commitscape   acme   58 commits · 4 people · since 31 Jul 2023                    window  30d  90d  1y  all  "
-" 1 Overview   2 Activity   3 People   4 Map   5 Hotspots   6 Coupling   7 Ownership   8 Age   9 GitHub        "
-"────────────────────────────────────────────────────────────────────────━━━━━━━━━━━───────────────────────────"
+" 1 Overview   2 Activity   3 People   4 Map   5 Risk                                                          "
+"─━━━━━━━━━━───────────────────────────────────────────────────────────────────────────────────────────────────"
 "╭ Who holds src/engine/ ─────────────────────────────────────────────────────────────────────────────────────╮"
 "│ 34 commits in 90 days touched files people wrote in src/engine/.                                           │"
 "│ Bus factor 1: the fewest people who together made more than 80% of them.                                   │"

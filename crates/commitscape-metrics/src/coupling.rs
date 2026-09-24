@@ -210,3 +210,127 @@ fn directory(path: Option<&[u8]>) -> &[u8] {
         None => &[],
     }
 }
+
+/// The least Jaccard degree for two files to count as moving together in a
+/// Change Group.
+const GROUP_DEGREE: f64 = 0.5;
+/// The most files a Change Group holds.
+const GROUP_MOST: usize = 8;
+
+/// Files that change together: every two of them strongly coupled.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ChangeGroup {
+    /// Most strongly coupled first.
+    pub files: Vec<FileId>,
+    /// Counted commits in the Window that changed every one of them.
+    pub together: u32,
+    /// They live in more than one directory.
+    pub cross_directory: bool,
+}
+
+impl Analysis<'_> {
+    /// Sets of files that move together, largest and most often first. A
+    /// file joins a group only when it is strongly coupled (a Jaccard degree
+    /// of at least a half) with every file already in it, so a chain of
+    /// pairs does not become one group.
+    pub fn change_groups(&self) -> Vec<ChangeGroup> {
+        self.change_groups_in(&self.coupling())
+    }
+
+    /// [`change_groups`](Self::change_groups) from Coupling already
+    /// computed.
+    pub fn change_groups_in(&self, coupling: &Coupling) -> Vec<ChangeGroup> {
+        let mut strong: Vec<&CoupledPair> = coupling
+            .pairs
+            .iter()
+            .filter(|p| p.jaccard >= GROUP_DEGREE)
+            .collect();
+        strong.sort_by(|a, b| b.jaccard.total_cmp(&a.jaccard).then(b.both.cmp(&a.both)));
+        let key = |a: FileId, b: FileId| if a < b { (a, b) } else { (b, a) };
+        let edges: std::collections::HashSet<(FileId, FileId)> =
+            strong.iter().map(|p| key(p.first, p.second)).collect();
+
+        let mut groups: Vec<Vec<FileId>> = Vec::new();
+        let mut group_of: std::collections::HashMap<FileId, usize> = Default::default();
+        for p in &strong {
+            match (
+                group_of.get(&p.first).copied(),
+                group_of.get(&p.second).copied(),
+            ) {
+                (None, None) => {
+                    group_of.insert(p.first, groups.len());
+                    group_of.insert(p.second, groups.len());
+                    groups.push(vec![p.first, p.second]);
+                }
+                (Some(g), None) | (None, Some(g)) => {
+                    let new = if group_of.contains_key(&p.first) {
+                        p.second
+                    } else {
+                        p.first
+                    };
+                    let Some(members) = groups.get_mut(g) else {
+                        continue;
+                    };
+                    if members.len() < GROUP_MOST
+                        && members.iter().all(|&m| edges.contains(&key(m, new)))
+                    {
+                        members.push(new);
+                        group_of.insert(new, g);
+                    }
+                }
+                (Some(_), Some(_)) => {}
+            }
+        }
+
+        let index = self.index();
+        let dir = |f: FileId| {
+            let path = index.paths.path(f).unwrap_or_default();
+            path.iter()
+                .rposition(|&b| b == b'/')
+                .map_or(&[][..], |i| path.get(..i).unwrap_or_default())
+        };
+        // Every group's commits in one pass: a commit counts for a group
+        // when it touched all of the group's files.
+        let options = self.options();
+        let mut together = vec![0u32; groups.len()];
+        let mut touched: std::collections::HashMap<usize, usize> = Default::default();
+        for commit in self.window_commits() {
+            if !crate::analysis::counts(commit, &options) {
+                continue;
+            }
+            touched.clear();
+            for change in index.changes_of(commit) {
+                if let Some(&g) = group_of.get(&change.file) {
+                    *touched.entry(g).or_default() += 1;
+                }
+            }
+            for (&g, &n) in &touched {
+                if groups.get(g).is_some_and(|files| files.len() == n) {
+                    if let Some(t) = together.get_mut(g) {
+                        *t += 1;
+                    }
+                }
+            }
+        }
+        let mut out: Vec<ChangeGroup> = groups
+            .into_iter()
+            .zip(together)
+            .map(|(files, together)| {
+                let first = files.first().map(|&f| dir(f));
+                let cross_directory = files.iter().any(|&f| Some(dir(f)) != first);
+                ChangeGroup {
+                    files,
+                    together,
+                    cross_directory,
+                }
+            })
+            .filter(|g| g.together > 0)
+            .collect();
+        out.sort_by(|a, b| {
+            (b.files.len() as u32 * b.together)
+                .cmp(&(a.files.len() as u32 * a.together))
+                .then(b.together.cmp(&a.together))
+        });
+        out
+    }
+}

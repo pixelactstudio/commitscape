@@ -1,10 +1,9 @@
 ---
 source: crates/commitscape-tui/tests/render.rs
-assertion_line: 283
 expression: screen(&mut app)
 ---
 " commitscape   acme   58 commits · 4 people · since 31 Jul 2023                    window  30d  90d  1y  all  "
-" 1 Overview   2 Activity   3 People   4 Map   5 Hotspots   6 Coupling   7 Ownership   8 Age   9 GitHub        "
+" 1 Overview   2 Activity   3 People   4 Map   5 Risk                                                          "
 "─━━━━━━━━━━───────────────────────────────────────────────────────────────────────────────────────────────────"
 " acme                                                                                                         "
 " A Rust repository, 3 years and 4 months old.                                                                 "
@@ -15,15 +14,15 @@ expression: screen(&mut app)
 " ████████████████████████████████████████████████████████████████████████████████████████████████████████████ "
 " ● Rust 77%   ● TypeScript 23%                                                                                "
 "                                                                                                              "
-"╭ Commits over time ─────────────────────────────── 0 in 90 days ╮╭ Who writes the code ──────────── 90 days ╮"
-"│                                                                ││                                          │"
-"│                   No commits in this window.                   ││     Nobody committed in this window.     │"
-"│                                                                ││                                          │"
-"│                                                                ││                                          │"
-"╰────────────────────────────────────────────────────────────────╯╰──────────────────────────────────────────╯"
+"╭ Commits over time ─────────── 0 in 90 days ╮╭ Who writes the code ────── 90 days ╮╭ Code age ──────────────╮"
+"│                                            ││                                    ││tallest 390 lines       │"
+"│         No commits in this window.         ││  Nobody committed in this window.  ││█                       │"
+"│                                            ││                                    ││█ ▂▆                    │"
+"│                                            ││                                    ││2023  2025              │"
+"╰────────────────────────────────────────────╯╰────────────────────────────────────╯╰────────────────────────╯"
 "╭ Did you know? ──────────────────────────────────────╮╭ Worth a look ──────────────────────── enter to open ╮"
-"│▸ The biggest file is core.rs, with 210 lines.       ││▌○ 7 of 7 files untouched for a year                 │"
-"│▸ old.rs has not been touched in 3 years and 1 month.││ ● 1 pair of names may be one person                 │"
+"│▸ old.rs has not been touched in 3 years and 1 month.││▌○ 7 of 7 files untouched for a year                 │"
+"│                                                     ││ ● 1 pair of names may be one person                 │"
 "│                                                     ││                                                     │"
 "│                                                     ││                                                     │"
 "│                                                     ││                                                     │"

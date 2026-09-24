@@ -466,3 +466,73 @@ fn what_someone_works_on_leaves_out_manifests_and_lockfiles() {
         vec![("src/app.ts".to_string(), 3), ("src/lib.rs".to_string(), 1)]
     );
 }
+
+#[test]
+fn a_folder_only_one_person_touched_names_who_could_take_it_over() {
+    // Dev 12 commits in app/billing/, Ann 8 in app/api/, Bob 10 in lib/.
+    // Each of those folders has one person. app/ has Dev 12 and Ann 8, the
+    // root all three. Whoever else made the most commits in the nearest
+    // folder around a silo with more than one person could take it over:
+    // app/billing/ -> Ann (8 in app/), app/api/ -> Dev (12 in app/),
+    // lib/ -> Dev (12 in the whole project). Largest first.
+    let mut commits = Vec::new();
+    for day in 0..12 {
+        commits.push(c(day, "dev@x.org", &["app/billing/x.ts"]));
+    }
+    for day in 12..20 {
+        commits.push(c(day, "ann@x.org", &["app/api/y.ts"]));
+    }
+    for day in 20..30 {
+        commits.push(c(day, "bob@x.org", &["lib/z.rs"]));
+    }
+    let idx = index(
+        &commits,
+        &[
+            h("app/billing/x.ts", 10, 2),
+            h("app/api/y.ts", 10, 2),
+            h("lib/z.rs", 10, 2),
+        ],
+    );
+    let a = Analysis::new(&idx, Window::all(EPOCH + 31 * DAY), options()).expect("analysis");
+    let email = |p| {
+        idx.authors
+            .get(p)
+            .map(|a| a.email.to_string())
+            .unwrap_or_default()
+    };
+    let silos: Vec<_> = a
+        .silos()
+        .iter()
+        .map(|s| {
+            (
+                s.directory.label(),
+                email(s.holder),
+                s.directory.commits,
+                s.successor.map(|(p, n)| (email(p), n)),
+            )
+        })
+        .collect();
+    assert_eq!(
+        silos,
+        vec![
+            (
+                "app/billing/".to_string(),
+                "dev@x.org".to_string(),
+                12,
+                Some(("ann@x.org".to_string(), 8))
+            ),
+            (
+                "lib/".to_string(),
+                "bob@x.org".to_string(),
+                10,
+                Some(("dev@x.org".to_string(), 12))
+            ),
+            (
+                "app/api/".to_string(),
+                "ann@x.org".to_string(),
+                8,
+                Some(("dev@x.org".to_string(), 12))
+            ),
+        ]
+    );
+}

@@ -47,38 +47,18 @@ fn map() {
 }
 
 #[test]
-fn hotspots() {
+fn risk() {
     insta::assert_snapshot!(panel('5'));
 }
 
 #[test]
-fn coupling() {
-    insta::assert_snapshot!(panel('6'));
-}
-
-#[test]
-fn ownership() {
-    insta::assert_snapshot!(panel('7'));
-}
-
-#[test]
-fn age() {
-    insta::assert_snapshot!(panel('8'));
-}
-
-#[test]
-fn github_without_gh_says_how_to_get_it() {
-    insta::assert_snapshot!(panel('9'));
-}
-
-#[test]
-fn github_with_an_answer() {
+fn activity_says_what_github_says() {
     let mut session = support::session(Span::Quarter);
     let answer = support::github();
     session.github = Ok(Box::new(move || Ok(answer)));
     let (mut app, work) = App::new(session);
     settle(&mut app, work);
-    press(&mut app, &[Char('9')]);
+    press(&mut app, &[Char('2')]);
     insta::assert_snapshot!(screen(&mut app));
 }
 
@@ -91,15 +71,17 @@ fn a_hotspot_opens_onto_its_file() {
 
 #[test]
 fn a_coupled_pair_opens_onto_the_commits_it_shared() {
+    // The last row of Risk: handlers.ts and client.ts, a Change Group.
     let mut app = opened(Span::Quarter);
-    press(&mut app, &[Char('6'), Enter]);
+    press(&mut app, &[Char('5'), End, Enter]);
     insta::assert_snapshot!(screen(&mut app));
 }
 
 #[test]
 fn a_directory_opens_onto_its_owners_and_the_80_percent_line() {
+    // The Overview's first finding: src/engine/, which Alice holds.
     let mut app = opened(Span::Quarter);
-    press(&mut app, &[Char('7'), Enter]);
+    press(&mut app, &[Enter]);
     insta::assert_snapshot!(screen(&mut app));
 }
 
@@ -112,14 +94,15 @@ fn a_person_opens_onto_when_and_what_they_work_on_and_who_they_may_also_be() {
 
 #[test]
 fn changing_the_window_keeps_what_is_open_and_shows_it_for_the_new_window() {
-    // The files untouched for a month, then the first of them, opened over
-    // 90 days. After `w` the same two are open, now over a year, exactly as
-    // if they had been opened there.
+    // The files untouched for a year, from the Overview's fourth finding,
+    // then the first of them, opened over 90 days. After `w` the same two
+    // are open, now over a year, exactly as if they had been opened there.
+    let keys = [Down, Down, Down, Enter, Enter];
     let mut app = opened(Span::Quarter);
-    press(&mut app, &[Char('8'), Down, Enter, Enter]);
+    press(&mut app, &keys);
     press(&mut app, &[Char('w')]);
     let mut year = opened(Span::Year);
-    press(&mut year, &[Char('8'), Down, Enter, Enter]);
+    press(&mut year, &keys);
     let after = screen(&mut app);
     assert!(after.contains("1 year"), "{after}");
     assert_eq!(after, screen(&mut year));
@@ -165,7 +148,7 @@ fn a_merged_person_says_what_was_merged_and_why_and_can_be_undone() {
 fn a_click_does_what_the_keys_do() {
     // A tab, then a row: the second Hotspot, parser.rs.
     let mut clicked = opened(Span::Quarter);
-    click(&mut clicked, "5 Hotspots");
+    click(&mut clicked, "5 Risk");
     click(&mut clicked, "parser.rs");
     let mut keyed = opened(Span::Quarter);
     press(&mut keyed, &[Char('5'), Down, Enter]);
@@ -317,10 +300,10 @@ fn people_show_lines_once_they_are_counted() {
 #[test]
 fn an_age_bucket_opens_onto_its_files_and_a_file_onto_itself() {
     let mut app = opened(Span::Quarter);
-    press(&mut app, &[Char('8'), Down, Enter]);
-    insta::assert_snapshot!("month_bucket", screen(&mut app));
+    press(&mut app, &[Down, Down, Down, Enter]);
+    insta::assert_snapshot!("year_bucket", screen(&mut app));
     press(&mut app, &[End, Enter]);
-    insta::assert_snapshot!("file_from_the_month_bucket", screen(&mut app));
+    insta::assert_snapshot!("file_from_the_year_bucket", screen(&mut app));
 }
 
 #[test]
@@ -376,7 +359,7 @@ fn the_selected_row_is_marked_with_a_background_not_inverted() {
     // its bars into blocks of background. It now keeps every colour and
     // lays a dark blue behind the row.
     let mut app = opened(Span::Quarter);
-    press(&mut app, &[Char('8')]);
+    press(&mut app, &[Char('3')]);
     let mut terminal = Terminal::new(TestBackend::new(110, 26)).expect("a test terminal");
     terminal.draw(|frame| app.draw(frame)).expect("drawing");
     let buffer = terminal.backend().buffer();
@@ -392,8 +375,8 @@ fn the_selected_row_is_marked_with_a_background_not_inverted() {
             .collect()
     };
     let row = (0..buffer.area.height)
-        .find(|&y| text_of(y).contains("under a week"))
-        .expect("the first bucket is on screen");
+        .find(|&y| text_of(y).contains("Alice Example"))
+        .expect("the first person is on screen");
     let selected = ratatui::style::Color::Rgb(0x0d, 0x36, 0x6b);
     let marked = (0..buffer.area.width)
         .filter(|&x| buffer.cell((x, row)).is_some_and(|c| c.bg == selected))
@@ -412,13 +395,11 @@ fn below_tabs(screen: String) -> String {
 
 #[test]
 fn every_overview_finding_opens() {
-    // Directory, hotspot, pair, staleness, people: each is the detail its
-    // own Panel opens, or for people the Panel itself.
-    let expect: [(Vec<KeyCode>, usize); 5] = [
-        (vec![Char('7'), Enter], 0),
+    // The hotspot and the pair are the details Risk opens, and people the
+    // People screen itself.
+    let expect: [(Vec<KeyCode>, usize); 3] = [
         (vec![Char('5'), Enter], 1),
-        (vec![Char('6'), Enter], 2),
-        (vec![Char('8'), End, Enter], 3),
+        (vec![Char('5'), End, Enter], 2),
         (vec![Char('3')], 4),
     ];
     for (keys, row) in expect {
@@ -439,10 +420,10 @@ fn every_overview_finding_opens() {
 #[test]
 fn escape_backs_out_one_level() {
     let mut app = opened(Span::Quarter);
-    press(&mut app, &[Char('8'), Down]);
-    let bucket_panel = screen(&mut app);
+    press(&mut app, &[Down, Down, Down]);
+    let overview = screen(&mut app);
     press(&mut app, &[Enter, Enter, Esc, Esc]);
-    assert_eq!(screen(&mut app), bucket_panel);
+    assert_eq!(screen(&mut app), overview);
 }
 
 #[test]
@@ -451,7 +432,7 @@ fn the_year_shows_what_ninety_days_hide() {
     // src/engine/, which drops her own share to 30 of 37, 81%: still one
     // person holds it, but only just.
     let mut app = opened(Span::Quarter);
-    press(&mut app, &[Char('w'), Char('7')]);
+    press(&mut app, &[Char('w'), Enter]);
     insta::assert_snapshot!(screen(&mut app));
 }
 
@@ -486,7 +467,8 @@ fn a_longer_window_waits_for_the_rest_of_history_then_shows_it() {
 
 #[test]
 fn a_list_taller_than_the_screen_scrolls_to_keep_the_selection_in_view() {
-    // Sixteen rows leave room for three of the four Hotspots.
+    // Sixteen rows leave room for four of Risk's six lines, so the
+    // selection on the fourth Hotspot scrolls it.
     let mut app = opened(Span::Quarter);
     press(&mut app, &[Char('5'), Down, Down, Down]);
     insta::assert_snapshot!(screen_sized(&mut app, 110, 16));
@@ -515,5 +497,54 @@ fn the_card_tells_the_story_of_all_of_history() {
     assert!(
         svg.contains(">all of history · made with</text>"),
         "words stay together, so the image's text can be searched and copied"
+    );
+}
+
+#[test]
+fn t_changes_the_colours_from_dark_to_light_to_the_terminals_own() {
+    use ratatui::style::Color;
+    let mut app = opened(Span::Quarter);
+    let corner = |app: &mut App| {
+        let mut terminal = Terminal::new(TestBackend::new(110, 26)).expect("a test terminal");
+        terminal.draw(|frame| app.draw(frame)).expect("drawing");
+        let cell = terminal
+            .backend()
+            .buffer()
+            .cell((109, 3))
+            .cloned()
+            .expect("a cell");
+        (cell.bg, cell.fg)
+    };
+    assert_eq!(corner(&mut app).0, Color::Rgb(0x1a, 0x1a, 0x19), "dark");
+    press(&mut app, &[Char('t')]);
+    assert_eq!(corner(&mut app).0, Color::Rgb(0xfc, 0xfc, 0xfb), "light");
+    press(&mut app, &[Char('t')]);
+    assert_eq!(
+        corner(&mut app).0,
+        Color::Reset,
+        "the terminal's own background"
+    );
+    let before = screen(&mut opened(Span::Quarter));
+    assert_eq!(screen(&mut app), before, "the words stay the same");
+}
+
+#[test]
+fn releases_are_marked_on_commits_over_time() {
+    let mut session = support::session(Span::Quarter);
+    session.releases = Some(Box::new(|| {
+        vec![("v1.0.0".to_string(), support::ANCHOR - 30 * 86_400)]
+    }));
+    let (mut app, work) = App::new(session);
+    settle(&mut app, work);
+    press(&mut app, &[Char('2')]);
+    let activity = screen(&mut app);
+    assert!(activity.contains("▾ release"), "{activity}");
+    let marks = activity
+        .lines()
+        .nth(5)
+        .map_or(0, |l| l.matches('▾').count());
+    assert_eq!(
+        marks, 1,
+        "one release, marked once above the bars:\n{activity}"
     );
 }

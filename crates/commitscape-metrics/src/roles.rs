@@ -59,32 +59,46 @@ const DEPENDENCY_FILES: &[&str] = &[
     "flake.lock",
 ];
 
-/// The role of the file at `path`.
+/// The role of the file at `path`. Called for every change the Pulse
+/// counts, so it compares bytes in place rather than lowercasing a copy.
 pub fn role_of(path: &[u8]) -> Role {
-    let path = String::from_utf8_lossy(path).to_ascii_lowercase();
-    let name = path.rsplit('/').next().unwrap_or(&path);
-    if DEPENDENCY_FILES.contains(&name)
-        || name.starts_with("requirements") && name.ends_with(".txt")
+    let (dirs, name) = match path.iter().rposition(|&b| b == b'/') {
+        Some(i) => (
+            path.get(..i).unwrap_or_default(),
+            path.get(i + 1..).unwrap_or_default(),
+        ),
+        None => (&[][..], path),
+    };
+    let is = |a: &[u8], b: &str| a.eq_ignore_ascii_case(b.as_bytes());
+    let starts =
+        |a: &[u8], b: &str| a.len() >= b.len() && is(a.get(..b.len()).unwrap_or_default(), b);
+    let ends = |a: &[u8], b: &str| {
+        a.len() >= b.len() && is(a.get(a.len() - b.len()..).unwrap_or_default(), b)
+    };
+    let contains = |a: &[u8], b: &str| a.windows(b.len().max(1)).any(|w| is(w, b));
+    if DEPENDENCY_FILES.iter().any(|f| is(name, f))
+        || starts(name, "requirements") && ends(name, ".txt")
     {
         return Role::Dependencies;
     }
-    let dirs: Vec<&str> = path.split('/').collect();
     let in_dir = |names: &[&str]| {
-        dirs.iter()
-            .take(dirs.len().saturating_sub(1))
-            .any(|d| names.contains(d))
+        dirs.split(|&b| b == b'/')
+            .any(|d| names.iter().any(|n| is(d, n)))
     };
-    if path.starts_with(".github/workflows/")
-        || path.starts_with(".circleci/")
-        || path.starts_with(".buildkite/")
-        || name == ".gitlab-ci.yml"
-        || name == ".travis.yml"
-        || name == "azure-pipelines.yml"
-        || name == "jenkinsfile"
+    if starts(path, ".github/workflows/")
+        || starts(path, ".circleci/")
+        || starts(path, ".buildkite/")
+        || [
+            ".gitlab-ci.yml",
+            ".travis.yml",
+            "azure-pipelines.yml",
+            "jenkinsfile",
+        ]
+        .iter()
+        .any(|f| is(name, f))
     {
         return Role::Ci;
     }
-    let stem = name.split('.').next().unwrap_or(name);
     if in_dir(&[
         "test",
         "tests",
@@ -93,17 +107,18 @@ pub fn role_of(path: &[u8]) -> Role {
         "specs",
         "e2e",
         "testdata",
-    ]) || name.contains(".test.")
-        || name.contains(".spec.")
-        || name.contains("_test.")
-        || stem.starts_with("test_")
+    ]) || contains(name, ".test.")
+        || contains(name, ".spec.")
+        || contains(name, "_test.")
+        || starts(name, "test_")
     {
         return Role::Test;
     }
-    let prose = [".md", ".mdx", ".rst", ".adoc", ".txt"]
-        .iter()
-        .any(|e| name.ends_with(e));
-    if in_dir(&["docs", "doc", "documentation"]) || prose {
+    if in_dir(&["docs", "doc", "documentation"])
+        || [".md", ".mdx", ".rst", ".adoc", ".txt"]
+            .iter()
+            .any(|e| ends(name, e))
+    {
         return Role::Docs;
     }
     Role::Code

@@ -1,11 +1,10 @@
 ---
 source: crates/commitscape-tui/tests/render.rs
-assertion_line: 96
 expression: screen(&mut app)
 ---
 " commitscape   acme   58 commits · 4 people · since 31 Jul 2023                    window  30d  90d  1y  all  "
-" 1 Overview   2 Activity   3 People   4 Map   5 Hotspots   6 Coupling   7 Ownership   8 Age   9 GitHub        "
-"───────────────────────────────────────────────────────────━━━━━━━━━━─────────────────────────────────────────"
+" 1 Overview   2 Activity   3 People   4 Map   5 Risk                                                          "
+"──────────────────────────────────────────────━━━━━━──────────────────────────────────────────────────────────"
 "╭ Changing together ─────────────────────────────────────────────────────────────────────────────────────────╮"
 "│ ● handlers.ts  in src/api/                                                                                 │"
 "│ ● client.ts  in web/src/                                                                                   │"

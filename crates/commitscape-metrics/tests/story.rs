@@ -382,3 +382,84 @@ fn a_persons_work_is_the_files_they_changed_most() {
         ]
     );
 }
+
+#[test]
+fn kinds_of_work_are_judged_from_the_files_first_then_the_message() {
+    use commitscape_metrics::Work;
+    // One commit each, in order:
+    //   a test file alone, whatever the message says       -> tests
+    //   two prose files, though the message says feat       -> docs
+    //   a manifest and a lockfile                           -> dependencies
+    //   a workflow                                          -> CI
+    //   code and a test, "fix:"                             -> the message: fix
+    //   code, no convention                                 -> unclassified
+    //   code, "feat(ui):"                                   -> feature
+    let idx = index(
+        &[
+            c(0, "a@x.org", &["tests/parse_test.rs"]),
+            c(1, "a@x.org", &["README.md", "docs/guide.md"]).kind(CommitKind::Feature),
+            c(2, "a@x.org", &["package.json", "pnpm-lock.yaml"]),
+            c(3, "a@x.org", &[".github/workflows/ci.yml"]),
+            c(4, "a@x.org", &["src/a.rs", "tests/a.rs"]).kind(CommitKind::Fix),
+            c(5, "a@x.org", &["src/a.rs"]),
+            c(6, "a@x.org", &["src/b.rs"]).kind(CommitKind::Feature),
+        ],
+        &[h("src/a.rs", 10, 2)],
+    );
+    let pulse = Analysis::new(&idx, Window::all(EPOCH + 7 * DAY), options())
+        .expect("analysis")
+        .pulse(None);
+    let work: Vec<(Work, u32)> = pulse
+        .work
+        .iter()
+        .filter(|w| w.commits > 0)
+        .map(|w| (w.work, w.commits))
+        .collect();
+    assert_eq!(
+        work,
+        vec![
+            (Work::Feature, 1),
+            (Work::Fix, 1),
+            (Work::Tests, 1),
+            (Work::Docs, 1),
+            (Work::Dependencies, 1),
+            (Work::Ci, 1),
+            (Work::Unclassified, 1),
+        ]
+    );
+}
+
+#[test]
+fn commits_over_time_are_split_among_the_top_people_and_everyone_else() {
+    // Ann 3 commits (days 0, 0, 2), Ben 2 (days 1, 3), Cal 1 (day 3), and a
+    // bot 1 (day 2). With the top two: Ann, Ben, then everyone else.
+    let idx = index(
+        &[
+            c(0, "ann@x.org", &["a.rs"]),
+            c(0, "ann@x.org", &["a.rs"]),
+            c(1, "ben@x.org", &["a.rs"]),
+            c(2, "ann@x.org", &["a.rs"]),
+            c(2, "renovate[bot] <bot@x.org>", &["Cargo.lock"]),
+            c(3, "ben@x.org", &["a.rs"]),
+            c(3, "cal@x.org", &["a.rs"]),
+        ],
+        &[h("a.rs", 10, 2)],
+    );
+    let a = Analysis::new(&idx, Window::all(EPOCH + 3 * DAY + 1), options()).expect("analysis");
+    let split = a.commits_by_person(2);
+    let email = |p| {
+        idx.authors
+            .get(p)
+            .map(|a| a.email.to_string())
+            .unwrap_or_default()
+    };
+    assert_eq!(
+        split.people.iter().map(|&p| email(p)).collect::<Vec<_>>(),
+        vec!["ann@x.org", "ben@x.org"]
+    );
+    assert_eq!(split.first_day, a.pulse(None).first_day);
+    assert_eq!(
+        split.days,
+        vec![vec![2, 0, 0], vec![0, 1, 0], vec![1, 0, 1], vec![0, 1, 1]]
+    );
+}

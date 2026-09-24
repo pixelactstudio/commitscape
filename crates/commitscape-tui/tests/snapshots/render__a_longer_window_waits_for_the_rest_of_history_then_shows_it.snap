@@ -1,10 +1,9 @@
 ---
 source: crates/commitscape-tui/tests/render.rs
-assertion_line: 261
 expression: screen(&mut app)
 ---
 " commitscape   acme                                                                window  30d  90d  1y  all  "
-" 1 Overview   2 Activity   3 People   4 Map   5 Hotspots   6 Coupling   7 Ownership   8 Age   9 GitHub        "
+" 1 Overview   2 Activity   3 People   4 Map   5 Risk                                                          "
 "─━━━━━━━━━━───────────────────────────────────────────────────────────────────────────────────────────────────"
 "                                                                                                              "
 "                                Reading the rest of history for the last year…                                "

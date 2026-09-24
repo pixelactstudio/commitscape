@@ -6,6 +6,7 @@ use commitscape_core::{AuthorId, CommitKind, CommitMeta};
 use serde::Serialize;
 
 use crate::analysis::Analysis;
+use crate::roles::{role_of, Role};
 
 const DAY: i64 = 86_400;
 
@@ -24,6 +25,103 @@ pub struct KindCount {
     pub commits: u32,
 }
 
+/// What a commit's work was: judged first from the files it touched, and
+/// only when they do not settle it from what its message says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Work {
+    Feature,
+    Fix,
+    Refactor,
+    Performance,
+    Style,
+    /// Only test files.
+    Tests,
+    /// Only documentation and prose.
+    Docs,
+    /// Only dependency manifests and lockfiles.
+    Dependencies,
+    /// Only CI configuration.
+    Ci,
+    Build,
+    Chore,
+    Revert,
+    /// Neither its files nor its message say.
+    Unclassified,
+}
+
+impl Work {
+    pub const EVERY: [Work; 13] = [
+        Work::Feature,
+        Work::Fix,
+        Work::Refactor,
+        Work::Performance,
+        Work::Style,
+        Work::Tests,
+        Work::Docs,
+        Work::Dependencies,
+        Work::Ci,
+        Work::Build,
+        Work::Chore,
+        Work::Revert,
+        Work::Unclassified,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Work::Feature => "features",
+            Work::Fix => "fixes",
+            Work::Refactor => "refactors",
+            Work::Performance => "performance",
+            Work::Style => "style",
+            Work::Tests => "tests",
+            Work::Docs => "docs",
+            Work::Dependencies => "dependencies",
+            Work::Ci => "CI",
+            Work::Build => "build",
+            Work::Chore => "chores",
+            Work::Revert => "reverts",
+            Work::Unclassified => "unclassified",
+        }
+    }
+
+    /// A commit's work, from the roles of the files it touched and its
+    /// Commit Kind.
+    pub fn of(mut roles: impl Iterator<Item = Role>, kind: CommitKind) -> Work {
+        if let Some(first) = roles.next() {
+            if roles.all(|r| r == first) {
+                match first {
+                    Role::Test => return Work::Tests,
+                    Role::Docs => return Work::Docs,
+                    Role::Dependencies => return Work::Dependencies,
+                    Role::Ci => return Work::Ci,
+                    Role::Code => {}
+                }
+            }
+        }
+        match kind {
+            CommitKind::Feature => Work::Feature,
+            CommitKind::Fix => Work::Fix,
+            CommitKind::Docs => Work::Docs,
+            CommitKind::Refactor => Work::Refactor,
+            CommitKind::Test => Work::Tests,
+            CommitKind::Performance => Work::Performance,
+            CommitKind::Style => Work::Style,
+            CommitKind::Build => Work::Build,
+            CommitKind::Chore => Work::Chore,
+            CommitKind::Revert => Work::Revert,
+            CommitKind::Other => Work::Unclassified,
+        }
+    }
+}
+
+/// How many of a Pulse's commits did one kind of work.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct WorkCount {
+    pub work: Work,
+    pub commits: u32,
+}
+
 /// When the Window's commits were made.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Pulse {
@@ -38,8 +136,12 @@ pub struct Pulse {
     /// Commits by weekday, Monday first, and by hour of Local Time: when the
     /// work was done, which for a rebased commit is before it landed.
     pub week: [[u32; 24]; 7],
-    /// Every Commit Kind, in [`CommitKind::EVERY`] order.
+    /// Every Commit Kind, in [`CommitKind::EVERY`] order: what the messages
+    /// say.
     pub kinds: Vec<KindCount>,
+    /// Every kind of work, in [`Work::EVERY`] order: what the files say
+    /// first, then the messages.
+    pub work: Vec<WorkCount>,
     /// Days with at least one commit.
     pub active_days: u32,
     /// The longest run of active days: the earliest, on a tie.
@@ -104,6 +206,53 @@ impl Analysis<'_> {
     /// When the Window's commits were made, on each author's Local Time.
     /// `who` narrows it to one person's commits.
     pub fn pulse(&self, who: Option<AuthorId>) -> Pulse {
+        let mut p = self.pulse_in_time(who);
+        p.work = self.work(who);
+        p
+    }
+
+    /// The kinds of work of the Window's commits that are not merges,
+    /// `who` narrowing them to one person's, in [`Work::EVERY`] order.
+    pub fn work(&self, who: Option<AuthorId>) -> Vec<WorkCount> {
+        let index = self.index();
+        let mut work: Vec<WorkCount> = Work::EVERY
+            .iter()
+            .map(|&work| WorkCount { work, commits: 0 })
+            .collect();
+        // Each file's role, judged once: a Window's changes touch the same
+        // files again and again.
+        let mut roles: Vec<Option<Role>> = vec![None; index.paths.len()];
+        let mut role = |file: commitscape_core::FileId| -> Role {
+            match roles.get(file.idx()).copied().flatten() {
+                Some(r) => r,
+                None => {
+                    let r = index.paths.path(file).map_or(Role::Code, role_of);
+                    if let Some(slot) = roles.get_mut(file.idx()) {
+                        *slot = Some(r);
+                    }
+                    r
+                }
+            }
+        };
+        for c in self
+            .window_commits()
+            .iter()
+            .filter(|c| !c.is_merge())
+            .filter(|c| who.is_none_or(|w| index.author_of(c) == Some(w)))
+        {
+            let mut here = index.changes_of(c).iter().map(|ch| role(ch.file));
+            let w = Work::of(&mut here, c.kind);
+            if let Some(n) = work.iter_mut().find(|x| x.work == w) {
+                n.commits += 1;
+            }
+        }
+        work
+    }
+
+    /// The Pulse without its kinds of work, which [`work`](Self::work)
+    /// gives on its own: judging each file's role is most of the Pulse's
+    /// cost on a large repository.
+    pub fn pulse_in_time(&self, who: Option<AuthorId>) -> Pulse {
         let index = self.index();
         let window = self.window();
         let commits: Vec<&CommitMeta> = self
@@ -171,7 +320,60 @@ impl Analysis<'_> {
             days,
             week,
             kinds,
+            work: Vec::new(),
             longest_streak,
+        }
+    }
+}
+
+/// Commits per day split among the people who made the most and everyone
+/// else, bots included, for a chart of commits over time by person.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CommitsByPerson {
+    /// The date `days` starts on: the Pulse's first day.
+    pub first_day: i64,
+    /// Most commits first.
+    pub people: Vec<AuthorId>,
+    /// For each day, each person's commits in `people` order, then
+    /// everyone else's.
+    pub days: Vec<Vec<u32>>,
+}
+
+impl Analysis<'_> {
+    /// The Window's commits per day, split among the `top` people with the
+    /// most commits and everyone else. Days line up with
+    /// [`pulse`](Self::pulse)'s.
+    pub fn commits_by_person(&self, top: usize) -> CommitsByPerson {
+        self.commits_by_person_in(&self.pulse(None), &self.contributors(), top)
+    }
+
+    /// [`commits_by_person`](Self::commits_by_person) from the Pulse and
+    /// the contributors already computed.
+    pub fn commits_by_person_in(
+        &self,
+        pulse: &Pulse,
+        contributors: &[crate::Contributor],
+        top: usize,
+    ) -> CommitsByPerson {
+        let people: Vec<AuthorId> = contributors.iter().take(top).map(|c| c.author).collect();
+        let index = self.index();
+        let mut days = vec![vec![0u32; people.len() + 1]; pulse.days.len()];
+        for c in self.window_commits().iter().filter(|c| !c.is_merge()) {
+            let column = index
+                .author_of(c)
+                .and_then(|a| people.iter().position(|&p| p == a))
+                .unwrap_or(people.len());
+            let Some(day) = days.get_mut((landed_day(c) - pulse.first_day) as usize) else {
+                continue;
+            };
+            if let Some(n) = day.get_mut(column) {
+                *n += 1;
+            }
+        }
+        CommitsByPerson {
+            first_day: pulse.first_day,
+            people,
+            days,
         }
     }
 }

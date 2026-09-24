@@ -81,6 +81,17 @@ impl Ownership {
     }
 }
 
+/// A folder only one person committed to in the Window: what nobody else
+/// knows.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Silo {
+    pub directory: DirectoryOwnership,
+    pub holder: AuthorId,
+    /// Who else made the most commits in the nearest folder around it that
+    /// more than one person works in, and how many: who could take it over.
+    pub successor: Option<(AuthorId, u32)>,
+}
+
 /// Someone who made commits in the Window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct Contributor {
@@ -268,6 +279,50 @@ impl Analysis<'_> {
         }
         top(&mut out, |a, b| {
             b.commits.cmp(&a.commits).then(a.author.cmp(&b.author))
+        });
+        out
+    }
+
+    /// The folders only one person committed to in the Window, a folder
+    /// inside another of the same person's left out, most commits first.
+    pub fn silos(&self) -> Vec<Silo> {
+        self.silos_in(&self.ownership())
+    }
+
+    /// [`silos`](Self::silos) from Ownership already computed.
+    pub fn silos_in(&self, ownership: &Ownership) -> Vec<Silo> {
+        let single = |d: &DirectoryOwnership| d.owners.len() == 1;
+        let mut out: Vec<Silo> = ownership
+            .held_alone()
+            .into_iter()
+            .filter(|d| single(d))
+            .filter_map(|d| {
+                let holder = d.owners.first()?.author;
+                // The nearest folder around it with more than one person.
+                let around = ownership
+                    .directories
+                    .iter()
+                    .filter(|o| o.dir.len() < d.dir.len() && d.dir.starts_with(&o.dir))
+                    .filter(|o| !single(o))
+                    .max_by_key(|o| o.dir.len());
+                let successor = around.and_then(|o| {
+                    o.owners
+                        .iter()
+                        .find(|x| x.author != holder)
+                        .map(|x| (x.author, x.commits))
+                });
+                Some(Silo {
+                    directory: d.clone(),
+                    holder,
+                    successor,
+                })
+            })
+            .collect();
+        out.sort_by(|a, b| {
+            b.directory
+                .commits
+                .cmp(&a.directory.commits)
+                .then_with(|| a.directory.dir.cmp(&b.directory.dir))
         });
         out
     }
