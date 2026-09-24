@@ -29,7 +29,9 @@ The binary is `target/release/commitscape`.
 commitscape path/to/repository
 ```
 
-In a terminal this opens the interface on the last 90 days of history. The
+Where a browser can be opened (a desktop, or `$BROWSER` set, as VS Code
+and Cursor set it over Remote-SSH) this opens the browser interface;
+otherwise the terminal interface, on the last 90 days of history. The
 first run reads the whole history, which takes about 25 seconds for a
 repository the size of rust-lang/rust; after that a cache makes it open in
 well under a tenth of a second.
@@ -63,6 +65,21 @@ frame is drawn, and `gh` keeps the answer for an hour. Nothing else needs the
 network; `--offline` never asks. Repositories on other hosts, such as GitLab,
 show everything but those numbers.
 
+### The browser interface
+
+`commitscape --web` serves it on `127.0.0.1:7878` (or any free port) and
+prints a link with a secret token; the page keeps the token in a cookie
+and the server answers only to the address it printed. Nothing leaves the
+machine.
+
+- **VS Code or Cursor over Remote-SSH:** just run `commitscape`; the editor
+  opens the link on your laptop and forwards the port.
+- **Plain ssh:** run `commitscape --web` on the server, and paste the
+  `ssh -N -L …` line it prints on your laptop, then open the link there.
+- **Tailscale or a LAN:** `commitscape --web --listen 100.x.y.z` serves on
+  that address; the link still carries the token.
+- `--tui` always opens the terminal interface; `--port` chooses the port.
+
 To share a repository's story, draw its card:
 
 ```sh
@@ -74,6 +91,10 @@ commitscape card . --window 90d      # the last 90 days instead of all of histor
 The card is a 1,080 by 684 pixel SVG: the repository's name, size, age and
 languages, commits over time, who writes the code, and facts worth sharing.
 Its text stays text, so it can be searched and copied.
+
+`commitscape github .` fetches the repository's pull requests, issues and
+releases from GitHub now; the interfaces do it in the background, and a
+fetch that stops resumes next time.
 
 Other ways to run it:
 
@@ -93,6 +114,7 @@ skips it and `--cache-dir` moves it.
 ## Develop
 
 ```sh
+(cd web && npm ci && npm run build)   # the browser interface, embedded by cargo build
 cargo xtask fixtures --force   # build the small repositories the tests read
 cargo test --workspace         # every test, including the interface snapshots
 cargo xtask check-layering     # the crate layering ADR-0001 depends on

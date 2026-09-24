@@ -282,7 +282,7 @@ gate for each phase.
 | 15 | Line counts in a background pass (new ADR amending ADR-0004); People contribution views | **DONE**: ADR-0012; rust-lang/rust 53 s and Linux 195 s cold, background; hand-worked `lines` fixture |
 | 16 | Terminal UI: nine screens to five, themes, Kinds of work from files, unusual facts only; then frozen | **DONE**: snapshots of all five screens; first paint 52.0 ms rust-lang/rust, 69.6 ms Linux; frozen |
 | 17 | GitHub, deeper: full PR, issue, review and release history, incremental (amends ADR-0009) | **DONE**: t3code and maihs fetched; t3code resumed after an interruption |
-| 18 | Browser UI foundation (ADR-0010): server, API, generated types, token, default choice, SSH | not started |
+| 18 | Browser UI foundation (ADR-0010): server, API, generated types, token, default choice, SSH | **DONE**: API tests through a real server; opened in Chromium here; VS Code simulated with `$BROWSER` |
 | 19 | Browser screens, filters, themes, PNG card, `commitscape report` | not started |
 | 20 | `check` plus its GitHub Action, `who`, `health` | not started |
 | 21 | `wrapped` and the README card Action | not started |
@@ -864,6 +864,68 @@ What the first Window cost on Linux, measured part by part: the Map 61 to
 6. **Commits are linked to accounts by address** since Phase 14 (ADR-0011's
    rule 4); the history's logins are mapped to people through the same
    identity store.
+
+## Phase 18 findings
+
+1. **`commitscape-web`** serves the web app and a JSON API from the binary
+   (ADR-0010). Like the terminal interface it reads an Index with the
+   metrics crate; the binary hands it the rest of history, the line pass,
+   GitHub's accounts and numbers, and the releases as functions, run in
+   the background after the first answer. What they change is announced
+   on `/api/events` (server-sent events) with a generation number, and the
+   page fetches again. `check-layering` keeps it away from git, the index
+   crate and the terminal.
+2. **Security:** it binds `127.0.0.1` by default; every URL it prints
+   carries sixteen random bytes as a token, which the first page load
+   moves into an `HttpOnly; SameSite=Strict` cookie named for the port and
+   drops from the address bar; every request's `Host` must be the address
+   it listens on or `localhost` (and, with `--listen`, the machine's name),
+   which stops DNS rebinding. The API tests speak raw HTTP to a real
+   server: no token 401, a foreign `Host` 403 even with the token, the
+   cookie, the meta, the overview, the event stream.
+3. **Server-sent events are written to the connection itself** and flushed
+   after each: `tiny_http` holds a streamed body in an 8 KB buffer, so the
+   first event never left.
+4. **TypeScript types are generated from the API types** (`ts-rs`, a
+   dev-dependency only, so it never ships), and a test fails when
+   `web/src/api/types.ts` drifts. `COMMITSCAPE_UPDATE_TYPES=1` rewrites it.
+5. **The web app is built into the binary** by `build.rs` from `web/dist`;
+   without a build it serves a page saying how to make one, so `cargo
+   build` alone still works. `web/dist` and `node_modules` are not
+   committed.
+6. **Choosing the interface:** `--tui` and `--web` force one; `--listen`
+   means the browser. Otherwise the browser when `$BROWSER` is set (VS Code
+   and Cursor set it over Remote-SSH, and forward the port the opened link
+   names), on macOS and Windows outside SSH, or with `$DISPLAY` or
+   `$WAYLAND_DISPLAY`; else the terminal interface, which on quitting over
+   SSH prints how to get the browser one. Port 7878 first, any free port if
+   it is taken, `--port` to choose. Checked here: with `$BROWSER` set to a
+   script, plain `commitscape` served and handed it
+   `http://127.0.0.1:7878/?token=…`; with none, it opened the terminal
+   interface; with `SSH_CONNECTION` set, `--web` printed `ssh -N -L
+   7878:127.0.0.1:7878 dev24k@carbon`. VS Code itself was not available
+   on this machine to try.
+7. **Usable within a second, warm** (`web/scripts/first-chart.mjs`: the
+   command to its first chart in headless Chromium, medians):
+   pixelactstudio 243 ms, rust-lang/rust 490 ms (n=7), Linux 385 ms (n=5).
+   One early rust-lang/rust run took 23 s: its cache had been rewritten
+   after the measuring script, while buggy, killed servers as they loaded;
+   I could not pin down which write it was. Every warm run since has been
+   under 0.7 s.
+8. **The web app** (`web/`, Vite, React 19, TypeScript strict): the name,
+   Window switcher, tiles, commits per day and who writes the code, reading
+   `/api/overview` and following `/api/events`. `npm run typecheck`, `npm
+   run lint` (oxlint) and `npm test` (vitest) pass.
+9. **A terminal interface bug fixed on the way:** when lines arrived, the
+   screen blanked to "Computing the findings…" and back; lines change no
+   one's identity, so the findings on screen now stay until the new ones
+   replace them.
+10. **New dependencies:** `tiny_http` 0.12 (a small blocking HTTP server;
+    brings `ascii`, `chunked_transfer`, `httpdate`); `getrandom` 0.3,
+    already in the tree, for the token; `ts-rs` 12, for tests only. In
+    `web/`: `react`, `react-dom`, and for development only `vite`,
+    `typescript`, `oxlint`, `vitest` and `@playwright/test`, which drives
+    the system's Chromium and downloads no browser.
 
 ## Decisions made during implementation, not in any ADR
 

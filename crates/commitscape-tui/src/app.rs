@@ -231,9 +231,11 @@ impl Command {
             } => Event(Happened::Computed {
                 span,
                 generation,
-                findings: Analysis::new(&index, window, options)
-                    .ok()
-                    .map(|a| Box::new(Findings::of(&a))),
+                findings: Analysis::new(&index, window, options).ok().map(|a| {
+                    let mut f = Findings::of(&a);
+                    f.generation = generation;
+                    Box::new(f)
+                }),
             }),
             Job::Older { index, load } => Event(Happened::Older(load(&index).map(Arc::new))),
             Job::GitHub(load) => Event(Happened::GitHub(load().map(Box::new))),
@@ -628,12 +630,16 @@ impl App {
     /// again with them, keeping what is open.
     fn with_lines(&mut self, pass: LinePass) -> Vec<Command> {
         self.lines = Lines::Counted;
-        if self.reopen.is_empty() {
-            self.reopen = self.opened.drain(..).map(|o| o.origin).collect();
-        }
-        self.opened.clear();
         pass.apply(Arc::make_mut(&mut self.index));
-        self.recompute()
+        // Lines change no one's identity, so what is on screen stays until
+        // the findings with lines replace it, rather than blanking.
+        let span = self.span;
+        let current = self.findings.get_mut(slot(span)).and_then(Option::take);
+        let commands = self.recompute();
+        if let Some(slot) = self.findings.get_mut(slot(span)) {
+            *slot = current;
+        }
+        commands
     }
 
     /// Forgets every Window's findings, computed before the index changed,
@@ -907,7 +913,10 @@ impl App {
     /// computed, or waiting for older history.
     fn ensure(&mut self, span: Span) -> Vec<Command> {
         let window = span.window(self.anchor);
-        let known = self.findings.get(slot(span)).is_some_and(Option::is_some);
+        let known = self
+            .findings
+            .get(slot(span))
+            .is_some_and(|f| f.as_ref().is_some_and(|f| f.generation == self.generation));
         let busy = self.computing.get(slot(span)).copied().unwrap_or(false);
         if known || busy || !window.is_loaded(&self.index) {
             return Vec::new();

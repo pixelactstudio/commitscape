@@ -6,6 +6,7 @@ members = [
     "crates/commitscape-index",
     "crates/commitscape-metrics",
     "crates/commitscape-tui",
+    "crates/commitscape-web",
     "crates/commitscape",
     "xtask",
 ]

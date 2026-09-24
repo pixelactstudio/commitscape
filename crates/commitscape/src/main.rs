@@ -3,6 +3,7 @@
 mod json;
 mod people;
 mod text;
+mod web;
 
 use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
@@ -48,6 +49,25 @@ struct Cli {
     /// the interface.
     #[arg(long, conflicts_with = "json")]
     summary: bool,
+
+    /// Open the browser interface, even where no browser can be opened: the
+    /// link to open is printed.
+    #[arg(long, conflicts_with_all = ["tui", "json", "summary"])]
+    web: bool,
+
+    /// Open the terminal interface, even where a browser could be opened.
+    #[arg(long, conflicts_with_all = ["json", "summary"])]
+    tui: bool,
+
+    /// Serve the browser interface on this address rather than this machine
+    /// only, for a Tailscale or LAN address. The link still carries a secret
+    /// token.
+    #[arg(long, value_name = "ADDRESS", conflicts_with = "tui")]
+    listen: Option<std::net::IpAddr>,
+
+    /// The browser interface's port. Defaults to 7878, or any free one.
+    #[arg(long, value_name = "PORT")]
+    port: Option<u16>,
 
     /// Leave out the lines each person added and removed, so the JSON
     /// output does not wait for them to be counted.
@@ -224,6 +244,15 @@ fn run(cli: Cli) -> anyhow::Result<()> {
     };
     let metrics = cli.common.metrics();
 
+    let browser = !cli.tui
+        && !cli.json
+        && !cli.summary
+        && !cli.exit_after_first_paint
+        && (cli.web || cli.listen.is_some() || (interactive && web::can_open_browser()));
+    if browser {
+        return serve_web(&cli, &repo, &options, loaded, anchor, metrics);
+    }
+
     if interactive {
         // The rest of history is read on another thread once the first frame
         // is up, so a longer Window is ready by the time anyone asks for it.
@@ -251,6 +280,11 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             commitscape_tui::paint_once(session)?;
         } else {
             commitscape_tui::run(session)?;
+            if let Some(hint) = web::ssh_hint(web::DEFAULT_PORT) {
+                eprintln!(
+                    "For the browser interface, run commitscape --web here and, on your laptop:\n  {hint}"
+                );
+            }
         }
         return Ok(());
     }
@@ -276,6 +310,72 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         let summary = text::summary(&cli.repo, &loaded.index, loaded.freshness);
         write!(out, "{summary}{}", text::rankings(&analysis, cli.window))?;
     }
+    Ok(())
+}
+
+/// Serves the browser interface, opens it where a browser can be opened,
+/// and says how to reach it where one cannot.
+fn serve_web(
+    cli: &Cli,
+    repo: &GixRepo,
+    options: &CacheOptions,
+    mut loaded: commitscape_index::Loaded,
+    anchor: i64,
+    metrics: Options,
+) -> anyhow::Result<()> {
+    let older = loaded
+        .take_rest()
+        .map(|rest| -> commitscape_web::LoadOlder {
+            Box::new(move |recent: &Index| rest.complete(recent).ok())
+        });
+    let (_, link) = identities(&cli.repo, repo, options, &loaded.index, cli.common.offline);
+    let identity = loaded.index.repo.clone();
+    let session = commitscape_web::Session {
+        name: repo_name(&loaded.index),
+        index: loaded.index,
+        anchor,
+        span: cli.window,
+        options: metrics,
+        older,
+        lines: Some(count_lines(&cli.repo, options, &identity)),
+        link_accounts: link,
+        github: github(repo, cli.common.offline),
+        releases: Some(releases(&cli.repo)),
+    };
+    let name = session.name.clone();
+    let wanted = web::address(cli.listen, cli.port);
+    let listener = match std::net::TcpListener::bind(wanted) {
+        Ok(l) => l,
+        Err(e) if cli.port.is_some() => {
+            anyhow::bail!(
+                "port {} cannot be used ({e}); choose another with --port",
+                wanted.port()
+            )
+        }
+        // The default port is taken: any free one will do.
+        Err(_) => std::net::TcpListener::bind(std::net::SocketAddr::new(wanted.ip(), 0))?,
+    };
+    let running = commitscape_web::serve(
+        session,
+        commitscape_web::Listen {
+            listener,
+            machine: web::machine(),
+            token: commitscape_web::Token::random()?,
+        },
+    )?;
+    let url = running.url.clone();
+    println!("commitscape is showing {name} at\n  {url}");
+    let opened = !cli.web && cli.listen.is_none() && web::can_open_browser() && web::open(&url);
+    if opened {
+        println!("It opened in your browser.");
+    } else if let (Some(hint), None) = (web::ssh_hint(running.addr.port()), cli.listen) {
+        println!("From your laptop, forward the port, then open the link there:\n  {hint}");
+    }
+    if !commitscape_web::built() {
+        println!("This build has no web app; the page says how to build one.");
+    }
+    println!("Press Ctrl-C to stop.");
+    running.run();
     Ok(())
 }
 

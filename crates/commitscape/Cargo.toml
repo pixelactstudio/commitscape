@@ -21,6 +21,7 @@ commitscape-forge = { path = "../commitscape-forge" }
 commitscape-index = { path = "../commitscape-index" }
 commitscape-metrics = { path = "../commitscape-metrics" }
 commitscape-tui = { path = "../commitscape-tui" }
+commitscape-web = { path = "../commitscape-web" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 

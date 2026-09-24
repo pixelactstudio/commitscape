@@ -13,3 +13,7 @@
 
 # Editor settings
 /.idea/
+
+# The browser interface: dependencies, and the build cargo embeds.
+web/node_modules/
+web/dist/

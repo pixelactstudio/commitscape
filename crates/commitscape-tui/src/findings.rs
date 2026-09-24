@@ -15,6 +15,8 @@ use commitscape_metrics::{
 pub(crate) const PEOPLE_SHOWN: usize = 5;
 
 pub(crate) struct Findings {
+    /// The generation of people and lines they were computed for.
+    pub generation: u32,
     pub window: Window,
     pub counts: CommitCounts,
     pub totals: Totals,
@@ -100,6 +102,7 @@ impl Findings {
             let (ownership, silos) = joined(ownership);
             let (coupling, groups) = joined(coupling);
             Findings {
+                generation: 0,
                 window,
                 counts,
                 totals,

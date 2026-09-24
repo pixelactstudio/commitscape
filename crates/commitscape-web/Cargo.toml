@@ -1,0 +1,27 @@
+[package]
+name = "commitscape-web"
+description = "The browser interface: a local server for the web app and its JSON API (ADR-0010)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+build = "build.rs"
+
+[lints]
+workspace = true
+
+# Like the terminal interface, it reads an Index and computes with
+# commitscape-metrics, and never reaches git: the binary hands it what it
+# needs from the index crate. `cargo xtask check-layering` asserts it.
+[dependencies]
+commitscape-core = { path = "../commitscape-core" }
+commitscape-forge = { path = "../commitscape-forge" }
+commitscape-metrics = { path = "../commitscape-metrics" }
+getrandom = "0.3"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+tiny_http = "0.12"
+
+[dev-dependencies]
+commitscape-index = { path = "../commitscape-index" }
+ts-rs = "12"

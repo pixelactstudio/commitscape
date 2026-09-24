@@ -44,6 +44,12 @@ const RULES: &[Rule] = &[
         why: "The interface draws an Index and receives older history through a function \
               its caller provides. If it can see git or the cache, it can go around both.",
     },
+    Rule {
+        package: "commitscape-web",
+        forbidden: &["gix", "commitscape-index", "ratatui", "crossterm"],
+        why: "The browser interface's server reads an Index, as the terminal one does, and \
+              is handed everything else by the binary (ADR-0010). It draws in no terminal.",
+    },
 ];
 
 pub fn check() -> Result<()> {
