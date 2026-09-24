@@ -1,6 +1,5 @@
 ---
 source: crates/commitscape-tui/tests/render.rs
-assertion_line: 36
 expression: "panel('2')"
 ---
 " commitscape   acme   58 commits · 4 people · since 31 Jul 2023                    window  30d  90d  1y  all  "
@@ -26,6 +25,6 @@ expression: "panel('2')"
 "╭ What kind of work ──────────── from commit messages ╮╭ Rhythm ─────────────────────────────────────────────╮"
 "│ features    █████████████████████████████    21  46%││ at night          0%  22:00 to 05:00                │"
 "│ fixes       ███████████████████████▌         17  37%││ on weekends       28%  Saturdays and Sundays        │"
-"│ and refactors 4, docs 3, style 1                    ││ with an AI agent  7%  3 commits                     │"
+"│ and refactors 4, docs 3, style 1                    ││ longest streak    4 days  from 17 Jun 2025          │"
 "╰─────────────────────────────────────────────────────╯╰─────────────────────────────────────────────────────╯"
 " ↑↓ move  ←→ panels  w window  ? help  q quit                                                                 "

@@ -757,7 +757,7 @@ mod tests {
     fn a_file_named_generated_is_generated() {
         let c = plain();
         assert_eq!(
-            class(&c, "packages/ai/openai/src/Generated.ts", "x\n"),
+            class(&c, "packages/sdk/client/src/Generated.ts", "x\n"),
             FileClass::Generated
         );
         assert_eq!(

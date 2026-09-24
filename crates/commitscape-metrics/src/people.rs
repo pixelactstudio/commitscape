@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use commitscape_core::{AuthorId, CommitFlags, FileId};
+use commitscape_core::{AuthorId, FileId};
 use serde::Serialize;
 
 use crate::analysis::{counts, top, Analysis, Churn};
@@ -65,8 +65,6 @@ pub struct Contributor {
     pub commits: u32,
     /// Days on their calendar on which at least one of those commits landed.
     pub active_days: u32,
-    /// Of those commits, how many were Agent Commits.
-    pub agent: u32,
     /// When their earliest and latest commit landed, on their own clock
     /// ([`CommitMeta::landed_clock`](commitscape_core::CommitMeta::landed_clock)).
     pub first: i64,
@@ -202,24 +200,17 @@ impl Analysis<'_> {
     /// Everyone who made commits in the Window, most commits first.
     pub fn contributors(&self) -> Vec<Contributor> {
         let index = self.index();
-        let mut made: Vec<(AuthorId, i64, bool)> = self
+        let mut made: Vec<(AuthorId, i64)> = self
             .window_commits()
             .iter()
             .filter(|c| !c.is_merge())
-            .filter_map(|c| {
-                let author = index.author_of(c)?;
-                Some((
-                    author,
-                    c.landed_clock(),
-                    c.flags.contains(CommitFlags::AGENT),
-                ))
-            })
+            .filter_map(|c| Some((index.author_of(c)?, c.landed_clock())))
             .collect();
         made.sort_unstable();
 
         let mut out: Vec<Contributor> = Vec::new();
         let mut last_day = None;
-        for (author, clock, agent) in made {
+        for (author, clock) in made {
             let day = clock.div_euclid(DAY);
             match out.last_mut() {
                 Some(c) if c.author == author => {
@@ -228,13 +219,11 @@ impl Analysis<'_> {
                     if last_day != Some(day) {
                         c.active_days += 1;
                     }
-                    c.agent += u32::from(agent);
                 }
                 _ => out.push(Contributor {
                     author,
                     commits: 1,
                     active_days: 1,
-                    agent: u32::from(agent),
                     first: clock,
                     last: clock,
                 }),

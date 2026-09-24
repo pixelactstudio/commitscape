@@ -389,11 +389,6 @@ fn draw_rhythm(p: &Pulse, frame: &mut Frame, area: Rect) {
             share(u64::from(p.weekend()), total),
             "Saturdays and Sundays".to_string(),
         ),
-        row(
-            "with an AI agent",
-            share(u64::from(p.agent), total),
-            format!("{} commits", grouped(u64::from(p.agent))),
-        ),
     ];
     if let Some(s) = p.longest_streak.filter(|s| s.days >= 2) {
         lines.push(row(

@@ -48,12 +48,12 @@ pub(super) fn draw(app: &App, frame: &mut Frame, area: Rect, cursor: &mut Cursor
     }
     let most = f.contributors.first().map_or(0, |c| u64::from(c.commits));
     let name_width = 30usize;
-    let fixed = 3 + 2 + name_width + 1 + 7 + 6 + 11 + 12 + 10;
+    let fixed = 3 + 2 + name_width + 1 + 7 + 6 + 11 + 12;
     let bar_width = inner.width.saturating_sub(fixed as u16).clamp(4, 40);
 
     // Each heading as wide as the values under it.
     let header = Line::from(vec![faint(format!(
-        "{:>3}  {:<nw$} {:<bw$}{:>7}{:>6}{:>11}{:>12}{:>10}",
+        "{:>3}  {:<nw$} {:<bw$}{:>7}{:>6}{:>11}{:>12}",
         "#",
         "person",
         "",
@@ -61,7 +61,6 @@ pub(super) fn draw(app: &App, frame: &mut Frame, area: Rect, cursor: &mut Cursor
         "share",
         "active",
         "last commit",
-        "AI help",
         nw = name_width,
         bw = usize::from(bar_width),
     ))]);
@@ -102,14 +101,6 @@ pub(super) fn draw(app: &App, frame: &mut Frame, area: Rect, cursor: &mut Cursor
                 faint(format!(" {:>5}", share(u64::from(c.commits), total))),
                 plain(format!(" {:>5} days", grouped(u64::from(c.active_days)))),
                 plain(format!(" {:>11}", ago(last))),
-                if c.agent > 0 {
-                    plain(format!(
-                        " {:>9}",
-                        share(u64::from(c.agent), u64::from(c.commits))
-                    ))
-                } else {
-                    faint(format!(" {:>9}", "none"))
-                },
             ])
         })
         .collect();

@@ -10,8 +10,9 @@ use serde::{Deserialize, Serialize};
 use crate::{AuthorId, FileId, Oid, PathId, SignatureId};
 
 /// Bumped whenever the on-disk layout changes. A mismatch triggers a full
-/// reindex rather than an error.
-pub const SCHEMA_VERSION: u32 = 7;
+/// reindex rather than an error. Also bumped when a stored fact is dropped,
+/// so no cache keeps it: 8 dropped a commit flag.
+pub const SCHEMA_VERSION: u32 = 8;
 
 /// How a commit touched a file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -174,10 +175,6 @@ impl CommitFlags {
     pub const EMPTY: CommitFlags = CommitFlags(0);
     /// The commit has more than one parent.
     pub const MERGE: CommitFlags = CommitFlags(1 << 0);
-    /// An AI coding agent co-wrote the commit: its message names one in a
-    /// `Co-authored-by` trailer or says it generated the change, or an agent
-    /// is its author.
-    pub const AGENT: CommitFlags = CommitFlags(1 << 1);
 
     #[inline]
     pub fn contains(self, other: CommitFlags) -> bool {

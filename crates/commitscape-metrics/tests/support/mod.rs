@@ -18,7 +18,7 @@ pub const DAY: i64 = 86_400;
 
 /// One commit: its day, its author as an email or as `Name <email>`, whether
 /// it is a merge, and the paths it touched. By default it is made at midnight
-/// UTC on its day, says nothing conventional, and no agent helped.
+/// UTC on its day, and says nothing conventional.
 pub struct C<'a> {
     pub day: i64,
     pub author: &'a str,
@@ -28,7 +28,6 @@ pub struct C<'a> {
     pub clock: i64,
     pub offset_minutes: i16,
     pub kind: CommitKind,
-    pub agent: bool,
     /// Author time minus commit time, for a commit rebased after it was
     /// written.
     pub author_delta: i32,
@@ -43,7 +42,6 @@ pub fn c<'a>(day: i64, author: &'a str, touched: &'a [&'a str]) -> C<'a> {
         clock: 0,
         offset_minutes: 0,
         kind: CommitKind::Other,
-        agent: false,
         author_delta: 0,
     }
 }
@@ -66,12 +64,6 @@ impl C<'_> {
 
     pub fn kind(mut self, kind: CommitKind) -> Self {
         self.kind = kind;
-        self
-    }
-
-    /// An AI coding agent co-wrote it.
-    pub fn agent(mut self) -> Self {
-        self.agent = true;
         self
     }
 
@@ -206,9 +198,6 @@ pub fn index_with_suspects(
                 let mut flags = CommitFlags::EMPTY;
                 if commit.merge {
                     flags = flags.with(CommitFlags::MERGE);
-                }
-                if commit.agent {
-                    flags = flags.with(CommitFlags::AGENT);
                 }
                 flags
             },

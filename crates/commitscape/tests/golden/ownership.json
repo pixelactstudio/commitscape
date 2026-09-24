@@ -1,5 +1,5 @@
 {
-  "schema": 1,
+  "schema": 2,
   "repository": {
     "head": "c4a860b7273c0bc48dd1e4030e1cd1496d5d6f81",
     "commits": 21,
@@ -512,7 +512,6 @@
         "commits": 21
       }
     ],
-    "agent_commits": 0,
     "active_days": 21,
     "longest_streak": {
       "first_day": "2024-01-01",
@@ -532,7 +531,6 @@
       "email": "alice@example.com",
       "commits": 10,
       "active_days": 10,
-      "agent_commits": 0,
       "first": "2024-01-01T00:00:00",
       "last": "2024-01-10T00:00:00"
     },
@@ -541,7 +539,6 @@
       "email": "bob@example.com",
       "commits": 6,
       "active_days": 6,
-      "agent_commits": 0,
       "first": "2024-01-11T00:00:00",
       "last": "2024-01-21T00:00:00"
     },
@@ -550,7 +547,6 @@
       "email": "carol@users.noreply.github.com",
       "commits": 5,
       "active_days": 5,
-      "agent_commits": 0,
       "first": "2024-01-12T00:00:00",
       "last": "2024-01-16T00:00:00"
     }

@@ -58,14 +58,14 @@
 //!
 //! Rhythm. Alice commits at 10:00, Bob at 21:00 and Carol at 15:00, all in
 //! UTC. Alice's commits that touch `parser.rs` say `feat(engine): ...` and
-//! her others `fix(engine): ...`; the last three name Claude as co-author.
+//! her others `fix(engine): ...`.
 //! Bob's pairs say `feat(api): ...`, his two single-file commits `fix`, his
 //! bulk commit `style`; Carol's `core.rs` commits `refactor`, her guide
 //! commits `docs`. Worked values for the last 90 days, merges left out:
 //!
 //! - 46 commits, each on a day of its own: 46 active days.
 //! - Features 21 (Alice 15, Bob 6), fixes 17 (Alice 15, Bob 2), refactors
-//!   4, docs 3, style 1. Agent Commits 3.
+//!   4, docs 3, style 1.
 //! - Hours: 30 at 10:00, 7 at 15:00, 9 at 21:00. None at night.
 //! - 1 July 2025 is a Tuesday, so a commit made `d` days before falls on a
 //!   weekend when `d` is 1 or 2 more than a multiple of 7: 9 of Alice's, 2
@@ -147,8 +147,6 @@ impl Script {
         self
     }
 }
-
-const AGENT: &str = "\n\nCo-Authored-By: Claude <noreply@anthropic.com>";
 
 /// `lines` lines of code whose indentation climbs from none to `depth`
 /// levels of `unit`, then starts again.
@@ -258,7 +256,7 @@ pub fn acme() -> ScriptedRepo {
         ALICE,
         Modified,
         &[CORE],
-        &format!("fix(engine): handle an edge case{AGENT}"),
+        "fix(engine): handle an edge case",
     );
     s.repo = s.repo.merge(ANCHOR - 6 * DAY - 3600, CAROL, side, &[]);
     s.commits += 1;
@@ -268,14 +266,14 @@ pub fn acme() -> ScriptedRepo {
             ALICE,
             Modified,
             &[CORE, PARSER],
-            &format!("feat(engine): parse a new form{AGENT}"),
+            "feat(engine): parse a new form",
         )
         .commit(
             1,
             ALICE,
             Modified,
             &[CORE],
-            &format!("fix(engine): handle an edge case{AGENT}"),
+            "fix(engine): handle an edge case",
         );
 
     s.repo

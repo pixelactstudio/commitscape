@@ -1,6 +1,5 @@
 ---
 source: crates/commitscape-tui/tests/render.rs
-assertion_line: 306
 expression: "support::text(&card)"
 ---
 ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
@@ -33,9 +32,9 @@ expression: "support::text(&card)"
 │  │Aug 2023   Dec  Feb   Apr  Jun   Aug  Oct   Dec   Feb  Apr   Jun  ││                                            │  │
 │  ╰──────────────────────────────────────────────────────────────────╯╰────────────────────────────────────────────╯  │
 │  ╭ Did you know? ─────────────────────────────────────────────────────────────────────────────────────────────────╮  │
-│  │▸ Most commits land around 10:00, local time.            ▸ core.rs changed in 36 commits, more than any other   │  │
-│  │▸ Weekend warriors: 26% of commits land on a weekend.      file.                                                │  │
-│  │▸ 5% of commits were written with an AI agent.           ▸ The biggest file is core.rs, with 210 lines.         │  │
-│  │▸ Longest streak: 4 days in a row, from 17 Jun 2025.     ▸ old.rs has not been touched in 1 year and 7 months.  │  │
+│  │▸ Most commits land around 10:00, local time.            ▸ The biggest file is core.rs, with 210 lines.         │  │
+│  │▸ Weekend warriors: 26% of commits land on a weekend.    ▸ old.rs has not been touched in 1 year and 7 months.  │  │
+│  │▸ Longest streak: 4 days in a row, from 17 Jun 2025.                                                            │  │
+│  │▸ 44% of commits are features and 37% are fixes.                                                                │  │
 │  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯  │
 ╰────────────────────────────────────────────────────────────────────────────── all of history · made with commitscape ╯

@@ -3,7 +3,7 @@
 Running log for Build Run 1 (Phases 0 to 7). Written so a fresh session with
 no context can read this plus `docs/adr/` and continue without asking anything.
 
-**Current position:** Build Run 3 planned, not started (Phases 13 to 22).
+**Current position:** Build Run 3 in progress (Phases 13 to 22); see the Build Run 3 table.
 Build Run 1 (Phases 0 to 7) built a correct, fast tool. Build Run 2 (Phases 8
 to 12) made it fun and visual. On 2026-09-24 the owner used it on their own
 repositories and reviewed it. The review and the decisions that followed are
@@ -277,7 +277,7 @@ gate for each phase.
 
 | Phase | What | Status |
 |---|---|---|
-| 13 | Remove everything AI-related, end to end | not started |
+| 13 | Remove everything AI-related, end to end | **DONE**: no agent or AI term in the UI, JSON, card, help or glossary; cache schema 8; JSON schema 2 |
 | 14 | Trust fixes: identity merging (ADR-0011), `w` keeps your place, mouse, review fixes | not started |
 | 15 | Line counts in a background pass (new ADR amending ADR-0004); People contribution views | not started |
 | 16 | Terminal UI: nine screens to five, themes, Kinds of work from files, unusual facts only; then frozen | not started |
@@ -652,6 +652,22 @@ What the first Window cost on Linux, measured part by part: the Map 61 to
    blocks side by side are one rectangle, and touching box lines one path
    per colour and width. t3code's card went from 168 KB to 27 KB with no
    visible change.
+
+## Phase 13 findings
+
+1. **What went:** the index's agent detection (`message.rs` now reads the
+   Commit Kind only, `message::kind_of`), the `AGENT` commit flag, the
+   `agent` counts on `Pulse` and `Contributor`, `agent_commits` in `--json`,
+   the People column "AI help", the person tile "with an AI agent", the
+   Activity row, the Overview fact the Card also drew, the help entry and the
+   Agent Commit term. The `rhythm` fixture's second commit lost its
+   co-author trailer, so its id changed.
+2. **Cache schema 8, JSON schema 2.** Every cache rebuilds once, so none
+   keeps the old flag bit. The JSON bump follows decision 5 of Phase 6: a
+   field was removed. pixelactstudio rebuilt in 127 ms; warm, 6 ms.
+3. **Bots were never grouped before.** The review's "still grouped as bots"
+   lands with identity in Phase 14 (ADR-0011); nothing about bots was
+   removed here.
 
 ## Decisions made during implementation, not in any ADR
 

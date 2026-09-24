@@ -22,7 +22,7 @@ fn options() -> Options {
 }
 
 /// A week in Local Time. Monday 09:15 in India, Alice, a feature. Tuesday
-/// 23:40 in India, Alice, a fix an agent co-wrote. Wednesday 10:00, 10:30
+/// 23:40 in India, Alice, a fix. Wednesday 10:00, 10:30
 /// and 22:30 in London, Bob: docs, tests and a fix. Saturday 02:05 in
 /// California, Bob. Sunday 12:00 in London, Alice, and her merge at 13:00,
 /// which the rhythm leaves out.
@@ -37,8 +37,7 @@ fn week_commits() -> Vec<support::C<'static>> {
             .kind(CommitKind::Feature),
         c(1, "alice@x.org", &["a.rs"])
             .local(23, 40, 330)
-            .kind(CommitKind::Fix)
-            .agent(),
+            .kind(CommitKind::Fix),
         c(2, "bob@x.org", &["b.rs"])
             .local(10, 0, 0)
             .kind(CommitKind::Docs),
@@ -112,7 +111,6 @@ fn the_pulse_counts_each_day_and_hour_on_the_authors_own_clock() {
             (CommitKind::Other, 2),
         ]
     );
-    assert_eq!(pulse.agent, 1);
 }
 
 #[test]
@@ -175,13 +173,12 @@ fn one_persons_pulse_holds_only_their_commits() {
     assert_eq!(pulse.first_day, MONDAY + 2);
     assert_eq!(pulse.days, vec![3, 0, 0, 1, 0], "Wednesday to Sunday");
     assert_eq!(pulse.longest_streak.map(|s| s.days), Some(1));
-    assert_eq!(pulse.agent, 0);
 }
 
 #[test]
-fn contributors_rank_by_commits_with_their_days_and_agent_help() {
+fn contributors_rank_by_commits_with_their_days() {
     // Bob: 4 commits on Wednesday and Saturday. Alice: 3 on Monday, Tuesday
-    // and Sunday, one co-written by an agent; her merge does not count.
+    // and Sunday; her merge does not count.
     let idx = week();
     let rows: Vec<_> = analysis(&idx)
         .contributors()
@@ -192,7 +189,6 @@ fn contributors_rank_by_commits_with_their_days_and_agent_help() {
                 email.unwrap_or_default(),
                 c.commits,
                 c.active_days,
-                c.agent,
                 (c.first - EPOCH) / 60,
                 (c.last - EPOCH) / 60,
             )
@@ -206,7 +202,6 @@ fn contributors_rank_by_commits_with_their_days_and_agent_help() {
                 "bob@x.org".to_string(),
                 4,
                 2,
-                0,
                 minutes(2, 10, 0),
                 minutes(5, 2, 5)
             ),
@@ -214,7 +209,6 @@ fn contributors_rank_by_commits_with_their_days_and_agent_help() {
                 "alice@x.org".to_string(),
                 3,
                 3,
-                1,
                 minutes(0, 9, 15),
                 minutes(6, 12, 0)
             ),

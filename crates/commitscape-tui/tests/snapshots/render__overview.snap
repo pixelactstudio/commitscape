@@ -1,6 +1,5 @@
 ---
 source: crates/commitscape-tui/tests/render.rs
-assertion_line: 31
 expression: "screen(&mut opened(Span::Quarter))"
 ---
 " commitscape   acme   58 commits · 4 people · since 31 Jul 2023                    window  30d  90d  1y  all  "
@@ -24,8 +23,8 @@ expression: "screen(&mut opened(Span::Quarter))"
 "╭ Did you know? ──────────────────────────────────────╮╭ Worth a look ──────────────────────── enter to open ╮"
 "│▸ Most commits land around 10:00, local time.        ││▌▲ src/engine/: 88% of commits by Alice Example (exa…│"
 "│▸ Weekend warriors: 28% of commits land on a weekend.││ ◆ Hottest file: core.rs, changed 34 times           │"
-"│▸ 7% of commits were written with an AI agent.       ││ ⇄ handlers.ts and client.ts change together (75%)   │"
-"│▸ Longest streak: 4 days in a row, from 17 Jun 2025. ││ ○ 1 of 7 files untouched for a year                 │"
-"│▸ 46% of commits are features and 37% are fixes.     ││ ● 1 pair of names may be one person                 │"
+"│▸ Longest streak: 4 days in a row, from 17 Jun 2025. ││ ⇄ handlers.ts and client.ts change together (75%)   │"
+"│▸ 46% of commits are features and 37% are fixes.     ││ ○ 1 of 7 files untouched for a year                 │"
+"│                                                     ││ ● 1 pair of names may be one person                 │"
 "╰─────────────────────────────────────────────────────╯╰─────────────────────────────────────────────────────╯"
 " ↑↓ move  enter open  ←→ panels  w window  ? help  q quit                                                     "

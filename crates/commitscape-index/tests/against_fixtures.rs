@@ -323,7 +323,7 @@ fn the_head_pass_measures_every_file_at_head() {
 
 #[test]
 fn rhythm_keeps_each_authors_clock_and_what_each_message_says() {
-    use commitscape_core::{civil_from_unix, CommitFlags, CommitKind::*};
+    use commitscape_core::{civil_from_unix, CommitKind::*};
     let idx = index("rhythm");
     let seen: Vec<_> = idx
         .commits
@@ -336,19 +336,18 @@ fn rhythm_keeps_each_authors_clock_and_what_each_message_says() {
                 c.offset_minutes,
                 (y, m, d, minutes / 60, minutes % 60),
                 c.kind,
-                c.flags.contains(CommitFlags::AGENT),
             )
         })
         .collect();
     assert_eq!(
         seen,
         vec![
-            (330, (2024, 1, 1, 9, 15), Feature, false),
-            (330, (2024, 1, 2, 23, 40), Fix, true),
-            (-420, (2024, 1, 6, 2, 5), Docs, false),
-            (0, (2024, 1, 3, 14, 0), Refactor, false),
-            (0, (2024, 1, 7, 12, 0), Revert, false),
-            (60, (2024, 1, 8, 8, 0), Other, false),
+            (330, (2024, 1, 1, 9, 15), Feature),
+            (330, (2024, 1, 2, 23, 40), Fix),
+            (-420, (2024, 1, 6, 2, 5), Docs),
+            (0, (2024, 1, 3, 14, 0), Refactor),
+            (0, (2024, 1, 7, 12, 0), Revert),
+            (60, (2024, 1, 8, 8, 0), Other),
         ]
     );
     let rebased = idx.commits.get(3).expect("the fourth commit");

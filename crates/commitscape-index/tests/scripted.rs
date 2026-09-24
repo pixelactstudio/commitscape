@@ -188,71 +188,36 @@ fn a_commit_keeps_its_authors_own_clock() {
 }
 
 #[test]
-fn a_commit_message_gives_its_kind_and_whether_an_agent_co_wrote_it() {
-    use commitscape_core::{CommitFlags, CommitKind::*};
-    const COPILOT_BOT: (&str, &str) = (
-        "copilot-swe-agent[bot]",
-        "198982749+Copilot@users.noreply.github.com",
-    );
-    const DEPENDABOT: (&str, &str) = (
-        "dependabot[bot]",
-        "49699333+dependabot[bot]@users.noreply.github.com",
-    );
-    let cases: &[((&str, &str), &str, commitscape_core::CommitKind, bool)] = &[
-        (ALICE, "feat: add the parser", Feature, false),
-        (ALICE, "feat(ui)!: redesign the header", Feature, false),
-        (ALICE, "fix: stop at EOF", Fix, false),
-        (ALICE, "docs(readme): explain the flags", Docs, false),
-        (ALICE, "refactor: split the walk", Refactor, false),
-        (ALICE, "test: cover renames", Test, false),
-        (ALICE, "perf: cache the tree", Performance, false),
-        (ALICE, "style: format", Style, false),
-        (ALICE, "ci: run on macOS", Build, false),
-        (ALICE, "build(deps): bump gix", Build, false),
-        (ALICE, "chore: release 0.2", Chore, false),
-        (ALICE, "Revert \"feat: add the parser\"", Revert, false),
-        (ALICE, "Merge branch 'main' into topic", Other, false),
-        (ALICE, "Fix the thing", Other, false),
+fn a_commit_message_gives_its_kind() {
+    use commitscape_core::CommitKind::*;
+    let cases: &[(&str, commitscape_core::CommitKind)] = &[
+        ("feat: add the parser", Feature),
+        ("feat(ui)!: redesign the header", Feature),
+        ("fix: stop at EOF", Fix),
+        ("docs(readme): explain the flags", Docs),
+        ("refactor: split the walk", Refactor),
+        ("test: cover renames", Test),
+        ("perf: cache the tree", Performance),
+        ("style: format", Style),
+        ("ci: run on macOS", Build),
+        ("build(deps): bump gix", Build),
+        ("chore: release 0.2", Chore),
+        ("Revert \"feat: add the parser\"", Revert),
+        ("Merge branch 'main' into topic", Other),
+        ("Fix the thing", Other),
         (
-            ALICE,
-            "fix: typo\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\n",
-            Fix,
-            true,
-        ),
-        (
-            ALICE,
-            "Add a flag\n\nCo-authored-by: Copilot <175728472+Copilot@users.noreply.github.com>",
-            Other,
-            true,
-        ),
-        (
-            ALICE,
-            "feat: card\n\nGenerated with [Claude Code](https://claude.com/claude-code)",
-            Feature,
-            true,
-        ),
-        (
-            ALICE,
             "fix: pair\n\nCo-authored-by: Bob Example <bob@example.com>",
             Fix,
-            false,
         ),
-        (COPILOT_BOT, "Initial plan", Other, true),
-        (DEPENDABOT, "build(deps): bump serde", Build, false),
     ];
     let mut repo = ScriptedRepo::new();
-    for (n, (who, message, _, _)) in cases.iter().enumerate() {
+    for (n, (message, _)) in cases.iter().enumerate() {
         repo = repo
-            .commit(n as i64, *who, &[(b"a.rs", Modified, blob(n as u8))])
+            .commit(n as i64, ALICE, &[(b"a.rs", Modified, blob(n as u8))])
             .said(message);
     }
     let idx = index(&repo);
-    for (commit, (_, message, kind, agent)) in idx.commits.iter().zip(cases) {
+    for (commit, (message, kind)) in idx.commits.iter().zip(cases) {
         assert_eq!(commit.kind, *kind, "{message:?}");
-        assert_eq!(
-            commit.flags.contains(CommitFlags::AGENT),
-            *agent,
-            "{message:?}"
-        );
     }
 }

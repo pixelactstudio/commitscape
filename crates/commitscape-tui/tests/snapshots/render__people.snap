@@ -1,16 +1,15 @@
 ---
 source: crates/commitscape-tui/tests/render.rs
-assertion_line: 41
 expression: "panel('3')"
 ---
 " commitscape   acme   58 commits · 4 people · since 31 Jul 2023                    window  30d  90d  1y  all  "
 " 1 Overview   2 Activity   3 People   4 Map   5 Hotspots   6 Coupling   7 Ownership   8 Age   9 GitHub        "
 "───────────────────────────━━━━━━━━───────────────────────────────────────────────────────────────────────────"
 "╭ People ────────────────────────────────────────────────────── 3 committed in 90 days · enter for a profile ╮"
-"│  #  person                                                   commits share     active last commit   AI help│"
-"│▌ 1  ● Alice Example (example.com)  ██████████████████████████     30   65%    30 days   1 day ago       10%│"
-"│  2  ● Bob Builder                  ███████▉                        9   20%     9 days 11 days ago      none│"
-"│  3  ● Carol Coder                  ██████▏                         7   15%     7 days  8 days ago      none│"
+"│  #  person                                                             commits share     active last commit│"
+"│▌ 1  ● Alice Example (example.com)  ████████████████████████████████████     30   65%    30 days   1 day ago│"
+"│  2  ● Bob Builder                  ██████████▉                               9   20%     9 days 11 days ago│"
+"│  3  ● Carol Coder                  ████████▌                                 7   15%     7 days  8 days ago│"
 "│                                                                                                            │"
 "│                                                                                                            │"
 "│                                                                                                            │"

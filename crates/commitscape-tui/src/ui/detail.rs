@@ -451,13 +451,8 @@ fn person(app: &App, frame: &mut Frame, area: Rect, d: &PersonDetail, scroll: &m
                 |c| ago((app.anchor - c.last).div_euclid(DAY)),
             ),
         ),
-        (
-            share(u64::from(p.agent), u64::from(p.commits)),
-            "with an AI agent".to_string(),
-            many(u64::from(p.agent), "commit", "commits"),
-        ),
     ];
-    let areas = Layout::horizontal([Constraint::Ratio(1, 6); 6]).split(tiles);
+    let areas = Layout::horizontal([Constraint::Ratio(1, 5); 5]).split(tiles);
     for (area, (value, label, note)) in areas.iter().zip(values) {
         tile(frame, *area, &value, &label, &note);
     }

@@ -17,7 +17,7 @@ use serde::Serialize;
 
 /// Bumped when a field is removed or changes meaning. Adding a field does not
 /// bump it.
-pub const SCHEMA: u32 = 1;
+pub const SCHEMA: u32 = 2;
 
 #[derive(Serialize)]
 pub struct Report {
@@ -71,7 +71,6 @@ pub struct Pulse {
     /// Commits by weekday, Monday first, and hour.
     pub week: [[u32; 24]; 7],
     pub kinds: Vec<commitscape_metrics::KindCount>,
-    pub agent_commits: u32,
     pub active_days: u32,
     pub longest_streak: Option<Streak>,
     pub busiest_day: Option<Day>,
@@ -100,7 +99,6 @@ pub struct Contributor {
     pub email: String,
     pub commits: u32,
     pub active_days: u32,
-    pub agent_commits: u32,
     /// Their first and last commit in the Window, on their own clock.
     pub first: String,
     pub last: String,
@@ -383,7 +381,6 @@ pub fn report(analysis: &Analysis<'_>, span: Span, top: usize) -> Report {
                     email: person.map(|p| p.email.to_string()).unwrap_or_default(),
                     commits: c.commits,
                     active_days: c.active_days,
-                    agent_commits: c.agent,
                     first: local(c.first),
                     last: local(c.last),
                 }
@@ -420,7 +417,6 @@ fn pulse(p: &commitscape_metrics::Pulse) -> Pulse {
         days: p.days.clone(),
         week: p.week,
         kinds: p.kinds.clone(),
-        agent_commits: p.agent,
         active_days: p.active_days,
         longest_streak: p.longest_streak.map(|s| Streak {
             first_day: date(s.first_day),

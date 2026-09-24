@@ -177,7 +177,7 @@ would leave it.
 | # | Author | Written, on the author's clock | Zone | Committed (UTC) | Message |
 |---|---|---|---|---|---|
 | 1 | Alice | Mon 2024-01-01 09:15 | +05:30 | 01-01 03:45 | `feat: first page` |
-| 2 | Alice | Tue 2024-01-02 23:40 | +05:30 | 01-02 18:10 | `fix(page): typo` with a `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` trailer |
+| 2 | Alice | Tue 2024-01-02 23:40 | +05:30 | 01-02 18:10 | `fix(page): typo` |
 | 3 | Bob | Sat 2024-01-06 02:05 | -07:00 | 01-06 09:05 | `docs: readme` |
 | 4 | Alice | Wed 2024-01-03 14:00 | +00:00 | 01-07 10:00 | `refactor!: split page` |
 | 5 | Bob | Sun 2024-01-07 12:00 | +00:00 | 01-07 12:00 | `Revert "docs: readme"` |
@@ -187,7 +187,6 @@ Expected, in committer-time order:
 
 - Time zones, in minutes east of UTC: 330, 330, -420, 0, 0, 60.
 - Commit kinds: Feature, Fix, Docs, Refactor, Revert, Other.
-- Only commit 2 was co-written by an AI agent.
 - Commit 4's author time is 3 days 20 hours before its committer time:
   -331,200 seconds.
 

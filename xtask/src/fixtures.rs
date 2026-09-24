@@ -502,7 +502,7 @@ fn conflict(dir: &Path) -> Result<()> {
 }
 
 /// `rhythm`: six commits made in three time zones, one of them rebased, with
-/// conventional messages and an AI co-author. See `docs/fixtures.md`.
+/// conventional messages. See `docs/fixtures.md`.
 fn rhythm(dir: &Path) -> Result<()> {
     let mut fx = Fx::init(dir.join("rhythm"))?;
     let commits: [(Author, &[&str], &str, &str); 6] = [
@@ -514,10 +514,7 @@ fn rhythm(dir: &Path) -> Result<()> {
         ),
         (
             ALICE,
-            &[
-                "fix(page): typo",
-                "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>",
-            ],
+            &["fix(page): typo"],
             "1704219000 +0530",
             "1704219000 +0530",
         ),

@@ -477,12 +477,6 @@ fn facts(app: &App, f: &Findings) -> Vec<Line<'static>> {
                 plain(" of commits land on a weekend."),
             ]));
         }
-        if p.agent > 0 {
-            out.push(Line::from(vec![
-                bold(share(u64::from(p.agent), total)),
-                plain(" of commits were written with an AI agent."),
-            ]));
-        }
         if let Some((day, n)) = p.busiest_day.filter(|&(_, n)| n >= 2) {
             out.push(Line::from(vec![
                 plain("The busiest day was "),

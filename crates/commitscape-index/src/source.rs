@@ -13,10 +13,9 @@
 use std::collections::HashSet;
 use std::ops::ControlFlow;
 
-use commitscape_core::Oid;
+use commitscape_core::{CommitKind, Oid};
 
 use crate::mailmap::Mailmap;
-pub use crate::message::MessageFacts;
 
 /// The tips recorded by the last index (ADR-0002).
 ///
@@ -57,9 +56,9 @@ pub struct RawCommit<'a> {
     pub author_time: i64,
     /// The author's offset from UTC, in seconds.
     pub author_offset: i32,
-    /// What the message says, read as the commit was walked
-    /// ([`MessageFacts::read`]).
-    pub message: MessageFacts,
+    /// What the message says it is, read as the commit was walked
+    /// ([`crate::message::kind_of`]).
+    pub kind: CommitKind,
     pub parent_count: usize,
 }
 

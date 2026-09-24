@@ -1,5 +1,5 @@
 {
-  "schema": 1,
+  "schema": 2,
   "repository": {
     "head": "8a54daa985869c13df113ebf002674da155882b1",
     "commits": 5,
@@ -419,7 +419,6 @@
         "commits": 5
       }
     ],
-    "agent_commits": 0,
     "active_days": 5,
     "longest_streak": {
       "first_day": "2024-01-01",
@@ -439,7 +438,6 @@
       "email": "alice@example.com",
       "commits": 5,
       "active_days": 5,
-      "agent_commits": 0,
       "first": "2024-01-01T00:00:00",
       "last": "2024-01-05T00:00:00"
     }

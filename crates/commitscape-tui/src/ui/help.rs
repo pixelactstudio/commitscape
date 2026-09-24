@@ -122,7 +122,6 @@ const WORDS: &[(&str, &str)] = &[
     ("Coupling", "How often two files change in the same commit, out of all the commits that changed either one."),
     ("Bus factor", "The fewest people who together made more than 80% of a folder's commits."),
     ("Local time", "When the author made a commit, on their own clock, using the time zone recorded in the commit."),
-    ("AI agent commit", "A commit written with an AI coding agent: the agent is the author, or the message names it as a co-author (Claude, Copilot, Cursor and others)."),
     ("Lines of code", "Lines in files people wrote. Lockfiles, generated files and vendored code are left out everywhere, as are configuration files from the language bar."),
     ("Last touched", "The last commit that changed a file, whatever kind of commit it was."),
 ];

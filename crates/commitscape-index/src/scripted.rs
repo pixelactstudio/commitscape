@@ -20,8 +20,8 @@ use commitscape_core::{Oid, RepoIdentity};
 
 use crate::mailmap::Mailmap;
 use crate::source::{
-    BlobSink, CommitSink, HeadChange, HeadEntry, Indexed, MessageFacts, RawChange, RawChangeKind,
-    RawCommit, RepoSource, WalkStats,
+    BlobSink, CommitSink, HeadChange, HeadEntry, Indexed, RawChange, RawChangeKind, RawCommit,
+    RepoSource, WalkStats,
 };
 
 #[derive(Debug, Clone)]
@@ -345,7 +345,7 @@ impl RepoSource for ScriptedRepo {
                 author_email: &c.email,
                 author_time: c.written.unwrap_or(c.time),
                 author_offset: i32::from(c.offset_minutes) * 60,
-                message: MessageFacts::read(&c.message, &c.name, &c.email),
+                kind: crate::message::kind_of(&c.message),
                 parent_count: c.parents.len(),
             };
             stats.commits_visited += 1;

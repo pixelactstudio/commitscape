@@ -2,7 +2,7 @@
 //! author's Local Time. A commit counts on the day it landed, as the
 //! Window holds it, and at the hour it was written.
 
-use commitscape_core::{AuthorId, CommitFlags, CommitKind, CommitMeta};
+use commitscape_core::{AuthorId, CommitKind, CommitMeta};
 use serde::Serialize;
 
 use crate::analysis::Analysis;
@@ -40,8 +40,6 @@ pub struct Pulse {
     pub week: [[u32; 24]; 7],
     /// Every Commit Kind, in [`CommitKind::EVERY`] order.
     pub kinds: Vec<KindCount>,
-    /// Agent Commits.
-    pub agent: u32,
     /// Days with at least one commit.
     pub active_days: u32,
     /// The longest run of active days: the earliest, on a tie.
@@ -136,7 +134,6 @@ impl Analysis<'_> {
             .iter()
             .map(|&kind| KindCount { kind, commits: 0 })
             .collect();
-        let mut agent = 0;
         for c in &commits {
             if let Some(n) = days.get_mut((landed_day(c) - first_day) as usize) {
                 *n += 1;
@@ -150,9 +147,6 @@ impl Analysis<'_> {
             }
             if let Some(k) = kinds.iter_mut().find(|k| k.kind == c.kind) {
                 k.commits += 1;
-            }
-            if c.flags.contains(CommitFlags::AGENT) {
-                agent += 1;
             }
         }
 
@@ -177,7 +171,6 @@ impl Analysis<'_> {
             days,
             week,
             kinds,
-            agent,
             longest_streak,
         }
     }

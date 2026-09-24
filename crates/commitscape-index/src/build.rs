@@ -372,9 +372,6 @@ impl CommitSink for IndexBuilder {
         if commit.parent_count > 1 {
             flags = flags.with(CommitFlags::MERGE);
         }
-        if commit.message.agent {
-            flags = flags.with(CommitFlags::AGENT);
-        }
 
         self.commits.push(PendingCommit {
             id: commit.id,
@@ -387,7 +384,7 @@ impl CommitSink for IndexBuilder {
                 .clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16,
             author_delta: (commit.author_time - commit.time)
                 .clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32,
-            kind: commit.message.kind,
+            kind: commit.kind,
         });
         ControlFlow::Continue(())
     }

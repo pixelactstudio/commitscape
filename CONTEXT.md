@@ -88,10 +88,6 @@ _Avoid_: commit date, merge date.
 What a commit says it is, read from a conventional commit subject (`feat:`, `fix:`, `docs:` and the rest) or from a revert. A commit whose message follows no convention is Other; the tool does not guess from prose.
 _Avoid_: commit type, category, label.
 
-**Agent Commit**:
-A commit an AI coding agent wrote or co-wrote: the agent is its author, a `Co-authored-by` trailer names it, or the message says the agent generated the change. Automation such as dependency bots is not an agent.
-_Avoid_: AI commit, bot commit.
-
 **Prose File**:
 A file a person wrote to be read rather than run: Markdown, reStructuredText, AsciiDoc, plain text. Counted in Churn, Ownership and Change Coupling, but never a Hotspot or among the largest files, since the Complexity Proxy and size measure code.
 _Avoid_: docs, documentation file, text file.
