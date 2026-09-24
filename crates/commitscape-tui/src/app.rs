@@ -4,21 +4,23 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use commitscape_core::{AuthorId, Index};
+use commitscape_core::{AuthorId, AuthorTable, Index};
 use commitscape_forge::GitHub;
 use commitscape_metrics::{Age, Analysis, CodeMap, Options, Span, Window};
 use ratatui::crossterm::event::{
-    Event as TerminalEvent, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
+    Event as TerminalEvent, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent,
+    MouseEventKind,
 };
+use ratatui::layout::{Position, Rect};
 use ratatui::style::Color;
 use ratatui::Frame;
 
-use crate::detail::{Opened, Target};
+use crate::detail::{Detail, Opened, Target};
 use crate::findings::Findings;
 use crate::list::Cursor;
 use crate::theme;
 use crate::ui;
-use crate::{LoadGitHub, LoadOlder, Session};
+use crate::{ChangePeople, LinkAccounts, LoadGitHub, LoadOlder, PeopleChange, Session};
 
 /// The Panels, in tab order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -91,14 +93,14 @@ pub(crate) enum Headline {
 pub(crate) const HELD_DIRECTORIES: usize = 2;
 
 pub(crate) fn headlines(f: &Findings) -> Vec<Headline> {
+    let dirs = &f.ownership.directories;
     let mut out: Vec<Headline> = f
         .ownership
-        .directories
-        .iter()
-        .enumerate()
-        .filter(|(_, d)| d.bus_factor == 1)
+        .held_alone()
+        .into_iter()
         .take(HELD_DIRECTORIES)
-        .map(|(i, _)| Headline::Directory(i))
+        .filter_map(|d| dirs.iter().position(|o| o.dir == d.dir))
+        .map(Headline::Directory)
         .collect();
     if !f.hotspots.is_empty() {
         out.push(Headline::Hotspot);
@@ -113,22 +115,36 @@ pub(crate) fn headlines(f: &Findings) -> Vec<Headline> {
     out
 }
 
+/// What a place on the last frame does when clicked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Click {
+    Panel(Panel),
+    Window(Span),
+    /// A row of the list in view: a detail's, the Map's or the Panel's.
+    Row(usize),
+}
+
 /// Something that happened: a key, or work finishing off the main thread.
 pub struct Event(Happened);
 
 enum Happened {
     Key(KeyEvent),
+    Mouse(MouseEvent),
     Redraw,
     Computed {
         span: Span,
+        generation: u32,
         findings: Option<Box<Findings>>,
     },
     Older(Option<Arc<Index>>),
     GitHub(Result<Box<GitHub>, String>),
     Mapped {
         span: Span,
+        generation: u32,
         map: Option<CodeMap>,
     },
+    /// Everyone re-resolved, after an undo or GitHub's accounts.
+    People(Option<Box<AuthorTable>>),
 }
 
 impl Event {
@@ -136,10 +152,22 @@ impl Event {
         Event(Happened::Key(key))
     }
 
+    /// A mouse event, if it is a left click or a turn of the wheel.
+    pub fn mouse(m: MouseEvent) -> Option<Event> {
+        matches!(
+            m.kind,
+            MouseEventKind::Down(MouseButton::Left)
+                | MouseEventKind::ScrollUp
+                | MouseEventKind::ScrollDown
+        )
+        .then_some(Event(Happened::Mouse(m)))
+    }
+
     /// A terminal event, if it is one the interface reacts to.
     pub fn from_terminal(event: TerminalEvent) -> Option<Event> {
         match event {
             TerminalEvent::Key(key) => Some(Event::key(key)),
+            TerminalEvent::Mouse(m) => Event::mouse(m),
             TerminalEvent::Resize(..) => Some(Event(Happened::Redraw)),
             _ => None,
         }
@@ -153,6 +181,7 @@ enum Job {
     Compute {
         index: Arc<Index>,
         span: Span,
+        generation: u32,
         window: Window,
         options: Options,
     },
@@ -165,8 +194,18 @@ enum Job {
     Map {
         index: Arc<Index>,
         span: Span,
+        generation: u32,
         window: Window,
         options: Options,
+    },
+    People {
+        change: ChangePeople,
+        table: Box<AuthorTable>,
+        what: PeopleChange,
+    },
+    Link {
+        index: Arc<Index>,
+        link: LinkAccounts,
     },
 }
 
@@ -176,10 +215,12 @@ impl Command {
             Job::Compute {
                 index,
                 span,
+                generation,
                 window,
                 options,
             } => Event(Happened::Computed {
                 span,
+                generation,
                 findings: Analysis::new(&index, window, options)
                     .ok()
                     .map(|a| Box::new(Findings::of(&a))),
@@ -189,14 +230,22 @@ impl Command {
             Job::Map {
                 index,
                 span,
+                generation,
                 window,
                 options,
             } => Event(Happened::Mapped {
                 span,
+                generation,
                 map: Analysis::new(&index, window, options)
                     .ok()
                     .map(|a| a.code_map()),
             }),
+            Job::People {
+                change,
+                table,
+                what,
+            } => Event(Happened::People(change(&table, what).map(Box::new))),
+            Job::Link { index, link } => Event(Happened::People(link(&index).map(Box::new))),
         }
     }
 }
@@ -277,6 +326,9 @@ pub struct App {
     pub(crate) cursors: [Cursor; 9],
     /// Details entered, innermost last.
     pub(crate) opened: Vec<Opened>,
+    /// Details to open again once the new Window's findings arrive, after
+    /// the Window changed with them open.
+    reopen: Vec<Target>,
     pub(crate) github: GitHubState,
     /// The help window, when open, and how far it is scrolled.
     pub(crate) help: Option<usize>,
@@ -292,6 +344,15 @@ pub struct App {
     shared_handles: std::collections::HashSet<(String, String)>,
     /// Rows a page key moves: what the last frame could show.
     pub(crate) page: usize,
+    /// How to undo a merge of identities, if it can be kept.
+    people: Option<ChangePeople>,
+    /// How to link commits to GitHub accounts, until it is asked.
+    link: Option<LinkAccounts>,
+    /// Bumped whenever people are re-resolved, so that findings computed
+    /// for the people before are not kept.
+    generation: u32,
+    /// What the last frame drew where, for the mouse: the last drawn wins.
+    pub(crate) hits: std::cell::RefCell<Vec<(Rect, Click)>>,
     done: bool,
 }
 
@@ -308,6 +369,8 @@ impl App {
             options,
             older,
             github,
+            people,
+            link_accounts,
         } = session;
         let older_state = match (&older, index.loaded_from) {
             (_, None) => Older::Complete,
@@ -315,29 +378,7 @@ impl App {
             (None, Some(_)) => Older::Unavailable,
         };
         let colours = colours(&index);
-        // Counted over borrowed names, and handles only for shared names:
-        // Linux has tens of thousands of authors, and a String for each
-        // took 27ms of the first frame.
-        let mut names: HashMap<&str, u32> = HashMap::new();
-        for (_, a) in index.authors.iter() {
-            *names.entry(a.name).or_default() += 1;
-        }
-        let mut handles: HashMap<(&str, &str), u32> = HashMap::new();
-        for (_, a) in index.authors.iter() {
-            if names.get(a.name).is_some_and(|&n| n > 1) {
-                *handles.entry((a.name, handle(a.email))).or_default() += 1;
-            }
-        }
-        let shared_handles = handles
-            .into_iter()
-            .filter(|&(_, n)| n > 1)
-            .map(|((name, handle), _)| (name.to_string(), handle.to_string()))
-            .collect();
-        let shared_names = names
-            .into_iter()
-            .filter(|&(_, n)| n > 1)
-            .map(|(name, _)| name.to_string())
-            .collect();
+        let (shared_names, shared_handles) = shared(&index.authors);
         let mut app = App {
             name,
             index: Arc::new(index),
@@ -350,6 +391,7 @@ impl App {
             older: older_state,
             cursors: [Cursor::default(); 9],
             opened: Vec::new(),
+            reopen: Vec::new(),
             github: GitHubState::Asking,
             help: None,
             search: Search::default(),
@@ -362,6 +404,10 @@ impl App {
             shared_names,
             shared_handles,
             page: 10,
+            people,
+            link: link_accounts,
+            generation: 0,
+            hits: Default::default(),
             done: false,
         };
         let mut commands = Vec::new();
@@ -372,6 +418,7 @@ impl App {
                 commands.push(Command(Job::Map {
                     index: Arc::clone(&app.index),
                     span,
+                    generation: 0,
                     window,
                     options,
                 }));
@@ -388,6 +435,9 @@ impl App {
             Ok(load) => commands.push(Command(Job::GitHub(load))),
             Err(why) => app.github = GitHubState::Unavailable(why),
         }
+        if app.older == Older::Complete {
+            commands.extend(app.link_accounts());
+        }
         (app, commands)
     }
 
@@ -399,8 +449,14 @@ impl App {
     pub fn update(&mut self, event: Event) -> Vec<Command> {
         match event.0 {
             Happened::Key(key) => self.key(key),
+            Happened::Mouse(m) => self.mouse(m),
             Happened::Redraw => Vec::new(),
-            Happened::Computed { span, findings } => {
+            Happened::Computed { generation, .. } | Happened::Mapped { generation, .. }
+                if generation != self.generation =>
+            {
+                Vec::new()
+            }
+            Happened::Computed { span, findings, .. } => {
                 if let Some(busy) = self.computing.get_mut(slot(span)) {
                     *busy = false;
                 }
@@ -409,6 +465,7 @@ impl App {
                         if let Some(known) = self.findings.get_mut(slot(span)) {
                             *known = Some(f);
                         }
+                        self.reopen_pending();
                         Vec::new()
                     }
                     // Computed from an index that did not reach back far
@@ -417,10 +474,17 @@ impl App {
                     None => self.ensure(span),
                 }
             }
-            Happened::Older(Some(index)) => {
+            Happened::Older(Some(mut index)) => {
+                // Read with the people as they were at the start; keep any
+                // change made since.
+                if index.authors != self.index.authors {
+                    Arc::make_mut(&mut index).authors = self.index.authors.clone();
+                }
                 self.index = index;
                 self.older = Older::Complete;
-                self.ensure(self.span)
+                let mut commands = self.ensure(self.span);
+                commands.extend(self.link_accounts());
+                commands
             }
             Happened::Older(None) => {
                 self.older = Older::Unavailable;
@@ -433,13 +497,82 @@ impl App {
                 };
                 Vec::new()
             }
-            Happened::Mapped { span, map } => {
+            Happened::Mapped { span, map, .. } => {
                 if let Some(Some(known)) = self.findings.get_mut(slot(span)) {
                     known.map = map;
                 }
                 Vec::new()
             }
+            Happened::People(Some(table)) => self.repeople(*table),
+            Happened::People(None) => Vec::new(),
         }
+    }
+
+    /// Asks GitHub for accounts, once, now that all of history is here.
+    fn link_accounts(&mut self) -> Option<Command> {
+        let link = self.link.take()?;
+        Some(Command(Job::Link {
+            index: Arc::clone(&self.index),
+            link,
+        }))
+    }
+
+    /// Undoes or redoes the merge behind the person whose profile is open.
+    fn change_people(&self) -> Option<Command> {
+        let change = self.people.clone()?;
+        let Detail::Person(d) = &self.opened.last()?.detail else {
+            return None;
+        };
+        let what = if d.traits.merged() {
+            PeopleChange::Undo(d.author)
+        } else if d
+            .traits
+            .contains(commitscape_core::PersonTraits::KEPT_APART)
+        {
+            PeopleChange::Redo(d.author)
+        } else {
+            return None;
+        };
+        Some(Command(Job::People {
+            change,
+            table: Box::new(self.index.authors.clone()),
+            what,
+        }))
+    }
+
+    /// Puts re-resolved people in place: every finding is computed again,
+    /// and whatever was open opens again, a person as whoever now holds
+    /// their first signature.
+    fn repeople(&mut self, table: AuthorTable) -> Vec<Command> {
+        if table == self.index.authors {
+            return Vec::new();
+        }
+        let old = &self.index.authors;
+        let pending = if self.reopen.is_empty() {
+            self.opened.drain(..).map(|o| o.origin).collect()
+        } else {
+            std::mem::take(&mut self.reopen)
+        };
+        self.reopen = pending
+            .into_iter()
+            .map_while(|t| match t {
+                Target::Person(a) => {
+                    let first = old.get(a)?.signatures.first().copied()?;
+                    table.person_of(first).map(Target::Person)
+                }
+                other => Some(other),
+            })
+            .collect();
+        self.opened.clear();
+        let mut index = (*self.index).clone();
+        index.authors = table;
+        self.index = Arc::new(index);
+        self.colours = colours(&self.index);
+        (self.shared_names, self.shared_handles) = shared(&self.index.authors);
+        self.findings = Default::default();
+        self.computing = [false; 4];
+        self.generation += 1;
+        self.ensure(self.span)
     }
 
     pub fn draw(&mut self, frame: &mut Frame) {
@@ -522,6 +655,7 @@ impl App {
             KeyCode::Char('c') if self.panel == Panel::Map => {
                 self.map.colour = self.map.colour.next();
             }
+            KeyCode::Char('u') => return self.change_people().into_iter().collect(),
             KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => self.show(self.panel_after(1)),
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
                 self.show(self.panel_after(-1))
@@ -544,6 +678,63 @@ impl App {
         Vec::new()
     }
 
+    /// Records a place on the frame being drawn that does something when
+    /// clicked.
+    pub(crate) fn clickable(&self, area: Rect, click: Click) {
+        self.hits.borrow_mut().push((area, click));
+    }
+
+    fn mouse(&mut self, m: MouseEvent) -> Vec<Command> {
+        match m.kind {
+            MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
+                let delta = if m.kind == MouseEventKind::ScrollUp {
+                    -3
+                } else {
+                    3
+                };
+                match self.help.as_mut() {
+                    Some(scroll) => *scroll = scroll.saturating_add_signed(delta),
+                    None => self.step(delta),
+                }
+                return Vec::new();
+            }
+            _ => {}
+        }
+        if self.help.take().is_some() || self.search.typing {
+            self.search.typing = false;
+            return Vec::new();
+        }
+        let at = Position::new(m.column, m.row);
+        let click = self
+            .hits
+            .borrow()
+            .iter()
+            .rev()
+            .find(|(r, _)| r.contains(at))
+            .map(|&(_, c)| c);
+        match click {
+            Some(Click::Panel(p)) => self.show(p),
+            Some(Click::Window(span)) => return self.switch(span),
+            Some(Click::Row(i)) => {
+                let panel_len = self.panel_len();
+                let (cursor, len) = match self.opened.last_mut() {
+                    Some(top) => match top.list_len() {
+                        Some(len) => (Some(&mut top.cursor), len),
+                        None => (None, 0),
+                    },
+                    None if self.panel == Panel::Map => (Some(&mut self.map.cursor), panel_len),
+                    None => (self.cursors.get_mut(self.panel.position()), panel_len),
+                };
+                if let Some(cursor) = cursor {
+                    cursor.step(i as isize - cursor.selected() as isize, len);
+                    self.open();
+                }
+            }
+            None => {}
+        }
+        Vec::new()
+    }
+
     fn type_search(&mut self, code: KeyCode) {
         match code {
             KeyCode::Esc => self.search = Search::default(),
@@ -561,6 +752,10 @@ impl App {
 
     /// Esc: out of a detail, then out of a zoomed Map, then clear a search.
     fn back(&mut self) {
+        if !self.reopen.is_empty() {
+            self.reopen.pop();
+            return;
+        }
         if self.opened.pop().is_some() {
             return;
         }
@@ -585,10 +780,40 @@ impl App {
         self.search = Search::default();
     }
 
+    /// Changes the Window, keeping whatever is open: it opens again over
+    /// the new Window as soon as that Window's findings are known.
     fn switch(&mut self, span: Span) -> Vec<Command> {
         self.span = span;
+        if self.reopen.is_empty() {
+            self.reopen = self.opened.drain(..).map(|o| o.origin).collect();
+        }
         self.opened.clear();
-        self.ensure(span)
+        let commands = self.ensure(span);
+        self.reopen_pending();
+        commands
+    }
+
+    /// Opens the details a Window change left waiting, if the findings they
+    /// need are known. The stack stops at the first that the new Window
+    /// does not have.
+    fn reopen_pending(&mut self) {
+        let Some(findings) = self.current() else {
+            return;
+        };
+        if self.reopen.is_empty() {
+            return;
+        }
+        let Ok(analysis) = Analysis::new(&self.index, findings.window, self.options) else {
+            return;
+        };
+        let opened: Vec<Opened> = self
+            .reopen
+            .iter()
+            .map_while(|t| t.among(findings))
+            .map(|t| Opened::open(t, &analysis, findings))
+            .collect();
+        self.reopen.clear();
+        self.opened = opened;
     }
 
     /// Starts computing a Window's findings, unless they are known, being
@@ -606,6 +831,7 @@ impl App {
         vec![Command(Job::Compute {
             index: Arc::clone(&self.index),
             span,
+            generation: self.generation,
             window,
             options: self.options,
         })]
@@ -617,6 +843,7 @@ impl App {
         }
         self.panel = panel;
         self.opened.clear();
+        self.reopen.clear();
     }
 
     fn span_after(&self, step: isize) -> Span {
@@ -817,11 +1044,45 @@ fn handle(email: &str) -> &str {
     }
 }
 
+/// Names two or more people share, and the (name, handle) pairs two or more
+/// share too. Counted over borrowed names, and handles only for shared
+/// names: Linux has tens of thousands of authors, and a String for each
+/// took 27ms of the first frame.
+fn shared(
+    authors: &AuthorTable,
+) -> (
+    std::collections::HashSet<String>,
+    std::collections::HashSet<(String, String)>,
+) {
+    let mut names: HashMap<&str, u32> = HashMap::new();
+    for (_, a) in authors.iter() {
+        *names.entry(a.name).or_default() += 1;
+    }
+    let mut handles: HashMap<(&str, &str), u32> = HashMap::new();
+    for (_, a) in authors.iter() {
+        if names.get(a.name).is_some_and(|&n| n > 1) {
+            *handles.entry((a.name, handle(a.email))).or_default() += 1;
+        }
+    }
+    let shared_handles = handles
+        .into_iter()
+        .filter(|&(_, n)| n > 1)
+        .map(|((name, handle), _)| (name.to_string(), handle.to_string()))
+        .collect();
+    let shared_names = names
+        .into_iter()
+        .filter(|&(_, n)| n > 1)
+        .map(|(name, _)| name.to_string())
+        .collect();
+    (shared_names, shared_handles)
+}
+
 fn colours(index: &Index) -> HashMap<AuthorId, Color> {
     let used = index.authors.used();
     let mut people: Vec<(u32, AuthorId)> = index
         .authors
         .iter()
+        .filter(|(_, a)| !a.traits.is_bot())
         .map(|(id, a)| {
             let commits = a
                 .signatures

@@ -5,10 +5,42 @@
 //! [`Remote::parse`] names the repository, and [`GitHub::fetch`] asks one
 //! GraphQL query, off the startup path. `gh` caches the answer for an hour.
 
+pub mod accounts;
+
 use std::process::Command;
 
 use commitscape_core::parse_iso8601;
 use serde::Deserialize;
+
+/// Runs a GraphQL query about `remote` through `gh`, which keeps the answer
+/// for `cache` (`1h`, `24h`). The query takes `$owner` and `$name`.
+pub(crate) fn gh_graphql(remote: &Remote, query: &str, cache: &str) -> Result<Vec<u8>, ForgeError> {
+    // `-f` passes each value as a plain string; `-F` would read a value
+    // starting with `@` as a file and turn a numeric name into a number.
+    let out = Command::new("gh")
+        .args(["api", "graphql", "--cache", cache])
+        .args(["-f", &format!("owner={}", remote.owner)])
+        .args(["-f", &format!("name={}", remote.name)])
+        .args(["-f", &format!("query={query}")])
+        .env("GH_PROMPT_DISABLED", "1")
+        .output()
+        .map_err(|e| match e.kind() {
+            std::io::ErrorKind::NotFound => ForgeError::NoCli,
+            _ => ForgeError::Failed(e.to_string()),
+        })?;
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        let first = stderr.lines().next().unwrap_or_default().trim().to_string();
+        return Err(if stderr.contains("gh auth login") {
+            ForgeError::NotSignedIn
+        } else if stderr.contains("Could not resolve to a Repository") {
+            ForgeError::NotFound(format!("{}/{}", remote.owner, remote.name))
+        } else {
+            ForgeError::Failed(first)
+        });
+    }
+    Ok(out.stdout)
+}
 
 /// A code host the tool can ask. GitHub is the first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -177,31 +209,7 @@ impl GitHub {
     /// Asks GitHub through `gh`. `gh` keeps the answer for an hour, so
     /// asking again within the hour sends no request.
     pub fn fetch(remote: &Remote) -> Result<GitHub, ForgeError> {
-        // `-f` passes each value as a plain string; `-F` would read a value
-        // starting with `@` as a file and turn a numeric name into a number.
-        let out = Command::new("gh")
-            .args(["api", "graphql", "--cache", "1h"])
-            .args(["-f", &format!("owner={}", remote.owner)])
-            .args(["-f", &format!("name={}", remote.name)])
-            .args(["-f", &format!("query={QUERY}")])
-            .env("GH_PROMPT_DISABLED", "1")
-            .output()
-            .map_err(|e| match e.kind() {
-                std::io::ErrorKind::NotFound => ForgeError::NoCli,
-                _ => ForgeError::Failed(e.to_string()),
-            })?;
-        if !out.status.success() {
-            let stderr = String::from_utf8_lossy(&out.stderr);
-            let first = stderr.lines().next().unwrap_or_default().trim().to_string();
-            return Err(if stderr.contains("gh auth login") {
-                ForgeError::NotSignedIn
-            } else if stderr.contains("Could not resolve to a Repository") {
-                ForgeError::NotFound(format!("{}/{}", remote.owner, remote.name))
-            } else {
-                ForgeError::Failed(first)
-            });
-        }
-        GitHub::from_graphql(&out.stdout)
+        GitHub::from_graphql(&gh_graphql(remote, QUERY, "1h")?)
     }
 
     /// Reads the answer to this crate's query.

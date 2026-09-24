@@ -57,6 +57,30 @@ pub struct Ownership {
     pub directories: Vec<DirectoryOwnership>,
 }
 
+impl Ownership {
+    /// The folders one person holds (Bus Factor 1), leaving out any inside
+    /// a folder the same person holds: `app/marketing/` says what
+    /// `app/marketing/src/` would repeat. In ranking order.
+    pub fn held_alone(&self) -> Vec<&DirectoryOwnership> {
+        let held: Vec<&DirectoryOwnership> = self
+            .directories
+            .iter()
+            .filter(|d| d.bus_factor == 1)
+            .collect();
+        let holder = |d: &DirectoryOwnership| d.owners.first().map(|o| o.author);
+        held.iter()
+            .copied()
+            .filter(|d| {
+                !held.iter().any(|outer| {
+                    outer.dir.len() < d.dir.len()
+                        && d.dir.starts_with(&outer.dir)
+                        && holder(outer) == holder(d)
+                })
+            })
+            .collect()
+    }
+}
+
 /// Someone who made commits in the Window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct Contributor {
@@ -109,7 +133,7 @@ impl Analysis<'_> {
             if !counts(commit, &options) {
                 continue;
             }
-            let Some(author) = index.author_of(commit) else {
+            let Some(author) = self.person_of(commit) else {
                 continue;
             };
             let stamp = n as u32 + 1;
@@ -197,14 +221,26 @@ impl Analysis<'_> {
         }
     }
 
-    /// Everyone who made commits in the Window, most commits first.
+    /// Everyone who made commits in the Window, most commits first. Bots
+    /// are listed by [`bots`](Self::bots) instead.
     pub fn contributors(&self) -> Vec<Contributor> {
+        self.committers(false)
+    }
+
+    /// The automation accounts that made commits in the Window, most commits
+    /// first.
+    pub fn bots(&self) -> Vec<Contributor> {
+        self.committers(true)
+    }
+
+    fn committers(&self, bots: bool) -> Vec<Contributor> {
         let index = self.index();
         let mut made: Vec<(AuthorId, i64)> = self
             .window_commits()
             .iter()
             .filter(|c| !c.is_merge())
-            .filter_map(|c| Some((index.author_of(c)?, c.landed_clock())))
+            .filter_map(|c| index.author_of(c).map(|a| (a, c.landed_clock())))
+            .filter(|&(a, _)| index.authors.is_bot(a) == bots)
             .collect();
         made.sort_unstable();
 
@@ -237,14 +273,19 @@ impl Analysis<'_> {
     }
 
     /// The files one person changed most in the Window, counting the same
-    /// commits Churn does. Files people wrote at HEAD only.
+    /// commits Churn does. Files people wrote at HEAD only, and no
+    /// dependency manifests: a version bump is not work on the code.
     pub fn work_of(&self, author: AuthorId) -> Vec<Churn> {
         let index = self.index();
         let options = self.options();
         let mut written = vec![false; index.paths.len()];
         for h in self.ranked() {
+            let manifest = index
+                .paths
+                .path(h.file)
+                .is_some_and(|p| crate::role_of(p) == crate::Role::Dependencies);
             if let Some(w) = written.get_mut(h.file.idx()) {
-                *w = true;
+                *w = !manifest;
             }
         }
         let mut commits = vec![0u32; index.paths.len()];
@@ -280,11 +321,10 @@ impl Analysis<'_> {
 
     /// Who made the counted commits that touched one file, most first.
     pub fn owners_of(&self, file: FileId) -> Vec<Owner> {
-        let index = self.index();
         let mut authors: Vec<AuthorId> = self
             .commits_touching(&[file])
             .into_iter()
-            .filter_map(|c| index.author_of(c))
+            .filter_map(|c| self.person_of(c))
             .collect();
         authors.sort_unstable();
         let mut owners: Vec<Owner> = Vec::new();

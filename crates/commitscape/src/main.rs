@@ -1,6 +1,7 @@
 //! `commitscape` binary entry point.
 
 mod json;
+mod people;
 mod text;
 
 use std::io::{IsTerminal, Write};
@@ -11,10 +12,13 @@ use clap::{Args, Parser, Subcommand};
 use commitscape_core::Index;
 use commitscape_forge::{GitHub, Remote};
 use commitscape_index::RepoSource;
-use commitscape_index::{default_cache_root, load, CacheOptions, GixRepo, Progress, Since};
+use commitscape_index::{
+    default_cache_root, load, reresolve_authors, CacheOptions, GixRepo, IdentityRules,
+    IdentityStore, Progress, Since,
+};
 use commitscape_metrics::{Analysis, Options, Span};
 use commitscape_tui::format::grouped;
-use commitscape_tui::{LoadGitHub, LoadOlder, Session};
+use commitscape_tui::{ChangePeople, LinkAccounts, LoadGitHub, LoadOlder, Session};
 
 #[derive(Parser)]
 #[command(
@@ -173,6 +177,15 @@ fn run(cli: Cli) -> anyhow::Result<()> {
     meter.clear();
 
     let anchor = if cli.json {
+        // Reproducible means from the repository alone: GitHub's links and
+        // the user's undos live in the cache directory, so they are left out.
+        let store = IdentityStore::for_repo(&options, &loaded.index.repo);
+        if store.is_some_and(|s| s.rules(Default::default()).has_extras()) {
+            reresolve_authors(
+                &mut loaded.index,
+                &IdentityRules::from_mailmap(repo.mailmap()?),
+            );
+        }
         loaded.index.span.newest.unwrap_or(0)
     } else {
         now()
@@ -185,6 +198,8 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         let older = loaded.take_rest().map(|rest| -> LoadOlder {
             Box::new(move |recent: &Index| rest.complete(recent).ok())
         });
+        let offline = cli.common.offline || cli.exit_after_first_paint;
+        let (change, link) = identities(&cli.repo, &repo, &options, &loaded.index, offline);
         let session = Session {
             name: repo_name(&loaded.index),
             index: loaded.index,
@@ -192,7 +207,9 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             span: cli.window,
             options: metrics,
             older,
-            github: github(&repo, cli.common.offline || cli.exit_after_first_paint),
+            github: github(&repo, offline),
+            people: change,
+            link_accounts: link,
         };
         if cli.exit_after_first_paint {
             commitscape_tui::paint_once(session)?;
@@ -219,11 +236,17 @@ fn run(cli: Cli) -> anyhow::Result<()> {
 fn card(args: CardArgs) -> anyhow::Result<()> {
     let repo = GixRepo::open(&args.repo)?;
     let mut meter = ProgressLine::new();
-    let loaded = load(&repo, &args.common.cache(), Since::All, &mut |p| {
-        meter.show(p)
-    })?;
+    let options = args.common.cache();
+    let loaded = load(&repo, &options, Since::All, &mut |p| meter.show(p))?;
     meter.clear();
     let name = repo_name(&loaded.index);
+    let (change, link) = identities(
+        &args.repo,
+        &repo,
+        &options,
+        &loaded.index,
+        args.common.offline,
+    );
     let session = Session {
         name: name.clone(),
         index: loaded.index,
@@ -232,6 +255,8 @@ fn card(args: CardArgs) -> anyhow::Result<()> {
         options: args.common.metrics(),
         older: None,
         github: github(&repo, args.common.offline),
+        people: change,
+        link_accounts: link,
     };
     let out = args
         .out
@@ -257,6 +282,27 @@ fn github(repo: &GixRepo, offline: bool) -> Result<LoadGitHub, String> {
     Ok(Box::new(move || {
         GitHub::fetch(&remote).map_err(|e| e.to_string())
     }))
+}
+
+/// How the interface undoes merges and links GitHub accounts: neither
+/// without a cache directory to keep them in, and no links offline or off
+/// GitHub.
+fn identities(
+    path: &std::path::Path,
+    repo: &GixRepo,
+    options: &CacheOptions,
+    index: &Index,
+    offline: bool,
+) -> (Option<ChangePeople>, Option<LinkAccounts>) {
+    let Some(store) = IdentityStore::for_repo(options, &index.repo) else {
+        return (None, None);
+    };
+    let path = path.to_path_buf();
+    let remote = repo.remote_url().as_deref().and_then(Remote::parse);
+    let link = remote
+        .filter(|_| !offline)
+        .map(|r| people::link(path.clone(), store.clone(), r));
+    (Some(people::change(path, store)), link)
 }
 
 /// The repository's directory name: the parent of `.git`, or a bare

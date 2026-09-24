@@ -20,7 +20,7 @@ use commitscape_core::{
 
 use crate::hash_index::HashIndex;
 use crate::identity::resolve_authors;
-use crate::mailmap::Mailmap;
+use crate::identity::IdentityRules;
 use crate::source::{CommitSink, RawChange, RawChangeKind, RawCommit};
 
 /// One change as the walk saw it, before identity resolution.
@@ -56,7 +56,7 @@ fn signature_hash(name: &[u8], email: &[u8]) -> u64 {
 
 /// Accumulates commits pushed by a walk, in whatever order it produces them.
 pub struct IndexBuilder {
-    mailmap: Mailmap,
+    rules: IdentityRules,
     paths: PathTable,
     path_ids: HashIndex,
     signatures: Vec<Signature>,
@@ -71,9 +71,9 @@ pub struct IndexBuilder {
 }
 
 impl IndexBuilder {
-    pub fn new(mailmap: Mailmap) -> Self {
+    pub fn new(rules: IdentityRules) -> Self {
         IndexBuilder {
-            mailmap,
+            rules,
             paths: PathTable::default(),
             path_ids: HashIndex::default(),
             signatures: Vec::new(),
@@ -96,7 +96,7 @@ impl IndexBuilder {
     /// dated older (a long-lived branch merged late). A full reindex would
     /// interleave them by date instead. The two can differ only when such a
     /// commit renames a path that newer history also touched.
-    pub fn resume(mut index: Index, mailmap: Mailmap) -> Self {
+    pub fn resume(mut index: Index, rules: IdentityRules) -> Self {
         let paths = std::mem::take(&mut index.paths);
         let mut path_ids = HashIndex::default();
         for (id, name) in paths.path_names() {
@@ -111,7 +111,7 @@ impl IndexBuilder {
             );
         }
         IndexBuilder {
-            mailmap,
+            rules,
             paths,
             path_ids,
             signatures,
@@ -291,7 +291,7 @@ impl IndexBuilder {
         index.frontier = frontier;
         index.schema_version = commitscape_core::SCHEMA_VERSION;
         index.paths = self.paths;
-        index.authors = resolve_authors(self.signatures, self.used, &self.mailmap);
+        index.authors = resolve_authors(self.signatures, self.used, &self.rules);
         index
     }
 }

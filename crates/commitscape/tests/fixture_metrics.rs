@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use commitscape_core::Index;
-use commitscape_index::{index_from_scratch, reresolve_authors, GixRepo, Mailmap};
+use commitscape_index::{index_from_scratch, reresolve_authors, GixRepo, IdentityRules};
 use commitscape_metrics::{Analysis, Options, Window};
 
 /// 2024-01-01T00:00:00Z: every fixture's day 0.
@@ -223,7 +223,7 @@ fn ownership_with_the_mailmap() {
 fn ownership_without_the_mailmap() {
     // Alice's work address stays a separate person: 6/10 = 60%, bus factor 2.
     let mut idx = index("ownership");
-    reresolve_authors(&mut idx, &Mailmap::default());
+    reresolve_authors(&mut idx, &IdentityRules::default());
     let by_dir = ownership(&idx);
     let (alpha, factor) = by_dir.get("alpha/").cloned().expect("alpha/ is reported");
     assert_eq!(alpha.first(), Some(&("alice@example.com".to_string(), 6)));

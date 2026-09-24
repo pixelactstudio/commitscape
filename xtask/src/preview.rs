@@ -48,7 +48,13 @@ pub fn run(
     let span = Span::from_label(window).context("--window takes 30d, 90d, 1y or all")?;
     let git = GixRepo::open(repo).context("opening the repository")?;
     let cache = CacheOptions {
-        root: Some(crate::workspace_root().join("target").join("preview-cache")),
+        // The binary's cache when COMMITSCAPE_CACHE_DIR names one, so the
+        // preview shows people as the binary resolved them.
+        root: Some(
+            std::env::var_os("COMMITSCAPE_CACHE_DIR")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| crate::workspace_root().join("target").join("preview-cache")),
+        ),
     };
     let loaded = load(&git, &cache, Since::All, &mut |_| {}).context("loading the index")?;
     let github = if offline {
@@ -78,6 +84,9 @@ pub fn run(
             Some(g) => Ok(Box::new(move || Ok(g))),
             None => Err("not asked (--offline, or no GitHub remote)".to_string()),
         },
+        // People as the cache has them, GitHub's links included.
+        people: None,
+        link_accounts: None,
     };
     let (mut app, commands) = App::new(session);
     settle(&mut app, commands);

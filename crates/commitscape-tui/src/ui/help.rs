@@ -122,6 +122,8 @@ const WORDS: &[(&str, &str)] = &[
     ("Coupling", "How often two files change in the same commit, out of all the commits that changed either one."),
     ("Bus factor", "The fewest people who together made more than 80% of a folder's commits."),
     ("Local time", "When the author made a commit, on their own clock, using the time zone recorded in the commit."),
+    ("Merged identities", "One person who committed under several addresses. Addresses join when GitHub says they are one account or when they carry the same full name (two or more words). Press u on the person to undo it."),
+    ("Bots", "Automation accounts such as dependabot[bot]. Their commits count as activity, but they are left out of the people and hold no folder."),
     ("Lines of code", "Lines in files people wrote. Lockfiles, generated files and vendored code are left out everywhere, as are configuration files from the language bar."),
     ("Last touched", "The last commit that changed a file, whatever kind of commit it was."),
 ];
@@ -133,9 +135,11 @@ const KEYS: &[(&str, &str)] = &[
     ("pgup pgdn", "a page at a time"),
     ("enter", "open what is selected"),
     ("esc", "go back"),
-    ("w  W", "a longer or shorter window"),
+    ("w  W", "a longer or shorter window; what is open stays open"),
     ("/", "find a file, folder or person in a list"),
-    ("c", "change the Map's colours"),
+    ("c", "colour the Map by activity, age or owner"),
+    ("u", "on a person: undo a merge of identities, or redo it"),
+    ("mouse", "click a screen, a window, a row or a Map block; the wheel scrolls"),
     ("?", "this help"),
     ("q", "quit"),
 ];

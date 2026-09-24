@@ -16,6 +16,8 @@ pub(crate) struct Findings {
     pub languages: Languages,
     pub pulse: Pulse,
     pub contributors: Vec<Contributor>,
+    /// Automation accounts, left out of `contributors`.
+    pub bots: Vec<Contributor>,
     pub churn: Vec<Churn>,
     pub hotspots: Vec<Hotspot>,
     pub largest: Vec<LargeFile>,
@@ -56,6 +58,7 @@ impl Findings {
                 totals: analysis.totals(),
                 pulse: analysis.pulse(None),
                 contributors: analysis.contributors(),
+                bots: analysis.bots(),
                 churn: analysis.churn(),
                 hotspots: analysis.hotspots(),
                 largest: analysis.largest(),

@@ -656,5 +656,6 @@ fn draw_worth(app: &App, f: &Findings, frame: &mut Frame, area: Rect, cursor: &m
     frame.render_widget(Paragraph::new(visible), inner);
     if count > 0 {
         highlight(frame, inner, inner.y + at as u16);
+        super::clickable_rows(app, inner, shown, 1);
     }
 }

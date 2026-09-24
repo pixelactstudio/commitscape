@@ -341,6 +341,58 @@ fn a_mailmap_edit_is_applied_without_walking_history() {
 }
 
 #[test]
+fn an_undone_merge_and_a_github_link_apply_on_the_next_warm_load() {
+    use commitscape_index::identity::{keys_of, Account};
+    use commitscape_index::IdentityStore;
+    const ALICE_NOREPLY: (&str, &str) = ("Alice Example", "7+alice@users.noreply.github.com");
+    const ALI: (&str, &str) = ("ali", "ali@home.example");
+    let dir = tempfile::tempdir().expect("temp dir");
+    let repo = ScriptedRepo::new()
+        .commit(JAN_2024, ALICE, &[(b"a.txt", Added, blob(1))])
+        .commit(
+            JAN_2024 + DAY,
+            ALICE_NOREPLY,
+            &[(b"a.txt", Modified, blob(2))],
+        )
+        .commit(JAN_2024 + 2 * DAY, ALI, &[(b"a.txt", Modified, blob(3))]);
+    let first = load_all(&repo, dir.path());
+    assert_eq!(first.index.authors.len(), 2, "the same full name joins two");
+
+    let options = CacheOptions {
+        root: Some(dir.path().to_path_buf()),
+    };
+    let store = IdentityStore::for_repo(&options, &first.index.repo).expect("a store");
+    let rules = store.rules(Mailmap::default());
+    let alice = first
+        .index
+        .author_of(first.index.commits.first().expect("a commit"))
+        .expect("alice");
+    store
+        .keep_apart(&keys_of(&first.index.authors, alice, &rules))
+        .expect("saved");
+    let undone = load_all(&repo, dir.path());
+    assert_eq!(undone.freshness, Freshness::Warm, "no history is read");
+    assert_eq!(undone.index.authors.len(), 3);
+
+    store
+        .save_accounts(&[(
+            "ali@home.example".to_string(),
+            Some(Account {
+                id: 7,
+                login: "alice".to_string(),
+            }),
+        )])
+        .expect("saved");
+    let linked = load_all(&repo, dir.path());
+    assert_eq!(linked.freshness, Freshness::Warm);
+    assert_eq!(
+        linked.index.authors.len(),
+        2,
+        "GitHub joins ali to the noreply account; the undone name merge stays undone"
+    );
+}
+
+#[test]
 fn without_a_cache_directory_nothing_is_read_or_written() {
     let loaded = load_with(&linear(), None, Since::All);
     assert_eq!(

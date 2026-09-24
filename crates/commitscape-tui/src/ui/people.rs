@@ -19,8 +19,41 @@ pub(super) fn draw(app: &App, frame: &mut Frame, area: Rect, cursor: &mut Cursor
     };
     let groups = f.duplicates.len();
     let hint_height = if groups > 0 { 5 } else { 0 };
-    let [list_area, hint_area] =
-        Layout::vertical([Constraint::Fill(1), Constraint::Length(hint_height)]).areas(area);
+    let bots_height = if f.bots.is_empty() { 0 } else { 1 };
+    let [list_area, bots_area, hint_area] = Layout::vertical([
+        Constraint::Fill(1),
+        Constraint::Length(bots_height),
+        Constraint::Length(hint_height),
+    ])
+    .areas(area);
+    if !f.bots.is_empty() {
+        let commits: u64 = f.bots.iter().map(|b| u64::from(b.commits)).sum();
+        let names: Vec<String> = f
+            .bots
+            .iter()
+            .take(3)
+            .map(|b| app.display_name(b.author))
+            .collect();
+        let more = f.bots.len().saturating_sub(names.len());
+        let line = Line::from(vec![
+            faint(" Left out as bots: "),
+            plain(names.join(", ")),
+            faint(if more > 0 {
+                format!(" and {more} more")
+            } else {
+                String::new()
+            }),
+            faint(format!(
+                ", {} in {}. Bots are not people, so they hold no folder.",
+                crate::ui::many(commits, "commit", "commits"),
+                short_phrase(app.span)
+            )),
+        ]);
+        frame.render_widget(
+            Paragraph::new(super::fit_line(line, usize::from(bots_area.width))),
+            bots_area,
+        );
+    }
 
     let rows = app.rows(f);
     let total: u64 = f.contributors.iter().map(|c| u64::from(c.commits)).sum();
@@ -106,6 +139,7 @@ pub(super) fn draw(app: &App, frame: &mut Frame, area: Rect, cursor: &mut Cursor
         .collect();
     frame.render_widget(Paragraph::new(lines), body);
     highlight(frame, body, body.y + at as u16);
+    super::clickable_rows(app, body, shown, 1);
 
     if groups > 0 {
         let inner = boxed(

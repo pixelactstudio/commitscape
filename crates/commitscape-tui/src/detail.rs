@@ -3,7 +3,7 @@
 //! Each detail resolves its paths and names when it opens, so drawing it
 //! needs neither the Index nor an Analysis.
 
-use commitscape_core::{AuthorId, CommitMeta, FileHistory, FileId, HeadFile, Index};
+use commitscape_core::{AuthorId, CommitMeta, FileHistory, FileId, HeadFile, Index, PersonTraits};
 use commitscape_metrics::{
     Age, Analysis, Contributor, CoupledPair, DirectoryOwnership, Hotspot, Pulse,
 };
@@ -16,6 +16,7 @@ use crate::list::Cursor;
 const COMMITS_SHOWN: usize = 50;
 
 /// A row that can be entered.
+#[derive(Clone)]
 pub(crate) enum Target {
     File(FileId),
     Pair(CoupledPair),
@@ -75,8 +76,15 @@ pub(crate) struct PersonDetail {
     /// The files they changed most, with how many commits.
     pub work: Vec<(String, u32)>,
     /// Directories only they hold: bus factor 1 with them as the owner, with
-    /// their share of its commits.
-    pub held: Vec<(String, f64)>,
+    /// their commits there and the folder's.
+    pub held: Vec<(String, u32, u32)>,
+    /// Every address they committed under, with its commits over all of
+    /// history, most first.
+    pub addresses: Vec<(String, u32)>,
+    /// What joined their addresses, and whether they are a bot.
+    pub traits: PersonTraits,
+    /// `.mailmap` lines that would join their addresses in every tool.
+    pub merge_lines: String,
     /// Others who may be the same person, and the `.mailmap` lines that
     /// would join them.
     pub maybe_also: Vec<Person>,
@@ -102,6 +110,8 @@ pub(crate) enum Detail {
 
 /// A detail on the stack, with where its list or text is scrolled to.
 pub(crate) struct Opened {
+    /// What was entered, so it can be opened again over another Window.
+    pub origin: Target,
     pub detail: Detail,
     pub cursor: Cursor,
     pub scroll: usize,
@@ -110,7 +120,8 @@ pub(crate) struct Opened {
 impl Opened {
     pub fn open(target: Target, analysis: &Analysis<'_>, findings: &Findings) -> Opened {
         Opened {
-            detail: Detail::open(target, analysis, findings),
+            detail: Detail::open(target.clone(), analysis, findings),
+            origin: target,
             cursor: Cursor::default(),
             scroll: 0,
         }
@@ -131,6 +142,31 @@ impl Opened {
                 .get(self.cursor.selected())
                 .map(|f| Target::File(f.file)),
             _ => None,
+        }
+    }
+}
+
+impl Target {
+    /// The same row among another Window's findings, if it is there: a
+    /// folder with too few commits in that Window, or a pair that did not
+    /// change together in it, is not.
+    pub fn among(&self, findings: &Findings) -> Option<Target> {
+        match self {
+            Target::Directory(d) => findings
+                .ownership
+                .directories
+                .iter()
+                .find(|o| o.dir == d.dir)
+                .cloned()
+                .map(Target::Directory),
+            Target::Pair(p) => findings
+                .coupling
+                .pairs
+                .iter()
+                .find(|q| (q.first, q.second) == (p.first, p.second))
+                .copied()
+                .map(Target::Pair),
+            other => Some(other.clone()),
         }
     }
 }
@@ -176,6 +212,9 @@ impl Detail {
                 Detail::Person(Box::new(PersonDetail {
                     author,
                     email: found.map(|a| a.email.to_string()).unwrap_or_default(),
+                    addresses: index.authors.addresses_of(author),
+                    traits: found.map(|a| a.traits).unwrap_or_default(),
+                    merge_lines: index.authors.mailmap_lines(author),
                     contributor: findings
                         .contributors
                         .iter()
@@ -190,17 +229,11 @@ impl Detail {
                         .collect(),
                     held: findings
                         .ownership
-                        .directories
-                        .iter()
-                        .filter(|d| d.bus_factor == 1)
+                        .held_alone()
+                        .into_iter()
                         .filter_map(|d| {
                             let top = d.owners.first()?;
-                            (top.author == author).then(|| {
-                                (
-                                    d.label(),
-                                    f64::from(top.commits) / f64::from(d.commits.max(1)),
-                                )
-                            })
+                            (top.author == author).then(|| (d.label(), top.commits, d.commits))
                         })
                         .collect(),
                     maybe_also: findings

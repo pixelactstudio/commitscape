@@ -43,7 +43,11 @@ pub fn summary(repo: &Path, index: &Index, freshness: Freshness) -> String {
         grouped(span.merges),
         counted(index.head.len() as u64, "file", "files"),
         grouped(index.paths.len() as u64),
-        counted(index.authors.len() as u64, "person", "people"),
+        counted(
+            index.authors.iter().filter(|(_, a)| !a.traits.is_bot()).count() as u64,
+            "person",
+            "people"
+        ),
     )
 }
 
@@ -93,8 +97,7 @@ pub fn rankings(analysis: &Analysis<'_>, span: Span) -> String {
         analysis.options().ownership_min_commits,
         grouped(ownership.bus_factor_one as u64)
     ));
-    let held = ownership.directories.iter().filter(|d| d.bus_factor == 1);
-    for (i, d) in held.take(TOP).enumerate() {
+    for (i, d) in ownership.held_alone().into_iter().take(TOP).enumerate() {
         let owner = d.owners.first();
         let who = owner
             .and_then(|o| index.authors.get(o.author))

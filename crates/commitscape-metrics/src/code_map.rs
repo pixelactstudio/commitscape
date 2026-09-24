@@ -110,7 +110,7 @@ impl Analysis<'_> {
             if !counts(commit, &options) {
                 continue;
             }
-            let Some(author) = index.author_of(commit) else {
+            let Some(author) = self.person_of(commit) else {
                 continue;
             };
             let stamp = n as u32 + 1;

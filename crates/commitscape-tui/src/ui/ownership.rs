@@ -60,7 +60,7 @@ pub(super) fn draw(app: &App, frame: &mut Frame, area: Rect, cursor: &mut Cursor
         .clamp(10, 40);
     let (shown, at) = visible(cursor, rows.len(), usize::from(inner.height));
     let mut lines = Vec::new();
-    for &i in rows.get(shown).unwrap_or_default() {
+    for &i in rows.get(shown.clone()).unwrap_or_default() {
         let Some(d) = own.directories.get(i) else {
             continue;
         };
@@ -108,4 +108,5 @@ pub(super) fn draw(app: &App, frame: &mut Frame, area: Rect, cursor: &mut Cursor
     }
     frame.render_widget(Paragraph::new(lines), inner);
     highlight(frame, inner, inner.y + at as u16);
+    super::clickable_rows(app, inner, shown, 1);
 }

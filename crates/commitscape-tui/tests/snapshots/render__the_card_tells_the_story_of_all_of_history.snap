@@ -18,10 +18,10 @@ expression: "support::text(&card)"
 │   ● Rust 77%   ● TypeScript 23%                                                                                      │
 │                                                                                                                      │
 │  ╭ Commits over time ─────────────────────────────── 57 in all time ╮╭ Who writes the code ───────────── all time ╮  │
-│  │each bar is 11 days, the tallest 7 commits                        ││● Alice Example (exampl… ██████     35  61% │  │
-│  │                                                            ███   ││● Bob Builder            ██         11  19% │  │
-│  │                                                           ▅███   ││● Carol Coder            █▍          8  14% │  │
-│  │                                                         ▂▂████   ││● Alice Example (home.e… ▋           3   5% │  │
+│  │each bar is 11 days, the tallest 7 commits                        ││● Alice Example ███████████████     35  61% │  │
+│  │                                                            ███   ││● Bob Builder   ████▊               11  19% │  │
+│  │                                                           ▅███   ││● Carol Coder   ███▌                 8  14% │  │
+│  │                                                         ▂▂████   ││● alice         █▍                   3   5% │  │
 │  │                                                         ██████   ││                                            │  │
 │  │                                                        ▆██████   ││                                            │  │
 │  │                                                        ███████▃  ││                                            │  │

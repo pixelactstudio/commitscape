@@ -9,7 +9,7 @@
 use commitscape_core::{
     Author, AuthorId, AuthorTable, ChangeKind, CommitFlags, CommitKind, CommitMeta, FileChange,
     FileClass, FileHistory, FileId, HeadFile, HistorySpan, Index, Oid, PathEvent, PathTable,
-    RepoIdentity, Signature, SignatureId,
+    PersonTraits, RepoIdentity, Signature, SignatureId,
 };
 
 /// 2024-01-01T00:00:00Z.
@@ -223,6 +223,12 @@ pub fn index_with_suspects(
             name: s.name.clone(),
             email: s.email.clone(),
             signatures: vec![SignatureId(i as u32)],
+            // The index crate recognises bots; here a `[bot]` suffix will do.
+            traits: if s.name.ends_with("[bot]") {
+                PersonTraits::BOT
+            } else {
+                PersonTraits::default()
+            },
         })
         .collect();
     let used: Vec<u32> = emails

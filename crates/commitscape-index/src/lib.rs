@@ -18,11 +18,11 @@ pub mod source;
 
 pub use build::IndexBuilder;
 pub use cache::{
-    default_cache_root, load, CacheOptions, Freshness, Loaded, OlderHistory, Progress,
-    RebuildReason, Rest, RestUnavailable, Since,
+    default_cache_root, load, CacheOptions, Freshness, IdentityStore, Loaded, OlderHistory,
+    Progress, RebuildReason, Rest, RestUnavailable, Since,
 };
 pub use gix_source::{GixError, GixRepo};
-pub use identity::resolve_authors;
+pub use identity::{resolve_authors, IdentityRules};
 pub use mailmap::Mailmap;
 pub use scripted::{ScriptedChangeSpec, ScriptedRepo};
 pub use source::{
@@ -49,18 +49,18 @@ pub fn index_incremental<S: RepoSource>(
     indexed: &dyn Indexed,
 ) -> Result<Index, S::Error> {
     let identity = source.identity()?;
-    let mailmap = source.mailmap()?;
-    let mut builder = IndexBuilder::new(mailmap);
+    let mut builder = IndexBuilder::new(IdentityRules::from_mailmap(source.mailmap()?));
     let stats = source.walk_history(indexed, &mut builder)?;
     let tips = source.tips()?;
     Ok(builder.finish(identity, tips, stats.history_truncated))
 }
 
-/// Re-applies a mailmap to an existing index.
+/// Re-resolves an existing index's people.
 ///
 /// Commits store the signature they were made under, not a resolved person,
-/// so a `.mailmap` edit changes a small table and never re-reads history.
-pub fn reresolve_authors(index: &mut Index, mailmap: &Mailmap) {
+/// so a `.mailmap` edit, a GitHub link or an undo changes a small table and
+/// never re-reads history.
+pub fn reresolve_authors(index: &mut Index, rules: &IdentityRules) {
     let (signatures, used) = std::mem::take(&mut index.authors).into_signatures();
-    index.authors = resolve_authors(signatures, used, mailmap);
+    index.authors = resolve_authors(signatures, used, rules);
 }

@@ -69,8 +69,16 @@ The identity of a file across its history, preserved through exact renames so th
 _Avoid_: path, filename, file key.
 
 **Author Identity**:
-A single person, resolved from the several Signatures they have committed under. Resolved via the repository's own mailmap plus two narrow rules; anything less certain is surfaced as a suspected duplicate rather than merged.
+A single person, resolved from the several Signatures they have committed under (ADR-0011): the repository's own mailmap, the same address in any case, GitHub's noreply addresses by account number, addresses GitHub links to one account, and the same full name. The last two are Merges, shown and undoable; anything less certain, such as a one-word name, is surfaced as a suspected duplicate rather than merged.
 _Avoid_: author, committer, contributor, user.
+
+**Merge** (of identities):
+Joining two addresses into one Author Identity on evidence weaker than the address itself: the same GitHub account, or the same full name of two or more words that is not a placeholder. Every Merge is shown on the person ("merged 2 identities"), and the user can undo it; the undo is kept in the cache directory, never in the repository. Not to be confused with a Merge Commit.
+_Avoid_: dedupe, alias, link.
+
+**Bot**:
+An automation account, recognised by a `[bot]` suffix or a short list of known accounts such as `github-actions`. Its commits count as activity, but a Bot is never ranked among people, never holds a folder and gets no colour.
+_Avoid_: agent, automation, service account.
 
 **Signature**:
 One name-and-email pair exactly as it appears on commits. The Index records Signatures; which Author Identity each belongs to is resolved on top, so editing a mailmap never requires re-reading history.

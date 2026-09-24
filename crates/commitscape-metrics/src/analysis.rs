@@ -4,7 +4,7 @@
 use std::cmp::Ordering;
 use std::ops::Range;
 
-use commitscape_core::{CommitMeta, FileId, HeadFile, Index};
+use commitscape_core::{AuthorId, CommitMeta, FileId, HeadFile, Index};
 use serde::Serialize;
 
 use crate::window::Window;
@@ -213,6 +213,13 @@ impl<'i> Analysis<'i> {
         self.options
     }
 
+    /// The person who made a commit, unless it was a bot: who holds the
+    /// code is a question about people (ADR-0011).
+    pub fn person_of(&self, commit: &CommitMeta) -> Option<AuthorId> {
+        let author = self.index.author_of(commit)?;
+        (!self.index.authors.is_bot(author)).then_some(author)
+    }
+
     /// The Window's commits, in time order.
     pub fn window_commits(&self) -> &'i [CommitMeta] {
         self.index.commits.get(self.range.clone()).unwrap_or(&[])
@@ -328,7 +335,11 @@ impl<'i> Analysis<'i> {
             merges: index.span.merges,
             first_commit: index.span.oldest,
             last_commit: index.span.newest,
-            people: index.authors.len(),
+            people: index
+                .authors
+                .iter()
+                .filter(|(_, a)| !a.traits.is_bot())
+                .count(),
             files: 0,
             code_files: 0,
             code_lines: 0,

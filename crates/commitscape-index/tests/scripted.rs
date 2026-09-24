@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 use commitscape_core::{FileId, Index, Oid};
 use commitscape_index::source::RawChangeKind::{Added, Deleted, Modified};
 use commitscape_index::{
-    index_from_scratch, index_incremental, reresolve_authors, Mailmap, ScriptedRepo,
+    index_from_scratch, index_incremental, reresolve_authors, IdentityRules, Mailmap, ScriptedRepo,
 };
 
 const ALICE: (&str, &str) = ("Alice Example", "alice@example.com");
@@ -153,7 +153,7 @@ fn a_mailmap_can_be_applied_to_an_existing_index_without_rewalking() {
     assert_eq!(idx.authors.len(), 3, "no mailmap: three people");
 
     let mailmap = Mailmap::parse(b"Alice Example <alice@example.com> <alice@work.example.org>\n");
-    reresolve_authors(&mut idx, &mailmap);
+    reresolve_authors(&mut idx, &IdentityRules::from_mailmap(mailmap));
     assert_eq!(idx.authors.len(), 2, "the mailmap joins Alice's two forms");
 
     let first = idx.commits.first().and_then(|c| idx.author_of(c));

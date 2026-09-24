@@ -22,7 +22,7 @@ use ratatui::text::{Line, Span as Text};
 use ratatui::widgets::{Block, BorderType, Clear, Paragraph, Wrap};
 use ratatui::Frame;
 
-use crate::app::{App, Panel};
+use crate::app::{App, MapColour, Panel};
 use crate::format::{counted, grouped, short_date};
 use crate::list::Cursor;
 use crate::theme::{self, ACCENT, LINE, MUTED, SELECTED, SURFACE, TEXT, TEXT_2};
@@ -48,6 +48,7 @@ pub(crate) fn short_phrase(span: Span) -> &'static str {
 }
 
 pub(crate) fn draw(app: &mut App, frame: &mut Frame) {
+    app.hits.borrow_mut().clear();
     let area = frame.area();
     frame.render_widget(Block::new().style(Style::new().bg(SURFACE).fg(TEXT)), area);
     let [header, tabs, rule, body, footer] = Layout::vertical([
@@ -156,8 +157,12 @@ fn draw_header(app: &App, frame: &mut Frame, area: Rect) {
         ));
     }
     let mut windows = vec![Text::styled("window ", theme::muted())];
+    let mut at = 7u16;
+    let mut places = Vec::new();
     for span in Span::EVERY {
         let label = format!(" {} ", span.label());
+        places.push((at, label.chars().count() as u16, span));
+        at += label.chars().count() as u16;
         windows.push(if span == app.span {
             Text::styled(
                 label,
@@ -179,6 +184,14 @@ fn draw_header(app: &App, frame: &mut Frame, area: Rect) {
     .areas(area);
     frame.render_widget(Paragraph::new(Line::from(left)), l);
     frame.render_widget(Paragraph::new(right), r);
+    for (x, width, span) in places {
+        let rect = Rect {
+            x: r.x + x,
+            width,
+            ..r
+        };
+        app.clickable(rect, crate::app::Click::Window(span));
+    }
 }
 
 fn draw_tabs(app: &App, frame: &mut Frame, area: Rect, rule: Rect) {
@@ -193,6 +206,15 @@ fn draw_tabs(app: &App, frame: &mut Frame, area: Rect, rule: Rect) {
         if on {
             active = (x, width);
         }
+        app.clickable(
+            Rect {
+                x: area.x + x,
+                width,
+                height: 1,
+                ..area
+            },
+            crate::app::Click::Panel(*panel),
+        );
         spans.push(Text::styled(
             number,
             Style::new().fg(if on { ACCENT } else { MUTED }),
@@ -244,31 +266,50 @@ fn draw_footer(app: &App, frame: &mut Frame, area: Rect) {
         ])
     } else {
         let mut spans = vec![Text::raw(" ")];
-        let mut add = |k: &'static str, s: &'static str| {
+        let add = |spans: &mut Vec<Text<'static>>, k: &'static str, s: &'static str| {
             spans.push(key(k));
             spans.push(say(s));
         };
-        add("↑↓", " move  ");
+        add(&mut spans, "↑↓", " move  ");
         if app.panel != Panel::Activity && app.panel != Panel::GitHub {
-            add("enter", " open  ");
+            add(&mut spans, "enter", " open  ");
         }
         if !app.opened.is_empty() || (app.panel == Panel::Map && app.map.at != 0) {
-            add("esc", " back  ");
+            add(&mut spans, "esc", " back  ");
         }
-        add("←→", " panels  ");
-        add("w", " window  ");
-        if app.panel == Panel::Map {
-            add("c", " colour  ");
+        add(&mut spans, "←→", " panels  ");
+        add(&mut spans, "w", " window  ");
+        if app.panel == Panel::Map && app.opened.is_empty() {
+            spans.push(key("c"));
+            spans.push(say(" colour by: "));
+            for (k, (colour, word)) in [
+                (MapColour::Heat, "activity"),
+                (MapColour::Age, "age"),
+                (MapColour::Owner, "owner"),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                if k > 0 {
+                    spans.push(say(" / "));
+                }
+                spans.push(if colour == app.map.colour {
+                    Text::styled(word, Style::new().fg(TEXT).add_modifier(Modifier::BOLD))
+                } else {
+                    say(word)
+                });
+            }
+            spans.push(say("  "));
         }
         if matches!(
             app.panel,
             Panel::People | Panel::Hotspots | Panel::Coupling | Panel::Ownership
         ) && app.opened.is_empty()
         {
-            add("/", " find  ");
+            add(&mut spans, "/", " find  ");
         }
-        add("?", " help  ");
-        add("q", " quit");
+        add(&mut spans, "?", " help  ");
+        add(&mut spans, "q", " quit");
         if !app.search.query.is_empty() {
             spans.push(say("   showing "));
             spans.push(Text::styled(
@@ -484,6 +525,23 @@ pub(crate) fn visible(
     let shown = cursor.visible(len, height);
     let at = cursor.selected().saturating_sub(shown.start);
     (shown, at)
+}
+
+/// Makes a list's rows clickable: row `k` of `shown` is drawn `height`
+/// rows tall, from the top of `area`.
+pub(crate) fn clickable_rows(app: &App, area: Rect, shown: std::ops::Range<usize>, height: u16) {
+    for (k, i) in shown.enumerate() {
+        let y = area.y + k as u16 * height;
+        if y >= area.y + area.height {
+            break;
+        }
+        let rect = Rect {
+            y,
+            height: height.min(area.y + area.height - y),
+            ..area
+        };
+        app.clickable(rect, crate::app::Click::Row(i));
+    }
 }
 
 /// Paints a selected row's background across `area`'s width at `y`.

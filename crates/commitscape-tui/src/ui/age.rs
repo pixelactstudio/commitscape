@@ -76,6 +76,7 @@ pub(super) fn draw(app: &App, frame: &mut Frame, area: Rect, cursor: &mut Cursor
     );
     frame.render_widget(Paragraph::new(lines), first_row);
     highlight(frame, first_row, first_row.y + cursor.selected() as u16);
+    super::clickable_rows(app, first_row, 0..buckets.len(), 1);
 
     // Code by when it was written: one column per quarter, from the first
     // to this one, empty quarters included so the time runs evenly.

@@ -17,7 +17,7 @@ use ratatui::backend::TestBackend;
 use ratatui::crossterm::event::KeyCode::{self, Char, Down, End, Enter, Esc};
 use ratatui::style::Modifier;
 use ratatui::Terminal;
-use support::{opened, press, press_only, screen, screen_sized, settle, sliced};
+use support::{click, opened, press, press_only, screen, screen_sized, settle, sliced};
 
 /// Each Panel, as its number key opens it.
 fn panel(key: char) -> String {
@@ -108,6 +108,166 @@ fn a_person_opens_onto_when_and_what_they_work_on_and_who_they_may_also_be() {
     let mut app = opened(Span::Quarter);
     press(&mut app, &[Char('3'), Enter]);
     insta::assert_snapshot!(screen(&mut app));
+}
+
+#[test]
+fn changing_the_window_keeps_what_is_open_and_shows_it_for_the_new_window() {
+    // The files untouched for a month, then the first of them, opened over
+    // 90 days. After `w` the same two are open, now over a year, exactly as
+    // if they had been opened there.
+    let mut app = opened(Span::Quarter);
+    press(&mut app, &[Char('8'), Down, Enter, Enter]);
+    press(&mut app, &[Char('w')]);
+    let mut year = opened(Span::Year);
+    press(&mut year, &[Char('8'), Down, Enter, Enter]);
+    let after = screen(&mut app);
+    assert!(after.contains("1 year"), "{after}");
+    assert_eq!(after, screen(&mut year));
+    press(&mut app, &[Esc]);
+    press(&mut year, &[Esc]);
+    assert_eq!(
+        screen(&mut app),
+        screen(&mut year),
+        "and the one beneath it"
+    );
+}
+
+#[test]
+fn a_merged_person_says_what_was_merged_and_why_and_can_be_undone() {
+    // Bob, second in the People list, committed once from his laptop under
+    // his full name: 8 commits as bob@example.com in 90 days and before,
+    // 10 in all, and 1 from the laptop.
+    let mut app = opened(Span::Quarter);
+    press(&mut app, &[Char('3'), Down, Enter]);
+    insta::assert_snapshot!(screen(&mut app));
+
+    // Undone, the laptop is a person of its own, and Bob's profile, open
+    // again, says he was kept apart.
+    press(&mut app, &[Char('u')]);
+    let profile = screen(&mut app);
+    assert!(
+        profile.contains("You kept these identities apart"),
+        "{profile}"
+    );
+    press(&mut app, &[Esc]);
+    let people = screen(&mut app);
+    assert!(people.contains("5 people"), "{people}");
+
+    // And redone, from the same row.
+    press(&mut app, &[Enter, Char('u'), Esc]);
+    let redone = screen(&mut app);
+    assert!(redone.contains("4 people"), "{redone}");
+    assert!(redone.contains("Bob Builder      "), "{redone}");
+    assert!(!redone.contains("laptop"), "{redone}");
+}
+
+#[test]
+fn a_click_does_what_the_keys_do() {
+    // A tab, then a row: the second Hotspot, parser.rs.
+    let mut clicked = opened(Span::Quarter);
+    click(&mut clicked, "5 Hotspots");
+    click(&mut clicked, "parser.rs");
+    let mut keyed = opened(Span::Quarter);
+    press(&mut keyed, &[Char('5'), Down, Enter]);
+    assert_eq!(screen(&mut clicked), screen(&mut keyed));
+
+    // A Window, from the header.
+    click(&mut clicked, " 1y ");
+    press(&mut keyed, &[Char('w')]);
+    assert_eq!(screen(&mut clicked), screen(&mut keyed));
+
+    // A block of the Map: the src folder opens as Enter opens it.
+    let mut clicked = opened(Span::Quarter);
+    click(&mut clicked, "4 Map");
+    click(&mut clicked, "src");
+    let mut keyed = opened(Span::Quarter);
+    press(&mut keyed, &[Char('4'), Enter]);
+    assert_eq!(screen(&mut clicked), screen(&mut keyed));
+}
+
+#[test]
+fn bots_are_named_but_not_ranked_among_people() {
+    // Alice makes three commits in the last month, dependabot two.
+    use commitscape_index::source::RawChangeKind::{Added, Modified};
+    let at = |days: i64| support::ANCHOR - days * 86_400;
+    let blob = |n: u8| commitscape_core::Oid([n; 20]);
+    const ALICE: (&str, &str) = ("Alice Example", "alice@example.com");
+    const BOT: (&str, &str) = (
+        "dependabot[bot]",
+        "49699333+dependabot[bot]@users.noreply.github.com",
+    );
+    let repo = commitscape_index::ScriptedRepo::new()
+        .commit(at(20), ALICE, &[(b"src/main.rs", Added, blob(1))])
+        .commit(at(15), BOT, &[(b"Cargo.lock", Added, blob(2))])
+        .commit(at(10), ALICE, &[(b"src/main.rs", Modified, blob(3))])
+        .commit(at(5), BOT, &[(b"Cargo.lock", Modified, blob(4))])
+        .commit(at(2), ALICE, &[(b"src/main.rs", Modified, blob(5))])
+        .head_file(b"src/main.rs", "fn main() {}\n")
+        .head_file(b"Cargo.lock", "# lock\n");
+    let (mut app, work) = App::new(support::session_of(repo, Span::Quarter));
+    settle(&mut app, work);
+    press(&mut app, &[Char('3')]);
+    let people = screen(&mut app);
+    assert!(people.contains("1 person"), "{people}");
+    assert!(people.contains("1 committed in 90 days"), "{people}");
+    assert!(
+        people.contains("Left out as bots: dependabot[bot], 2 commits in 90 days"),
+        "{people}"
+    );
+}
+
+#[test]
+fn worth_a_look_names_a_folder_once_and_work_leaves_out_manifests() {
+    // Dev makes twelve commits in app/marketing/src/, each bumping
+    // package.json too; Pat one in app/marketing/; Ann five in app/.
+    // app/marketing/ is Dev's 12 of 13 (92%), and its src/ Dev's 12 of 12:
+    // one finding, not two. app/ and the root are Dev's 12 of 18 (67%).
+    use commitscape_index::source::RawChangeKind::{Added, Modified};
+    let at = |days: i64| support::ANCHOR - days * 86_400;
+    let blob = |n: u8| commitscape_core::Oid([n; 20]);
+    const DEV: (&str, &str) = ("Dev Example", "dev@example.com");
+    const PAT: (&str, &str) = ("Pat Example", "pat@example.com");
+    let mut repo = commitscape_index::ScriptedRepo::new();
+    for n in 0..12u8 {
+        let kind = if n == 0 { Added } else { Modified };
+        repo = repo.commit(
+            at(40 - i64::from(n)),
+            DEV,
+            &[
+                (b"app/marketing/src/page.ts", kind, blob(2 * n + 1)),
+                (b"package.json", kind, blob(2 * n + 2)),
+            ],
+        );
+    }
+    const ANN: (&str, &str) = ("Ann Example", "ann@example.com");
+    for n in 0..5u8 {
+        let kind = if n == 0 { Added } else { Modified };
+        repo = repo.commit(
+            at(25 - i64::from(n)),
+            ANN,
+            &[(b"app/api.ts", kind, blob(50 + n))],
+        );
+    }
+    let repo = repo
+        .commit(at(3), PAT, &[(b"app/marketing/index.ts", Added, blob(99))])
+        .head_file(b"app/api.ts", "export const api = 1;\n")
+        .head_file(b"app/marketing/src/page.ts", "export const page = 1;\n")
+        .head_file(b"app/marketing/index.ts", "export * from './src/page';\n")
+        .head_file(b"package.json", "{}\n");
+    let (mut app, work) = App::new(support::session_of(repo, Span::Quarter));
+    settle(&mut app, work);
+    let overview = screen(&mut app);
+    assert!(
+        overview.contains("app/marketing/: 92% of commits by Dev Example"),
+        "{overview}"
+    );
+    assert!(!overview.contains("app/marketing/src/:"), "{overview}");
+
+    press(&mut app, &[Char('3'), Enter]);
+    let profile = screen(&mut app);
+    assert!(profile.contains("page.ts"), "{profile}");
+    assert!(!profile.contains("package.json"), "{profile}");
+    assert!(profile.contains("12 of 13"), "{profile}");
 }
 
 #[test]

@@ -11,8 +11,9 @@ use crate::{AuthorId, FileId, Oid, PathId, SignatureId};
 
 /// Bumped whenever the on-disk layout changes. A mismatch triggers a full
 /// reindex rather than an error. Also bumped when a stored fact is dropped,
-/// so no cache keeps it: 8 dropped a commit flag.
-pub const SCHEMA_VERSION: u32 = 8;
+/// so no cache keeps it: 8 dropped a commit flag. 9 records what joined each
+/// person (ADR-0011).
+pub const SCHEMA_VERSION: u32 = 9;
 
 /// How a commit touched a file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -294,6 +295,46 @@ pub struct Author {
     /// Every signature that resolved to this person, so the interface can
     /// show its work.
     pub signatures: Vec<SignatureId>,
+    pub traits: PersonTraits,
+}
+
+/// What resolution found about a person, beyond their signatures
+/// (ADR-0011): which evidence joined them, and whether they are a bot.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct PersonTraits(pub u8);
+
+impl PersonTraits {
+    /// Signatures under different email addresses were joined because they
+    /// carry the same full name.
+    pub const SAME_NAME: PersonTraits = PersonTraits(1 << 0);
+    /// Signatures under different email addresses were joined because
+    /// GitHub links them to the same account.
+    pub const SAME_ACCOUNT: PersonTraits = PersonTraits(1 << 1);
+    /// An automation account, such as `dependabot[bot]`. Left out of the
+    /// people rankings.
+    pub const BOT: PersonTraits = PersonTraits(1 << 2);
+    /// The user undid a merge of this person's signatures, which stay apart.
+    pub const KEPT_APART: PersonTraits = PersonTraits(1 << 3);
+
+    #[inline]
+    pub fn contains(self, other: PersonTraits) -> bool {
+        self.0 & other.0 == other.0
+    }
+
+    #[inline]
+    pub fn with(self, other: PersonTraits) -> PersonTraits {
+        PersonTraits(self.0 | other.0)
+    }
+
+    /// Joined by evidence weaker than the email address itself, which the
+    /// user can undo.
+    pub fn merged(self) -> bool {
+        self.0 & (Self::SAME_NAME.0 | Self::SAME_ACCOUNT.0) != 0
+    }
+
+    pub fn is_bot(self) -> bool {
+        self.contains(Self::BOT)
+    }
 }
 
 /// Signatures, the people they resolve to, and the resolution between them.
@@ -321,6 +362,8 @@ pub struct AuthorTable {
     /// `members[member_ends[i - 1]..member_ends[i]]`.
     members: Vec<SignatureId>,
     member_ends: Vec<u32>,
+    /// Parallel to the people.
+    traits: Vec<PersonTraits>,
     /// Suspected-but-unmerged groups of people (ADR-0006). Surfaced to the
     /// user as a prompt to write a `.mailmap`, never merged silently.
     pub suspected_duplicates: Vec<Vec<AuthorId>>,
@@ -343,6 +386,7 @@ pub struct AuthorRef<'a> {
     /// Every signature that resolved to this person, so the interface can
     /// show its work.
     pub signatures: &'a [SignatureId],
+    pub traits: PersonTraits,
 }
 
 impl AuthorTable {
@@ -373,8 +417,49 @@ impl AuthorTable {
             t.author_emails.push(a.email.as_bytes());
             t.members.extend_from_slice(&a.signatures);
             t.member_ends.push(t.members.len() as u32);
+            t.traits.push(a.traits);
         }
         t
+    }
+
+    /// A person's addresses, each with the commits made under it over all
+    /// of history, most first: what "merged 3 identities" lists.
+    pub fn addresses_of(&self, person: AuthorId) -> Vec<(String, u32)> {
+        let mut out: Vec<(String, u32)> = Vec::new();
+        for s in self.get(person).map(|a| a.signatures).unwrap_or_default() {
+            let (Some(sig), n) = (self.signature(*s), self.used.get(s.idx()).copied()) else {
+                continue;
+            };
+            let n = n.unwrap_or(0);
+            match out
+                .iter_mut()
+                .find(|(e, _)| e.eq_ignore_ascii_case(sig.email))
+            {
+                Some((_, total)) => *total += n,
+                None => out.push((sig.email.to_string(), n)),
+            }
+        }
+        out.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        out
+    }
+
+    /// `.mailmap` lines that would join a person's addresses in every tool
+    /// that reads the mailmap, under the name and address they are shown
+    /// with.
+    pub fn mailmap_lines(&self, person: AuthorId) -> String {
+        let Some(a) = self.get(person) else {
+            return String::new();
+        };
+        self.addresses_of(person)
+            .into_iter()
+            .filter(|(e, _)| !e.eq_ignore_ascii_case(a.email))
+            .map(|(e, _)| format!("{} <{}> <{e}>\n", a.name, a.email))
+            .collect()
+    }
+
+    /// Whether a person is an automation account. Unknown ids are not.
+    pub fn is_bot(&self, id: AuthorId) -> bool {
+        self.traits.get(id.idx()).is_some_and(|t| t.is_bot())
     }
 
     /// Commits made under each signature over all of history, by id.
@@ -424,6 +509,7 @@ impl AuthorTable {
             name: self.author_names.text(id.idx())?,
             email: self.author_emails.text(id.idx())?,
             signatures: self.members.get(start..end)?,
+            traits: self.traits.get(id.idx()).copied().unwrap_or_default(),
         })
     }
 

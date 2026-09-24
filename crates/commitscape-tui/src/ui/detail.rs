@@ -10,7 +10,7 @@ use super::activity::{draw_calendar, draw_week};
 use super::charts;
 use super::{
     bold, boxed, clip, dot, faint, fit, highlight, many, plain, section, short_phrase, split_path,
-    tile, visible,
+    tile, visible, wrap_spans,
 };
 use crate::app::App;
 use crate::detail::{
@@ -18,6 +18,7 @@ use crate::detail::{
 };
 use crate::format::{ago, bytes, date, days, grouped, most, percent, share, short_date};
 use crate::theme::{self, ACCENT, CRITICAL, MUTED, SERIES};
+use commitscape_core::PersonTraits;
 
 const DAY: i64 = 86_400;
 
@@ -28,6 +29,7 @@ pub(super) fn draw(app: &App, frame: &mut Frame, area: Rect, opened: &mut Opened
         Detail::Directory(d) => directory(app, frame, area, d, &mut opened.scroll),
         Detail::Person(d) => person(app, frame, area, d, &mut opened.scroll),
         Detail::Bucket { age, files } => files_list(
+            app,
             frame,
             area,
             &format!("Files last touched {} ago", age.label()),
@@ -496,22 +498,42 @@ fn person(app: &App, frame: &mut Frame, area: Rect, d: &PersonDetail, scroll: &m
         works,
     );
 
+    let name = app.display_name(d.author);
+    let first = name.split_whitespace().next().unwrap_or("them").to_string();
     let mut lines = Vec::new();
+    let room = usize::from(held.width.saturating_sub(2));
+    let say = |text: String| wrap_spans(vec![faint(text)], room.saturating_sub(1), 1);
+    identities(&mut lines, d, room);
     if d.held.is_empty() {
-        lines.push(Line::from(faint(" No folder rests on them alone.")));
+        lines.push(Line::from(faint(format!(
+            " No folder depends on {first} alone in {span}."
+        ))));
+    } else {
+        lines.extend(say(format!(
+            " In {span}, {first} made over 80% of the commits in these folders. \
+             If {first} left, few others would know them."
+        )));
     }
-    let dir_width = usize::from(held.width.saturating_sub(2))
-        .saturating_sub(24)
-        .max(8);
-    for (dir, part) in &d.held {
+    let dir_width = room.saturating_sub(24).max(8);
+    for (dir, theirs, all) in &d.held {
         lines.push(Line::from(vec![
             Span::styled(" ▲ ", Style::new().fg(CRITICAL)),
             plain(format!(
                 "{:<dir_width$}",
                 fit(super::folder(dir), dir_width)
             )),
-            bold(format!(" {:>4}", percent(*part))),
-            faint(" of its commits"),
+            if theirs == all {
+                bold(format!(
+                    " all {}",
+                    many(u64::from(*all), "commit", "commits")
+                ))
+            } else {
+                bold(format!(
+                    " {} of {} commits",
+                    grouped(u64::from(*theirs)),
+                    grouped(u64::from(*all))
+                ))
+            },
         ]));
     }
     if !d.maybe_also.is_empty() {
@@ -537,10 +559,67 @@ fn person(app: &App, frame: &mut Frame, area: Rect, d: &PersonDetail, scroll: &m
             )));
         }
     }
-    scrolled(frame, held, "Folders that rest on them", lines, scroll);
+    scrolled(frame, held, &format!("About {first}"), lines, scroll);
 }
 
+/// Which addresses a person was joined from, and why, with the key that
+/// undoes it (ADR-0011).
+fn identities(lines: &mut Vec<Line<'static>>, d: &PersonDetail, room: usize) {
+    let kept = d.traits.contains(PersonTraits::KEPT_APART);
+    if d.addresses.len() < 2 && !kept {
+        return;
+    }
+    let why = match (
+        d.traits.contains(PersonTraits::SAME_NAME),
+        d.traits.contains(PersonTraits::SAME_ACCOUNT),
+    ) {
+        (true, true) => " · same full name, same GitHub account",
+        (true, false) => " · same full name",
+        (false, true) => " · same GitHub account",
+        (false, false) => " · the same address, written differently",
+    };
+    if d.addresses.len() >= 2 {
+        lines.push(Line::from(vec![
+            bold(format!(" Merged {} identities", d.addresses.len())),
+            faint(why),
+        ]));
+        let width = room.saturating_sub(18).max(8);
+        for (email, n) in &d.addresses {
+            lines.push(Line::from(vec![
+                plain(format!("   {:<width$}", fit(email, width))),
+                faint(format!(" {:>12}", many(u64::from(*n), "commit", "commits"))),
+            ]));
+        }
+    }
+    if d.traits.merged() {
+        lines.push(Line::from(vec![
+            Span::styled(" u", Style::new().fg(ACCENT)),
+            faint(" undo, or make it permanent in .mailmap:"),
+        ]));
+        for line in d.merge_lines.lines() {
+            lines.push(Line::from(Span::styled(
+                format!("   {line}"),
+                Style::new().fg(ACCENT),
+            )));
+        }
+        lines.push(Line::default());
+    } else if kept {
+        lines.extend(wrap_spans(
+            vec![
+                faint(" You kept these identities apart. "),
+                Span::styled("u", Style::new().fg(ACCENT)),
+                faint(" merges them again."),
+            ],
+            room.saturating_sub(1),
+            1,
+        ));
+        lines.push(Line::default());
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn files_list(
+    app: &App,
     frame: &mut Frame,
     area: Rect,
     title: &str,
@@ -568,7 +647,7 @@ fn files_list(
     };
     let (shown, at) = visible(cursor, files.len(), usize::from(body.height));
     let lines: Vec<Line> = files
-        .get(shown)
+        .get(shown.clone())
         .unwrap_or_default()
         .iter()
         .map(|f| {
@@ -584,4 +663,5 @@ fn files_list(
         .collect();
     frame.render_widget(Paragraph::new(lines), body);
     highlight(frame, body, body.y + at as u16);
+    super::clickable_rows(app, body, shown, 1);
 }

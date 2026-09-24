@@ -43,15 +43,15 @@ pub(super) fn draw(app: &App, frame: &mut Frame, area: Rect, cursor: &mut Cursor
         here.path.clone()
     };
     let colour_name = match app.map.colour {
-        MapColour::Heat => "coloured by commits",
-        MapColour::Age => "coloured by last touch",
+        MapColour::Heat => "coloured by activity",
+        MapColour::Age => "coloured by age",
         MapColour::Owner => "coloured by owner",
     };
     let inner = boxed(
         frame,
         map_area,
         &format!("Map of {title}"),
-        Some(format!("sized by lines · {colour_name} · c to change")),
+        Some(format!("sized by lines · {colour_name}")),
     );
 
     // Every child, even one without lines, so the selection matches what
@@ -84,6 +84,7 @@ pub(super) fn draw(app: &App, frame: &mut Frame, area: Rect, cursor: &mut Cursor
         if rect.width == 0 || rect.height == 0 {
             continue;
         }
+        app.clickable(*rect, crate::app::Click::Row(k));
         // A gap of surface on the right and bottom edges separates
         // neighbours, where there is room for one.
         let gap_x = u16::from(rect.width > 2);

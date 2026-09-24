@@ -14,7 +14,7 @@ pub use ids::{AuthorId, CommitIx, DirId, FileId, PathId, SignatureId};
 pub use index::{
     Author, AuthorRef, AuthorTable, ChangeKind, CommitFlags, CommitKind, CommitMeta, FileChange,
     FileClass, FileHistory, HeadFile, HistorySpan, Index, LineDelta, PathEvent, PathTable,
-    RepoIdentity, Signature, SignatureRef, SCHEMA_VERSION,
+    PersonTraits, RepoIdentity, Signature, SignatureRef, SCHEMA_VERSION,
 };
 pub use oid::Oid;
 pub use time::{civil_from_unix, iso8601, parse_iso8601, Month};

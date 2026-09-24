@@ -343,3 +343,126 @@ fn suspected_duplicates_come_with_the_mailmap_lines_that_would_join_them() {
         "Dana Dev <dana@work.example> <dana@home.example>\n"
     );
 }
+
+#[test]
+fn bots_are_left_out_of_the_people_and_listed_on_their_own() {
+    // alpha/: Alice 3 commits, dependabot 5. Without the bot Alice holds all
+    // of alpha/, so its bus factor is 1 and she is its only owner. The bot's
+    // five commits still happened: the Pulse counts all eight.
+    let idx = index(
+        &[
+            c(1, "alice@x.org", &["alpha/a.rs"]),
+            c(2, "dependabot[bot] <bot@x.org>", &["alpha/a.rs"]),
+            c(3, "dependabot[bot] <bot@x.org>", &["alpha/a.rs"]),
+            c(4, "alice@x.org", &["alpha/a.rs"]),
+            c(5, "dependabot[bot] <bot@x.org>", &["alpha/a.rs"]),
+            c(6, "dependabot[bot] <bot@x.org>", &["alpha/a.rs"]),
+            c(7, "alice@x.org", &["alpha/a.rs"]),
+            c(8, "dependabot[bot] <bot@x.org>", &["alpha/a.rs"]),
+        ],
+        &[h("alpha/a.rs", 10, 2)],
+    );
+    let a = Analysis::new(&idx, Window::all(EPOCH + 9 * DAY), options()).expect("analysis");
+    let name = |id: AuthorId| idx.authors.get(id).map(|p| p.name.to_string());
+
+    let people: Vec<_> = a
+        .contributors()
+        .iter()
+        .map(|c| (name(c.author), c.commits))
+        .collect();
+    assert_eq!(people, vec![(Some("alice@x.org".to_string()), 3)]);
+    let bots: Vec<_> = a
+        .bots()
+        .iter()
+        .map(|c| (name(c.author), c.commits))
+        .collect();
+    assert_eq!(bots, vec![(Some("dependabot[bot]".to_string()), 5)]);
+
+    let alpha = a
+        .ownership()
+        .directories
+        .into_iter()
+        .find(|d| d.dir == b"alpha/")
+        .expect("alpha/ is reported");
+    assert_eq!(alpha.bus_factor, 1);
+    assert_eq!(alpha.commits, 3);
+    let file = idx.head.first().map(|h| h.file).expect("a file");
+    assert_eq!(a.owners_of(file).len(), 1);
+    assert_eq!(a.totals().people, 1);
+    assert_eq!(a.pulse(None).commits, 8);
+}
+
+#[test]
+fn a_folder_held_by_one_person_hides_its_subfolders_held_by_the_same_person() {
+    // app/marketing/: Dev 9 of 10 commits (90%), bus factor 1; its src/
+    // subfolder, 8 of 8 (100%), also Dev's: shown once, as the top folder.
+    // app/api/: Ann 10 of 11 (91%); app/api/v2/, 1 of 1, Bob's: a
+    // different person, so both are listed. app/: Dev 9, Pat 1, Ann 10 and
+    // Bob 1 of 21, bus factor 2, so not listed at all.
+    let mut commits = Vec::new();
+    for day in 0..8 {
+        commits.push(c(day, "dev@x.org", &["app/marketing/src/page.ts"]));
+    }
+    commits.push(c(8, "dev@x.org", &["app/marketing/index.ts"]));
+    commits.push(c(9, "pat@x.org", &["app/marketing/index.ts"]));
+    for day in 10..20 {
+        commits.push(c(day, "ann@x.org", &["app/api/server.ts"]));
+    }
+    commits.push(c(20, "bob@x.org", &["app/api/v2/routes.ts"]));
+    let idx = index(
+        &commits,
+        &[
+            h("app/marketing/src/page.ts", 10, 2),
+            h("app/marketing/index.ts", 10, 2),
+            h("app/api/server.ts", 10, 2),
+            h("app/api/v2/routes.ts", 10, 2),
+        ],
+    );
+    let a = Analysis::new(&idx, Window::all(EPOCH + 30 * DAY), options()).expect("analysis");
+    let mut held: Vec<String> = a
+        .ownership()
+        .held_alone()
+        .iter()
+        .map(|d| d.label())
+        .collect();
+    held.sort();
+    assert_eq!(held, vec!["app/api/", "app/api/v2/", "app/marketing/"]);
+}
+
+#[test]
+fn what_someone_works_on_leaves_out_manifests_and_lockfiles() {
+    // Dev touched package.json in every one of four commits, Cargo.toml and
+    // go.mod in one each: dependency bumps, not work on the code. What is
+    // left is src/app.ts, three commits, and src/lib.rs, one. (No commit
+    // passes the three-file bulk line.)
+    let idx = index(
+        &[
+            c(0, "dev@x.org", &["package.json", "src/app.ts"]),
+            c(
+                1,
+                "dev@x.org",
+                &["package.json", "src/app.ts", "Cargo.toml"],
+            ),
+            c(2, "dev@x.org", &["package.json", "src/app.ts"]),
+            c(3, "dev@x.org", &["package.json", "go.mod", "src/lib.rs"]),
+        ],
+        &[
+            h("package.json", 30, 2),
+            h("Cargo.toml", 20, 1),
+            h("go.mod", 10, 1),
+            h("src/app.ts", 100, 3),
+            h("src/lib.rs", 50, 3),
+        ],
+    );
+    let a = Analysis::new(&idx, Window::all(EPOCH + 5 * DAY), options()).expect("analysis");
+    let dev = a.contributors().first().map(|c| c.author).expect("dev");
+    let work: Vec<_> = a
+        .work_of(dev)
+        .iter()
+        .map(|w| (path(&idx, w.file), w.commits))
+        .collect();
+    assert_eq!(
+        work,
+        vec![("src/app.ts".to_string(), 3), ("src/lib.rs".to_string(), 1)]
+    );
+}

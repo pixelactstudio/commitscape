@@ -278,7 +278,7 @@ gate for each phase.
 | Phase | What | Status |
 |---|---|---|
 | 13 | Remove everything AI-related, end to end | **DONE**: no agent or AI term in the UI, JSON, card, help or glossary; cache schema 8; JSON schema 2 |
-| 14 | Trust fixes: identity merging (ADR-0011), `w` keeps your place, mouse, review fixes | not started |
+| 14 | Trust fixes: identity merging (ADR-0011), `w` keeps your place, mouse, review fixes | **DONE**: maihs one Dev Talan and one Ryan, pixelactstudio one Dev Talan; render tests for each fix |
 | 15 | Line counts in a background pass (new ADR amending ADR-0004); People contribution views | not started |
 | 16 | Terminal UI: nine screens to five, themes, Kinds of work from files, unusual facts only; then frozen | not started |
 | 17 | GitHub, deeper: full PR, issue, review and release history, incremental (amends ADR-0009) | not started |
@@ -668,6 +668,68 @@ What the first Window cost on Linux, measured part by part: the Map 61 to
 3. **Bots were never grouped before.** The review's "still grouped as bots"
    lands with identity in Phase 14 (ADR-0011); nothing about bots was
    removed here.
+
+## Phase 14 findings
+
+1. **Identity follows ADR-0011.** `identity::resolve_authors` takes
+   `IdentityRules`: the mailmap, GitHub accounts by address, and the undos.
+   Rules 1 to 3 group Signatures by an address key; rules 4 and 5 join
+   groups with a union-find that records why (`PersonTraits::SAME_ACCOUNT`,
+   `SAME_NAME`) and refuses to join groups that came out of one undo.
+2. **Rule 3 keys on GitHub's account number.** maihs has Ryan under
+   `46247385+ryandev2@` and `46247385+RyanLandDev@`: one account, renamed.
+   The old rule keyed on the login and kept them apart. A bare
+   `login@users.noreply.github.com` takes the number another Signature
+   gives that login.
+3. **Rule 4 needed GitHub in this phase, not Phase 17.** Ryan's Hotmail and
+   university addresses join his account only through GitHub. The forge
+   asks who authored up to three recent commits per address, in batches of
+   a hundred (`forge::accounts`), after all of history is loaded; maihs's
+   13 addresses took 2.3 s, once. Answers, misses included, are kept in the
+   identity store so an address is asked about once.
+4. **The identity store** (`cache::IdentityStore`) is two text files in
+   the repository's cache directory: `accounts` and `kept-apart`. Their
+   fingerprint, with the mailmap's and `identity::RULES_VERSION`, decides
+   re-resolution, so a link, an undo or a rule change re-resolves people
+   on the next warm load without reading history. Cache schema 9 stores
+   each person's traits.
+5. **On real repositories** (all of history): pixelactstudio shows one Dev
+   Talan, 1,046 commits. maihs shows one Dev Talan, 2,306 commits, and one
+   Ryan, 545, with "RyanLand" (65) suggested, not merged: GitHub links
+   `ryanlandofficial@hotmail.com` to no account, and a one-word name that
+   equals an old login is a weak signal (now a suggestion). IDEA.md's 984
+   for Dev Talan is `git log HEAD` with merges; the tool counts every
+   branch and leaves merges out (both addresses: 2,306; `git rev-list
+   --no-merges` over the same refs agrees).
+6. **Bots** (`[bot]`, `-bot`, `… Bot`, and a short list such as
+   `github-actions` and `bors`) are people with `PersonTraits::BOT`.
+   `Analysis::person_of` returns no one for them, so Ownership, Bus Factor,
+   owners of a file and the Map's owners leave them out; `contributors()`
+   and `bots()` split the list. Their commits still count as activity.
+7. **`--json` resolves from the repository alone**: when the store holds
+   links or undos, the document re-resolves without them, so it stays the
+   same on every machine.
+8. **The trust fixes.** `w` re-opens every open detail over the new Window
+   once its findings arrive (`Target::among`), stopping at one the new
+   Window lacks. The mouse clicks tabs, Windows, rows and Map blocks and the
+   wheel scrolls, through targets each frame records. `Ownership::held_alone`
+   drops a folder whose parent the same person holds; the Overview, the
+   profile and the summary use it. `metrics::role_of` names dependency
+   manifests and lockfiles, which "Works on" leaves out. The profile says
+   "In 90 days, Alice made over 80% of the commits in these folders. If
+   Alice left, few others would know them" and "30 of 34 commits". The
+   Map's footer says "c colour by: activity / age / owner" with the current
+   one bold.
+9. **First paint, warm, after this phase** (`cargo xtask bench --filter
+   first-paint`, n=20, nothing else running): rust-lang/rust median
+   53.5 ms (min 49.9, max 70.3), Linux 69.5 ms (min 67.2, max 76.6). A first
+   run with a build going on beside it measured 79 ms for rust-lang/rust,
+   so these numbers need a quiet machine.
+10. **Merges are shown on the profile**: "Merged 2 identities · same full
+   name", each address with its commits, `u` to undo or redo, and the
+   `.mailmap` lines that would make it permanent. The lines are shown, not
+   written: the repository is the owner's, and the user's repositories here
+   are read-only.
 
 ## Decisions made during implementation, not in any ADR
 

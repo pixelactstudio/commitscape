@@ -53,8 +53,10 @@
 //! - Code Age: 2023-Q3 `core.rs` 210, `parser.rs` 120 and `old.rs` 60 lines
 //!   (390); 2024-Q1 `strings.rs` 30; 2024-Q2 `handlers.ts` 80 and
 //!   `client.ts` 42 (122).
+//! - Bob's fix of `handlers.ts` 11 days ago came from his laptop, under his
+//!   full name: one person, "merged 2 identities".
 //! - One group of people who may be one person: Alice (35 commits) and
-//!   Alice at home (3).
+//!   `alice` at home (3), who share the email name `alice`.
 //!
 //! Rhythm. Alice commits at 10:00, Bob at 21:00 and Carol at 15:00, all in
 //! UTC. Alice's commits that touch `parser.rs` say `feat(engine): ...` and
@@ -77,13 +79,17 @@
 #![allow(dead_code, clippy::expect_used)]
 
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 
 use commitscape_core::{Index, Oid};
 use commitscape_forge::{GitHub, Issue, PrState, PullRequest, Release};
+use commitscape_index::identity::keys_of;
 use commitscape_index::source::RawChangeKind::{self, Added, Modified};
-use commitscape_index::{index_from_scratch, load, CacheOptions, ScriptedRepo, Since};
+use commitscape_index::{
+    index_from_scratch, load, resolve_authors, CacheOptions, IdentityRules, ScriptedRepo, Since,
+};
 use commitscape_metrics::{Options, Span};
-use commitscape_tui::{App, Command, Event, LoadOlder, Session};
+use commitscape_tui::{App, ChangePeople, Command, Event, LoadOlder, PeopleChange, Session};
 use ratatui::backend::TestBackend;
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 use ratatui::Terminal;
@@ -96,7 +102,9 @@ pub const WIDTH: u16 = 110;
 pub const HEIGHT: u16 = 26;
 
 const ALICE: (&str, &str) = ("Alice Example", "alice@example.com");
-const ALICE_HOME: (&str, &str) = ("Alice Example", "alice@home.example.net");
+const ALICE_HOME: (&str, &str) = ("alice", "alice@home.example.net");
+/// Bob's laptop: the same full name, so joined to Bob (ADR-0011).
+const BOB_LAPTOP: (&str, &str) = ("Bob Builder", "bob@laptop.example.net");
 const BOB: (&str, &str) = ("Bob Builder", "bob@example.com");
 const CAROL: (&str, &str) = ("Carol Coder", "carol@example.com");
 
@@ -119,7 +127,7 @@ struct Script {
 fn hour_of(who: (&str, &str)) -> i64 {
     match who.1 {
         "alice@example.com" => 10,
-        "bob@example.com" => 21,
+        "bob@example.com" | "bob@laptop.example.net" => 21,
         "carol@example.com" => 15,
         _ => 23,
     }
@@ -229,7 +237,7 @@ pub fn acme() -> ScriptedRepo {
         ));
     }
     recent.push((20, BOB, vec![CLIENT], "fix(web): retry on timeout"));
-    recent.push((11, BOB, vec![HANDLERS], "fix(api): validate input"));
+    recent.push((11, BOB_LAPTOP, vec![HANDLERS], "fix(api): validate input"));
     for day in [45, 35, 26, 15] {
         recent.push((day, CAROL, vec![CORE], "refactor(engine): simplify"));
     }
@@ -299,7 +307,12 @@ pub fn options() -> Options {
 
 /// `acme` with all of its history loaded.
 pub fn session(span: Span) -> Session {
-    let index = match index_from_scratch(&acme()) {
+    session_of(acme(), span)
+}
+
+/// Any repository with all of its history loaded, anchored where `acme` is.
+pub fn session_of(repo: ScriptedRepo, span: Span) -> Session {
+    let index = match index_from_scratch(&repo) {
         Ok(index) => index,
         Err(never) => match never {},
     };
@@ -311,6 +324,8 @@ pub fn session(span: Span) -> Session {
         options: options(),
         older: None,
         github: Err("not asked in tests".to_string()),
+        people: Some(people()),
+        link_accounts: None,
     }
 }
 
@@ -340,7 +355,34 @@ pub fn sliced(span: Span, dir: &Path) -> Session {
         options: options(),
         older,
         github: Err("not asked in tests".to_string()),
+        people: Some(people()),
+        link_accounts: None,
     }
+}
+
+/// Undoes and redoes merges as the binary does, keeping the undos in
+/// memory rather than in a cache directory.
+pub fn people() -> ChangePeople {
+    let kept: Arc<Mutex<Vec<Vec<String>>>> = Arc::default();
+    Arc::new(move |table, change| {
+        let mut kept = kept.lock().ok()?;
+        let rules = |kept: &[Vec<String>]| IdentityRules {
+            kept_apart: kept.to_vec(),
+            ..IdentityRules::default()
+        };
+        match change {
+            PeopleChange::Undo(p) => {
+                let keys = keys_of(table, p, &rules(&kept));
+                kept.push(keys);
+            }
+            PeopleChange::Redo(p) => {
+                let keys = keys_of(table, p, &rules(&kept));
+                kept.retain(|g| !g.iter().any(|k| keys.contains(k)));
+            }
+        }
+        let (signatures, used) = table.clone().into_signatures();
+        Some(resolve_authors(signatures, used, &rules(&kept)))
+    })
 }
 
 /// The screen, as text.
@@ -373,6 +415,34 @@ pub fn press(app: &mut App, keys: &[KeyCode]) {
         let commands = press_only(app, *key);
         settle(app, commands);
     }
+}
+
+/// Clicks where `label` is drawn on the screen as it is now: the first
+/// row showing it, at the label's first character. Work the click starts
+/// is done before this returns.
+pub fn click(app: &mut App, label: &str) {
+    let shown = screen(app);
+    let (row, column) = shown
+        .lines()
+        .enumerate()
+        .find_map(|(y, line)| {
+            let line = line.trim_matches('"');
+            line.find(label).map(|x| (y, line[..x].chars().count()))
+        })
+        .expect("the label is on the screen");
+    let event = ratatui::crossterm::event::MouseEvent {
+        kind: ratatui::crossterm::event::MouseEventKind::Down(
+            ratatui::crossterm::event::MouseButton::Left,
+        ),
+        column: column as u16,
+        row: row as u16,
+        modifiers: ratatui::crossterm::event::KeyModifiers::NONE,
+    };
+    let commands = match Event::mouse(event) {
+        Some(e) => app.update(e),
+        None => Vec::new(),
+    };
+    settle(app, commands);
 }
 
 /// Presses a key and returns the work it started, not yet run.

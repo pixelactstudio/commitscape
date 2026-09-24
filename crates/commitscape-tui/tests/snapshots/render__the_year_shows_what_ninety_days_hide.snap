@@ -1,6 +1,5 @@
 ---
 source: crates/commitscape-tui/tests/render.rs
-assertion_line: 240
 expression: screen(&mut app)
 ---
 " commitscape   acme   58 commits · 4 people · since 31 Jul 2023                    window  30d  90d  1y  all  "
@@ -9,9 +8,9 @@ expression: screen(&mut app)
 " Who made the commits under each folder. The bus factor is the fewest people who together made more than 80%  "
 " of them: ▲ 1 means one person leaving would take most of what anyone knows about it.                         "
 "╭ Ownership ─────────────────────────────── 1 of 3 folders rest on one person · 10 or more commits in 1 year ╮"
-"│▌src/engine/                          ████████████████  ▲ 1 person  Alice Example (example.…  81% of 37     │"
-"│ src/                                 ████████████████  ● 2 people  Alice Example (example.…  67% of 46     │"
-"│ whole project                        ████████████████  ● 3 people  Alice Example (example.…  61% of 51     │"
+"│▌src/engine/                          ████████████████  ▲ 1 person  Alice Example             81% of 37     │"
+"│ src/                                 ████████████████  ● 2 people  Alice Example             67% of 46     │"
+"│ whole project                        ████████████████  ● 3 people  Alice Example             61% of 51     │"
 "│                                                                                                            │"
 "│                                                                                                            │"
 "│                                                                                                            │"

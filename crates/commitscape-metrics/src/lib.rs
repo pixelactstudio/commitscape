@@ -15,6 +15,7 @@ mod coupling;
 mod languages;
 mod people;
 mod pulse;
+mod roles;
 mod window;
 
 pub use ages::{Age, AgeCount, QuarterAge, StaleFile, Staleness};
@@ -27,4 +28,5 @@ pub use coupling::{ChangesetSizes, CoupledPair, Coupling, SizeBucket};
 pub use languages::{Language, Languages};
 pub use people::{Contributor, DirectoryOwnership, Owner, Ownership, SuspectedDuplicate};
 pub use pulse::{KindCount, Pulse, Streak};
+pub use roles::{role_of, Role};
 pub use window::{Span, Window};

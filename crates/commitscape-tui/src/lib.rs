@@ -17,7 +17,7 @@ mod ui;
 use std::io;
 use std::sync::mpsc::{self, Sender};
 
-use commitscape_core::Index;
+use commitscape_core::{AuthorId, AuthorTable, Index};
 use commitscape_forge::GitHub;
 use commitscape_metrics::{Options, Span};
 use ratatui::backend::TestBackend;
@@ -25,6 +25,7 @@ use ratatui::buffer::Buffer;
 use ratatui::Terminal;
 
 pub use app::{App, Command, Event};
+
 pub use export::svg;
 pub use theme::truecolor;
 
@@ -36,6 +37,25 @@ pub type LoadOlder = Box<dyn FnOnce(&Index) -> Option<Index> + Send>;
 /// Asks GitHub about the repository. Called once, off the main thread,
 /// after the first frame. The error says why there is nothing to show.
 pub type LoadGitHub = Box<dyn FnOnce() -> Result<GitHub, String> + Send>;
+
+/// A change to who is who, asked for from a person's profile (ADR-0011).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PeopleChange {
+    /// Split a merged person back into the identities they were joined from.
+    Undo(AuthorId),
+    /// Join again the identities an undo split.
+    Redo(AuthorId),
+}
+
+/// Makes a [`PeopleChange`] and returns everyone re-resolved, or `None`
+/// when it could not be made. Keeps the change where the next run finds it.
+pub type ChangePeople =
+    std::sync::Arc<dyn Fn(&AuthorTable, PeopleChange) -> Option<AuthorTable> + Send + Sync>;
+
+/// Asks GitHub which accounts the index's commits belong to, and returns
+/// everyone re-resolved when that joined anyone. Called once, off the main
+/// thread, with all of history.
+pub type LinkAccounts = Box<dyn FnOnce(&Index) -> Option<AuthorTable> + Send>;
 
 /// What the interface opens on.
 pub struct Session {
@@ -53,6 +73,10 @@ pub struct Session {
     pub older: Option<LoadOlder>,
     /// How to ask GitHub about the repository, or why it will not be asked.
     pub github: Result<LoadGitHub, String>,
+    /// How to undo a merge of identities, if it can be kept anywhere.
+    pub people: Option<ChangePeople>,
+    /// How to link commits to GitHub accounts, if GitHub can be asked.
+    pub link_accounts: Option<LinkAccounts>,
 }
 
 /// A repository's story on one card, to share: the Overview's picture of
@@ -90,6 +114,10 @@ fn in_terminal(session: Session, once: bool) -> io::Result<()> {
         }
     };
     let mut terminal = ratatui::try_init()?;
+    // Clicks and the wheel. Holding Shift still selects text in most
+    // terminals.
+    let _ =
+        ratatui::crossterm::execute!(io::stdout(), ratatui::crossterm::event::EnableMouseCapture);
     let result = (|| {
         terminal.draw(|frame| draw(&mut app, frame))?;
         if once {
@@ -118,6 +146,8 @@ fn in_terminal(session: Session, once: bool) -> io::Result<()> {
         }
         Ok(())
     })();
+    let _ =
+        ratatui::crossterm::execute!(io::stdout(), ratatui::crossterm::event::DisableMouseCapture);
     ratatui::restore();
     result
 }

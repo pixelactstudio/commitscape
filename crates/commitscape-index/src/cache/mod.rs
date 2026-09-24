@@ -14,6 +14,7 @@
 //!   an error the user sees.
 
 mod format;
+mod identity_store;
 mod location;
 
 use std::ops::ControlFlow;
@@ -23,11 +24,12 @@ use commitscape_core::{CommitMeta, FileChange, Index, Month, RepoIdentity};
 
 use crate::build::IndexBuilder;
 use crate::head_pass::{head_pass, ClassifyContext, Previous as PreviousHead};
-use crate::mailmap::Mailmap;
+use crate::identity::IdentityRules;
 use crate::reresolve_authors;
 use crate::source::{CommitSink, RawChange, RawCommit, RepoSource};
 use format::{BlockEntry, Head, Previous, SortedIds, Unusable};
 
+pub use identity_store::IdentityStore;
 pub use location::default_cache_root;
 
 /// Where to keep the cache.
@@ -171,7 +173,8 @@ pub fn load<S: RepoSource>(
 ) -> Result<Loaded, S::Error> {
     let identity = source.identity()?;
     let Some(root) = options.root.as_deref() else {
-        let (index, _) = build(source, identity, source.mailmap()?, progress)?;
+        let rules = IdentityRules::from_mailmap(source.mailmap()?);
+        let (index, _) = build(source, identity, rules, progress)?;
         return Ok(Loaded::complete(
             index,
             Freshness::Built {
@@ -183,12 +186,22 @@ pub fn load<S: RepoSource>(
     // Before any walk: if refs move during it, the next run sees a
     // different fingerprint and resumes rather than trusting this one.
     let fingerprint = source.refs_fingerprint()?;
-    let mailmap_fingerprint = source.mailmap_fingerprint()?;
+    // People are resolved from the mailmap and the identity store together,
+    // so a change to either re-resolves them.
+    let store = IdentityStore::in_dir(&dir);
+    let stored = store.rules(crate::mailmap::Mailmap::default());
+    let mailmap_fingerprint = {
+        let mut h = xxhash_rust::xxh3::Xxh3::new();
+        h.update(&source.mailmap_fingerprint()?.to_le_bytes());
+        h.update(&stored.extras_fingerprint().to_le_bytes());
+        h.digest()
+    };
     let ctx = Context {
         dir: &dir,
         identity,
         fingerprint,
         mailmap_fingerprint,
+        stored,
     };
 
     let head = match format::read_head(&dir) {
@@ -206,14 +219,14 @@ pub fn load<S: RepoSource>(
     // HEAD table is classified again, and history is kept.
     let reclassify = head.classify.version != crate::classify::CLASSIFIER_VERSION;
     if head.refs_fingerprint == fingerprint && !reclassify {
-        // Only a changed mailmap needs reading; an unchanged one is already
-        // applied in the cached author table.
-        let mailmap = if head.mailmap_fingerprint == mailmap_fingerprint {
+        // Only changed rules need reading; unchanged ones are already applied
+        // in the cached author table.
+        let rules = if head.mailmap_fingerprint == ctx.mailmap_fingerprint {
             None
         } else {
-            Some(source.mailmap()?)
+            Some(ctx.rules(source)?)
         };
-        let r = warm(&ctx, head, since, mailmap.as_ref());
+        let r = warm(&ctx, head, since, rules.as_ref());
         return match r {
             Ok(loaded) => Ok(loaded),
             Err(_) => rebuild(source, ctx, RebuildReason::Unreadable, progress),
@@ -227,7 +240,21 @@ struct Context<'a> {
     dir: &'a Path,
     identity: RepoIdentity,
     fingerprint: u64,
+    /// The mailmap's and the identity store's, together.
     mailmap_fingerprint: u64,
+    /// The identity store's contents, with an empty mailmap.
+    stored: IdentityRules,
+}
+
+impl Context<'_> {
+    /// The rules people are resolved with: the repository's mailmap and what
+    /// the identity store holds.
+    fn rules<S: RepoSource>(&self, source: &S) -> Result<IdentityRules, S::Error> {
+        Ok(IdentityRules {
+            mailmap: source.mailmap()?,
+            ..self.stored.clone()
+        })
+    }
 }
 
 /// Indexes from scratch: every commit, then every file at HEAD. Returns the
@@ -235,10 +262,10 @@ struct Context<'a> {
 fn build<S: RepoSource>(
     source: &S,
     identity: RepoIdentity,
-    mailmap: Mailmap,
+    rules: IdentityRules,
     progress: &mut dyn FnMut(Progress),
 ) -> Result<(Index, ClassifyContext), S::Error> {
-    let mut builder = IndexBuilder::new(mailmap);
+    let mut builder = IndexBuilder::new(rules);
     let stats = source.walk_history(
         &std::collections::HashSet::new(),
         &mut Reporting {
@@ -261,7 +288,7 @@ fn rebuild<S: RepoSource>(
     reason: RebuildReason,
     progress: &mut dyn FnMut(Progress),
 ) -> Result<Loaded, S::Error> {
-    let (index, classify) = build(source, ctx.identity.clone(), source.mailmap()?, progress)?;
+    let (index, classify) = build(source, ctx.identity.clone(), ctx.rules(source)?, progress)?;
     let head = format::head_of(&index, ctx.fingerprint, ctx.mailmap_fingerprint, classify);
     // A cache that cannot be written is a slower next run, not an error.
     let _ = format::write(format::Writing {
@@ -328,7 +355,7 @@ fn warm(
     ctx: &Context<'_>,
     head: Head,
     since: Since,
-    changed_mailmap: Option<&Mailmap>,
+    changed_rules: Option<&IdentityRules>,
 ) -> Result<Loaded, Unusable> {
     let (first, loaded_from) = first_block(&head.blocks, resolve_since(since, head.span.newest));
     let decoded = format::read_blocks(
@@ -341,7 +368,7 @@ fn warm(
         data_file: head.data_file.clone(),
         blocks: head.blocks.get(..first).unwrap_or(&[]).to_vec(),
     };
-    let previous = changed_mailmap.map(|_| PreviousParts {
+    let previous = changed_rules.map(|_| PreviousParts {
         data_file: head.data_file.clone(),
         blocks: head.blocks.clone(),
         id_runs: head.id_runs.clone(),
@@ -350,8 +377,8 @@ fn warm(
     let classify = head.classify.clone();
 
     let mut index = index_from(head, decoded.commits, decoded.changes, loaded_from);
-    if let (Some(mailmap), Some(previous)) = (changed_mailmap, previous) {
-        reresolve_authors(&mut index, mailmap);
+    if let (Some(rules), Some(previous)) = (changed_rules, previous) {
+        reresolve_authors(&mut index, rules);
         // Only the author table changed, so only a new head is written; the
         // history it points at is untouched. Failing to save only costs the
         // next run another re-resolve.
@@ -424,7 +451,7 @@ fn resume<S: RepoSource>(
         };
     let base = index_from(head, decoded.commits, decoded.changes, loaded_from);
 
-    let mut builder = IndexBuilder::resume(base, source.mailmap()?);
+    let mut builder = IndexBuilder::resume(base, ctx.rules(source)?);
     let stats = source.walk_history(
         &indexed,
         &mut Reporting {

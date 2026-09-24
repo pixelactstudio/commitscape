@@ -52,9 +52,11 @@ well under a tenth of a second.
 | `↑` `↓`, `j` `k`, PgUp, PgDn, Home, End | Move through a list |
 | Enter | Open what is selected: a file, a pair of files, a folder, a person |
 | Esc | Go back |
-| `w`, `W` | Step the Window: 30 days, 90 days, a year, all of history |
+| `w`, `W` | Step the Window: 30 days, 90 days, a year, all of history. What is open stays open |
 | `/` | Find a file, folder or person in a list |
-| `c` | Change the Map's colours |
+| `c` | Colour the Map by activity, age or owner |
+| `u` | On a person: undo a merge of their identities, or redo it |
+| Mouse | Click a screen, a Window, a row or a Map block; the wheel scrolls |
 | `?` | Help: what the screen shows and what every word means |
 | `q` | Quit |
 

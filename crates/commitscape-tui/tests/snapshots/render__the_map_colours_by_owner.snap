@@ -1,12 +1,11 @@
 ---
 source: crates/commitscape-tui/tests/render.rs
-assertion_line: 136
 expression: screen(&mut app)
 ---
 " commitscape   acme   58 commits · 4 people · since 31 Jul 2023                    window  30d  90d  1y  all  "
 " 1 Overview   2 Activity   3 People   4 Map   5 Hotspots   6 Coupling   7 Ownership   8 Age   9 GitHub        "
 "──────────────────────────────────────━━━━━───────────────────────────────────────────────────────────────────"
-"╭ Map of acme ───────────────────────────────────────────── sized by lines · coloured by owner · c to change ╮"
+"╭ Map of acme ─────────────────────────────────────────────────────────── sized by lines · coloured by owner ╮"
 "│┏ src/  500 lines ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓  web/    │"
 "│┃ engine/                                                        api/            legacy/         ┃  42 lin… │"
 "│┃ 330 lines                                                      80 lines        60 lines        ┃          │"
@@ -25,7 +24,7 @@ expression: screen(&mut app)
 "│                                                                                                    docs/   │"
 "╰────────────────────────────────────────────────────────────────────────────────────────────────────────────╯"
 " src/   500 lines in 5 files · 92% of the code   enter to go in                                               "
-" 41 commits in 90 days · last touched 1 day ago · 73% by ● Alice Example (example.com)                        "
-" who made most of its commits: ● Alice Example (example.com)  ● Bob Builder  ● Carol Coder  ● nobody in this …"
+" 41 commits in 90 days · last touched 1 day ago · 73% by ● Alice Example                                      "
+" who made most of its commits: ● Alice Example  ● Bob Builder  ● Carol Coder  ● nobody in this window         "
 "                                                                                                              "
-" ↑↓ move  enter open  ←→ panels  w window  c colour  ? help  q quit                                           "
+" ↑↓ move  enter open  ←→ panels  w window  c colour by: activity / age / owner  ? help  q quit                "

@@ -1,6 +1,5 @@
 ---
 source: crates/commitscape-tui/tests/render.rs
-assertion_line: 89
 expression: screen(&mut app)
 ---
 " commitscape   acme   58 commits · 4 people · since 31 Jul 2023                    window  30d  90d  1y  all  "
@@ -20,7 +19,7 @@ expression: screen(&mut app)
 " wrong.                                                      │ 2025-06-20  000000350  Alice Example          │"
 "                                                             │ 2025-06-17  000000320  Alice Example          │"
 " Who changed it in 90 days                                   │ 2025-06-15  000000310  Carol Coder            │"
-" ● Alice Example (example.co… ████████████████    30  88%    │ 2025-06-14  000000300  Alice Example          │"
+" ● Alice Example              ████████████████    30  88%    │ 2025-06-14  000000300  Alice Example          │"
 " ● Carol Coder                ██▎                  4  12%    │ 2025-06-11  0000002f0  Alice Example          │"
 "                                                             │ 2025-06-08  0000002d0  Alice Example          │"
 " Changes together with                                       │ 2025-06-05  0000002b0  Alice Example          │"

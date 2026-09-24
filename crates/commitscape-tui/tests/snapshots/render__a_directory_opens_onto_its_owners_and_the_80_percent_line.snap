@@ -1,6 +1,5 @@
 ---
 source: crates/commitscape-tui/tests/render.rs
-assertion_line: 103
 expression: screen(&mut app)
 ---
 " commitscape   acme   58 commits · 4 people · since 31 Jul 2023                    window  30d  90d  1y  all  "
@@ -13,7 +12,7 @@ expression: screen(&mut app)
 "│ ████████████████████████████████████████████████████████████████████████████████████████████████████████   │"
 "│                                                                                                            │"
 "│ person                   email                           commits  share  running                           │"
-"│ ● Alice Example (exampl… alice@example.com                    30    88%      88%   past 80%                │"
+"│ ● Alice Example          alice@example.com                    30    88%      88%   past 80%                │"
 "│ ● Carol Coder            carol@example.com                     4    12%     100%                           │"
 "│                                                                                                            │"
 "│                                                                                                            │"
