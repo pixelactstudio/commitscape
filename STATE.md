@@ -281,7 +281,7 @@ gate for each phase.
 | 14 | Trust fixes: identity merging (ADR-0011), `w` keeps your place, mouse, review fixes | **DONE**: maihs one Dev Talan and one Ryan, pixelactstudio one Dev Talan; render tests for each fix |
 | 15 | Line counts in a background pass (new ADR amending ADR-0004); People contribution views | **DONE**: ADR-0012; rust-lang/rust 53 s and Linux 195 s cold, background; hand-worked `lines` fixture |
 | 16 | Terminal UI: nine screens to five, themes, Kinds of work from files, unusual facts only; then frozen | **DONE**: snapshots of all five screens; first paint 52.0 ms rust-lang/rust, 69.6 ms Linux; frozen |
-| 17 | GitHub, deeper: full PR, issue, review and release history, incremental (amends ADR-0009) | not started |
+| 17 | GitHub, deeper: full PR, issue, review and release history, incremental (amends ADR-0009) | **DONE**: t3code and maihs fetched; t3code resumed after an interruption |
 | 18 | Browser UI foundation (ADR-0010): server, API, generated types, token, default choice, SSH | not started |
 | 19 | Browser screens, filters, themes, PNG card, `commitscape report` | not started |
 | 20 | `check` plus its GitHub Action, `who`, `health` | not started |
@@ -838,6 +838,32 @@ What the first Window cost on Linux, measured part by part: the Map 61 to
    (found by timing the Phase 15 binary beside this one).
 7. **The terminal interface is frozen** from here: bug fixes only. New
    features go to the browser and the command line.
+
+## Phase 17 findings
+
+1. **`forge::history`** reads every pull request (with reviews and who
+   merged it), issue (with its first answer from someone else) and
+   release, a hundred to a page, in the order things last changed, and
+   saves after every page in `github.json` beside the cache. ADR-0009 is
+   amended with the design and these numbers.
+2. **The page fetcher is a parameter,** so the tests serve pages written
+   by hand: pages become records, an interrupted fetch resumes at the
+   saved cursor, and a later fetch replaces a record that changed.
+3. **Measured:** maihs (`MHS-Media-Software/maihs-software`, 319 pull
+   requests) 9.9 s the first time; pingdotgg/t3code (9,294 pull requests,
+   3,255 issues, 574 releases) 349 s the first time and 2.3 s with nothing
+   new, 4.4 MB saved. A page costs one point of the 5,000 an hour, so time,
+   not the rate limit, is what a big repository's first fetch runs out of.
+4. **The resume gate:** t3code's fetch killed after 60 s had saved 2,300
+   pull requests; the next run finished in 284 s with the same totals as a
+   fetch that was never stopped.
+5. **`commitscape github [repo]`** runs the fetch now, with progress, and
+   says what is known and whether it stopped early. The browser (Phase 18)
+   runs it in the background. The terminal interface, frozen, keeps the
+   latest-hundred sample.
+6. **Commits are linked to accounts by address** since Phase 14 (ADR-0011's
+   rule 4); the history's logins are mapped to people through the same
+   identity store.
 
 ## Decisions made during implementation, not in any ADR
 

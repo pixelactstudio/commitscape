@@ -76,6 +76,21 @@ struct Cli {
 enum Command {
     /// Draw the repository's story on a card to share, as an SVG image.
     Card(CardArgs),
+    /// Fetch the repository's pull requests, issues and releases from GitHub
+    /// now, through the gh CLI. The interface does this in the background;
+    /// a fetch that stops, at GitHub's rate limit say, resumes next time.
+    Github(GithubArgs),
+}
+
+#[derive(Args)]
+struct GithubArgs {
+    /// Path to the repository. Defaults to the current directory.
+    #[arg(default_value = ".")]
+    repo: PathBuf,
+
+    /// Where to keep the index cache and what is fetched beside it.
+    #[arg(long, value_name = "DIR")]
+    cache_dir: Option<PathBuf>,
 }
 
 #[derive(Args)]
@@ -168,8 +183,10 @@ fn main() -> ExitCode {
 }
 
 fn run(cli: Cli) -> anyhow::Result<()> {
-    if let Some(Command::Card(args)) = cli.command {
-        return card(args);
+    match cli.command {
+        Some(Command::Card(args)) => return card(args),
+        Some(Command::Github(args)) => return github_history(args),
+        None => {}
     }
     let repo = GixRepo::open(&cli.repo)?;
     let options = cli.common.cache();
@@ -296,6 +313,66 @@ fn card(args: CardArgs) -> anyhow::Result<()> {
         .unwrap_or_else(|| PathBuf::from(format!("{name}-card.svg")));
     std::fs::write(&out, commitscape_tui::svg(&commitscape_tui::card(session)))?;
     println!("wrote {}", out.display());
+    Ok(())
+}
+
+/// Fetches what is new on GitHub and says what is known.
+fn github_history(args: GithubArgs) -> anyhow::Result<()> {
+    use commitscape_forge::history::History;
+    let repo = GixRepo::open(&args.repo)?;
+    let url = repo
+        .remote_url()
+        .ok_or_else(|| anyhow::anyhow!("this repository has no remote"))?;
+    let remote = Remote::parse(&url)
+        .ok_or_else(|| anyhow::anyhow!("its remote is not on GitHub ({url})"))?;
+    let options = CacheOptions {
+        root: args.cache_dir.or_else(default_cache_root),
+    };
+    let identity = repo.identity()?;
+    let path = commitscape_index::repo_dir(&options, &identity)
+        .ok_or_else(|| anyhow::anyhow!("there is no cache directory to keep it in"))?
+        .join("github.json");
+    let mut history = History::load(&path);
+    let live = std::io::stderr().is_terminal();
+    let result = history.update(
+        Some(&path),
+        &mut commitscape_forge::history::gh(&remote),
+        &mut |p| {
+            if live {
+                let what = match p.connection {
+                    "pullRequests" => "pull requests",
+                    other => other,
+                };
+                eprint!(
+                    "\r\x1b[2Kreading {what}: {} of {}",
+                    grouped(p.read),
+                    grouped(p.total)
+                );
+            }
+        },
+    );
+    if live {
+        eprint!("\r\x1b[2K");
+    }
+    let merged = history
+        .pull_requests
+        .iter()
+        .filter(|p| p.merged.is_some())
+        .count();
+    let closed = history.issues.iter().filter(|i| i.closed.is_some()).count();
+    println!(
+        "{}/{}: {} pull requests ({} merged), {} issues ({} closed), {} releases",
+        remote.owner,
+        remote.name,
+        grouped(history.pull_requests.len() as u64),
+        grouped(merged as u64),
+        grouped(history.issues.len() as u64),
+        grouped(closed as u64),
+        grouped(history.releases.len() as u64),
+    );
+    if let Err(e) = result {
+        println!("stopped early: {e}. Run it again to carry on from here.");
+    }
     Ok(())
 }
 

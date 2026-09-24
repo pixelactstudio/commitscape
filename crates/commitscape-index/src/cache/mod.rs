@@ -34,6 +34,12 @@ pub use identity_store::IdentityStore;
 pub use line_store::LineStore;
 pub use location::default_cache_root;
 
+/// The directory holding one repository's cache and what is kept beside
+/// it, or `None` when caching is off.
+pub fn repo_dir(options: &CacheOptions, repo: &RepoIdentity) -> Option<PathBuf> {
+    Some(options.root.as_deref()?.join(repo.cache_key()))
+}
+
 /// Where to keep the cache.
 #[derive(Debug, Clone, Default)]
 pub struct CacheOptions {

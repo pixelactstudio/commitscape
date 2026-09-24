@@ -32,8 +32,7 @@ pub struct IdentityStore {
 impl IdentityStore {
     /// The store for a repository, or `None` when caching is off.
     pub fn for_repo(options: &CacheOptions, repo: &RepoIdentity) -> Option<Self> {
-        let root = options.root.as_deref()?;
-        Some(IdentityStore::in_dir(&root.join(repo.cache_key())))
+        Some(IdentityStore::in_dir(&super::repo_dir(options, repo)?))
     }
 
     pub(super) fn in_dir(dir: &Path) -> Self {

@@ -19,7 +19,7 @@ pub mod source;
 
 pub use build::IndexBuilder;
 pub use cache::{
-    default_cache_root, load, CacheOptions, Freshness, IdentityStore, LineStore, Loaded,
+    default_cache_root, load, repo_dir, CacheOptions, Freshness, IdentityStore, LineStore, Loaded,
     OlderHistory, Progress, RebuildReason, Rest, RestUnavailable, Since,
 };
 pub use commitscape_core::LinePass;

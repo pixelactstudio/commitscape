@@ -6,6 +6,7 @@
 //! GraphQL query, off the startup path. `gh` caches the answer for an hour.
 
 pub mod accounts;
+pub mod history;
 
 use std::process::Command;
 
@@ -15,12 +16,30 @@ use serde::Deserialize;
 /// Runs a GraphQL query about `remote` through `gh`, which keeps the answer
 /// for `cache` (`1h`, `24h`). The query takes `$owner` and `$name`.
 pub(crate) fn gh_graphql(remote: &Remote, query: &str, cache: &str) -> Result<Vec<u8>, ForgeError> {
+    gh_graphql_with(remote, query, Some(cache), &[])
+}
+
+/// [`gh_graphql`] with more string variables, and no caching when `cache`
+/// is `None`.
+pub(crate) fn gh_graphql_with(
+    remote: &Remote,
+    query: &str,
+    cache: Option<&str>,
+    vars: &[(&str, &str)],
+) -> Result<Vec<u8>, ForgeError> {
     // `-f` passes each value as a plain string; `-F` would read a value
     // starting with `@` as a file and turn a numeric name into a number.
-    let out = Command::new("gh")
-        .args(["api", "graphql", "--cache", cache])
-        .args(["-f", &format!("owner={}", remote.owner)])
-        .args(["-f", &format!("name={}", remote.name)])
+    let mut cmd = Command::new("gh");
+    cmd.args(["api", "graphql"]);
+    if let Some(cache) = cache {
+        cmd.args(["--cache", cache]);
+    }
+    cmd.args(["-f", &format!("owner={}", remote.owner)])
+        .args(["-f", &format!("name={}", remote.name)]);
+    for (k, v) in vars {
+        cmd.args(["-f", &format!("{k}={v}")]);
+    }
+    let out = cmd
         .args(["-f", &format!("query={query}")])
         .env("GH_PROMPT_DISABLED", "1")
         .output()

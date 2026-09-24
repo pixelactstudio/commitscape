@@ -33,9 +33,8 @@ pub type Counted = HashMap<Oid, Vec<Option<LineDelta>>>;
 impl LineStore {
     /// The store for a repository, or `None` when caching is off.
     pub fn for_repo(options: &CacheOptions, repo: &RepoIdentity) -> Option<Self> {
-        let root = options.root.as_deref()?;
         Some(LineStore {
-            dir: root.join(repo.cache_key()),
+            dir: super::repo_dir(options, repo)?,
         })
     }
 
