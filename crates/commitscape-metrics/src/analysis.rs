@@ -4,7 +4,7 @@
 use std::cmp::Ordering;
 use std::ops::Range;
 
-use commitscape_core::{AuthorId, CommitMeta, FileId, HeadFile, Index};
+use commitscape_core::{AuthorId, CommitFlags, CommitMeta, FileId, HeadFile, Index};
 use serde::Serialize;
 
 use crate::window::Window;
@@ -424,7 +424,9 @@ pub(crate) fn counts(commit: &CommitMeta, options: &Options) -> bool {
 fn exclusion(commit: &CommitMeta, options: &Options) -> Option<Excluded> {
     if commit.is_merge() {
         Some(Excluded::Merge)
-    } else if commit.changes_len > options.max_changeset_size {
+    } else if commit.changes_len > options.max_changeset_size
+        || commit.flags.contains(CommitFlags::BULK)
+    {
         Some(Excluded::Bulk)
     } else {
         None

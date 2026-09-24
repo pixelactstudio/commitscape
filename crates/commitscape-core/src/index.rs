@@ -180,6 +180,10 @@ impl CommitFlags {
     /// rename, so its lines are nobody's work. Set in memory by the line
     /// pass from the file at HEAD, never stored with history (ADR-0012).
     pub const BLAME_IGNORED: CommitFlags = CommitFlags(1 << 1);
+    /// A Bulk Commit whose changes were narrowed, to one folder say, so it
+    /// is no longer large enough to tell: it is still one. Set in memory
+    /// only, never stored.
+    pub const BULK: CommitFlags = CommitFlags(1 << 2);
 
     #[inline]
     pub fn contains(self, other: CommitFlags) -> bool {

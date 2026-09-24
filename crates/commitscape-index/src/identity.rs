@@ -33,7 +33,7 @@ use crate::mailmap::Mailmap;
 /// Bumped when the rules change, so every cache re-resolves its people on
 /// the next load (without re-reading history), as `CLASSIFIER_VERSION`
 /// does for file classes.
-pub const RULES_VERSION: u32 = 1;
+pub const RULES_VERSION: u32 = 2;
 
 /// A GitHub account, as GitHub resolved a commit's author to it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -549,7 +549,12 @@ fn is_bot(name: &str, email: &str) -> bool {
 }
 
 /// Local-parts too generic to suggest anything.
-const GENERIC_LOCAL: &[&str] = &["root", "dev", "admin", "user", "git", "build", "ci", "info"];
+/// Local parts that say nothing about who someone is: `root@` on build
+/// machines, and the words people put before their own domain.
+const GENERIC_LOCAL: &[&str] = &[
+    "root", "dev", "admin", "user", "git", "build", "ci", "info", "me", "hi", "hello", "hey",
+    "mail", "email", "contact", "code", "github", "noreply", "no-reply", "team", "support",
+];
 
 /// Groups of people who look like one person but were not merged: they
 /// share a name under any of their signatures, or an email local-part (a
@@ -760,6 +765,22 @@ mod tests {
             Mailmap::default(),
         );
         assert_eq!(t.len(), 2);
+        assert!(t.suspected_duplicates.is_empty());
+    }
+
+    #[test]
+    fn personal_domains_behind_a_common_word_suggest_nobody() {
+        // me@t3.gg and me@maxkatz.me: two people, each on their own domain.
+        let t = resolve(
+            &[
+                sig("Theo Browne", "me@t3.gg"),
+                sig("Max Katz", "me@maxkatz.me"),
+                sig("Ellie Gummere", "hello@unknownhost.name"),
+                sig("Tim Smart", "hello@timsmart.co"),
+            ],
+            Mailmap::default(),
+        );
+        assert_eq!(t.len(), 4);
         assert!(t.suspected_duplicates.is_empty());
     }
 

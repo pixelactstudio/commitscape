@@ -283,7 +283,7 @@ gate for each phase.
 | 16 | Terminal UI: nine screens to five, themes, Kinds of work from files, unusual facts only; then frozen | **DONE**: snapshots of all five screens; first paint 52.0 ms rust-lang/rust, 69.6 ms Linux; frozen |
 | 17 | GitHub, deeper: full PR, issue, review and release history, incremental (amends ADR-0009) | **DONE**: t3code and maihs fetched; t3code resumed after an interruption |
 | 18 | Browser UI foundation (ADR-0010): server, API, generated types, token, default choice, SSH | **DONE**: API tests through a real server; opened in Chromium here; VS Code simulated with `$BROWSER` |
-| 19 | Browser screens, filters, themes, PNG card, `commitscape report` | not started |
+| 19 | Browser screens, filters, themes, PNG card, `commitscape report` | **DONE**: screenshots of every screen, both themes, on pixelactstudio, maihs and t3code in `target/preview/web/`; 8 Playwright tests on a fixture; first chart 740 ms rust-lang/rust, 459 ms Linux |
 | 20 | `check` plus its GitHub Action, `who`, `health` | not started |
 | 21 | `wrapped` and the README card Action | not started |
 | 22 | Distribution (npm, Homebrew, Nix) and launch material | not started |
@@ -927,6 +927,107 @@ What the first Window cost on Linux, measured part by part: the Map 61 to
     `typescript`, `oxlint`, `vitest` and `@playwright/test`, which drives
     the system's Chromium and downloads no browser.
 
+## Phase 19 findings
+
+1. **Five browser screens**, the same five as the terminal's:
+   - **Overview**: tiles, the project's story as Moments on a line with the
+     same Moments in words beneath it, commits over time with releases
+     marked, who writes the code, unusual facts, Worth a look, languages and
+     code age.
+   - **Activity**: commits by person, stacked (the five with most, then
+     everyone else) with releases marked; pull requests and issues a week
+     from GitHub's whole history; the week by hour; kinds of work.
+   - **People**: one table, a column per measure and no single score, with a
+     profile per person (their days, their week, their files, the folders
+     that depend on them, the addresses joined into them, undo and redo of
+     the merge, and the `.mailmap` lines to copy).
+   - **Map**: a zoomable treemap of HEAD, coloured by how often, when last,
+     or who; a click on a file opens its details and draws a line to each
+     file that changes with it.
+   - **Risk**: files as dots, how often changed against the Complexity
+     Proxy, with the top quarter of both shaded; hotspots, groups of files
+     that change together, and folders one person holds.
+2. **The API grew to seven data answers** (`overview`, `activity`,
+   `people`, `person`, `map`, `file`, `risk`), each over a Window or a date
+   range (`from`, `to`) and a filter (`person`, `folder`). A filter is an
+   Index narrowed to the person's commits and the folder's changes
+   (`commitscape-web/src/filter.rs`), so every metric applies unchanged.
+   Undo and redo are `POST /api/person/{undo,redo}`; the card is
+   `/api/card.svg`, drawn by the terminal's card code and turned into a PNG
+   in the browser (a canvas), as ADR-0010 planned.
+3. **`commitscape report`** writes the app into one HTML file with its
+   answers inlined for every Window: 895 KB for maihs. The page reads them
+   from `window.__COMMITSCAPE__` by the same keys it would ask the server
+   with. What was not written (deeper folders, a file's details, filters)
+   says it needs the live interface.
+4. **Themes**: follow the system, Light, Dark, and Midnight (a darker
+   surface, `#0d1117`). Every series and ramp was run through the palette
+   validator on its own surface: the dark series pass on both dark
+   surfaces; the light series carry a contrast warning on the light surface
+   (as in Phase 16), met by the labels and the table view under every
+   chart. The dark ramps run from dark to light (`#1c5cab` to `#cfe2fa`,
+   `#a42602` to `#ffd2c2`), validated as ordinal. A warm "paper" theme was
+   tried and dropped: its blue ramp's light end failed the 2:1 floor.
+5. **`?` shows what every number means**, under the number, and hides it
+   again. Every chart has a legend when it has two or more series, a
+   tooltip on each mark, and "Show the numbers" for a table. Unknown numbers
+   are "—": lines before they are counted, pull requests before GitHub is
+   read, and now also for people GitHub has no account for (they showed 0
+   before).
+6. **Fixed from the screenshots:**
+   - "May be one person" put nine people in one group on t3code: everyone
+     whose address starts `me@`. Local parts like `me`, `hello` and
+     `contact` now say nothing. (A cap on how many may share one was tried
+     and dropped in review: it would hide one person's four addresses.)
+     `RULES_VERSION` is 2, so caches re-resolve once. maihs still suggests
+     Ryan and RyanLand.
+   - Risk said "deepest nesting"; the Complexity Proxy is every line's
+     indentation level added up, and the screen now says so.
+   - One bot under four addresses was four rows; bots are grouped by name.
+   - The Map was blank when opened straight to a folder: its width was
+     measured before the element existed. The width hook is a callback ref.
+7. **Fixed in review:**
+   - A folder filter narrowed a Bulk Commit to its few changes in the
+     folder, so it stopped counting as one. The filter now marks it with
+     an in-memory `CommitFlags::BULK`, which the metrics honour.
+   - A filter's totals need all of history; until it is read, a filtered
+     request says so (409) rather than showing the loaded part as the
+     whole.
+   - The story said everyone who committed in a short Window "made their
+     first commit". A Moment for joining is now someone's first commit
+     ever, and the first commit is told only when the Window holds the
+     project's first. Both need all of history, so they appear once it is
+     read. A second hand-worked test covers a Window that starts later.
+   - The commits tile counted merges while saying it did not.
+   - An undo while GitHub's accounts arrived could write over them; people
+     now change under the lock, and a change copies the Index only while a
+     request still holds the old one.
+   - The folder box could put back a filter already cleared; "stopped
+     early" and "unavailable" GitHub reads were worded as still reading.
+   - A filter built the Index from a full copy it threw away; it now
+     copies only what it keeps.
+8. **Budgets.** Every answer takes 10 to 115 ms on rust-lang/rust (the Map
+   the slowest). The first chart went from 490 ms (Phase 18) to 850 ms,
+   because the page is bigger and it waited for the first event before
+   asking for anything. The server now writes its state into the page it
+   serves, and the filters' lists are asked for only when someone reaches
+   for them. Medians over 7 runs, warm: **rust-lang/rust 740 ms, Linux
+   459 ms, pixelactstudio 314 ms** (budget 1 s).
+9. **Identity checks on the real repositories** (1 year Window):
+   - maihs: Dev Talan once, 2 addresses, 2,301 commits (all of history,
+     every ref: 2,306); Ryan once, 4 addresses, 544.
+   - pixelactstudio: one Dev Talan.
+10. **Tests.** The pre-agreed seam for the screens is Playwright against a
+   fixture: 8 tests on `ownership` (`web/e2e/`) cover the totals and people,
+   both filters, a profile's addresses, entering a folder on the Map, `?`,
+   a theme that is kept, the card saved as a PNG at twice its size, and a
+   report opened from a file. The HTTP API
+   tests and the type drift test changed with the API.
+11. **Screenshots**: `target/preview/web/<repository>/`, every screen and a
+    profile and a file on the Map, in Dark and Light, plus the Overview
+    with `?` on. Made by `web/scripts/screens.mjs`, which waits for the
+    history, the lines and GitHub first.
+
 ## Decisions made during implementation, not in any ADR
 
 1. **`bincode` pinned to `=2.0.1`.** `cargo add` resolves to 3.0.0, which is a
@@ -1024,6 +1125,18 @@ What the first Window cost on Linux, measured part by part: the Map 61 to
 25. **Keys since Phase 11**: `1` to `9` choose a screen; `j` and `k` move as
     `↓` and `↑` do; `/` searches; `c` changes the Map's colours; `?` opens
     help. Decision 21 still holds for the rest.
+26. **The browser keeps where it is in the address's `#`** (screen, Window
+    or dates, filters, the profile, folder or file open), so back, reload
+    and a copied link all keep it. `1` to `5` choose a screen, `?` shows
+    the explanations.
+27. **What a report holds**: every screen for every Window, the Map's first
+    two levels, and the profiles of the 30 people with most commits in each
+    Window. More would make a big repository's report tens of megabytes.
+28. **The person filter lists the people in the Window being looked at**,
+    not all of history's: on rust-lang/rust the all-time list is 286 KB
+    and 250 ms, and nobody is filtered for who has no commits in view.
+29. **The saved PNG is drawn at twice the card's size** (2,160 by 1,368), so
+    it stays sharp on a high-density screen.
 
 ---
 

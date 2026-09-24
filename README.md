@@ -80,6 +80,26 @@ machine.
   that address; the link still carries the token.
 - `--tui` always opens the terminal interface; `--port` chooses the port.
 
+It has five screens (`1` to `5`): Overview, with the project's story on a
+line; Activity; People, each with a profile; the Map; and Risk. A row of
+filters narrows every screen to one person, one folder or a range of
+dates. Press `?` to see what every number means. The theme follows the
+system, or choose Light, Dark or Midnight. "Save the card" downloads the
+card as a PNG.
+
+To send the whole thing to someone, write it as one file that needs no
+server:
+
+```sh
+commitscape report .                    # writes <repository>-report.html here
+commitscape report . --out story.html   # somewhere else
+```
+
+The report holds every screen for every Window, the first two levels of the
+Map, and the profiles of the 30 people who made most commits. Filters and a
+file's details need the live interface. Run `commitscape github .` first to
+include pull requests.
+
 To share a repository's story, draw its card:
 
 ```sh
@@ -115,6 +135,7 @@ skips it and `--cache-dir` moves it.
 
 ```sh
 (cd web && npm ci && npm run build)   # the browser interface, embedded by cargo build
+(cd web && npm run e2e)        # its screens in Chromium, after the fixtures and a release build
 cargo xtask fixtures --force   # build the small repositories the tests read
 cargo test --workspace         # every test, including the interface snapshots
 cargo xtask check-layering     # the crate layering ADR-0001 depends on

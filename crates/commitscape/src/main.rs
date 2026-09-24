@@ -100,6 +100,28 @@ enum Command {
     /// now, through the gh CLI. The interface does this in the background;
     /// a fetch that stops, at GitHub's rate limit say, resumes next time.
     Github(GithubArgs),
+    /// Write the browser interface as one HTML file that needs no server:
+    /// every screen for every Window, to send or keep.
+    Report(ReportArgs),
+}
+
+#[derive(Args)]
+struct ReportArgs {
+    /// Path to the repository. Defaults to the current directory.
+    #[arg(default_value = ".")]
+    repo: PathBuf,
+
+    /// Where to write it. Defaults to <repository>-report.html in the
+    /// current directory.
+    #[arg(long, value_name = "FILE")]
+    out: Option<PathBuf>,
+
+    /// The Window it opens on: 30d, 90d, 1y or all.
+    #[arg(long, default_value = "90d", value_parser = parse_span)]
+    window: Span,
+
+    #[command(flatten)]
+    common: Common,
 }
 
 #[derive(Args)]
@@ -206,6 +228,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
     match cli.command {
         Some(Command::Card(args)) => return card(args),
         Some(Command::Github(args)) => return github_history(args),
+        Some(Command::Report(args)) => return report(args),
         None => {}
     }
     let repo = GixRepo::open(&cli.repo)?;
@@ -328,10 +351,11 @@ fn serve_web(
         .map(|rest| -> commitscape_web::LoadOlder {
             Box::new(move |recent: &Index| rest.complete(recent).ok())
         });
-    let (_, link) = identities(&cli.repo, repo, options, &loaded.index, cli.common.offline);
+    let (change, link) = identities(&cli.repo, repo, options, &loaded.index, cli.common.offline);
     let identity = loaded.index.repo.clone();
+    let name = repo_name(&loaded.index);
     let session = commitscape_web::Session {
-        name: repo_name(&loaded.index),
+        name: name.clone(),
         index: loaded.index,
         anchor,
         span: cli.window,
@@ -341,6 +365,19 @@ fn serve_web(
         link_accounts: link,
         github: github(repo, cli.common.offline),
         releases: Some(releases(&cli.repo)),
+        history: whole_history(repo, options, &identity, cli.common.offline),
+        accounts: accounts(options, &identity),
+        people: change.map(|change| -> commitscape_web::ChangePeople {
+            std::sync::Arc::new(move |table, id, undo| {
+                let what = if undo {
+                    commitscape_tui::PeopleChange::Undo(id)
+                } else {
+                    commitscape_tui::PeopleChange::Redo(id)
+                };
+                change(table, what)
+            })
+        }),
+        card: Some(draw_card(name, metrics)),
     };
     let name = session.name.clone();
     let wanted = web::address(cli.listen, cli.port);
@@ -377,6 +414,138 @@ fn serve_web(
     println!("Press Ctrl-C to stop.");
     running.run();
     Ok(())
+}
+
+/// Writes the browser interface as one file: all of history, its lines
+/// counted, and what was read from GitHub before.
+fn report(args: ReportArgs) -> anyhow::Result<()> {
+    let repo = GixRepo::open(&args.repo)?;
+    let options = args.common.cache();
+    let mut meter = ProgressLine::new();
+    let mut loaded = load(&repo, &options, Since::All, &mut |p| meter.show(p))?;
+    meter.clear();
+    let identity = loaded.index.repo.clone();
+    let store = LineStore::for_repo(&options, &identity);
+    let mut meter = ProgressLine::new();
+    let pass = line_pass(&repo, &loaded.index, store.as_ref(), &mut |done, total| {
+        meter.lines(done, total)
+    })?;
+    meter.clear();
+    pass.apply(&mut loaded.index);
+    let name = repo_name(&loaded.index);
+    let history = github_file(&options, &identity)
+        .map(|p| commitscape_forge::history::History::load(&p))
+        .filter(|h| !h.pull_requests.is_empty() || !h.issues.is_empty());
+    if history.is_none() {
+        eprintln!("No GitHub history is saved for it; run commitscape github first to include pull requests.");
+    }
+    let metrics = args.common.metrics();
+    let html = commitscape_web::report::report(commitscape_web::report::Report {
+        name: name.clone(),
+        index: loaded.index,
+        anchor: now(),
+        span: args.window,
+        options: metrics,
+        releases: repo.version_tags(),
+        lines_counted: true,
+        history,
+        accounts: accounts(&options, &identity)
+            .map(|a| a())
+            .unwrap_or_default(),
+        card: Some(draw_card(name.clone(), metrics)),
+    });
+    if !commitscape_web::built() {
+        eprintln!("This build has no web app, so the report only says how to build one.");
+    }
+    let out = args
+        .out
+        .unwrap_or_else(|| PathBuf::from(format!("{name}-report.html")));
+    std::fs::write(&out, html)?;
+    println!("wrote {}", out.display());
+    Ok(())
+}
+
+/// How the browser interface draws the card: the terminal's, as SVG, never
+/// asking GitHub.
+fn draw_card(name: String, options: Options) -> commitscape_web::DrawCard {
+    std::sync::Arc::new(move |index: &Index, span, anchor| {
+        let session = Session {
+            name: name.clone(),
+            index: index.clone(),
+            anchor,
+            span,
+            options,
+            older: None,
+            github: Err("not asked for a card".to_string()),
+            people: None,
+            link_accounts: None,
+            lines: None,
+            releases: None,
+            theme: commitscape_tui::Theme::Dark,
+        };
+        commitscape_tui::svg(&commitscape_tui::card(session))
+    })
+}
+
+/// Where GitHub's whole history is kept for a repository.
+fn github_file(
+    options: &CacheOptions,
+    identity: &commitscape_core::RepoIdentity,
+) -> Option<PathBuf> {
+    commitscape_index::repo_dir(options, identity).map(|d| d.join("github.json"))
+}
+
+/// How the browser interface reads GitHub's whole history: what was saved,
+/// then what is new (ADR-0009).
+fn whole_history(
+    repo: &GixRepo,
+    options: &CacheOptions,
+    identity: &commitscape_core::RepoIdentity,
+    offline: bool,
+) -> Option<commitscape_web::LoadHistory> {
+    use commitscape_forge::history::History;
+    let path = github_file(options, identity)?;
+    let remote = if offline {
+        None
+    } else {
+        repo.remote_url().as_deref().and_then(Remote::parse)
+    };
+    Some(Box::new(move |progress| {
+        let mut history = History::load(&path);
+        progress(Some(&history), "reading");
+        let Some(remote) = remote else {
+            return Some(history);
+        };
+        // On an error what was read is kept, and marked incomplete.
+        let _ = history.update(
+            Some(&path),
+            &mut commitscape_forge::history::gh(&remote),
+            &mut |p| {
+                let what = match p.connection {
+                    "pullRequests" => "pull requests",
+                    other => other,
+                };
+                progress(None, &format!("reading {what}: {} of {}", p.read, p.total));
+            },
+        );
+        Some(history)
+    }))
+}
+
+/// The GitHub login of each address GitHub linked to an account, as kept.
+fn accounts(
+    options: &CacheOptions,
+    identity: &commitscape_core::RepoIdentity,
+) -> Option<commitscape_web::ReadAccounts> {
+    let store = IdentityStore::for_repo(options, identity)?;
+    Some(std::sync::Arc::new(move || {
+        store
+            .rules(Default::default())
+            .accounts
+            .into_iter()
+            .map(|(email, a)| (email, a.login))
+            .collect()
+    }))
 }
 
 /// Draws the card and writes it where it was asked to go.

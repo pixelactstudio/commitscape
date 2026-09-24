@@ -124,4 +124,12 @@ _Avoid_: treemap, tree view, file browser.
 
 **Card**:
 A composited image summarizing a repository, rendered for sharing rather than for reading in a terminal: the Overview's story of all of history, unless a shorter Window is asked for. The tool's growth mechanism, treated as a product feature.
-_Avoid_: report, summary image, badge.
+_Avoid_: summary image, badge (and report, which is the Report).
+
+**Report**:
+The browser interface written into one file, for every Window, to send or keep: it needs no server and answers only what it was written with.
+_Avoid_: export, snapshot, dump.
+
+**Moment**:
+One event in the project's life, on the Overview's story line: the first commit, a release, someone who made a real share of the commits joining or leaving, the busiest day, the biggest clean-up, a quiet stretch, a change of main language.
+_Avoid_: event, milestone.

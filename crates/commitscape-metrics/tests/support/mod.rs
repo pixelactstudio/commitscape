@@ -28,6 +28,8 @@ pub struct C<'a> {
     pub clock: i64,
     pub offset_minutes: i16,
     pub kind: CommitKind,
+    /// Lines each touched path added and removed, in order, when counted.
+    pub lines: Vec<(u32, u32)>,
     /// Author time minus commit time, for a commit rebased after it was
     /// written.
     pub author_delta: i32,
@@ -42,6 +44,7 @@ pub fn c<'a>(day: i64, author: &'a str, touched: &'a [&'a str]) -> C<'a> {
         clock: 0,
         offset_minutes: 0,
         kind: CommitKind::Other,
+        lines: Vec::new(),
         author_delta: 0,
     }
 }
@@ -59,6 +62,12 @@ impl C<'_> {
     pub fn local(mut self, hour: i64, minute: i64, offset_minutes: i16) -> Self {
         self.clock = hour * 3600 + minute * 60;
         self.offset_minutes = offset_minutes;
+        self
+    }
+
+    /// Lines added and removed by each touched path, in order.
+    pub fn lines(mut self, lines: &[(u32, u32)]) -> Self {
+        self.lines = lines.to_vec();
         self
     }
 
@@ -155,7 +164,7 @@ pub fn index_with_suspects(
         };
         let time = commit.time();
         let start = idx.changes.len() as u32;
-        for path in commit.touched {
+        for (k, path) in commit.touched.iter().enumerate() {
             let (id, seen) = match path_ids.get(*path) {
                 Some(&id) => (id, true),
                 None => {
@@ -185,7 +194,10 @@ pub fn index_with_suspects(
             idx.changes.push(FileChange {
                 file,
                 kind,
-                lines: None,
+                lines: commit
+                    .lines
+                    .get(k)
+                    .map(|&(added, removed)| commitscape_core::LineDelta { added, removed }),
             });
         }
         let mut id = [0u8; 20];

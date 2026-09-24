@@ -101,6 +101,17 @@ fn file_name(path: &[u8]) -> &[u8] {
     }
 }
 
+/// The language a path is written in, if it is code in a language this
+/// knows: not configuration, data or prose.
+pub(crate) fn language_of(path: &[u8]) -> Option<&'static str> {
+    let name = path.rsplit(|&b| b == b'/').next().unwrap_or(path);
+    let written = by_name(name).or_else(|| extension(name).map(by_extension))?;
+    match written {
+        Written::Code(language) => Some(language),
+        _ => None,
+    }
+}
+
 /// A file known by its whole name, such as a `Makefile`.
 fn by_name(name: &[u8]) -> Option<Written> {
     if let Some(&(_, language)) = BY_NAME.iter().find(|(n, _)| n.as_bytes() == name) {

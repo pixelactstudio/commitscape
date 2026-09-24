@@ -463,3 +463,139 @@ fn commits_over_time_are_split_among_the_top_people_and_everyone_else() {
         vec![vec![2, 0, 0], vec![0, 1, 0], vec![1, 0, 1], vec![0, 1, 1]]
     );
 }
+
+#[test]
+fn the_timeline_tells_the_projects_life_in_moments() {
+    use commitscape_metrics::Moment;
+    // Ann writes JavaScript on days 0 to 19, one commit a day and two more
+    // on day 5, each adding 100 lines: 2,200 lines of JavaScript in the
+    // first quarter of 2024. Bob writes TypeScript on days 100 to 129, 50
+    // lines a day, 1,500 in the second quarter, and on day 120 also deletes
+    // 900 lines of old JavaScript. Cal commits once, on day 300. v1.0 is
+    // tagged on day 50. The Window runs to day 400.
+    //
+    // Ann (22 of 54 commits) and Bob (31) each made over 5%; Cal (1) did
+    // not, so only they join and leave. Both left more than 90 days before
+    // day 400: Ann's last commit is day 19, Bob's day 129. The quiet
+    // stretches of 30 days or more are 19 to 100 (81 days) and 129 to 300
+    // (171). The busiest day is day 5, with 3.
+    let mut commits = Vec::new();
+    for day in 0..20 {
+        commits.push(c(day, "ann@x.org", &["src/app.js"]).lines(&[(100, 0)]));
+        if day == 5 {
+            commits.push(c(day, "ann@x.org", &["src/app.js"]).lines(&[(100, 0)]));
+            commits.push(c(day, "ann@x.org", &["src/app.js"]).lines(&[(100, 0)]));
+        }
+    }
+    for day in 100..130 {
+        commits.push(c(day, "bob@x.org", &["src/app.ts"]).lines(&[(50, 0)]));
+        if day == 120 {
+            commits.push(c(day, "bob@x.org", &["src/old.js"]).lines(&[(0, 900)]));
+        }
+    }
+    commits.push(c(300, "cal@x.org", &["src/app.ts"]).lines(&[(1, 1)]));
+    let idx = index(&commits, &[h("src/app.ts", 1500, 2)]);
+    let a = Analysis::new(&idx, Window::all(EPOCH + 400 * DAY), options()).expect("analysis");
+    let at = |day: i64| EPOCH + day * DAY;
+    let who = |email: &str| person(&idx, email);
+    let releases = vec![("v1.0".to_string(), at(50))];
+    assert_eq!(
+        a.timeline(&releases),
+        vec![
+            Moment::FirstCommit {
+                time: at(0),
+                author: Some(who("ann@x.org"))
+            },
+            Moment::BusiestDay {
+                time: at(5),
+                commits: 3
+            },
+            Moment::Left {
+                time: at(19),
+                author: who("ann@x.org")
+            },
+            Moment::Quiet {
+                time: at(19),
+                until: at(100)
+            },
+            Moment::Release {
+                time: at(50),
+                name: "v1.0".to_string()
+            },
+            Moment::LanguageShift {
+                time: at(91),
+                from: "JavaScript",
+                to: "TypeScript"
+            },
+            Moment::Joined {
+                time: at(100),
+                author: who("bob@x.org")
+            },
+            Moment::Cleanup {
+                time: at(120),
+                author: Some(who("bob@x.org")),
+                removed: 900
+            },
+            Moment::Left {
+                time: at(129),
+                author: who("bob@x.org")
+            },
+            Moment::Quiet {
+                time: at(129),
+                until: at(300)
+            },
+        ]
+    );
+}
+
+#[test]
+fn a_window_that_starts_later_tells_no_joining_and_no_first_commit() {
+    use commitscape_metrics::Moment;
+    // The history above, seen from day 110 to day 400. Bob's first commit
+    // was day 100, before the Window, so he does not join in it, and its
+    // first commit is not the project's. In it: Bob one commit a day on
+    // days 110 to 129 and two on day 120 (the busiest, the clean-up of 900
+    // lines), then Cal on day 300. Bob left after day 129; the quiet runs
+    // from 129 to 300. Only TypeScript is written, so no language shift.
+    let mut commits = Vec::new();
+    for day in 0..20 {
+        commits.push(c(day, "ann@x.org", &["src/app.js"]).lines(&[(100, 0)]));
+    }
+    for day in 100..130 {
+        commits.push(c(day, "bob@x.org", &["src/app.ts"]).lines(&[(50, 0)]));
+        if day == 120 {
+            commits.push(c(day, "bob@x.org", &["src/old.js"]).lines(&[(0, 900)]));
+        }
+    }
+    commits.push(c(300, "cal@x.org", &["src/app.ts"]).lines(&[(1, 1)]));
+    let idx = index(&commits, &[h("src/app.ts", 1500, 2)]);
+    let at = |day: i64| EPOCH + day * DAY;
+    let window = Window {
+        from: Some(at(110)),
+        to: at(400),
+    };
+    let a = Analysis::new(&idx, window, options()).expect("analysis");
+    let bob = person(&idx, "bob@x.org");
+    assert_eq!(
+        a.timeline(&[]),
+        vec![
+            Moment::BusiestDay {
+                time: at(120),
+                commits: 2
+            },
+            Moment::Cleanup {
+                time: at(120),
+                author: Some(bob),
+                removed: 900
+            },
+            Moment::Left {
+                time: at(129),
+                author: bob
+            },
+            Moment::Quiet {
+                time: at(129),
+                until: at(300)
+            },
+        ]
+    );
+}

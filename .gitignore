@@ -17,3 +17,5 @@
 # The browser interface: dependencies, and the build cargo embeds.
 web/node_modules/
 web/dist/
+web/test-results/
+web/playwright-report/

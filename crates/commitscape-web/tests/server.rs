@@ -51,18 +51,13 @@ fn session() -> Session {
         Ok(i) => i,
         Err(never) => match never {},
     };
-    Session {
-        name: "acme".to_string(),
+    Session::plain(
+        "acme".to_string(),
         index,
-        anchor: ANCHOR,
-        span: Span::Quarter,
-        options: Options::default(),
-        older: None,
-        lines: None,
-        link_accounts: None,
-        github: Err("not asked in tests".to_string()),
-        releases: None,
-    }
+        ANCHOR,
+        Span::Quarter,
+        Options::default(),
+    )
 }
 
 struct Server {
@@ -182,7 +177,7 @@ fn the_overview_counts_the_windows_commits_and_people() {
     assert_eq!(o["totals"]["people"], 2);
     assert_eq!(o["totals"]["code_lines"], 3);
     assert_eq!(o["commits"], 4);
-    assert_eq!(o["people"][0]["name"], "Alice Example");
+    assert_eq!(o["people"][0]["person"]["name"], "Alice Example");
     assert_eq!(o["people"][0]["commits"], 3);
     assert_eq!(o["people"][1]["commits"], 1);
     assert_eq!(o["languages"][0]["name"], "Rust");

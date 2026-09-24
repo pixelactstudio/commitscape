@@ -17,6 +17,7 @@ mod languages;
 mod people;
 mod pulse;
 mod roles;
+mod timeline;
 mod window;
 
 pub use ages::{Age, AgeCount, QuarterAge, StaleFile, Staleness};
@@ -31,4 +32,5 @@ pub use languages::{Language, Languages};
 pub use people::{Contributor, DirectoryOwnership, Owner, Ownership, Silo, SuspectedDuplicate};
 pub use pulse::{CommitsByPerson, KindCount, Pulse, Streak, Work, WorkCount};
 pub use roles::{is_lockfile, looks_generated, role_of, Role};
+pub use timeline::Moment;
 pub use window::{Span, Window};

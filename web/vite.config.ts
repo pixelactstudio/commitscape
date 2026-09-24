@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 
 // `npm run dev` talks to a running `commitscape --web` for its API: set
@@ -8,5 +8,7 @@ const target = process.env.COMMITSCAPE_URL?.replace(/\/\?token=.*/, "");
 export default defineConfig({
   plugins: [react()],
   build: { outDir: "dist", emptyOutDir: true },
+  // The end-to-end tests in e2e/ run under Playwright, not here.
+  test: { include: ["src/**/*.test.ts"] },
   server: target ? { proxy: { "/api": { target, changeOrigin: true } } } : undefined,
 });
