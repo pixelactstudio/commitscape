@@ -14,7 +14,9 @@ use commitscape_core::{Oid, RepoIdentity};
 use gix::objs::TreeRefIter;
 
 use crate::mailmap::Mailmap;
-use crate::source::{BlobSink, CommitSink, HeadChange, HeadEntry, Indexed, RepoSource, WalkStats};
+use crate::source::{
+    BlobSink, CommitSink, HeadChange, HeadEntry, Indexed, LineSink, RepoSource, WalkStats,
+};
 
 /// Wraps any error into [`GixError::Git`] with a human-facing context.
 macro_rules! git_ctx {
@@ -27,6 +29,7 @@ macro_rules! git_ctx {
 }
 
 mod blobs;
+mod lines;
 mod tree_diff;
 mod walk;
 
@@ -131,33 +134,44 @@ impl GixRepo {
 
     /// The work tree's `.mailmap`, if there is a work tree and it has one.
     fn worktree_mailmap(&self) -> Result<Option<Vec<u8>>, GixError> {
+        self.worktree_file(".mailmap")
+    }
+
+    fn mailmap_at_head(&self) -> Result<Option<Vec<u8>>, GixError> {
+        self.file_at_head(".mailmap")
+    }
+
+    /// A file at the root of the work tree, if there is a work tree and it
+    /// has the file.
+    fn worktree_file(&self, name: &str) -> Result<Option<Vec<u8>>, GixError> {
         let Some(work_dir) = self.repo.workdir() else {
             return Ok(None);
         };
-        match std::fs::read(work_dir.join(".mailmap")) {
+        match std::fs::read(work_dir.join(name)) {
             Ok(bytes) => Ok(Some(bytes)),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(e) => Err(GixError::Git {
-                context: "reading .mailmap",
+                context: "reading a file in the work tree",
                 source: Box::new(e),
             }),
         }
     }
 
-    /// The `.mailmap` at HEAD, for a repository with no work tree copy.
-    fn mailmap_at_head(&self) -> Result<Option<Vec<u8>>, GixError> {
+    /// A file at the root of HEAD's tree, for a repository with no work
+    /// tree copy.
+    fn file_at_head(&self, name: &str) -> Result<Option<Vec<u8>>, GixError> {
         let Ok(commit) = self.repo.head_commit() else {
             return Ok(None);
         };
         let tree = git_ctx!(commit.tree(), "reading the HEAD tree")?;
-        let entry = git_ctx!(tree.lookup_entry_by_path(".mailmap"), "looking up .mailmap")?;
+        let entry = git_ctx!(tree.lookup_entry_by_path(name), "looking up a file at HEAD")?;
         let Some(entry) = entry else {
             return Ok(None);
         };
         if !entry.mode().is_blob() {
             return Ok(None);
         }
-        let blob = git_ctx!(entry.object(), "reading .mailmap")?;
+        let blob = git_ctx!(entry.object(), "reading a file at HEAD")?;
         Ok(Some(blob.data.clone()))
     }
 }
@@ -396,5 +410,20 @@ impl RepoSource for GixRepo {
 
     fn read_blobs(&self, blobs: &[Oid], sink: BlobSink<'_>) -> Result<(), Self::Error> {
         blobs::read(self, blobs, sink)
+    }
+
+    fn count_lines(&self, commits: &[Oid], sink: LineSink<'_>) -> Result<(), Self::Error> {
+        lines::count(self, commits, sink)
+    }
+
+    fn blame_ignore_revs(&self) -> Result<Vec<Oid>, Self::Error> {
+        const NAME: &str = ".git-blame-ignore-revs";
+        let text = match self.worktree_file(NAME)? {
+            Some(t) => Some(t),
+            None => self.file_at_head(NAME)?,
+        };
+        Ok(text
+            .map(|t| crate::lines::parse_ignore_revs(&t))
+            .unwrap_or_default())
     }
 }

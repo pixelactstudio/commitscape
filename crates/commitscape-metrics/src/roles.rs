@@ -108,3 +108,41 @@ pub fn role_of(path: &[u8]) -> Role {
     }
     Role::Code
 }
+
+/// Lockfiles, which a tool writes: every change to one is a regeneration.
+pub fn is_lockfile(path: &[u8]) -> bool {
+    let path = String::from_utf8_lossy(path).to_ascii_lowercase();
+    let name = path.rsplit('/').next().unwrap_or(&path);
+    name.ends_with(".lock")
+        || name.ends_with(".lockb")
+        || name.ends_with("-lock.json")
+        || name.ends_with("-lock.yaml")
+        || name.ends_with(".lockfile")
+        || matches!(
+            name,
+            "npm-shrinkwrap.json" | "go.sum" | "go.work.sum" | "package.resolved"
+        )
+}
+
+/// Whether a path looks like something a tool wrote, judged from the path
+/// alone: for files no longer at HEAD, whose contents were never
+/// classified. Build output, vendored trees, minified files, source maps and
+/// files that say they are generated.
+pub fn looks_generated(path: &[u8]) -> bool {
+    let path = String::from_utf8_lossy(path).to_ascii_lowercase();
+    let name = path.rsplit('/').next().unwrap_or(&path);
+    let dirs = path.split('/').take(path.matches('/').count());
+    let in_dir = dirs.into_iter().any(|d| {
+        matches!(
+            d,
+            "node_modules" | "vendor" | "third_party" | "dist" | ".next" | "__snapshots__"
+        )
+    });
+    in_dir
+        || name.contains(".min.")
+        || name.ends_with(".map")
+        || name.contains(".generated.")
+        || name.contains(".gen.")
+        || name.ends_with(".snap")
+        || name.ends_with(".pb.go")
+}

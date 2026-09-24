@@ -290,7 +290,10 @@ fn diff_one(
 }
 
 /// The tree of a commit the walk did not visit, or `None` if it is absent.
-fn tree_of_commit(repo: &gix::Repository, id: ObjectId) -> Result<Option<ObjectId>, GixError> {
+pub(super) fn tree_of_commit(
+    repo: &gix::Repository,
+    id: ObjectId,
+) -> Result<Option<ObjectId>, GixError> {
     let mut buf = Vec::new();
     let found = gix::objs::Find::try_find(&repo.objects, &id, &mut buf).map_err(|source| {
         GixError::Git {

@@ -439,7 +439,14 @@
       "commits": 5,
       "active_days": 5,
       "first": "2024-01-01T00:00:00",
-      "last": "2024-01-05T00:00:00"
+      "last": "2024-01-05T00:00:00",
+      "lines": {
+        "added": 8,
+        "removed": 0,
+        "counted": 8,
+        "uncounted": 0
+      },
+      "areas": 0
     }
   ]
 }

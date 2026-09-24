@@ -71,6 +71,8 @@ pub(crate) struct PersonDetail {
     pub email: String,
     /// Their row among the Window's contributors, if they committed in it.
     pub contributor: Option<Contributor>,
+    /// Their lines and areas, if they committed in it.
+    pub contribution: Option<commitscape_metrics::Contribution>,
     /// When they commit, on their own clock.
     pub pulse: Pulse,
     /// The files they changed most, with how many commits.
@@ -217,6 +219,11 @@ impl Detail {
                     merge_lines: index.authors.mailmap_lines(author),
                     contributor: findings
                         .contributors
+                        .iter()
+                        .find(|c| c.author == author)
+                        .copied(),
+                    contribution: findings
+                        .contributions
                         .iter()
                         .find(|c| c.author == author)
                         .copied(),

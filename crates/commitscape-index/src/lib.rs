@@ -10,6 +10,7 @@ pub mod gix_source;
 mod hash_index;
 mod head_pass;
 pub mod identity;
+pub mod lines;
 pub mod mailmap;
 pub mod measure;
 mod message;
@@ -18,16 +19,18 @@ pub mod source;
 
 pub use build::IndexBuilder;
 pub use cache::{
-    default_cache_root, load, CacheOptions, Freshness, IdentityStore, Loaded, OlderHistory,
-    Progress, RebuildReason, Rest, RestUnavailable, Since,
+    default_cache_root, load, CacheOptions, Freshness, IdentityStore, LineStore, Loaded,
+    OlderHistory, Progress, RebuildReason, Rest, RestUnavailable, Since,
 };
+pub use commitscape_core::LinePass;
 pub use gix_source::{GixError, GixRepo};
 pub use identity::{resolve_authors, IdentityRules};
+pub use lines::line_pass;
 pub use mailmap::Mailmap;
 pub use scripted::{ScriptedChangeSpec, ScriptedRepo};
 pub use source::{
-    BlobSink, CommitSink, Frontier, HeadChange, HeadEntry, Indexed, RawChange, RawChangeKind,
-    RawCommit, RepoSource, WalkStats,
+    BlobSink, CommitSink, Frontier, HeadChange, HeadEntry, Indexed, LineSink, RawChange,
+    RawChangeKind, RawCommit, RepoSource, WalkStats,
 };
 
 use commitscape_core::Index;

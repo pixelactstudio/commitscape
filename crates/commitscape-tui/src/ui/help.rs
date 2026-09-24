@@ -122,6 +122,8 @@ const WORDS: &[(&str, &str)] = &[
     ("Coupling", "How often two files change in the same commit, out of all the commits that changed either one."),
     ("Bus factor", "The fewest people who together made more than 80% of a folder's commits."),
     ("Local time", "When the author made a commit, on their own clock, using the time zone recorded in the commit."),
+    ("Lines + / −", "Lines a person added and removed, counted the way git diff counts them, in the background after the screen opens. Left out: lockfiles, generated and vendored files, very large commits, merges, and commits listed in .git-blame-ignore-revs. Binary files and files over a megabyte are not counted. Counts can differ from git's by a line where two diffs are equally short."),
+    ("Areas", "Folders where a person made more than 80% of the commits: the folders that depend on them. A folder inside another of theirs is not counted again."),
     ("Merged identities", "One person who committed under several addresses. Addresses join when GitHub says they are one account or when they carry the same full name (two or more words). Press u on the person to undo it."),
     ("Bots", "Automation accounts such as dependabot[bot]. Their commits count as activity, but they are left out of the people and hold no folder."),
     ("Lines of code", "Lines in files people wrote. Lockfiles, generated files and vendored code are left out everywhere, as are configuration files from the language bar."),
@@ -135,11 +137,17 @@ const KEYS: &[(&str, &str)] = &[
     ("pgup pgdn", "a page at a time"),
     ("enter", "open what is selected"),
     ("esc", "go back"),
-    ("w  W", "a longer or shorter window; what is open stays open"),
+    (
+        "w  W",
+        "a longer or shorter window; what is open stays open",
+    ),
     ("/", "find a file, folder or person in a list"),
     ("c", "colour the Map by activity, age or owner"),
     ("u", "on a person: undo a merge of identities, or redo it"),
-    ("mouse", "click a screen, a window, a row or a Map block; the wheel scrolls"),
+    (
+        "mouse",
+        "click a screen, a window, a row or a Map block; the wheel scrolls",
+    ),
     ("?", "this help"),
     ("q", "quit"),
 ];

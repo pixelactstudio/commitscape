@@ -73,6 +73,7 @@ pub fn run(
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
+    let line_store = commitscape_index::LineStore::for_repo(&cache, &loaded.index.repo);
     let session = Session {
         name,
         index: loaded.index,
@@ -87,6 +88,14 @@ pub fn run(
         // People as the cache has them, GitHub's links included.
         people: None,
         link_accounts: None,
+        lines: {
+            let store = line_store;
+            let path = repo.to_path_buf();
+            Some(Box::new(move |index: &commitscape_core::Index| {
+                let source = GixRepo::open(&path).ok()?;
+                commitscape_index::line_pass(&source, index, store.as_ref(), &mut |_, _| {}).ok()
+            }))
+        },
     };
     let (mut app, commands) = App::new(session);
     settle(&mut app, commands);

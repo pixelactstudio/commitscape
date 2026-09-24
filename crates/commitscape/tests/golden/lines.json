@@ -1,27 +1,27 @@
 {
   "schema": 2,
   "repository": {
-    "head": "02d099509f94fe2dfbf99004d927f7332c274a94",
-    "commits": 12,
+    "head": "8ced18fcfd6218b8a656299bfb2c3dc0830fbdb8",
+    "commits": 7,
     "merges": 0,
     "first_commit": "2024-01-01T00:00:00Z",
-    "last_commit": "2024-01-12T00:00:00Z",
+    "last_commit": "2024-01-07T00:00:00Z",
     "history_truncated": false,
-    "files_at_head": 4,
-    "files_people_wrote": 4,
-    "code_lines": 0,
-    "prose_lines": 4,
-    "generated_files": 0,
-    "people": 1
+    "files_at_head": 65,
+    "files_people_wrote": 63,
+    "code_lines": 13,
+    "prose_lines": 66,
+    "generated_files": 2,
+    "people": 2
   },
   "window": {
     "span": "all",
     "from": null,
-    "to": "2024-01-12T00:00:00Z",
+    "to": "2024-01-07T00:00:00Z",
     "anchor": "newest-commit",
-    "commits": 12,
+    "commits": 7,
     "merges_excluded": 0,
-    "bulk_excluded": 0
+    "bulk_excluded": 1
   },
   "options": {
     "max_changeset_size": 50,
@@ -29,73 +29,56 @@
     "ownership_min_commits": 10
   },
   "hotspots": [],
-  "largest": [],
+  "largest": [
+    {
+      "path": "src/main.rs",
+      "lines": 11,
+      "bytes": 89,
+      "complexity": 0
+    },
+    {
+      "path": ".git-blame-ignore-revs",
+      "lines": 2,
+      "bytes": 56,
+      "complexity": 0
+    }
+  ],
   "churn": [
     {
-      "path": "other/d.txt",
+      "path": "src/main.rs",
       "commits": 5
     },
     {
-      "path": "pkg/c.txt",
-      "commits": 5
+      "path": ".git-blame-ignore-revs",
+      "commits": 1
     },
     {
-      "path": "src/a.txt",
-      "commits": 5
-    },
-    {
-      "path": "src/b.txt",
-      "commits": 4
+      "path": "docs/guide.md",
+      "commits": 1
     }
   ],
   "coupling": {
     "support": 5,
-    "files": 3,
-    "pairs_seen": 1,
-    "pairs": [
-      {
-        "first": "other/d.txt",
-        "second": "pkg/c.txt",
-        "together": 4,
-        "first_commits": 5,
-        "second_commits": 5,
-        "jaccard": 0.6666666666666666,
-        "first_given_second": 0.8,
-        "second_given_first": 0.8,
-        "cross_directory": true
-      }
-    ]
+    "files": 1,
+    "pairs_seen": 0,
+    "pairs": []
   },
   "ownership": {
-    "directories": 1,
-    "bus_factor_one": 1,
-    "by_directory": [
-      {
-        "directory": "",
-        "commits": 12,
-        "bus_factor": 1,
-        "owners": [
-          {
-            "name": "Alice Example",
-            "email": "alice@example.com",
-            "commits": 12,
-            "share": 1.0
-          }
-        ]
-      }
-    ]
+    "directories": 0,
+    "bus_factor_one": 0,
+    "by_directory": []
   },
   "staleness": {
     "buckets": [
       {
         "age": "week",
         "label": "under a week",
-        "files": 3
+        "files": 63
       },
       {
         "age": "month",
         "label": "under a month",
-        "files": 1
+        "files": 0
       },
       {
         "age": "quarter",
@@ -115,30 +98,116 @@
     ],
     "stalest": [
       {
-        "path": "src/a.txt",
+        "path": "docs/guide.md",
+        "last_touched": "2024-01-04T00:00:00Z",
+        "days": 3
+      },
+      {
+        "path": "src/main.rs",
         "last_touched": "2024-01-05T00:00:00Z",
-        "days": 7
+        "days": 2
       },
       {
-        "path": "src/b.txt",
+        "path": ".git-blame-ignore-revs",
         "last_touched": "2024-01-06T00:00:00Z",
-        "days": 6
-      },
-      {
-        "path": "pkg/c.txt",
-        "last_touched": "2024-01-11T00:00:00Z",
         "days": 1
       },
       {
-        "path": "other/d.txt",
-        "last_touched": "2024-01-12T00:00:00Z",
+        "path": "gen/f00.txt",
+        "last_touched": "2024-01-07T00:00:00Z",
+        "days": 0
+      },
+      {
+        "path": "gen/f01.txt",
+        "last_touched": "2024-01-07T00:00:00Z",
+        "days": 0
+      },
+      {
+        "path": "gen/f02.txt",
+        "last_touched": "2024-01-07T00:00:00Z",
+        "days": 0
+      },
+      {
+        "path": "gen/f03.txt",
+        "last_touched": "2024-01-07T00:00:00Z",
+        "days": 0
+      },
+      {
+        "path": "gen/f04.txt",
+        "last_touched": "2024-01-07T00:00:00Z",
+        "days": 0
+      },
+      {
+        "path": "gen/f05.txt",
+        "last_touched": "2024-01-07T00:00:00Z",
+        "days": 0
+      },
+      {
+        "path": "gen/f06.txt",
+        "last_touched": "2024-01-07T00:00:00Z",
+        "days": 0
+      },
+      {
+        "path": "gen/f07.txt",
+        "last_touched": "2024-01-07T00:00:00Z",
+        "days": 0
+      },
+      {
+        "path": "gen/f08.txt",
+        "last_touched": "2024-01-07T00:00:00Z",
+        "days": 0
+      },
+      {
+        "path": "gen/f09.txt",
+        "last_touched": "2024-01-07T00:00:00Z",
+        "days": 0
+      },
+      {
+        "path": "gen/f10.txt",
+        "last_touched": "2024-01-07T00:00:00Z",
+        "days": 0
+      },
+      {
+        "path": "gen/f11.txt",
+        "last_touched": "2024-01-07T00:00:00Z",
+        "days": 0
+      },
+      {
+        "path": "gen/f12.txt",
+        "last_touched": "2024-01-07T00:00:00Z",
+        "days": 0
+      },
+      {
+        "path": "gen/f13.txt",
+        "last_touched": "2024-01-07T00:00:00Z",
+        "days": 0
+      },
+      {
+        "path": "gen/f14.txt",
+        "last_touched": "2024-01-07T00:00:00Z",
+        "days": 0
+      },
+      {
+        "path": "gen/f15.txt",
+        "last_touched": "2024-01-07T00:00:00Z",
+        "days": 0
+      },
+      {
+        "path": "gen/f16.txt",
+        "last_touched": "2024-01-07T00:00:00Z",
         "days": 0
       }
     ]
   },
-  "code_age": [],
+  "code_age": [
+    {
+      "quarter": "2024-Q1",
+      "lines": 13,
+      "files": 2
+    }
+  ],
   "changeset_sizes": {
-    "commits": 12,
+    "commits": 7,
     "buckets": [
       {
         "from": 0,
@@ -148,17 +217,17 @@
       {
         "from": 1,
         "to": 1,
-        "commits": 5
+        "commits": 3
       },
       {
         "from": 2,
         "to": 2,
-        "commits": 7
+        "commits": 2
       },
       {
         "from": 3,
         "to": 5,
-        "commits": 0
+        "commits": 1
       },
       {
         "from": 6,
@@ -178,7 +247,7 @@
       {
         "from": 51,
         "to": 100,
-        "commits": 0
+        "commits": 1
       },
       {
         "from": 101,
@@ -202,27 +271,28 @@
       }
     ],
     "median": 2,
-    "p90": 2,
-    "p99": 2,
-    "max": 2
+    "p90": 60,
+    "p99": 60,
+    "max": 60
   },
   "suspected_duplicates": [],
   "languages": {
-    "languages": [],
+    "languages": [
+      {
+        "name": "Rust",
+        "files": 1,
+        "lines": 11
+      }
+    ],
     "data_files": 0,
     "data_lines": 0,
-    "other_files": 0,
-    "other_lines": 0
+    "other_files": 1,
+    "other_lines": 2
   },
   "pulse": {
-    "commits": 12,
+    "commits": 7,
     "first_day": "2024-01-01",
     "days": [
-      1,
-      1,
-      1,
-      1,
-      1,
       1,
       1,
       1,
@@ -233,7 +303,7 @@
     ],
     "week": [
       [
-        2,
+        1,
         0,
         0,
         0,
@@ -259,7 +329,7 @@
         0
       ],
       [
-        2,
+        1,
         0,
         0,
         0,
@@ -285,7 +355,7 @@
         0
       ],
       [
-        2,
+        1,
         0,
         0,
         0,
@@ -311,7 +381,7 @@
         0
       ],
       [
-        2,
+        1,
         0,
         0,
         0,
@@ -337,7 +407,7 @@
         0
       ],
       [
-        2,
+        1,
         0,
         0,
         0,
@@ -458,13 +528,13 @@
       },
       {
         "kind": "other",
-        "commits": 12
+        "commits": 7
       }
     ],
-    "active_days": 12,
+    "active_days": 7,
     "longest_streak": {
       "first_day": "2024-01-01",
-      "days": 12
+      "days": 7
     },
     "busiest_day": {
       "day": "2024-01-01",
@@ -472,23 +542,38 @@
     },
     "busiest_hour": 0,
     "weekend_commits": 2,
-    "night_commits": 12
+    "night_commits": 7
   },
   "contributors": [
     {
       "name": "Alice Example",
       "email": "alice@example.com",
-      "commits": 12,
-      "active_days": 12,
+      "commits": 4,
+      "active_days": 4,
       "first": "2024-01-01T00:00:00",
-      "last": "2024-01-12T00:00:00",
+      "last": "2024-01-07T00:00:00",
       "lines": {
-        "added": 19,
-        "removed": 15,
-        "counted": 19,
+        "added": 10,
+        "removed": 2,
+        "counted": 2,
+        "uncounted": 1
+      },
+      "areas": 0
+    },
+    {
+      "name": "Bob Example",
+      "email": "bob@example.com",
+      "commits": 3,
+      "active_days": 3,
+      "first": "2024-01-02T00:00:00",
+      "last": "2024-01-06T00:00:00",
+      "lines": {
+        "added": 13,
+        "removed": 2,
+        "counted": 4,
         "uncounted": 0
       },
-      "areas": 1
+      "areas": 0
     }
   ]
 }

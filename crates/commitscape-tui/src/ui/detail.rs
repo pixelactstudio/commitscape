@@ -16,7 +16,7 @@ use crate::app::App;
 use crate::detail::{
     CommitLine, Detail, DirectoryDetail, FileDetail, ListedFile, Opened, PairDetail, PersonDetail,
 };
-use crate::format::{ago, bytes, date, days, grouped, most, percent, share, short_date};
+use crate::format::{ago, bytes, compact, date, days, grouped, most, percent, share, short_date};
 use crate::theme::{self, ACCENT, CRITICAL, MUTED, SERIES};
 use commitscape_core::PersonTraits;
 
@@ -423,6 +423,23 @@ fn person(app: &App, frame: &mut Frame, area: Rect, d: &PersonDetail, scroll: &m
             "commits".to_string(),
             format!("in {span}"),
         ),
+        match (&app.lines, d.contribution) {
+            (crate::app::Lines::Counted, Some(c)) if c.lines.counted > 0 => (
+                format!("+{} −{}", compact(c.lines.added), compact(c.lines.removed)),
+                "lines added, removed".to_string(),
+                "not lockfiles, not generated".to_string(),
+            ),
+            (crate::app::Lines::Waiting(_) | crate::app::Lines::Counting, _) => (
+                "…".to_string(),
+                "lines added, removed".to_string(),
+                "counting lines…".to_string(),
+            ),
+            _ => (
+                "-".to_string(),
+                "lines added, removed".to_string(),
+                "none counted".to_string(),
+            ),
+        },
         (
             grouped(u64::from(p.active_days)),
             "active days".to_string(),
@@ -454,7 +471,7 @@ fn person(app: &App, frame: &mut Frame, area: Rect, d: &PersonDetail, scroll: &m
             ),
         ),
     ];
-    let areas = Layout::horizontal([Constraint::Ratio(1, 5); 5]).split(tiles);
+    let areas = Layout::horizontal([Constraint::Ratio(1, 6); 6]).split(tiles);
     for (area, (value, label, note)) in areas.iter().zip(values) {
         tile(frame, *area, &value, &label, &note);
     }

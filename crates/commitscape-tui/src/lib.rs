@@ -17,7 +17,7 @@ mod ui;
 use std::io;
 use std::sync::mpsc::{self, Sender};
 
-use commitscape_core::{AuthorId, AuthorTable, Index};
+use commitscape_core::{AuthorId, AuthorTable, Index, LinePass};
 use commitscape_forge::GitHub;
 use commitscape_metrics::{Options, Span};
 use ratatui::backend::TestBackend;
@@ -57,6 +57,11 @@ pub type ChangePeople =
 /// thread, with all of history.
 pub type LinkAccounts = Box<dyn FnOnce(&Index) -> Option<AuthorTable> + Send>;
 
+/// Counts the lines of every change the index holds (ADR-0012). Called
+/// once, off the main thread, with all of history. `None` when they could
+/// not be counted.
+pub type CountLines = Box<dyn FnOnce(&Index) -> Option<LinePass> + Send>;
+
 /// What the interface opens on.
 pub struct Session {
     /// The repository's name, for the header.
@@ -77,6 +82,8 @@ pub struct Session {
     pub people: Option<ChangePeople>,
     /// How to link commits to GitHub accounts, if GitHub can be asked.
     pub link_accounts: Option<LinkAccounts>,
+    /// How to count lines, if they can be kept.
+    pub lines: Option<CountLines>,
 }
 
 /// A repository's story on one card, to share: the Overview's picture of

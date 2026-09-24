@@ -11,6 +11,7 @@
 mod ages;
 mod analysis;
 mod code_map;
+mod contributions;
 mod coupling;
 mod languages;
 mod people;
@@ -24,9 +25,10 @@ pub use analysis::{
     RANKING_LIMIT,
 };
 pub use code_map::{CodeMap, MapNode};
+pub use contributions::{combine, Contribution, LinesChanged};
 pub use coupling::{ChangesetSizes, CoupledPair, Coupling, SizeBucket};
 pub use languages::{Language, Languages};
 pub use people::{Contributor, DirectoryOwnership, Owner, Ownership, SuspectedDuplicate};
 pub use pulse::{KindCount, Pulse, Streak};
-pub use roles::{role_of, Role};
+pub use roles::{is_lockfile, looks_generated, role_of, Role};
 pub use window::{Span, Window};

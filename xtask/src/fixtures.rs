@@ -198,6 +198,7 @@ pub fn build(force: bool) -> Result<()> {
     merges(&dir)?;
     conflict(&dir)?;
     rhythm(&dir)?;
+    lines(&dir)?;
     empty(&dir)?;
     detached(&dir)?;
     bare(&dir)?;
@@ -498,6 +499,66 @@ fn conflict(dir: &Path) -> Result<()> {
         .to_string();
     fx.git(&["reset", "-q", "--hard", &merge])?;
     fx.day += 1;
+    Ok(())
+}
+
+/// `lines`: what each change added and removed, and what the People
+/// views leave out: a lockfile, a binary file, a reformat listed in
+/// `.git-blame-ignore-revs`, and a Bulk Commit. See `docs/fixtures.md`.
+fn lines(dir: &Path) -> Result<()> {
+    let mut fx = Fx::init(dir.join("lines"))?;
+    let numbered = |lines: &[String]| lines.iter().map(|l| format!("{l}\n")).collect::<String>();
+    let mut app: Vec<String> = (1..=10).map(|n| format!("line {n}")).collect();
+    let lock = |version: &str, changed: usize| {
+        (1..=100)
+            .map(|n| {
+                let v = if n <= changed { version } else { "1.0" };
+                format!("dep-{n} = {v}\n")
+            })
+            .collect::<String>()
+    };
+
+    // Day 0, Alice: src/app.rs +10, Cargo.lock +100, logo.png binary.
+    fx.write("src/app.rs", &numbered(&app))?;
+    fx.write("Cargo.lock", &lock("1.0", 0))?;
+    fx.write("logo.png", "\u{89}PNG\r\n\u{1a}\n\u{0}\u{0}\u{0}\rIHDR")?;
+    fx.commit(ALICE, "add the app")?;
+
+    // Day 1, Bob: lines 3 and 4 replaced, three appended: +5 -2.
+    app.splice(2..4, ["new a".to_string(), "new b".to_string()]);
+    app.extend((1..=3).map(|n| format!("added {n}")));
+    fx.write("src/app.rs", &numbered(&app))?;
+    fx.commit(BOB, "rework the middle")?;
+
+    // Day 2, Alice: lines 9 and 10 deleted, -2; Cargo.lock +20 -20.
+    app.retain(|l| l != "line 9" && l != "line 10");
+    fx.write("src/app.rs", &numbered(&app))?;
+    fx.write("Cargo.lock", &lock("2.0", 20))?;
+    fx.commit(ALICE, "trim and bump")?;
+
+    // Day 3, Bob: docs/guide.md +6, src/app.rs moved unchanged, 0 and 0.
+    fx.write("docs/guide.md", "# Guide\n\nOne.\nTwo.\nThree.\nFour.\n")?;
+    fx.git(&["mv", "src/app.rs", "src/main.rs"])?;
+    fx.commit(BOB, "guide, and a better name")?;
+
+    // Day 4, Alice: every one of the 11 lines reformatted, +11 -11.
+    let formatted: Vec<String> = app.iter().map(|l| format!("{l};")).collect();
+    fx.write("src/main.rs", &numbered(&formatted))?;
+    fx.commit(ALICE, "reformat")?;
+    let reformat = fx.git(&["rev-parse", "HEAD"])?.trim().to_string();
+
+    // Day 5, Bob: .git-blame-ignore-revs names the reformat, +2.
+    fx.write(
+        ".git-blame-ignore-revs",
+        &format!("# the reformat\n{reformat}\n"),
+    )?;
+    fx.commit(BOB, "ignore the reformat in blame")?;
+
+    // Day 6, Alice: sixty one-line files, a Bulk Commit.
+    for n in 0..60 {
+        fx.write(&format!("gen/f{n:02}.txt"), "generated\n")?;
+    }
+    fx.commit(ALICE, "add sixty files")?;
     Ok(())
 }
 

@@ -176,6 +176,10 @@ impl CommitFlags {
     pub const EMPTY: CommitFlags = CommitFlags(0);
     /// The commit has more than one parent.
     pub const MERGE: CommitFlags = CommitFlags(1 << 0);
+    /// `.git-blame-ignore-revs` names the commit, a reformat or a mass
+    /// rename, so its lines are nobody's work. Set in memory by the line
+    /// pass from the file at HEAD, never stored with history (ADR-0012).
+    pub const BLAME_IGNORED: CommitFlags = CommitFlags(1 << 1);
 
     #[inline]
     pub fn contains(self, other: CommitFlags) -> bool {
@@ -763,6 +767,34 @@ impl RepoIdentity {
         };
         feed(self.git_dir.as_bytes());
         format!("{hash:016x}")
+    }
+}
+
+/// What the line pass found: every change's lines, parallel to the
+/// index's changes, `None` where not counted, and the commits
+/// `.git-blame-ignore-revs` names.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LinePass {
+    pub lines: Vec<Option<LineDelta>>,
+    pub ignored: Vec<Oid>,
+}
+
+impl LinePass {
+    /// Fills the index's line counts and marks the ignored commits. Does
+    /// nothing to an index with a different set of changes.
+    pub fn apply(self, index: &mut Index) {
+        if self.lines.len() != index.changes.len() {
+            return;
+        }
+        for (change, lines) in index.changes.iter_mut().zip(self.lines) {
+            change.lines = lines;
+        }
+        let ignored: std::collections::HashSet<Oid> = self.ignored.into_iter().collect();
+        for c in &mut index.commits {
+            if ignored.contains(&c.id) {
+                c.flags = c.flags.with(CommitFlags::BLAME_IGNORED);
+            }
+        }
     }
 }
 

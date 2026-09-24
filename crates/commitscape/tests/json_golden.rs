@@ -116,6 +116,11 @@ fn rhythm() {
 }
 
 #[test]
+fn lines() {
+    golden("lines");
+}
+
+#[test]
 fn shallow() {
     golden("shallow");
 }

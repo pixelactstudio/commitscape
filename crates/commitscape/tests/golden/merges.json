@@ -432,7 +432,14 @@
       "commits": 4,
       "active_days": 4,
       "first": "2024-01-01T00:00:00",
-      "last": "2024-01-06T00:00:00"
+      "last": "2024-01-06T00:00:00",
+      "lines": {
+        "added": 4,
+        "removed": 3,
+        "counted": 4,
+        "uncounted": 0
+      },
+      "areas": 0
     },
     {
       "name": "Bob Example",
@@ -440,7 +447,14 @@
       "commits": 2,
       "active_days": 2,
       "first": "2024-01-03T00:00:00",
-      "last": "2024-01-04T00:00:00"
+      "last": "2024-01-04T00:00:00",
+      "lines": {
+        "added": 2,
+        "removed": 1,
+        "counted": 2,
+        "uncounted": 0
+      },
+      "areas": 0
     }
   ]
 }

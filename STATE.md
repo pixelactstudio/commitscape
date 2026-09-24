@@ -279,7 +279,7 @@ gate for each phase.
 |---|---|---|
 | 13 | Remove everything AI-related, end to end | **DONE**: no agent or AI term in the UI, JSON, card, help or glossary; cache schema 8; JSON schema 2 |
 | 14 | Trust fixes: identity merging (ADR-0011), `w` keeps your place, mouse, review fixes | **DONE**: maihs one Dev Talan and one Ryan, pixelactstudio one Dev Talan; render tests for each fix |
-| 15 | Line counts in a background pass (new ADR amending ADR-0004); People contribution views | not started |
+| 15 | Line counts in a background pass (new ADR amending ADR-0004); People contribution views | **DONE**: ADR-0012; rust-lang/rust 53 s and Linux 195 s cold, background; hand-worked `lines` fixture |
 | 16 | Terminal UI: nine screens to five, themes, Kinds of work from files, unusual facts only; then frozen | not started |
 | 17 | GitHub, deeper: full PR, issue, review and release history, incremental (amends ADR-0009) | not started |
 | 18 | Browser UI foundation (ADR-0010): server, API, generated types, token, default choice, SSH | not started |
@@ -730,6 +730,66 @@ What the first Window cost on Linux, measured part by part: the Map 61 to
    `.mailmap` lines that would make it permanent. The lines are shown, not
    written: the repository is the owner's, and the user's repositories here
    are read-only.
+
+## Phase 15 findings
+
+1. **ADR-0012: lines come from a second pass** after the first screen,
+   `RepoSource::count_lines`: each non-merge commit diffed against its one
+   parent with the walk's own tree diff, the two blobs of each changed file
+   read, and lines counted with `imara-diff`'s Myers, git's default. The
+   walk still reads no blob. `lines::line_pass` aligns the counts with the
+   changes the index records by pairing renames exactly as the builder
+   does, so an unchanged move is one change of 0 and 0.
+2. **Measured cost** (`cargo xtask line-cost`, six cores, all history):
+   rust-lang/rust 236,732 commits in 53 s (48 s through the binary), peak
+   2.1 GB; Linux 1,371,396 commits in 195 s, peak 8.7 GB, most of it the
+   memory-mapped pack, which the pass reads end to end. Bulk Commits are
+   1.2% of rust-lang/rust's commits and 16% of its pass.
+3. **Checked against git.** `cargo xtask line-cost --verify` compares every
+   change with `git show --numstat --no-renames --diff-algorithm=myers`:
+   98.7% of pixelactstudio's changes and 98.6% of t3code's newest 1,500
+   commits' match exactly, totals within 0.11% and 0.89%. The rest are two
+   equally short diffs lined up differently; imara-diff's Myers is not
+   always git's. Two traps found on the way: this machine's git config sets
+   `diff.algorithm=histogram`, and `git log --numstat` detects renames
+   unless told not to.
+4. **The line store** (`cache::LineStore`) is an append-only file keyed by
+   commit id beside the cache, saved every 4,096 commits so a first pass
+   resumes, and cut back to its last whole record after a crash. A
+   commit's counts never change, so they survive a cache rebuild. Through
+   the binary, over all of history: rust-lang/rust 48 s cold, and warm its
+   7.7 MB store adds 0.18 s (0.76 s against 0.58 s without lines); Linux
+   216 s cold, and warm its 35 MB store adds 1.1 s (3.17 s against 2.08 s).
+5. **Counts fill `FileChange::lines` in memory**, and
+   `CommitFlags::BLAME_IGNORED` marks the commits `.git-blame-ignore-revs`
+   names; neither is written with history, since only `load` writes the
+   cache and it runs first. `LinePass` lives in core so the interface can
+   apply one.
+6. **People views, side by side, no score:** `Analysis::contributions()`
+   gives each person's commits, Lines Changed (added, removed, how many
+   changes were and were not counted) and areas (folders that depend on
+   them alone). Lines leave out merges, Bulk Commits, ignored revisions,
+   lockfiles (`metrics::is_lockfile`) and Generated and Vendored files, by
+   their class at HEAD or, for files gone since, by path
+   (`metrics::looks_generated`). PRs and reviews need the full GitHub
+   history of Phase 17 and join these views there.
+7. **The interface** counts lines once all of history is loaded and says
+   "counting…" until then; People gains "lines + / −" and "areas", the
+   profile a lines tile. `--json` counts lines (and keeps them) unless
+   `--no-lines`; each contributor gains `lines` (`null` when not counted)
+   and `areas`.
+8. **The `lines` fixture** (`docs/fixtures.md`) has a lockfile, a binary
+   file, an exact move, a reformat named in `.git-blame-ignore-revs` and a
+   Bulk Commit; its worked values are asserted through the real adapter:
+   Alice +10 −2, Bob +13 −2, 214 and 35 over every counted change.
+9. **First paint after this phase**: rust-lang/rust median 54.5 ms,
+   Linux 71.3 ms (n=20). The first version computed each person's lines
+   and Ownership again inside the first frame: 62.3 and 87.9 ms. Lines now
+   run on their own thread beside Ownership, and areas are built from the
+   Ownership already computed (`metrics::combine`).
+10. **Bug caught by a snapshot:** the interface said "counting…" forever
+   when no line counter was given, because the state moved before it was
+   checked.
 
 ## Decisions made during implementation, not in any ADR
 

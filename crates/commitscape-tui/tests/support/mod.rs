@@ -326,6 +326,7 @@ pub fn session_of(repo: ScriptedRepo, span: Span) -> Session {
         github: Err("not asked in tests".to_string()),
         people: Some(people()),
         link_accounts: None,
+        lines: None,
     }
 }
 
@@ -357,6 +358,7 @@ pub fn sliced(span: Span, dir: &Path) -> Session {
         github: Err("not asked in tests".to_string()),
         people: Some(people()),
         link_accounts: None,
+        lines: None,
     }
 }
 

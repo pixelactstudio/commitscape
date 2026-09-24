@@ -4,7 +4,7 @@ The commit walk reads tree structure only — paths and object ids, never file c
 
 ## Status
 
-accepted for the history walk. Build Run 3 (Phase 15, see `IDEA.md`) adds line counts in a separate background pass after the first frame; that needs its own ADR amending the "No line counts" consequence, written with measured costs.
+accepted for the history walk. Its "No line counts" is amended by ADR-0012: lines are counted by a separate pass after the first screen, never by the walk.
 
 ## Context
 

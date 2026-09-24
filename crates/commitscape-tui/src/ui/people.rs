@@ -10,7 +10,8 @@ use ratatui::Frame;
 use super::charts;
 use super::{bold, boxed, clip, dot, faint, highlight, plain, short_phrase, visible};
 use crate::app::App;
-use crate::format::{ago, grouped, share};
+use crate::app::Lines;
+use crate::format::{ago, compact, grouped, share};
 use crate::list::Cursor;
 
 pub(super) fn draw(app: &App, frame: &mut Frame, area: Rect, cursor: &mut Cursor) {
@@ -81,17 +82,19 @@ pub(super) fn draw(app: &App, frame: &mut Frame, area: Rect, cursor: &mut Cursor
     }
     let most = f.contributors.first().map_or(0, |c| u64::from(c.commits));
     let name_width = 30usize;
-    let fixed = 3 + 2 + name_width + 1 + 7 + 6 + 11 + 12;
+    let fixed = 3 + 2 + name_width + 1 + 7 + 6 + 15 + 7 + 11 + 12;
     let bar_width = inner.width.saturating_sub(fixed as u16).clamp(4, 40);
 
     // Each heading as wide as the values under it.
     let header = Line::from(vec![faint(format!(
-        "{:>3}  {:<nw$} {:<bw$}{:>7}{:>6}{:>11}{:>12}",
+        "{:>3}  {:<nw$} {:<bw$}{:>7}{:>6}{:>15}{:>7}{:>11}{:>12}",
         "#",
         "person",
         "",
         "commits",
         "share",
+        "lines + / −",
+        "areas",
         "active",
         "last commit",
         nw = name_width,
@@ -132,6 +135,11 @@ pub(super) fn draw(app: &App, frame: &mut Frame, area: Rect, cursor: &mut Cursor
                 ),
                 bold(format!(" {:>6}", grouped(u64::from(c.commits)))),
                 faint(format!(" {:>5}", share(u64::from(c.commits), total))),
+                lines_cell(app, f.contributions.iter().find(|x| x.author == c.author)),
+                match f.contributions.iter().find(|x| x.author == c.author) {
+                    Some(x) if x.areas > 0 => plain(format!(" {:>6}", grouped(u64::from(x.areas)))),
+                    _ => faint(format!(" {:>6}", "·")),
+                },
                 plain(format!(" {:>5} days", grouped(u64::from(c.active_days)))),
                 plain(format!(" {:>11}", ago(last))),
             ])
@@ -175,5 +183,20 @@ pub(super) fn draw(app: &App, frame: &mut Frame, area: Rect, cursor: &mut Cursor
             lines.push(super::fit_line(Line::from(spans), usize::from(inner.width)));
         }
         frame.render_widget(Paragraph::new(lines), inner);
+    }
+}
+
+/// Lines added and removed, as the People list shows them: `+12.3k −4.1k`,
+/// or why there is no number yet.
+fn lines_cell(app: &App, c: Option<&commitscape_metrics::Contribution>) -> Span<'static> {
+    let width = 15;
+    match (&app.lines, c) {
+        (Lines::Waiting(_) | Lines::Counting, _) => faint(format!("{:>width$}", "counting…")),
+        (Lines::Off, _) => faint(format!("{:>width$}", "not counted")),
+        (Lines::Counted, Some(c)) if c.lines.counted > 0 => plain(format!(
+            "{:>width$}",
+            format!("+{} −{}", compact(c.lines.added), compact(c.lines.removed))
+        )),
+        (Lines::Counted, _) => faint(format!("{:>width$}", "none")),
     }
 }

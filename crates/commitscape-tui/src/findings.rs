@@ -5,8 +5,9 @@
 //! took 13ms.
 
 use commitscape_metrics::{
-    Analysis, Churn, CodeMap, CommitCounts, Contributor, Coupling, Hotspot, Languages, LargeFile,
-    MapNode, Ownership, Pulse, QuarterAge, Staleness, SuspectedDuplicate, Totals, Window,
+    Analysis, Churn, CodeMap, CommitCounts, Contribution, Contributor, Coupling, Hotspot,
+    Languages, LargeFile, MapNode, Ownership, Pulse, QuarterAge, Staleness, SuspectedDuplicate,
+    Totals, Window,
 };
 
 pub(crate) struct Findings {
@@ -18,6 +19,12 @@ pub(crate) struct Findings {
     pub contributors: Vec<Contributor>,
     /// Automation accounts, left out of `contributors`.
     pub bots: Vec<Contributor>,
+    /// Each contributor's commits, lines and areas, in the same order.
+    pub contributions: Vec<Contribution>,
+    pub lines_by_person: Vec<(
+        commitscape_core::AuthorId,
+        commitscape_metrics::LinesChanged,
+    )>,
     pub churn: Vec<Churn>,
     pub hotspots: Vec<Hotspot>,
     pub largest: Vec<LargeFile>,
@@ -46,10 +53,11 @@ impl Findings {
     /// the suspected duplicates take about 10ms each, so those three run
     /// beside the rest: 40ms one after another, about 15 side by side.
     pub fn without_map(analysis: &Analysis<'_>) -> Findings {
-        std::thread::scope(|s| {
+        let mut f = std::thread::scope(|s| {
             let ownership = s.spawn(|| analysis.ownership());
             let languages = s.spawn(|| analysis.languages());
             let duplicates = s.spawn(|| analysis.suspected_duplicates());
+            let lines = s.spawn(|| analysis.lines_by_person());
             // Fields are computed in the order written, so the threads'
             // answers are waited for last.
             Findings {
@@ -59,6 +67,7 @@ impl Findings {
                 pulse: analysis.pulse(None),
                 contributors: analysis.contributors(),
                 bots: analysis.bots(),
+                contributions: Vec::new(),
                 churn: analysis.churn(),
                 hotspots: analysis.hotspots(),
                 largest: analysis.largest(),
@@ -69,8 +78,12 @@ impl Findings {
                 ownership: joined(ownership),
                 languages: joined(languages),
                 duplicates: joined(duplicates),
+                lines_by_person: joined(lines),
             }
-        })
+        });
+        f.contributions =
+            commitscape_metrics::combine(&f.contributors, &f.ownership, &f.lines_by_person);
+        f
     }
 
     /// The Map's folders and files, none until it is laid out.

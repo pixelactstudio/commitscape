@@ -15,6 +15,7 @@
 
 mod format;
 mod identity_store;
+mod line_store;
 mod location;
 
 use std::ops::ControlFlow;
@@ -30,6 +31,7 @@ use crate::source::{CommitSink, RawChange, RawCommit, RepoSource};
 use format::{BlockEntry, Head, Previous, SortedIds, Unusable};
 
 pub use identity_store::IdentityStore;
+pub use line_store::LineStore;
 pub use location::default_cache_root;
 
 /// Where to keep the cache.

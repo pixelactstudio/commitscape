@@ -13,7 +13,7 @@
 use std::collections::HashSet;
 use std::ops::ControlFlow;
 
-use commitscape_core::{CommitKind, Oid};
+use commitscape_core::{CommitKind, LineDelta, Oid};
 
 use crate::mailmap::Mailmap;
 
@@ -125,6 +125,11 @@ pub struct HeadChange {
 /// in the request, and the bytes.
 pub type BlobSink<'a> = &'a (dyn Fn(usize, &[u8]) + Sync);
 
+/// Receives one commit's line counts, possibly from several threads at
+/// once: the commit, its changes as the walk reported them, and the lines
+/// each added and removed, `None` where they were not counted.
+pub type LineSink<'a> = &'a (dyn Fn(Oid, &[RawChange<'_>], &[Option<LineDelta>]) + Sync);
+
 /// What a walk did.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct WalkStats {
@@ -202,4 +207,15 @@ pub trait RepoSource {
     /// position in `blobs`. The only place blob contents are read (ADR-0004),
     /// and only for files at HEAD.
     fn read_blobs(&self, blobs: &[Oid], sink: BlobSink<'_>) -> Result<(), Self::Error>;
+
+    /// Counts the lines each change of each of `commits` added and removed
+    /// ([`crate::lines::line_delta`]), for commits with at most one parent;
+    /// merges are passed over. This is the line pass (ADR-0012), which reads
+    /// blobs after the first screen, never the history walk. Commits reach
+    /// `sink` in any order.
+    fn count_lines(&self, commits: &[Oid], sink: LineSink<'_>) -> Result<(), Self::Error>;
+
+    /// The commits `.git-blame-ignore-revs` names: the work tree's file, or
+    /// HEAD's when there is no work tree.
+    fn blame_ignore_revs(&self) -> Result<Vec<Oid>, Self::Error>;
 }

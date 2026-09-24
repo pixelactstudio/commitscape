@@ -205,6 +205,42 @@ calendar, and at the hour it was written:
 - Every hour holds at most one commit, so the busiest hour is the earliest,
   02:00.
 
+## `lines`: lines added and removed, and what is left out of them
+
+Seven commits, days 0 to 6. Every line in `src/app.rs` is different from
+every other, so there is one smallest diff and `git diff --numstat` agrees
+with it.
+
+| Day | Author | Change | Added | Removed |
+|---|---|---|---|---|
+| 0 | Alice | adds `src/app.rs`, `line 1` to `line 10` | 10 | 0 |
+| 0 | Alice | adds `Cargo.lock`, 100 lines | 100 | 0 |
+| 0 | Alice | adds `logo.png`, binary | not counted | not counted |
+| 1 | Bob | `src/app.rs`: lines 3 and 4 replaced by two, three appended | 5 | 2 |
+| 2 | Alice | `src/app.rs`: `line 9` and `line 10` deleted | 0 | 2 |
+| 2 | Alice | `Cargo.lock`: 20 versions bumped | 20 | 20 |
+| 3 | Bob | adds `docs/guide.md`, 6 lines | 6 | 0 |
+| 3 | Bob | moves `src/app.rs` to `src/main.rs` unchanged | 0 | 0 |
+| 4 | Alice | `src/main.rs`: all 11 lines reformatted | 11 | 11 |
+| 5 | Bob | adds `.git-blame-ignore-revs`, naming day 4 | 2 | 0 |
+| 6 | Alice | adds `gen/f00.txt` to `gen/f59.txt`, one line each | 60 | 0 |
+
+After day 2, `src/app.rs` holds 13 − 2 = 11 lines: 10, then 10 − 2 + 2 + 3
+= 13 on day 1, then 11.
+
+What each person's lines count, over all of history, at a bulk threshold of
+50 files, leaving out lockfiles, files that were not counted, commits named
+in `.git-blame-ignore-revs` and Bulk Commits:
+
+- **Alice: +10 −2.** Day 0's `src/app.rs`, day 2's two deletions. Not her
+  `Cargo.lock` (a lockfile), not day 4 (ignored), not day 6 (60 files, a
+  Bulk Commit).
+- **Bob: +13 −2.** Day 1's +5 −2, day 3's +6 and a move of 0, day 5's +2.
+
+Every change the line pass counts, merges aside: 10 + 100 + 5 + 20 + 6 + 11
++ 2 + 60 = 214 added and 2 + 2 + 20 + 11 = 35 removed, with `logo.png` the
+one change not counted.
+
 ## Edge-case repositories
 
 | Fixture | Shape | Required behaviour |

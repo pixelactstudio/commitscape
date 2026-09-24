@@ -532,7 +532,14 @@
       "commits": 10,
       "active_days": 10,
       "first": "2024-01-01T00:00:00",
-      "last": "2024-01-10T00:00:00"
+      "last": "2024-01-10T00:00:00",
+      "lines": {
+        "added": 10,
+        "removed": 8,
+        "counted": 10,
+        "uncounted": 0
+      },
+      "areas": 1
     },
     {
       "name": "Bob Example",
@@ -540,7 +547,14 @@
       "commits": 6,
       "active_days": 6,
       "first": "2024-01-11T00:00:00",
-      "last": "2024-01-21T00:00:00"
+      "last": "2024-01-21T00:00:00",
+      "lines": {
+        "added": 6,
+        "removed": 6,
+        "counted": 6,
+        "uncounted": 0
+      },
+      "areas": 0
     },
     {
       "name": "Carol",
@@ -548,7 +562,14 @@
       "commits": 5,
       "active_days": 5,
       "first": "2024-01-12T00:00:00",
-      "last": "2024-01-16T00:00:00"
+      "last": "2024-01-16T00:00:00",
+      "lines": {
+        "added": 5,
+        "removed": 4,
+        "counted": 5,
+        "uncounted": 0
+      },
+      "areas": 0
     }
   ]
 }

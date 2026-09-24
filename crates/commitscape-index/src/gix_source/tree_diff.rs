@@ -34,6 +34,9 @@ pub(super) struct Changed {
     pub blob: ObjectId,
     /// Whether the entry after the change is a symbolic link.
     pub symlink: bool,
+    /// The blob before a modification, when the commit has one parent: what
+    /// a line count compares `blob` with.
+    pub before: Option<ObjectId>,
 }
 
 #[derive(Clone, Copy)]
@@ -271,11 +274,16 @@ fn file_change(
             } else {
                 RawChangeKind::Added
             };
+            let before = match parents {
+                [Some(p)] if is_file(&p) => Some(p.oid.to_owned()),
+                _ => None,
+            };
             Some(Changed {
                 path: path(),
                 kind,
                 blob: e.oid.to_owned(),
                 symlink: e.mode.is_link(),
+                before,
             })
         }
         Some(_) => None,
@@ -288,6 +296,7 @@ fn file_change(
                 kind: RawChangeKind::Deleted,
                 blob: removed.oid.to_owned(),
                 symlink: false,
+                before: None,
             })
         }
     }

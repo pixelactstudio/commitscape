@@ -102,6 +102,11 @@ pub struct Contributor {
     /// Their first and last commit in the Window, on their own clock.
     pub first: String,
     pub last: String,
+    /// Lines they added and removed (ADR-0012), `null` when lines were not
+    /// counted (`--no-lines`).
+    pub lines: Option<commitscape_metrics::LinesChanged>,
+    /// Folders that depend on them alone.
+    pub areas: u32,
 }
 
 #[derive(Serialize)]
@@ -233,8 +238,9 @@ pub struct Person {
 }
 
 /// Builds the document. Each ranking holds at most `top` rows.
-pub fn report(analysis: &Analysis<'_>, span: Span, top: usize) -> Report {
+pub fn report(analysis: &Analysis<'_>, span: Span, top: usize, lines: bool) -> Report {
     let index = analysis.index();
+    let contributions = analysis.contributions();
     let path = |f: FileId| index.paths.path_lossy(f);
     let counts = analysis.commits();
     let window = analysis.window();
@@ -383,6 +389,15 @@ pub fn report(analysis: &Analysis<'_>, span: Span, top: usize) -> Report {
                     active_days: c.active_days,
                     first: local(c.first),
                     last: local(c.last),
+                    lines: contributions
+                        .iter()
+                        .find(|x| x.author == c.author)
+                        .map(|x| x.lines)
+                        .filter(|_| lines),
+                    areas: contributions
+                        .iter()
+                        .find(|x| x.author == c.author)
+                        .map_or(0, |x| x.areas),
                 }
             })
             .collect(),

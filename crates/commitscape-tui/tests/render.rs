@@ -271,6 +271,50 @@ fn worth_a_look_names_a_folder_once_and_work_leaves_out_manifests() {
 }
 
 #[test]
+fn people_show_lines_once_they_are_counted() {
+    // Alice adds src/main.rs, 3 lines, then changes one and adds one: +5
+    // -1. Bob adds src/lib.rs, 4 lines, and a 50-line lockfile, which is
+    // not anyone's writing: +4 -0.
+    use commitscape_index::source::RawChangeKind::{Added, Modified};
+    let at = |days: i64| support::ANCHOR - days * 86_400;
+    let blob = |n: u8| commitscape_core::Oid([n; 20]);
+    const ALICE: (&str, &str) = ("Alice Example", "alice@example.com");
+    const BOB: (&str, &str) = ("Bob Builder", "bob@example.com");
+    let lock: String = (1..=50).map(|n| format!("dep-{n}\n")).collect();
+    let repo = commitscape_index::ScriptedRepo::new()
+        .commit(at(20), ALICE, &[(b"src/main.rs", Added, blob(1))])
+        .commit(at(10), ALICE, &[(b"src/main.rs", Modified, blob(2))])
+        .commit(
+            at(5),
+            BOB,
+            &[
+                (b"src/lib.rs", Added, blob(3)),
+                (b"Cargo.lock", Added, blob(4)),
+            ],
+        )
+        .blob(blob(1), "a\nb\nc\n")
+        .blob(blob(2), "a\nB\nc\nd\n")
+        .blob(blob(3), "1\n2\n3\n4\n")
+        .blob(blob(4), &lock)
+        .head_file(b"src/main.rs", "a\nB\nc\nd\n")
+        .head_file(b"src/lib.rs", "1\n2\n3\n4\n")
+        .head_file(b"Cargo.lock", &lock);
+    let mut session = support::session_of(repo.clone(), Span::Quarter);
+    session.lines = Some(Box::new(move |index: &commitscape_core::Index| {
+        commitscape_index::line_pass(&repo, index, None, &mut |_, _| {}).ok()
+    }));
+    let (mut app, work) = App::new(session);
+    press(&mut app, &[Char('3')]);
+    let counting = screen(&mut app);
+    assert!(counting.contains("counting…"), "{counting}");
+
+    settle(&mut app, work);
+    let counted = screen(&mut app);
+    assert!(counted.contains("+5 −1"), "{counted}");
+    assert!(counted.contains("+4 −0"), "{counted}");
+}
+
+#[test]
 fn an_age_bucket_opens_onto_its_files_and_a_file_onto_itself() {
     let mut app = opened(Span::Quarter);
     press(&mut app, &[Char('8'), Down, Enter]);

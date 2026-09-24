@@ -13,8 +13,8 @@ use commitscape_core::Index;
 use commitscape_forge::{GitHub, Remote};
 use commitscape_index::RepoSource;
 use commitscape_index::{
-    default_cache_root, load, reresolve_authors, CacheOptions, GixRepo, IdentityRules,
-    IdentityStore, Progress, Since,
+    default_cache_root, line_pass, load, reresolve_authors, CacheOptions, GixRepo, IdentityRules,
+    IdentityStore, LineStore, Progress, Since,
 };
 use commitscape_metrics::{Analysis, Options, Span};
 use commitscape_tui::format::grouped;
@@ -48,6 +48,11 @@ struct Cli {
     /// the interface.
     #[arg(long, conflicts_with = "json")]
     summary: bool,
+
+    /// Leave out the lines each person added and removed, so the JSON
+    /// output does not wait for them to be counted.
+    #[arg(long, requires = "json")]
+    no_lines: bool,
 
     /// Rows in each ranking of the JSON output.
     #[arg(long, default_value_t = 20, value_name = "ROWS")]
@@ -199,6 +204,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             Box::new(move |recent: &Index| rest.complete(recent).ok())
         });
         let offline = cli.common.offline || cli.exit_after_first_paint;
+        let loaded_repo = loaded.index.repo.clone();
         let (change, link) = identities(&cli.repo, &repo, &options, &loaded.index, offline);
         let session = Session {
             name: repo_name(&loaded.index),
@@ -210,6 +216,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             github: github(&repo, offline),
             people: change,
             link_accounts: link,
+            lines: Some(count_lines(&cli.repo, &options, &loaded_repo)),
         };
         if cli.exit_after_first_paint {
             commitscape_tui::paint_once(session)?;
@@ -219,11 +226,22 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         return Ok(());
     }
 
+    let lines = cli.json && !cli.no_lines;
+    if lines {
+        let store = LineStore::for_repo(&options, &loaded.index.repo);
+        let mut meter = ProgressLine::new();
+        let pass = line_pass(&repo, &loaded.index, store.as_ref(), &mut |done, total| {
+            meter.lines(done, total)
+        })?;
+        meter.clear();
+        pass.apply(&mut loaded.index);
+    }
     let analysis = Analysis::new(&loaded.index, cli.window.window(anchor), metrics)?;
 
     let mut out = std::io::stdout().lock();
     if cli.json {
-        serde_json::to_writer_pretty(&mut out, &json::report(&analysis, cli.window, cli.top))?;
+        let report = json::report(&analysis, cli.window, cli.top, lines);
+        serde_json::to_writer_pretty(&mut out, &report)?;
         writeln!(out)?;
     } else {
         let summary = text::summary(&cli.repo, &loaded.index, loaded.freshness);
@@ -257,6 +275,7 @@ fn card(args: CardArgs) -> anyhow::Result<()> {
         github: github(&repo, args.common.offline),
         people: change,
         link_accounts: link,
+        lines: None,
     };
     let out = args
         .out
@@ -282,6 +301,21 @@ fn github(repo: &GixRepo, offline: bool) -> Result<LoadGitHub, String> {
     Ok(Box::new(move || {
         GitHub::fetch(&remote).map_err(|e| e.to_string())
     }))
+}
+
+/// How the interface counts lines (ADR-0012): in the background, kept in
+/// the cache directory when there is one.
+fn count_lines(
+    path: &std::path::Path,
+    options: &CacheOptions,
+    repo: &commitscape_core::RepoIdentity,
+) -> commitscape_tui::CountLines {
+    let path = path.to_path_buf();
+    let store = LineStore::for_repo(options, repo);
+    Box::new(move |index: &Index| {
+        let source = GixRepo::open(&path).ok()?;
+        line_pass(&source, index, store.as_ref(), &mut |_, _| {}).ok()
+    })
 }
 
 /// How the interface undoes merges and links GitHub accounts: neither
@@ -355,6 +389,21 @@ impl ProgressLine {
         };
         let mut err = std::io::stderr().lock();
         let _ = write!(err, "\r\x1b[2K{line}");
+        let _ = err.flush();
+        self.drawn = true;
+    }
+
+    fn lines(&mut self, done: u64, total: u64) {
+        if !self.live || total == 0 {
+            return;
+        }
+        let mut err = std::io::stderr().lock();
+        let _ = write!(
+            err,
+            "\r\x1b[2Kcounting lines: {} / {} commits",
+            grouped(done),
+            grouped(total)
+        );
         let _ = err.flush();
         self.drawn = true;
     }

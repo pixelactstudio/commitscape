@@ -9,6 +9,7 @@ mod bench;
 mod changesets;
 mod fixtures;
 mod layering;
+mod line_cost;
 mod preview;
 mod verify;
 
@@ -51,6 +52,16 @@ enum Command {
         /// Repositories to report on.
         repos: Vec<std::path::PathBuf>,
     },
+    /// Time the line pass (ADR-0012) over a repository's non-merge commits.
+    LineCost {
+        repo: std::path::PathBuf,
+        /// Only the newest this many commits.
+        #[arg(long)]
+        newest: Option<usize>,
+        /// Compare each count with `git show --numstat` instead of timing.
+        #[arg(long)]
+        verify: bool,
+    },
     /// Render the interface's screens for a repository to SVG and PNG, to
     /// look at while designing it.
     Preview {
@@ -89,6 +100,11 @@ fn main() -> Result<()> {
         Command::CheckLayering => layering::check(),
         Command::VerifyWalk { repo, every } => verify::run(&repo, every),
         Command::Changesets { repos } => changesets::run(&repos),
+        Command::LineCost {
+            repo,
+            newest,
+            verify,
+        } => line_cost::run(&repo, newest, verify),
         Command::Preview {
             repo,
             out,

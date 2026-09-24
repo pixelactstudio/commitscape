@@ -356,7 +356,7 @@ impl CommitSink for IndexBuilder {
                     kind: ChangeKind::Renamed,
                     from: self.path_id(from),
                 },
-                Resolved::Plain { path, kind } => {
+                Resolved::Plain { path, kind, .. } => {
                     let path = self.path_id(path);
                     PendingChange {
                         path,
@@ -390,9 +390,17 @@ impl CommitSink for IndexBuilder {
     }
 }
 
-enum Resolved<'a> {
-    Rename { from: &'a [u8], to: &'a [u8] },
-    Plain { path: &'a [u8], kind: ChangeKind },
+pub(crate) enum Resolved<'a> {
+    Rename {
+        from: &'a [u8],
+        to: &'a [u8],
+    },
+    /// `raw` is the change's place in the list it was resolved from.
+    Plain {
+        path: &'a [u8],
+        kind: ChangeKind,
+        raw: usize,
+    },
 }
 
 /// Turns `Added`/`Deleted` pairs that share a blob id into renames.
@@ -406,7 +414,7 @@ enum Resolved<'a> {
 /// `gix`'s own rewrite tracker would do this too, but it lives behind
 /// `gix-diff`'s `blob` feature, which we do not enable precisely because
 /// ADR-0004 forbids blob access in the walk.
-fn pair_exact_renames<'a>(changes: &[RawChange<'a>]) -> Vec<Resolved<'a>> {
+pub(crate) fn pair_exact_renames<'a>(changes: &[RawChange<'a>]) -> Vec<Resolved<'a>> {
     let mut deletions_by_blob: HashMap<Oid, Vec<usize>> = HashMap::new();
     for (i, c) in changes.iter().enumerate() {
         if c.kind == RawChangeKind::Deleted {
@@ -452,6 +460,7 @@ fn pair_exact_renames<'a>(changes: &[RawChange<'a>]) -> Vec<Resolved<'a>> {
         }
         out.push(Resolved::Plain {
             path: c.path,
+            raw: i,
             kind: match c.kind {
                 RawChangeKind::Added => ChangeKind::Added,
                 RawChangeKind::Modified => ChangeKind::Modified,

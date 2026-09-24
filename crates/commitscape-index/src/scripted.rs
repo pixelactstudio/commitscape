@@ -20,8 +20,8 @@ use commitscape_core::{Oid, RepoIdentity};
 
 use crate::mailmap::Mailmap;
 use crate::source::{
-    BlobSink, CommitSink, HeadChange, HeadEntry, Indexed, RawChange, RawChangeKind, RawCommit,
-    RepoSource, WalkStats,
+    BlobSink, CommitSink, HeadChange, HeadEntry, Indexed, LineSink, RawChange, RawChangeKind,
+    RawCommit, RepoSource, WalkStats,
 };
 
 #[derive(Debug, Clone)]
@@ -58,6 +58,8 @@ pub struct ScriptedRepo {
     /// commit otherwise.
     tips: Option<Vec<Oid>>,
     head_blobs: Vec<(Vec<u8>, Vec<u8>)>,
+    /// Contents of blobs in history, for the line pass.
+    blobs: Vec<(Oid, Vec<u8>)>,
     mailmap: Mailmap,
     remote: Option<String>,
     truncated: bool,
@@ -68,6 +70,20 @@ pub struct ScriptedRepo {
 pub type ScriptedChangeSpec<'a> = (&'a [u8], RawChangeKind, Oid);
 
 impl ScriptedRepo {
+    /// The blob at `path` in commit `from` and its first-parent ancestors:
+    /// the latest change there, unless it was a deletion.
+    fn blob_before(&self, from: Option<&Oid>, path: &[u8]) -> Option<Oid> {
+        let mut at = from.copied();
+        while let Some(id) = at {
+            let c = self.commits.iter().find(|c| c.id == id)?;
+            if let Some(ch) = c.changes.iter().find(|ch| ch.path == path) {
+                return (ch.kind != RawChangeKind::Deleted).then_some(ch.blob);
+            }
+            at = c.parents.first().copied();
+        }
+        None
+    }
+
     pub fn new() -> Self {
         Self::default()
     }
@@ -80,6 +96,13 @@ impl ScriptedRepo {
     /// Gives the repository a default remote.
     pub fn with_remote(mut self, url: &str) -> Self {
         self.remote = Some(url.to_string());
+        self
+    }
+
+    /// Gives a blob in history its contents, so the line pass can count its
+    /// lines. A blob without contents is not counted.
+    pub fn blob(mut self, id: Oid, contents: &str) -> Self {
+        self.blobs.push((id, contents.as_bytes().to_vec()));
         self
     }
 
@@ -376,6 +399,62 @@ impl RepoSource for ScriptedRepo {
     /// commit, so it cannot diff two of them: the caller lists HEAD instead.
     fn head_changes(&self, _since: Oid) -> Result<Option<Vec<HeadChange>>, Self::Error> {
         Ok(None)
+    }
+
+    fn count_lines(&self, commits: &[Oid], sink: LineSink<'_>) -> Result<(), Self::Error> {
+        let contents = |id: Option<Oid>| -> Option<&[u8]> {
+            match id {
+                None => Some(&[]),
+                Some(id) => self
+                    .blobs
+                    .iter()
+                    .find(|(b, _)| *b == id)
+                    .map(|(_, c)| c.as_slice()),
+            }
+        };
+        for id in commits {
+            let Some(c) = self.commits.iter().find(|c| c.id == *id) else {
+                continue;
+            };
+            if c.parents.len() > 1 {
+                continue;
+            }
+            let raws: Vec<RawChange<'_>> = c
+                .changes
+                .iter()
+                .map(|ch| RawChange {
+                    path: &ch.path,
+                    kind: ch.kind,
+                    blob: ch.blob,
+                })
+                .collect();
+            let deltas: Vec<_> = c
+                .changes
+                .iter()
+                .map(|ch| {
+                    let (before, after) = match ch.kind {
+                        RawChangeKind::Added => (None, Some(ch.blob)),
+                        RawChangeKind::Deleted => (Some(ch.blob), None),
+                        RawChangeKind::Modified => (
+                            Some(self.blob_before(c.parents.first(), &ch.path)?),
+                            Some(ch.blob),
+                        ),
+                    };
+                    crate::lines::line_delta(contents(before)?, contents(after)?)
+                })
+                .collect();
+            sink(*id, &raws, &deltas);
+        }
+        Ok(())
+    }
+
+    fn blame_ignore_revs(&self) -> Result<Vec<Oid>, Self::Error> {
+        Ok(self
+            .head_blobs
+            .iter()
+            .find(|(p, _)| p == b".git-blame-ignore-revs")
+            .map(|(_, t)| crate::lines::parse_ignore_revs(t))
+            .unwrap_or_default())
     }
 
     fn read_blobs(&self, blobs: &[Oid], sink: BlobSink<'_>) -> Result<(), Self::Error> {

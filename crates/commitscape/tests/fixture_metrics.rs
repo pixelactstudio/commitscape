@@ -326,3 +326,29 @@ fn coupling_with_a_support_of_four_keeps_both_pairs() {
         "the higher Jaccard ranks first"
     );
 }
+
+#[test]
+fn lines_each_person_wrote_leave_out_lockfiles_ignored_revs_and_bulk_commits() {
+    let repo = GixRepo::open(&fixture("lines")).expect("opening fixture");
+    let mut idx = index_from_scratch(&repo).expect("indexing fixture");
+    let pass = commitscape_index::line_pass(&repo, &idx, None, &mut |_, _| {}).expect("counting");
+
+    // Every change the pass counts: 214 added and 35 removed, logo.png not.
+    let counted: Vec<_> = pass.lines.iter().flatten().collect();
+    assert_eq!(counted.iter().map(|d| d.added).sum::<u32>(), 214);
+    assert_eq!(counted.iter().map(|d| d.removed).sum::<u32>(), 35);
+    assert_eq!(pass.lines.iter().filter(|d| d.is_none()).count(), 1);
+    assert_eq!(pass.ignored.len(), 1, "the reformat");
+
+    pass.apply(&mut idx);
+    let people: HashMap<String, (u64, u64)> = analysis(&idx)
+        .contributions()
+        .iter()
+        .map(|c| {
+            let name = idx.authors.get(c.author).map(|a| a.name.to_string());
+            (name.unwrap_or_default(), (c.lines.added, c.lines.removed))
+        })
+        .collect();
+    assert_eq!(people.get("Alice Example"), Some(&(10, 2)));
+    assert_eq!(people.get("Bob Example"), Some(&(13, 2)));
+}

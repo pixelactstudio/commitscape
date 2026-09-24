@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use commitscape_core::{AuthorId, AuthorTable, Index};
+use commitscape_core::{AuthorId, AuthorTable, Index, LinePass};
 use commitscape_forge::GitHub;
 use commitscape_metrics::{Age, Analysis, CodeMap, Options, Span, Window};
 use ratatui::crossterm::event::{
@@ -20,7 +20,7 @@ use crate::findings::Findings;
 use crate::list::Cursor;
 use crate::theme;
 use crate::ui;
-use crate::{ChangePeople, LinkAccounts, LoadGitHub, LoadOlder, PeopleChange, Session};
+use crate::{ChangePeople, CountLines, LinkAccounts, LoadGitHub, LoadOlder, PeopleChange, Session};
 
 /// The Panels, in tab order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -145,6 +145,7 @@ enum Happened {
     },
     /// Everyone re-resolved, after an undo or GitHub's accounts.
     People(Option<Box<AuthorTable>>),
+    Lines(Option<Box<LinePass>>),
 }
 
 impl Event {
@@ -207,6 +208,10 @@ enum Job {
         index: Arc<Index>,
         link: LinkAccounts,
     },
+    Lines {
+        index: Arc<Index>,
+        count: CountLines,
+    },
 }
 
 impl Command {
@@ -246,8 +251,20 @@ impl Command {
                 what,
             } => Event(Happened::People(change(&table, what).map(Box::new))),
             Job::Link { index, link } => Event(Happened::People(link(&index).map(Box::new))),
+            Job::Lines { index, count } => Event(Happened::Lines(count(&index).map(Box::new))),
         }
     }
+}
+
+/// Where the line pass is (ADR-0012).
+pub(crate) enum Lines {
+    /// Waiting for all of history to be loaded.
+    Waiting(CountLines),
+    Counting,
+    Counted,
+    /// Lines are not counted: no cache to keep them in, or they could not
+    /// be read.
+    Off,
 }
 
 /// The history older than the index holds.
@@ -348,6 +365,7 @@ pub struct App {
     people: Option<ChangePeople>,
     /// How to link commits to GitHub accounts, until it is asked.
     link: Option<LinkAccounts>,
+    pub(crate) lines: Lines,
     /// Bumped whenever people are re-resolved, so that findings computed
     /// for the people before are not kept.
     generation: u32,
@@ -371,6 +389,7 @@ impl App {
             github,
             people,
             link_accounts,
+            lines,
         } = session;
         let older_state = match (&older, index.loaded_from) {
             (_, None) => Older::Complete,
@@ -406,6 +425,7 @@ impl App {
             page: 10,
             people,
             link: link_accounts,
+            lines: lines.map_or(Lines::Off, Lines::Waiting),
             generation: 0,
             hits: Default::default(),
             done: false,
@@ -437,6 +457,7 @@ impl App {
         }
         if app.older == Older::Complete {
             commands.extend(app.link_accounts());
+            commands.extend(app.count_lines());
         }
         (app, commands)
     }
@@ -484,6 +505,7 @@ impl App {
                 self.older = Older::Complete;
                 let mut commands = self.ensure(self.span);
                 commands.extend(self.link_accounts());
+                commands.extend(self.count_lines());
                 commands
             }
             Happened::Older(None) => {
@@ -505,6 +527,11 @@ impl App {
             }
             Happened::People(Some(table)) => self.repeople(*table),
             Happened::People(None) => Vec::new(),
+            Happened::Lines(Some(pass)) => self.with_lines(*pass),
+            Happened::Lines(None) => {
+                self.lines = Lines::Off;
+                Vec::new()
+            }
         }
     }
 
@@ -569,10 +596,43 @@ impl App {
         self.index = Arc::new(index);
         self.colours = colours(&self.index);
         (self.shared_names, self.shared_handles) = shared(&self.index.authors);
+        self.recompute()
+    }
+
+    /// Fills in the lines the line pass counted, and computes every finding
+    /// again with them, keeping what is open.
+    fn with_lines(&mut self, pass: LinePass) -> Vec<Command> {
+        self.lines = Lines::Counted;
+        if self.reopen.is_empty() {
+            self.reopen = self.opened.drain(..).map(|o| o.origin).collect();
+        }
+        self.opened.clear();
+        pass.apply(Arc::make_mut(&mut self.index));
+        self.recompute()
+    }
+
+    /// Forgets every Window's findings, computed before the index changed,
+    /// and starts computing the current one again. What was open opens again
+    /// when it arrives.
+    fn recompute(&mut self) -> Vec<Command> {
         self.findings = Default::default();
         self.computing = [false; 4];
         self.generation += 1;
         self.ensure(self.span)
+    }
+
+    /// Counts lines, once, now that all of history is here.
+    fn count_lines(&mut self) -> Option<Command> {
+        if !matches!(self.lines, Lines::Waiting(_)) {
+            return None;
+        }
+        let Lines::Waiting(count) = std::mem::replace(&mut self.lines, Lines::Counting) else {
+            return None;
+        };
+        Some(Command(Job::Lines {
+            index: Arc::clone(&self.index),
+            count,
+        }))
     }
 
     pub fn draw(&mut self, frame: &mut Frame) {
