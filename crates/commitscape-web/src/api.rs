@@ -413,6 +413,53 @@ pub struct CommitLine {
     pub person: Option<PersonRef>,
 }
 
+/// One person's year across the repositories in a folder: what the
+/// Wrapped page shows (`commitscape wrapped`).
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct WrappedYear {
+    /// "Dev Talan's 2026 in code", or "Your 2026 in code" when git has no
+    /// name for them.
+    pub title: String,
+    /// The person, as git's configuration names them; empty when it does
+    /// not.
+    pub name: String,
+    pub year: i32,
+    /// Repositories looked in, with a commit of theirs this year or not.
+    pub looked_in: u32,
+    pub commits: u32,
+    pub active_days: u32,
+    /// Most commits first.
+    pub repositories: Vec<RepoCommits>,
+    /// `null` when lines were not counted.
+    pub lines_added: Option<u64>,
+    pub lines_removed: Option<u64>,
+    /// Lines added by language, most first.
+    pub languages: Vec<Language>,
+    /// The busiest day and its commits.
+    pub busiest_day: Option<i64>,
+    pub busiest_commits: u32,
+    /// The longest streak of days with a commit, and its first day.
+    pub streak_days: u32,
+    pub streak_from: Option<i64>,
+    /// Commits between 22:00 and 05:00 on their clock.
+    pub night: u32,
+    /// Commits by hour on their clock, midnight first.
+    pub hours: Vec<u32>,
+    /// Commits a day from 1 January, to the last day of the year or today.
+    pub first_day: i64,
+    pub days: Vec<u32>,
+    /// The card, as SVG.
+    pub card: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct RepoCommits {
+    pub name: String,
+    pub commits: u32,
+}
+
 /// What every builder needs beside the Analysis.
 pub struct Context<'a> {
     pub window: &'a str,
@@ -1253,6 +1300,8 @@ mod types {
             File::decl(&cfg),
             Coupled::decl(&cfg),
             CommitLine::decl(&cfg),
+            WrappedYear::decl(&cfg),
+            RepoCommits::decl(&cfg),
         ] {
             out.push_str("\nexport ");
             out.push_str(&decl);

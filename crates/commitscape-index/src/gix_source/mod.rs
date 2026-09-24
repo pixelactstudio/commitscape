@@ -104,6 +104,14 @@ impl GixRepo {
         })
     }
 
+    /// `user.email` and `user.name` as git's configuration has them for
+    /// this repository: who "you" are here.
+    pub fn user(&self) -> (Option<String>, Option<String>) {
+        let config = self.repo.config_snapshot();
+        let get = |key: &str| config.string(key).map(|v| v.to_string());
+        (get("user.email"), get("user.name"))
+    }
+
     /// The top of the working tree, or the repository itself when bare.
     pub fn top(&self) -> &Path {
         &self.path

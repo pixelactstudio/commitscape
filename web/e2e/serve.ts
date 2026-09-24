@@ -47,3 +47,12 @@ export function report(repo: string, ...args: string[]): string {
   if (done.status !== 0) throw new Error(done.stderr);
   return out;
 }
+
+/** Writes `commitscape wrapped` for a folder and returns the page's path. */
+export function wrappedPage(folder: string, ...args: string[]): string {
+  const out = mkdtempSync(join(tmpdir(), "commitscape-wrapped-"));
+  const done = spawnSync(binary(), ["wrapped", "--no-cache", "--out", out, ...args, folder], { encoding: "utf8" });
+  if (done.status !== 0) throw new Error(done.stderr);
+  const year = args[args.indexOf("--year") + 1];
+  return join(out, `wrapped-${year}.html`);
+}

@@ -3,6 +3,7 @@ import { cardSvg, isReport, listen, servedMeta } from "./api/client";
 import type { MapLevel, Meta, People as PeopleData } from "./api/types";
 import { useData } from "./api/useData";
 import { TipLayer } from "./charts/Tip";
+import { SaveCard } from "./components/SaveCard";
 import { HelpContext } from "./help";
 import { WINDOW_WORDS } from "./format";
 import { paramsOf, SCREENS, useRoute, type Route, type Screen } from "./route";
@@ -85,7 +86,7 @@ export default function App() {
                   ))}
                 </select>
               </label>
-              <SaveCard name={meta.name} window={span} />
+              <SaveCard load={() => cardSvg(span)} file={`${meta.name}-card-${span}.png`} />
             </div>
           </header>
           <nav aria-label="Screens" className="screens">
@@ -233,49 +234,5 @@ function Filters({
         </button>
       )}
     </form>
-  );
-}
-
-/** Saves the card for the Window as a PNG, drawn from its SVG. */
-function SaveCard({ name, window }: { name: string; window: string }) {
-  const [state, setState] = useState<string | null>(null);
-  const save = async () => {
-    setState("Drawing…");
-    try {
-      const svg = await cardSvg(window);
-      const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
-      const img = new Image();
-      await new Promise<void>((resolve, reject) => {
-        img.onload = () => resolve();
-        img.onerror = () => reject(new Error("The card could not be drawn."));
-        img.src = url;
-      });
-      const scale = 2;
-      const canvas = document.createElement("canvas");
-      canvas.width = img.naturalWidth * scale;
-      canvas.height = img.naturalHeight * scale;
-      const cx = canvas.getContext("2d");
-      if (!cx) throw new Error("This browser cannot draw the card.");
-      cx.scale(scale, scale);
-      cx.drawImage(img, 0, 0);
-      URL.revokeObjectURL(url);
-      const png = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
-      if (!png) throw new Error("The card could not be saved.");
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(png);
-      a.download = `${name}-card-${window}.png`;
-      a.click();
-      setState(null);
-    } catch (e) {
-      setState((e as Error).message);
-    }
-  };
-  return (
-    <>
-      <button type="button" onClick={() => void save()}>
-        Save the card
-      </button>
-      {state && <span className="note small">{state}</span>}
-    </>
   );
 }

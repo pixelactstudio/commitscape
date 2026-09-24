@@ -25,7 +25,7 @@ pub use cache::{
 pub use commitscape_core::LinePass;
 pub use gix_source::{GixError, GixRepo};
 pub use identity::{resolve_authors, IdentityRules};
-pub use lines::line_pass;
+pub use lines::{line_pass, line_pass_where};
 pub use mailmap::Mailmap;
 pub use scripted::{ScriptedChangeSpec, ScriptedRepo};
 pub use source::{

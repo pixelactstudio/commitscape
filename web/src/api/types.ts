@@ -304,3 +304,57 @@ export type Coupled = { path: string, together: number,
 degree: number, };
 
 export type CommitLine = { id: string, time: number, person: PersonRef | null, };
+
+export type WrappedYear = { 
+/**
+ * "Dev Talan's 2026 in code", or "Your 2026 in code" when git has no
+ * name for them.
+ */
+title: string, 
+/**
+ * The person, as git's configuration names them; empty when it does
+ * not.
+ */
+name: string, year: number, 
+/**
+ * Repositories looked in, with a commit of theirs this year or not.
+ */
+looked_in: number, commits: number, active_days: number, 
+/**
+ * Most commits first.
+ */
+repositories: Array<RepoCommits>, 
+/**
+ * `null` when lines were not counted.
+ */
+lines_added: number | null, lines_removed: number | null, 
+/**
+ * Lines added by language, most first.
+ */
+languages: Array<Language>, 
+/**
+ * The busiest day and its commits.
+ */
+busiest_day: number | null, busiest_commits: number, 
+/**
+ * The longest streak of days with a commit, and its first day.
+ */
+streak_days: number, streak_from: number | null, 
+/**
+ * Commits between 22:00 and 05:00 on their clock.
+ */
+night: number, 
+/**
+ * Commits by hour on their clock, midnight first.
+ */
+hours: Array<number>, 
+/**
+ * Commits a day from 1 January, to the last day of the year or today.
+ */
+first_day: number, days: Array<number>, 
+/**
+ * The card, as SVG.
+ */
+card: string, };
+
+export type RepoCommits = { name: string, commits: number, };

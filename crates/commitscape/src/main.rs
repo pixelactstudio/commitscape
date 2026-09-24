@@ -7,6 +7,7 @@ mod people;
 mod text;
 mod web;
 mod who;
+mod wrapped;
 
 use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
@@ -110,6 +111,10 @@ enum Command {
     /// person: its maintainers, Bus Factor, releases, issue answers and
     /// trend, and its card. Keeps a partial clone in the cache directory.
     Health(health::HealthArgs),
+    /// Your year across every repository under a folder, as a page and a
+    /// card: your own commits only, private repositories included, nothing
+    /// uploaded.
+    Wrapped(wrapped::WrappedArgs),
     /// Fetch the repository's pull requests, issues and releases from GitHub
     /// now, through the gh CLI. The interface does this in the background;
     /// a fetch that stops, at GitHub's rate limit say, resumes next time.
@@ -244,6 +249,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         Some(Command::Check(args)) => return check::run(args),
         Some(Command::Who(args)) => return who::run(args),
         Some(Command::Health(args)) => return health::run(args),
+        Some(Command::Wrapped(args)) => return wrapped::run(args),
         Some(Command::Github(args)) => return github_history(args),
         Some(Command::Report(args)) => return report(args),
         None => {}

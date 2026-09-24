@@ -1,0 +1,56 @@
+name: commitscape card
+description: >-
+  Draws the repository's commitscape card, an SVG of its story, and commits
+  it when it changed, so a README can show it.
+branding:
+  icon: image
+  color: blue
+inputs:
+  path:
+    description: Where to keep the card in the repository.
+    default: .github/commitscape-card.svg
+  window:
+    description: The Window the card tells, 30d, 90d, 1y or all.
+    default: all
+  version:
+    description: The commitscape version to run, from npm.
+    default: latest
+  message:
+    description: The commit message when the card changed.
+    default: "chore: update the commitscape card"
+runs:
+  using: composite
+  steps:
+    # All of history: the card tells it.
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - name: Draw the card and commit it if it changed
+      shell: bash
+      env:
+        CARD: ${{ inputs.path }}
+        WINDOW: ${{ inputs.window }}
+        VERSION: ${{ inputs.version }}
+        MESSAGE: ${{ inputs.message }}
+      run: |
+        set -euo pipefail
+        # The card's own commit is history too: with nothing committed since
+        # it, a card of all of history would differ only by that commit. A
+        # shorter Window moves on with the days, so it is always redrawn.
+        last=$(git log -1 --format=%H -- "$CARD")
+        if [ "$WINDOW" = "all" ] && [ -n "$last" ] && [ -z "$(git log --format=%H "$last..HEAD")" ]; then
+          echo "Nothing has been committed since the card was drawn."
+          exit 0
+        fi
+        mkdir -p "$(dirname "$CARD")"
+        npx --yes "commitscape@$VERSION" card . --window "$WINDOW" --offline --no-cache --out "$CARD"
+        if git diff --quiet -- "$CARD" && git ls-files --error-unmatch "$CARD" > /dev/null 2>&1; then
+          echo "The card has not changed."
+          exit 0
+        fi
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git add -- "$CARD"
+        git commit --quiet -m "$MESSAGE"
+        git push --quiet
+        echo "Updated $CARD." >> "$GITHUB_STEP_SUMMARY"

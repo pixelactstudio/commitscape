@@ -2,7 +2,7 @@
 // 21 commits over all of history, by Alice (10, under three addresses the
 // mailmap and case join), Bob (6) and Carol (5); `alpha/` has 10 commits.
 import { expect, test, type Page } from "@playwright/test";
-import { fixture, report, serve, type Served } from "./serve.ts";
+import { fixture, report, serve, wrappedPage, type Served } from "./serve.ts";
 
 let served: Served;
 test.beforeAll(async () => {
@@ -93,4 +93,17 @@ test("the card is saved as a PNG", async ({ page }) => {
   // PNG's signature, then its width and height: twice the card's 1,080 by 684.
   expect(bytes.subarray(1, 4).toString()).toBe("PNG");
   expect([bytes.readUInt32BE(16), bytes.readUInt32BE(20)]).toEqual([2160, 1368]);
+});
+
+test("wrapped is one person's year, from a file", async ({ page }) => {
+  // Alice's 2024 in the ownership fixture: 9 commits to alpha/ and the one
+  // adding .mailmap, on 10 days in a row from 1 January (a new day each).
+  const path = wrappedPage(fixture("ownership"), "--email", "alice@example.com", "--year", "2024");
+  await page.goto(`file://${path}`);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText(/2024 in code/);
+  await expect(tile(page, "commits").locator("strong")).toHaveText("10");
+  await expect(tile(page, "days with a commit").locator("strong")).toHaveText("10");
+  const saved = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Save the card" }).click();
+  expect((await saved).suggestedFilename()).toBe("wrapped-2024.png");
 });

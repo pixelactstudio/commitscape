@@ -232,3 +232,8 @@ th.num button { text-align: right; }
   .file-panel { width: auto; }
   .two { grid-template-columns: 1fr; }
 }
+
+.night { fill: var(--surface-2); }
+.night-label { fill: var(--muted); font-size: 11px; }
+.hour-bar { fill: var(--s3); }
+.wrapped .card { max-width: 100%; border-radius: 0.6rem; border: 1px solid var(--line); }

@@ -146,7 +146,23 @@ person: who kept it going in the last 90 days, its Bus Factor over the last
 year, how often it releases, how fast issues get a first answer, and whether
 it is getting busier or quieter. It draws the project's card too.
 
+**What did I do this year?** `commitscape wrapped ~/code` finds every
+repository under a folder, keeps only your own commits (under every address
+you commit with: git's `user.email`, and `--email` for others), and writes
+your year as a page and a card: commits, lines, languages, your busiest day,
+your longest streak, the hours you work, and where. Private repositories are
+included, and nothing is uploaded. `--year 2025` for another year.
+
+```sh
+commitscape wrapped ~/code             # writes wrapped-<year>.html and wrapped-<year>-card.svg here
+commitscape wrapped ~/code --out ~/Desktop
+```
+
 `who` and `health` take `--json`, and `check` takes `--format json`.
+
+To keep a repository's card in its README, the
+[`actions/card`](actions/card/README.md) GitHub Action redraws it every week
+and commits it when it changed.
 
 Other ways to run it:
 

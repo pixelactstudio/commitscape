@@ -260,3 +260,111 @@ fn health_says_who_keeps_it_going_how_often_it_ships_and_where_it_is_heading() {
         }
     );
 }
+
+#[test]
+fn wrapped_is_one_persons_year_across_every_repository() {
+    use commitscape_metrics::{wrapped, DayCount, LanguageYear, RepoYear, StreakYear, Wrapped};
+    // 2024, for Ann, in two repositories. In `app`, at 10:00 on her clock:
+    // `a.rs` on days 10, 11 and 12, 10 lines added and 2 removed each
+    // time, and `a.py` twice on day 50, 5 lines added each. Bob commits on
+    // day 11 and Ann on the last day of 2023, none counted. In `lib`:
+    // `b.rs` on day 13 at 10:00 (3 added, 1 removed) and on day 50 at
+    // 23:00 (1 and 1).
+    //
+    // 7 commits: 5 in app, 2 in lib, on 5 days. Day 50 is the busiest,
+    // with 3. Days 10 to 13 are a streak of 4, across both. One commit of
+    // seven came at night (22:00 to 05:00), at 23:00. Lines: 30 + 10 + 3 +
+    // 1 = 44 added, 6 + 2 = 8 removed; Rust 34 of them, Python 10.
+    let day = |d: i64, file: &'static [&'static str], lines: (u32, u32), hour: i64| {
+        c(d, "ann@x.org", file).lines(&[lines]).local(hour, 0, 0)
+    };
+    let mut app = vec![
+        day(10, &["a.rs"], (10, 2), 10),
+        day(11, &["a.rs"], (10, 2), 10),
+        day(12, &["a.rs"], (10, 2), 10),
+        day(50, &["a.py"], (5, 0), 10),
+        day(50, &["a.py"], (5, 0), 10),
+        day(-1, &["a.rs"], (1, 0), 10),
+    ];
+    app.push(
+        c(11, "bob@x.org", &["a.rs"])
+            .lines(&[(7, 7)])
+            .local(10, 0, 0),
+    );
+    // 20:00 on 31 December 2023 in New York is 01:00 on 1 January in UTC,
+    // inside the Window, but on 2023 by Ann's clock: not counted either.
+    app.push(
+        c(-1, "ann@x.org", &["a.rs"])
+            .lines(&[(9, 9)])
+            .local(20, 0, -300),
+    );
+    let lib = vec![
+        day(13, &["b.rs"], (3, 1), 10),
+        day(50, &["b.rs"], (1, 1), 23),
+    ];
+    // Wide enough for every clock's 2024.
+    let year = Window {
+        from: Some(EPOCH - DAY),
+        to: EPOCH + 367 * DAY,
+    };
+    let of = |commits: &[support::C<'_>]| {
+        let idx = index(commits, &[h("a.rs", 1, 0)]);
+        let a = Analysis::new(&idx, year, Options::default()).expect("analysis");
+        let jan = EPOCH / DAY;
+        a.year_in(&[person(&idx, "ann@x.org")], jan..=jan + 365, &|_| true)
+    };
+    let repos = vec![("app".to_string(), of(&app)), ("lib".to_string(), of(&lib))];
+    let w = wrapped(&repos);
+    let mut hours = [0u32; 24];
+    hours[10] = 6;
+    hours[23] = 1;
+    let jan = EPOCH / DAY;
+    assert_eq!(
+        w,
+        Wrapped {
+            commits: 7,
+            active_days: 5,
+            repositories: vec![
+                RepoYear {
+                    name: "app".to_string(),
+                    commits: 5
+                },
+                RepoYear {
+                    name: "lib".to_string(),
+                    commits: 2
+                },
+            ],
+            lines_added: Some(44),
+            lines_removed: Some(8),
+            languages: vec![
+                LanguageYear {
+                    name: "Rust".to_string(),
+                    lines: 34
+                },
+                LanguageYear {
+                    name: "Python".to_string(),
+                    lines: 10
+                },
+            ],
+            busiest_day: Some(DayCount {
+                day: jan + 50,
+                commits: 3
+            }),
+            streak: Some(StreakYear {
+                first_day: jan + 10,
+                days: 4
+            }),
+            night: 1,
+            hours,
+            days: [
+                (jan + 10, 1),
+                (jan + 11, 1),
+                (jan + 12, 1),
+                (jan + 13, 1),
+                (jan + 50, 3)
+            ]
+            .into_iter()
+            .collect(),
+        }
+    );
+}

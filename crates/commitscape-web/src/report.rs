@@ -1,9 +1,11 @@
-//! `commitscape report`: the browser interface as one HTML file, to send or
-//! keep, that needs no server. The web app is inlined, and so is the data it
-//! would have asked for, for every Window: each screen, the Map's first two
-//! levels, the profiles of the people who made most commits, and the card.
-//! What is left out (a file's details, deeper folders, filters) says it is
-//! only in the live interface.
+//! The browser interface as one HTML file that needs no server, with the
+//! web app and its data written into it.
+//!
+//! `commitscape report` holds, for every Window, each screen, the Map's
+//! first two levels, the profiles of the people who made most commits, and
+//! the card; what is left out (a file's details, deeper folders, filters)
+//! says it is only in the live interface. `commitscape wrapped` holds one
+//! person's year.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -161,17 +163,28 @@ pub fn report(r: Report) -> String {
         generation: 0,
     };
     let inlined = Inlined { meta, data, cards };
-    page(&serde_json::to_string(&inlined).unwrap_or_default())
+    page(
+        "__COMMITSCAPE__",
+        &serde_json::to_string(&inlined).unwrap_or_default(),
+    )
+}
+
+/// The Wrapped page: the app, showing one person's year, as one file.
+pub fn wrapped_page(year: &api::WrappedYear) -> String {
+    page(
+        "__COMMITSCAPE_WRAPPED__",
+        &serde_json::to_string(year).unwrap_or_default(),
+    )
 }
 
 /// The built app's page with its script and styles written into it, and
 /// the data before them.
-fn page(json: &str) -> String {
+fn page(global: &str, json: &str) -> String {
     let (index, _) = assets::file("/index.html");
     let mut html = String::from_utf8_lossy(index).into_owned();
     // In a script, `</` would end it early: JSON allows `<\/` for it.
     let data = format!(
-        "<script>window.__COMMITSCAPE__ = {};</script>",
+        "<script>window.{global} = {};</script>",
         json.replace("</", "<\\/")
     );
     let mut head = data;

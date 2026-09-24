@@ -64,11 +64,23 @@ pub fn line_pass<S: RepoSource>(
     store: Option<&LineStore>,
     progress: &mut dyn FnMut(u64, u64),
 ) -> Result<LinePass, S::Error> {
+    line_pass_where(source, index, store, &|_| true, progress)
+}
+
+/// [`line_pass`] for only the commits `wanted` keeps: one person's year,
+/// say. The others keep what the store already knows of them.
+pub fn line_pass_where<S: RepoSource>(
+    source: &S,
+    index: &Index,
+    store: Option<&LineStore>,
+    wanted: &dyn Fn(&commitscape_core::CommitMeta) -> bool,
+    progress: &mut dyn FnMut(u64, u64),
+) -> Result<LinePass, S::Error> {
     let mut known = store.map(LineStore::read).unwrap_or_default();
     let todo: Vec<Oid> = index
         .commits
         .iter()
-        .filter(|c| !c.is_merge() && !known.contains_key(&c.id))
+        .filter(|c| !c.is_merge() && wanted(c) && !known.contains_key(&c.id))
         .map(|c| c.id)
         .collect();
     let total = todo.len() as u64;

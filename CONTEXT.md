@@ -134,6 +134,10 @@ _Avoid_: summary image, badge (and report, which is the Report).
 The browser interface written into one file, for every Window, to send or keep: it needs no server and answers only what it was written with.
 _Avoid_: export, snapshot, dump.
 
+**Wrapped**:
+One person's year across every repository in a folder: only their own commits, under every address they commit with, told as a page and a Card.
+_Avoid_: year in review, stats, recap.
+
 **Moment**:
 One event in the project's life, on the Overview's story line: the first commit, a release, someone who made a real share of the commits joining or leaving, the busiest day, the biggest clean-up, a quiet stretch, a change of main language.
 _Avoid_: event, milestone.

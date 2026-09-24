@@ -285,7 +285,7 @@ gate for each phase.
 | 18 | Browser UI foundation (ADR-0010): server, API, generated types, token, default choice, SSH | **DONE**: API tests through a real server; opened in Chromium here; VS Code simulated with `$BROWSER` |
 | 19 | Browser screens, filters, themes, PNG card, `commitscape report` | **DONE**: screenshots of every screen, both themes, on pixelactstudio, maihs and t3code in `target/preview/web/`; 8 Playwright tests on a fixture; first chart 740 ms rust-lang/rust, 459 ms Linux |
 | 20 | `check` plus its GitHub Action, `who`, `health` | **DONE**: hand-worked tests for all three; replayed over real history, `check` flagged files the same author then changed in their next commits (10 in maihs, 12 in t3code) |
-| 21 | `wrapped` and the README card Action | not started |
+| 21 | `wrapped` and the README card Action | **DONE**: the owner's 2026 across `~/code` in `target/preview/wrapped/`; hand-worked test for the year; the card Action simulated against a local remote |
 | 22 | Distribution (npm, Homebrew, Nix) and launch material | not started |
 
 ### Phase 8 measured numbers
@@ -1107,6 +1107,57 @@ What the first Window cost on Linux, measured part by part: the Map 61 to
    now deleted, and one added an index to the owner's maihs cache there,
    now removed with the cache pointed back at the index it had before.
 
+## Phase 21 findings
+
+1. **`wrapped [folder]`** finds every repository under a folder (four
+   levels down, not inside one found, nor in `node_modules`, `target`,
+   `dist`, `build`, `vendor` or hidden folders; empty repositories are
+   passed over). "You" are every person with one of your addresses: git's
+   `user.email` in any of the repositories, `--email`, and every address
+   joined to one of those in any repository (a GitHub account or a
+   `.mailmap` there, ADR-0011), until no new one turns up. A name alone is
+   not enough, since people share names; addresses committing under your
+   name that are not yet you are printed as `--email` suggestions.
+   `Analysis::year_in` gives each repository's part, on the author's own
+   clock for days and hours alike; `wrapped()` joins them, so a streak or a
+   busy day can cross repositories. A commit is counted once, so a clone or
+   a worktree adds nothing. Only your commits of the year are line-counted
+   (`line_pass_where`), and kept in the line store.
+2. **The owner's 2026 across `~/code`** (17 repositories found, 2 empty;
+   13 of the 15 with their commits; `target/preview/wrapped/`): 3,010
+   commits on 222 days, 950,867 lines added and 383,301 removed, a 29-day
+   streak from 7 April, the busiest day 18 July with 137 commits, 830
+   commits (28%) between 22:00 and 05:00; maihs 1,677, pixelactstudio 885,
+   env-helper 147, vidcastx 120; TypeScript 508k lines, JavaScript 102k,
+   Rust 34k. Git's `user.email` is the owner's GitHub noreply address; the
+   other address was joined through the GitHub account maihs links. It
+   takes under a second with warm caches.
+3. **The page** is the web app with the year written into it
+   (`window.__COMMITSCAPE_WRAPPED__`): tiles, the year as a calendar and as
+   columns, where and in what, the hours with the night shaded and
+   labelled, and the card, saved as a PNG with the same button as the
+   browser interface's. The card is SVG drawn in Rust in the validated
+   dark palette (`commitscape-web/src/wrapped_card.rs`), 1,200 by 630: one
+   series a chart, every bar with its number. A Playwright test checks the
+   page on the `ownership` fixture: Alice's 2024 is 10 commits on 10 days.
+4. **The README card Action** (`actions/card/`) redraws the card with
+   `npx commitscape card` and commits it as `github-actions[bot]` when it
+   changed. Its first design committed every run: the card's own commit
+   changed the next card. It now skips when nothing was committed since
+   the last card. Simulated twice against a local bare remote: one commit,
+   then "nothing has been committed since". Like the check Action it needs
+   commitscape on npm (Phase 22).
+5. **Fixed in review:** a commit was placed in the year by UTC but on a
+   day by its author's clock, so days either side of New Year could count
+   and not be drawn; the year is now read on each commit's own clock. Also
+   fixed: clones and worktrees counted twice, a blank name for a repository
+   run from inside, "Your's", a colleague of the same name counted as you,
+   repositories that could not be read left out without a word, the card's
+   "1000k", and a 30-day card left stale by the Action (only an all-of-
+   history card now waits for a new commit). Left as it is: every
+   repository is read from its cache for the year only, but a first run
+   still walks its whole history once to build that cache.
+
 ## Decisions made during implementation, not in any ADR
 
 1. **`bincode` pinned to `=2.0.1`.** `cargo add` resolves to 3.0.0, which is a
@@ -1226,6 +1277,9 @@ What the first Window cost on Linux, measured part by part: the Map 61 to
     and 8 in 10 (Phase 20 finding 2 says why); a Maintainer has 3 commits
     in 90 days; `who` halves a commit's weight every 180 days and calls
     someone gone after 90 days without a commit.
+33. **Wrapped's year is the calendar year**, 1 January to 31 December or
+    today, on each commit's own clock for days and hours, as the Overview
+    counts them.
 
 ---
 

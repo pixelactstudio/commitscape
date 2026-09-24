@@ -22,6 +22,7 @@ mod roles;
 mod timeline;
 mod who;
 mod window;
+mod wrapped;
 
 pub use ages::{Age, AgeCount, QuarterAge, StaleFile, Staleness};
 pub use analysis::{
@@ -40,3 +41,4 @@ pub use roles::{is_lockfile, looks_generated, role_of, Role};
 pub use timeline::Moment;
 pub use who::{Expert, Who};
 pub use window::{Span, Window};
+pub use wrapped::{wrapped, DayCount, LanguageYear, RepoYear, StreakYear, Wrapped, YearIn};

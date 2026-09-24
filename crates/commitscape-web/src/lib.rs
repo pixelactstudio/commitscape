@@ -15,6 +15,7 @@ mod assets;
 pub mod filter;
 pub mod report;
 pub mod security;
+pub mod wrapped_card;
 
 use std::collections::HashMap;
 use std::io::{self, Write};
