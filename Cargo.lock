@@ -3243,6 +3243,7 @@ dependencies = [
  "commitscape-metrics",
  "commitscape-tui",
  "ratatui",
+ "serde_json",
 ]
 
 [[package]]

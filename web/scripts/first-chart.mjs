@@ -4,11 +4,14 @@
 //
 //   node scripts/first-chart.mjs <commitscape binary> <repository> [runs]
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { chromium } from "@playwright/test";
 
 const [bin, repo, runs = "5"] = process.argv.slice(2);
+// As playwright.config.ts: CHROMIUM, this system's, or Playwright's own.
+const system = "/run/current-system/sw/bin/chromium";
 const browser = await chromium.launch({
-  executablePath: process.env.CHROMIUM ?? "/run/current-system/sw/bin/chromium",
+  executablePath: process.env.CHROMIUM || (existsSync(system) ? system : undefined),
 });
 const times = [];
 for (let i = 0; i < Number(runs); i++) {

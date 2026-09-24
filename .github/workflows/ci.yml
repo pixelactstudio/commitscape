@@ -77,3 +77,44 @@ jobs:
         # ADR-0001's seam is only real if the metrics crate genuinely cannot
         # reach gix. This asserts it on every push.
         run: cargo xtask check-layering
+
+  web:
+    # The browser interface: its checks, then its screens in Chromium
+    # against a fixture, through the real binary.
+    name: web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Configure git for fixture generation
+        run: |
+          git config --global user.name "commitscape ci"
+          git config --global user.email "ci@example.invalid"
+          git config --global init.defaultBranch main
+
+      - name: Typecheck, lint, test and build
+        working-directory: web
+        run: |
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm test
+          npm run build
+
+      - name: Build the binary, with the web app inside, and the fixtures
+        run: |
+          cargo xtask fixtures --force
+          cargo build --release -p commitscape
+
+      - name: The screens, end to end
+        working-directory: web
+        run: |
+          npx playwright install --with-deps chromium
+          npm run e2e

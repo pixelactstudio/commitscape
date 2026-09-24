@@ -6,6 +6,7 @@
 // Pass the cache with COMMITSCAPE_CACHE_DIR, as for commitscape itself.
 import { spawn } from "node:child_process";
 import { mkdirSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { chromium } from "@playwright/test";
 
 const [bin, repo, out] = process.argv.slice(2);
@@ -23,8 +24,10 @@ const url = await new Promise((resolve, reject) => {
   child.on("exit", () => reject(new Error(text)));
 });
 const base = url.replace(/\/\?token=.*/, "");
+// As playwright.config.ts: CHROMIUM, this system's, or Playwright's own.
+const system = "/run/current-system/sw/bin/chromium";
 const browser = await chromium.launch({
-  executablePath: process.env.CHROMIUM ?? "/run/current-system/sw/bin/chromium",
+  executablePath: process.env.CHROMIUM || (existsSync(system) ? system : undefined),
 });
 const page = await browser.newPage({ viewport: { width: 1360, height: 900 } });
 page.on("pageerror", (e) => console.error("page error:", e.message));

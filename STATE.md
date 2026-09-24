@@ -3,7 +3,7 @@
 Running log for Build Run 1 (Phases 0 to 7). Written so a fresh session with
 no context can read this plus `docs/adr/` and continue without asking anything.
 
-**Current position:** Build Run 3 in progress (Phases 13 to 22); see the Build Run 3 table.
+**Current position:** Build Run 3 is done (Phases 13 to 22); see the Build Run 3 table. Nothing is published: there is no git remote yet.
 Build Run 1 (Phases 0 to 7) built a correct, fast tool. Build Run 2 (Phases 8
 to 12) made it fun and visual. On 2026-09-24 the owner used it on their own
 repositories and reviewed it. The review and the decisions that followed are
@@ -286,7 +286,7 @@ gate for each phase.
 | 19 | Browser screens, filters, themes, PNG card, `commitscape report` | **DONE**: screenshots of every screen, both themes, on pixelactstudio, maihs and t3code in `target/preview/web/`; 8 Playwright tests on a fixture; first chart 740 ms rust-lang/rust, 459 ms Linux |
 | 20 | `check` plus its GitHub Action, `who`, `health` | **DONE**: hand-worked tests for all three; replayed over real history, `check` flagged files the same author then changed in their next commits (10 in maihs, 12 in t3code) |
 | 21 | `wrapped` and the README card Action | **DONE**: the owner's 2026 across `~/code` in `target/preview/wrapped/`; hand-worked test for the year; the card Action simulated against a local remote |
-| 22 | Distribution (npm, Homebrew, Nix) and launch material | not started |
+| 22 | Distribution (npm, Homebrew, Nix) and launch material | **DONE, but not published**: `npx commitscape` ran on clean Debian and Alpine containers from the packed tarballs; the flake builds; nothing is on npm yet (no remote, no token) |
 
 ### Phase 8 measured numbers
 
@@ -1158,6 +1158,86 @@ What the first Window cost on Linux, measured part by part: the Map 61 to
    repository is read from its cache for the year only, but a first run
    still walks its whole history once to build that cache.
 
+## Phase 22 findings
+
+1. **npm (ADR-0003).** `cargo xtask npm --binary <platform>=<path>… [--pack]`
+   writes `@commitscape/<platform>` for each binary given (its binary and
+   the two license files, with npm's `os`, `cpu` and, for Linux x64,
+   `libc`) and `commitscape`, the starter, which depends on all six at
+   exactly the workspace's version. The starter
+   (`npm/commitscape/bin/commitscape.js`) picks the package for the
+   platform (musl by its loader file, which is quicker than asking Node's
+   process report), and says plainly when it was not installed.
+2. **The starter's cost.** Starting the binary as a child cost 36 ms
+   (Node's own start is 21 ms, and `spawnSync` 12 more). Where Node has
+   `process.execve` (22.15, 23.11 and on) the starter becomes the binary
+   instead: 25 ms, median of 30. The terminal interface's first screen
+   through npm is then about 77 ms on rust-lang/rust and 95 ms on Linux
+   (52.0 and 69.6 ms measured in Phase 16, plus 25), inside 100 ms. On an
+   older Node it falls back to the child, and Linux would be about 106 ms.
+3. **On a clean machine.** From the packed tarballs, in fresh
+   `node:22-bookworm-slim` (no git installed) and `node:22-alpine`
+   containers: `npm install` took only the platform's package, and
+   `npx commitscape --version`, `--summary`, `who` and `--web` (its first
+   request answered with the redirect that keeps the token) all ran on a
+   copy of a fixture. The binary tried was the static musl build packed
+   under both Linux x64 names: a NixOS build of the glibc binary points at
+   the Nix store's loader. The release builds the glibc one on Ubuntu
+   22.04. It exposed one bug, fixed: `who alpha --repo X` read `alpha`
+   from the current folder.
+4. **The binaries.** A `dist` profile (the release one, stripped, no debug
+   information) makes an 8.6 MB static musl binary with the web app inside,
+   3.8 MB packed. Warm, on rust-lang/rust, `--summary` takes 45 ms with it
+   against 42 ms with the glibc release build, so musl's allocator needs no
+   replacing.
+5. **The release** (`.github/workflows/release.yml`, on a `v*` tag that
+   must match the workspace version): the six targets on their own runners
+   (Linux x64 glibc on Ubuntu 22.04 for an old glibc; musl x64 and ARM;
+   macOS Intel and Apple; Windows), the web app built first; then the
+   platform packages published, `commitscape` last, with provenance; then
+   a GitHub release with a tarball per target, `SHA256SUMS`, and the
+   Homebrew formula written by `scripts/homebrew-formula.sh`. CI
+   (`.github/workflows/ci.yml`) runs every check and the Playwright tests.
+   Both pass actionlint (with shellcheck); neither has run on GitHub.
+6. **Homebrew**: the formula installs the release's prebuilt binary on
+   macOS and Linux, Intel and ARM; it needs a tap repository
+   (`homebrew-commitscape`) to live in.
+7. **Nix**: `flake.nix` builds the web app with `buildNpmPackage` and the
+   binary with `rustPlatform.buildRustPackage` from nixos-unstable (Rust
+   1.98.1; the system's nixpkgs has 1.95, too old). `nix build` took 6
+   minutes here, and the result serves the web app. Its tests are left to
+   CI, since they need fixtures written with git.
+8. **The README** is rewritten for people meeting the tool: the card,
+   `npx commitscape`, a GIF of each interface, what each screen shows, the
+   four questions, SSH, sharing, and what leaves the machine. The GIFs
+   (`docs/media/`) show BurntSushi/ripgrep, a public repository, never the
+   owner's private ones. They were made from frames: `web/scripts/demo.mjs`
+   tours the browser interface and `cargo xtask preview` renders the
+   terminal's screens, then ffmpeg (from nixpkgs, not a dependency). The
+   card at the top is commitscape's own, where `actions/card` would keep
+   it. The license files the manifests name were added.
+9. **Fixed on the way:** offline, with no GitHub history saved, Activity
+   drew empty pull-request charts saying "none in this window"; it now
+   says GitHub's history is not read here.
+10. **Fixed in review:**
+    - I had written `.github/workflows/ci.yml` over the existing one
+      without reading it first, dropping its three-OS test matrix, its
+      walk-against-git check and its cache. It is restored as it was, with
+      the web job added.
+    - npm would refuse a published package's provenance with no
+      `repository`: `cargo xtask npm --repository` writes it, and the
+      release passes the repository it runs in, as it now does to the
+      Homebrew formula.
+    - The starter: interrupted on its fallback path it exited 0, where it
+      now dies of the same signal (130 on Ctrl-C, checked on both paths);
+      a glibc system with musl installed looked for the musl package; a
+      binary that cannot run is no longer handed to `execve`, whose failure
+      cannot be caught; an unsupported platform is pointed at building from
+      source, not at crates.io, where commitscape is not.
+    - The version comes from Cargo (`CARGO_PKG_VERSION`, `cargo pkgid`),
+      not a hand-read Cargo.toml; every script finds Chromium as the
+      Playwright config does.
+
 ## Decisions made during implementation, not in any ADR
 
 1. **`bincode` pinned to `=2.0.1`.** `cargo add` resolves to 3.0.0, which is a
@@ -1280,6 +1360,18 @@ What the first Window cost on Linux, measured part by part: the Map 61 to
 33. **Wrapped's year is the calendar year**, 1 January to 31 December or
     today, on each commit's own clock for days and hours, as the Overview
     counts them.
+34. **ADR-0003's `linux-arm64` is a static musl build** (it runs on any
+    ARM Linux, Alpine too), and Linux x64 has both a glibc and a musl
+    package, picked by npm's `libc` field and the starter.
+35. **The starter becomes the binary with `process.execve` where Node has
+    it**, and drops Node's warning that the call is new: ADR-0003's "a shim
+    that execs", at 25 ms rather than 36.
+36. **Release binaries are built with the `dist` profile**, stripped; the
+    `release` profile keeps its debug information for benchmarks and
+    profiles.
+37. **The Playwright tests use `CHROMIUM`, else NixOS's Chromium where it
+    exists, else Playwright's own**, so the same config runs here and on
+    CI.
 
 ---
 
@@ -1301,25 +1393,28 @@ What the first Window cost on Linux, measured part by part: the Map 61 to
 
 ## Where to pick up
 
-Start Build Run 3 at Phase 13 and follow `IDEA.md` in order. The earlier list
-of next steps is folded into it:
-- **Distribution** is Phase 22.
-- **The PNG card** comes from the browser (ADR-0010), so `resvg` is no longer
-  needed.
-- **Agent-era metrics are dropped.** The owner removed everything
-  AI-related.
-- **GitLab, `--deep` blame, a smaller head write and replacing `bincode`**
-  are listed under "Later" in `IDEA.md`.
-- **The classification gaps** still stand.
+Build Run 3 is done. What is left needs the owner:
+
+1. **Put the repository on GitHub** (there is no remote), then replace
+   `<owner>` in the README, `actions/*/README.md`, and
+   `scripts/homebrew-formula.sh`'s `COMMITSCAPE_REPO`; add a `repository`
+   field to `npm/commitscape/package.json`, so npm shows the README's
+   images.
+2. **Publishing**: an npm organisation for the `@commitscape` scope, an
+   `NPM_TOKEN` secret, and a tap repository for Homebrew. Then tag
+   `v0.1.0`; the release workflow does the rest. Its first run on GitHub
+   is its real test: none of the workflows has run there yet.
+3. **Launch material** (IDEA.md): the post with the owner's Wrapped
+   (`target/preview/wrapped/`) and a repository card; the README's GIFs are
+   in `docs/media/`.
+4. **Later**, as IDEA.md lists: `commitscape ssh host:path`, the replay
+   video, GitLab, blame-based surviving lines, a smaller head write,
+   replacing `bincode`.
 
 Seams signed off by the user and not open for revision:
 `RepoSource` (fake + real), `Index`, the `Analysis` methods, `--json` golden
-files, TUI render via `insta`/`TestBackend`. Phase 10 added one: the forge,
-tested with a response written by hand and one GitHub really sent. Build Run 3
-adds, as pre-agreed seams:
-- the HTTP API, tested through a real local server
-- the generated TypeScript types, checked for drift in CI
-- `check`, `who`, `health` and `wrapped` as `Analysis`-level functions with
-  hand-worked fixture values
-- the browser screens, through a small set of Playwright tests against a
-  fixture repository
+files, TUI render via `insta`/`TestBackend`, the forge (a response written
+by hand and one GitHub really sent), the HTTP API through a real local
+server, the generated TypeScript types checked for drift, the
+problem-solvers as `Analysis` functions with hand-worked values, and the
+browser screens through Playwright tests on a fixture.

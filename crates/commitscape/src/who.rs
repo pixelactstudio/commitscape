@@ -62,8 +62,8 @@ fn existing(path: &Path) -> PathBuf {
 }
 
 /// `path` as the repository at `top` names it: from its top, with `/`
-/// between.
-fn in_repo(top: &Path, path: &Path) -> String {
+/// between. `None` when it is not in the repository.
+fn in_repo(top: &Path, path: &Path) -> Option<String> {
     let top = std::fs::canonicalize(top).unwrap_or_else(|_| top.to_path_buf());
     // The folders above `path` may be reached through a link; resolve the
     // part that exists and keep the rest as written.
@@ -71,12 +71,14 @@ fn in_repo(top: &Path, path: &Path) -> String {
     let real = std::fs::canonicalize(&base).unwrap_or_else(|_| base.clone());
     let rest = path.strip_prefix(&base).unwrap_or(Path::new(""));
     let full = real.join(rest);
-    let relative = full.strip_prefix(&top).unwrap_or(&full);
-    relative
-        .components()
-        .map(|c| c.as_os_str().to_string_lossy().into_owned())
-        .collect::<Vec<_>>()
-        .join("/")
+    let relative = full.strip_prefix(&top).ok()?;
+    Some(
+        relative
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy().into_owned())
+            .collect::<Vec<_>>()
+            .join("/"),
+    )
 }
 
 pub fn run(args: WhoArgs) -> anyhow::Result<()> {
@@ -85,7 +87,23 @@ pub fn run(args: WhoArgs) -> anyhow::Result<()> {
         Some(dir) => GixRepo::discover(dir)?,
         None => GixRepo::discover(&existing(&path))?,
     };
-    let path = in_repo(repo.top(), &path);
+    // A relative path outside the repository is read from its top: `who
+    // src --repo ../app`.
+    let path = match in_repo(repo.top(), &path) {
+        Some(p) => p,
+        None if args.path.is_relative() => args
+            .path
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy().into_owned())
+            .filter(|c| c != ".")
+            .collect::<Vec<_>>()
+            .join("/"),
+        None => anyhow::bail!(
+            "{} is not in the repository at {}",
+            args.path.display(),
+            repo.top().display()
+        ),
+    };
     let mut meter = ProgressLine::new();
     let loaded = load(&repo, &args.common.cache(), Since::All, &mut |p| {
         meter.show(p)

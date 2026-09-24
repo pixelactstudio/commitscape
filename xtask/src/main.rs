@@ -1,15 +1,17 @@
 //! Repository automation. Run with `cargo xtask <command>`.
 //!
-//! Four jobs: build the synthetic fixture repositories that metric tests
+//! Its jobs: build the synthetic fixture repositories that metric tests
 //! assert against, run the benchmark harness that guards the budgets in
 //! ADR-0002, assert the crate layering that ADR-0001 depends on, and check the
-//! history walk against git on a real repository.
+//! history walk against git on a real repository, and write the npm
+//! packages releases publish.
 
 mod bench;
 mod changesets;
 mod fixtures;
 mod layering;
 mod line_cost;
+mod npm;
 mod preview;
 mod verify;
 
@@ -46,6 +48,24 @@ enum Command {
     },
     /// Assert that the metrics crate cannot see git.
     CheckLayering,
+    /// Write the npm packages (ADR-0003) from built binaries: one per
+    /// platform given, and `commitscape`, which depends on all six.
+    Npm {
+        /// Binaries, as <platform>=<path>: linux-x64-gnu, linux-x64-musl,
+        /// linux-arm64, darwin-x64, darwin-arm64, win32-x64.
+        #[arg(long = "binary", value_name = "PLATFORM=PATH")]
+        binaries: Vec<String>,
+        /// Where the packages go.
+        #[arg(long, default_value = "target/npm")]
+        out: std::path::PathBuf,
+        /// The repository's URL, as https://github.com/<owner>/<name>, for
+        /// npm's provenance check.
+        #[arg(long, value_name = "URL")]
+        repository: Option<String>,
+        /// Also `npm pack` each into a tarball.
+        #[arg(long)]
+        pack: bool,
+    },
     /// Report changeset sizes and coupling pair-map sizes on real
     /// repositories, the data `--max-changeset-size` is chosen from.
     Changesets {
@@ -98,6 +118,21 @@ fn main() -> Result<()> {
         Command::Fixtures { force } => fixtures::build(force),
         Command::Bench { filter, iterations } => bench::run(filter.as_deref(), iterations),
         Command::CheckLayering => layering::check(),
+        Command::Npm {
+            binaries,
+            out,
+            repository,
+            pack,
+        } => {
+            let root = workspace_root();
+            npm::run(
+                &root,
+                &root.join(out),
+                &binaries,
+                repository.as_deref(),
+                pack,
+            )
+        }
         Command::VerifyWalk { repo, every } => verify::run(&repo, every),
         Command::Changesets { repos } => changesets::run(&repos),
         Command::LineCost {

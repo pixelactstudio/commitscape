@@ -1,126 +1,60 @@
 # commitscape
 
-Reads a git repository and shows its story in the terminal: how big and old
-it is and what it is written in, who writes it and when, a map of its code,
-and what changes what you do next: the code that is both changed often and
-deeply nested, the files that change together across folders, the folders
-one person holds, and how much has gone untouched for a year. With the
-GitHub CLI signed in, it adds the repository's stars, pull requests, issues
-and releases.
+Reads a git repository and shows what changes what you do next: who knows
+the code, what is risky to change, what you probably forgot, and the
+project's story. All of it on your machine, from git's own history, in a
+second.
 
-Where it is going next is in [`IDEA.md`](IDEA.md): a browser interface,
-commands that answer "who do I ask?" and "what did I forget to change?",
-and a year in review.
-
-## Build
-
-You need Rust (the version is pinned in `rust-toolchain.toml`, and `rustup`
-installs it on first use) and git.
+![commitscape's own story, drawn by commitscape](.github/commitscape-card.svg)
 
 ```sh
-cargo build --release
+npx commitscape            # in any git repository
 ```
 
-The binary is `target/release/commitscape`.
+It opens in your browser, or in the terminal where no browser can be
+opened. The first run reads the whole history (about 25 seconds for a
+repository the size of rust-lang/rust); after that it opens in well under
+a second.
 
-## Use
+![The browser interface on ripgrep](docs/media/browser.gif)
 
-```sh
-commitscape path/to/repository
-```
+## Install
 
-Where a browser can be opened (a desktop, or `$BROWSER` set, as VS Code
-and Cursor set it over Remote-SSH) this opens the browser interface;
-otherwise the terminal interface, on the last 90 days of history. The
-first run reads the whole history, which takes about 25 seconds for a
-repository the size of rust-lang/rust; after that a cache makes it open in
-well under a tenth of a second.
+| How | Command |
+|---|---|
+| npm | `npx commitscape`, or `npm install -g commitscape` |
+| Homebrew | `brew install <owner>/commitscape/commitscape` |
+| Nix | `nix run github:<owner>/commitscape`, or add the flake |
+| From source | `cargo build --release` (the web app first: `cd web && npm ci && npm run build`) |
+
+The npm package is a small starter and one prebuilt binary for your
+platform (Linux on x64 and ARM, glibc or musl; macOS on Intel and Apple;
+Windows on x64). Nothing runs at install time, and nothing needs Node once
+it is running.
+
+## What it shows
 
 | Screen | Shows |
 |---|---|
-| 1 Overview | The repository at a glance: its size, age and languages, commits over time, who writes the code, how old the code is, what is unusual about it, and what is worth a look |
-| 2 Activity | Commits over time by person with releases marked, a calendar, the hours of the week, what kind of work the commits were (judged from their files first), the team's rhythm and GitHub's pull requests and issues |
-| 3 People | Everyone who committed, with their commits, lines added and removed, and the folders that depend on them; bots listed apart; a profile for each |
-| 4 Map | The code as rectangles sized by lines, coloured by activity, by age, or by who holds it |
-| 5 Risk | Hotspots, groups of files that change together, and folders only one person knows, with who could take each over |
+| 1 Overview | The project's story on a line (its first commit, releases, people joining and leaving, the busiest day, the biggest clean-up, quiet stretches), commits over time, who writes the code, what is unusual, and what is worth a look |
+| 2 Activity | Commits over time by person with releases marked, pull requests and issues a week, the hours of the week, and what kind of work it was |
+| 3 People | One table, a column per measure and no single score: commits, active days, lines added and removed, folders that depend on them, pull requests and reviews. A profile for each, where a wrong merge of two people can be undone |
+| 4 Map | The code as nested blocks sized by lines, coloured by how often, when last, or who changes it. Click a file to see what changes with it |
+| 5 Risk | Files changed often and deeply nested, groups of files that change together, and folders one person holds, with who could take each over |
 
-| Key | Does |
-|---|---|
-| `1` to `5`, `←` `→`, Tab | Choose a screen |
-| `↑` `↓`, `j` `k`, PgUp, PgDn, Home, End | Move through a list |
-| Enter | Open what is selected: a file, a pair of files, a folder, a person |
-| Esc | Go back |
-| `w`, `W` | Step the Window: 30 days, 90 days, a year, all of history. What is open stays open |
-| `/` | Find a file, folder or person in a list |
-| `c` | Colour the Map by activity, age or owner |
-| `u` | On a person: undo a merge of their identities, or redo it |
-| Mouse | Click a screen, a Window, a row or a Map block; the wheel scrolls |
-| `t` | Colours: the terminal's own (the default), dark, or light |
-| `?` | Help: what the screen shows and what every word means |
-| `q` | Quit |
+Every number is explained under `?`. A row of filters narrows every screen
+to one person, one folder or a range of dates, and the theme follows your
+system, or choose Light, Dark or Midnight.
 
-GitHub's numbers need the [GitHub CLI](https://cli.github.com), signed in
-once with `gh auth login`. commitscape asks it one question after the first
-frame is drawn, and `gh` keeps the answer for an hour. Nothing else needs the
-network; `--offline` never asks. Repositories on other hosts, such as GitLab,
-show everything but those numbers.
+The terminal interface has the same five screens:
 
-### The browser interface
+![The terminal interface on ripgrep](docs/media/terminal.gif)
 
-`commitscape --web` serves it on `127.0.0.1:7878` (or any free port) and
-prints a link with a secret token; the page keeps the token in a cookie
-and the server answers only to the address it printed. Nothing leaves the
-machine.
+## Questions it answers
 
-- **VS Code or Cursor over Remote-SSH:** just run `commitscape`; the editor
-  opens the link on your laptop and forwards the port.
-- **Plain ssh:** run `commitscape --web` on the server, and paste the
-  `ssh -N -L …` line it prints on your laptop, then open the link there.
-- **Tailscale or a LAN:** `commitscape --web --listen 100.x.y.z` serves on
-  that address; the link still carries the token.
-- `--tui` always opens the terminal interface; `--port` chooses the port.
-
-It has five screens (`1` to `5`): Overview, with the project's story on a
-line; Activity; People, each with a profile; the Map; and Risk. A row of
-filters narrows every screen to one person, one folder or a range of
-dates. Press `?` to see what every number means. The theme follows the
-system, or choose Light, Dark or Midnight. "Save the card" downloads the
-card as a PNG.
-
-To send the whole thing to someone, write it as one file that needs no
-server:
-
-```sh
-commitscape report .                    # writes <repository>-report.html here
-commitscape report . --out story.html   # somewhere else
-```
-
-The report holds every screen for every Window, the first two levels of the
-Map, and the profiles of the 30 people who made most commits. Filters and a
-file's details need the live interface. Run `commitscape github .` first to
-include pull requests.
-
-To share a repository's story, draw its card:
-
-```sh
-commitscape card .                   # writes <repository>-card.svg here
-commitscape card . --out story.svg   # somewhere else
-commitscape card . --window 90d      # the last 90 days instead of all of history
-```
-
-The card is a 1,080 by 684 pixel SVG: the repository's name, size, age and
-languages, commits over time, who writes the code, and facts worth sharing.
-Its text stays text, so it can be searched and copied.
-
-`commitscape github .` fetches the repository's pull requests, issues and
-releases from GitHub now; the interfaces do it in the background, and a
-fetch that stops resumes next time.
-
-### Questions it answers
-
-**What did I forget?** Before you commit, `commitscape check` looks at what
-is staged and names the files that nearly always change with the ones you
-changed, with the evidence:
+**What did I forget?** Before you commit, `commitscape check` names the
+files that nearly always change with the ones you staged, with the
+evidence, and says nothing when the evidence is weak:
 
 ```text
 $ commitscape check
@@ -128,73 +62,115 @@ Probably forgotten:
   You changed src/schema.ts. 9 of the last 10 commits that did also changed a file in migrations/.
 ```
 
-It says nothing unless the evidence is strong (at least 8 of the file's last
-10 focused commits). `--branch main` checks what a branch changed since it
-left `main`, `--pr 123` a pull request (through `gh`), `--commit REV` one
-past commit. `--strict` exits with 1 when something looks forgotten, and
-`--format markdown` writes a pull request comment:
-[`actions/check`](actions/check/README.md) is a GitHub Action that posts it.
+`--branch main` checks a branch, `--pr 123` a pull request, `--commit REV`
+one past commit, and `--strict` exits with 1 when something looks
+forgotten. The [`actions/check`](actions/check/README.md) GitHub Action
+comments it on pull requests.
 
 **Who do I ask?** `commitscape who src/api` lists who worked on a file or
-folder most, and most recently, and says when the first of them has stopped
-committing and who to ask instead.
+folder most, and most recently, flags anyone who has stopped committing,
+and names who to ask instead.
 
-**Can I rely on this project?** `commitscape health https://github.com/owner/name`
-(or `owner/name`) keeps a partial clone in the cache, history without old
-file contents, and says whether it is alive and whether it depends on one
-person: who kept it going in the last 90 days, its Bus Factor over the last
-year, how often it releases, how fast issues get a first answer, and whether
-it is getting busier or quieter. It draws the project's card too.
+**Can I rely on this project?** `commitscape health owner/name` keeps a
+partial clone of a GitHub project in the cache and says whether it is alive
+and whether it depends on one person: its maintainers in the last 90 days,
+its bus factor, how often it releases, how fast issues get a first answer,
+and whether it is getting busier or quieter.
 
 **What did I do this year?** `commitscape wrapped ~/code` finds every
-repository under a folder, keeps only your own commits (under every address
-you commit with: git's `user.email`, and `--email` for others), and writes
-your year as a page and a card: commits, lines, languages, your busiest day,
-your longest streak, the hours you work, and where. Private repositories are
-included, and nothing is uploaded. `--year 2025` for another year.
+repository under a folder, keeps only your commits, under every address
+you commit with, and writes your year as a page and a card: commits,
+lines, languages, your busiest day and longest streak, and the hours you
+work. Private repositories are included, and nothing is uploaded.
+
+## Over SSH
+
+- **VS Code or Cursor over Remote-SSH:** run `commitscape`; the editor
+  opens the page on your laptop and forwards the port.
+- **Plain ssh:** run `commitscape --web` on the server and paste the
+  `ssh -N -L …` line it prints on your laptop, then open the link there.
+- **Tailscale or a LAN:** `commitscape --web --listen 100.x.y.z`.
+- `--tui` always opens the terminal interface.
+
+The page is served on `127.0.0.1` with a secret token in its link, and the
+server answers only to the address it printed.
+
+## Share it
 
 ```sh
-commitscape wrapped ~/code             # writes wrapped-<year>.html and wrapped-<year>-card.svg here
-commitscape wrapped ~/code --out ~/Desktop
+commitscape card .          # the card above, as an SVG: <repository>-card.svg
+commitscape report .        # the whole browser interface as one HTML file, to send or keep
 ```
 
-`who` and `health` take `--json`, and `check` takes `--format json`.
+The [`actions/card`](actions/card/README.md) GitHub Action keeps a
+repository's card in its README up to date. "Save the card" in the browser
+saves it as a PNG.
 
-To keep a repository's card in its README, the
-[`actions/card`](actions/card/README.md) GitHub Action redraws it every week
-and commits it when it changed.
+## What leaves your machine
 
-Other ways to run it:
+Nothing, unless GitHub is asked. With the [GitHub CLI](https://cli.github.com)
+signed in, commitscape asks GitHub (through `gh`) about the repository's
+stars, pull requests, issues, reviews and releases, and which account made
+which commit. `--offline` never asks. `health` clones the project it is
+given with git.
+
+## Other ways to run it
 
 ```sh
-commitscape --window 1y .    # start on a different Window: 30d, 90d, 1y or all
-commitscape --offline .      # never ask GitHub
-commitscape --summary .      # print a plain-text summary instead
-commitscape --json . > report.json   # every metric as one JSON document
-commitscape --help           # every option
+commitscape --window 1y .          # start on 30d, 90d, 1y or all
+commitscape --summary .            # a plain-text summary
+commitscape --json . > report.json # every metric as one JSON document
+commitscape github .               # fetch GitHub's whole history now
+commitscape --help                 # every option
 ```
 
 The JSON document's Window ends at the newest commit rather than now, so the
-same repository always produces the same document. The cache lives in your
+same repository always gives the same document. The cache lives in your
 platform's cache directory (`~/.cache/commitscape` on Linux); `--no-cache`
 skips it and `--cache-dir` moves it.
+
+<details>
+<summary>The terminal interface's keys</summary>
+
+| Key | Does |
+|---|---|
+| `1` to `5`, `←` `→`, Tab | Choose a screen |
+| `↑` `↓`, `j` `k`, PgUp, PgDn, Home, End | Move through a list |
+| Enter | Open what is selected: a file, a pair of files, a folder, a person |
+| Esc | Go back |
+| `w`, `W` | Step the Window: 30 days, 90 days, a year, all of history |
+| `/` | Find a file, folder or person in a list |
+| `c` | Colour the Map by activity, age or owner |
+| `u` | On a person: undo a merge of their identities, or redo it |
+| Mouse | Click a screen, a Window, a row or a Map block; the wheel scrolls |
+| `t` | Colours: the terminal's own, dark, or light |
+| `?` | Help: what the screen shows and what every word means |
+| `q` | Quit |
+
+</details>
 
 ## Develop
 
 ```sh
-(cd web && npm ci && npm run build)   # the browser interface, embedded by cargo build
-(cd web && npm run e2e)        # its screens in Chromium, after the fixtures and a release build
-cargo xtask fixtures --force   # build the small repositories the tests read
-cargo test --workspace         # every test, including the interface snapshots
-cargo xtask check-layering     # the crate layering ADR-0001 depends on
-cargo xtask bench              # timings; needs clones in ../.commitscape-bench
-cargo xtask preview path/to/repository   # every screen as SVG and PNG, in target/preview
+(cd web && npm ci && npm run build)  # the browser interface, which cargo build embeds
+cargo xtask fixtures --force         # the small repositories the tests read
+cargo test --workspace               # every test
+cargo xtask check-layering           # the crate layering ADR-0001 depends on
+(cd web && npm run typecheck && npm run lint && npm test && npm run e2e)
+cargo xtask bench                    # timings; needs clones in ../.commitscape-bench
+cargo xtask preview path/to/repo     # every terminal screen as SVG and PNG
 ```
 
-Interface snapshots live in `crates/commitscape-tui/tests/snapshots/`. After a
-deliberate change, run the tests with `INSTA_UPDATE=always` and review the
-diff before committing it.
+A tag `v<version>` releases: `.github/workflows/release.yml` builds the six
+binaries, publishes the npm packages (`cargo xtask npm` writes them) and
+makes a GitHub release with the Homebrew formula.
 
-Where to read next: `CONTEXT.md` defines the terms, `docs/adr/` records the
-decisions, `docs/fixtures.md` works out the expected values the tests assert,
-and `STATE.md` is the build log with every measured number.
+`CONTEXT.md` defines the terms, `docs/adr/` records the decisions,
+`docs/fixtures.md` works out the values the tests assert, and `STATE.md` is
+the build log with every measured number.
+
+commitscape is built in the open with AI coding agents; the build log says
+what each phase did and how it was checked.
+
+Licensed under either of [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE),
+at your option.

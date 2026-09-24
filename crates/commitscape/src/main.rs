@@ -533,6 +533,11 @@ fn whole_history(
     } else {
         repo.remote_url().as_deref().and_then(Remote::parse)
     };
+    // Offline with nothing read before, there is no history to show: not
+    // an empty one.
+    if remote.is_none() && !path.exists() {
+        return None;
+    }
     Some(Box::new(move |progress| {
         let mut history = History::load(&path);
         progress(Some(&history), "reading");

@@ -19,3 +19,5 @@ commitscape-index = { version = "0.1.0", path = "../crates/commitscape-index" }
 commitscape-metrics = { version = "0.1.0", path = "../crates/commitscape-metrics" }
 commitscape-tui = { version = "0.1.0", path = "../crates/commitscape-tui" }
 ratatui = "0.30.2"
+# Writes the npm packages' package.json files.
+serde_json = "1.0.151"

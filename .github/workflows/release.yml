@@ -1,0 +1,101 @@
+# A tag `v<version>` builds commitscape for six platforms, publishes the npm
+# packages (ADR-0003: the platform packages first, `commitscape` last), and
+# makes a GitHub release with a tarball for each, which the Homebrew formula
+# installs from. The tag must match the workspace's version.
+name: Release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: read
+jobs:
+  build:
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { platform: linux-x64-gnu, target: x86_64-unknown-linux-gnu, os: ubuntu-22.04 }
+          - { platform: linux-x64-musl, target: x86_64-unknown-linux-musl, os: ubuntu-latest }
+          - { platform: linux-arm64, target: aarch64-unknown-linux-musl, os: ubuntu-24.04-arm }
+          - { platform: darwin-x64, target: x86_64-apple-darwin, os: macos-15-intel }
+          - { platform: darwin-arm64, target: aarch64-apple-darwin, os: macos-14 }
+          - { platform: win32-x64, target: x86_64-pc-windows-msvc, os: windows-latest }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - if: contains(matrix.target, 'musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      # The web app goes inside the binary.
+      - run: npm ci && npm run build
+        working-directory: web
+      - run: cargo build --profile dist --target ${{ matrix.target }} -p commitscape
+      - name: Pack the binary
+        shell: bash
+        run: |
+          exe=commitscape
+          [ "${{ runner.os }}" = "Windows" ] && exe=commitscape.exe
+          mkdir -p out
+          cp "target/${{ matrix.target }}/dist/$exe" "out/$exe"
+          tar -C out -czf "commitscape-${{ matrix.platform }}.tar.gz" "$exe"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}
+          path: |
+            out/*
+            commitscape-${{ matrix.platform }}.tar.gz
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - uses: actions/download-artifact@v4
+        with:
+          path: built
+      - name: The tag names the workspace's version
+        run: |
+          version=$(cargo pkgid -p commitscape | sed 's/.*[#@]//')
+          test "v$version" = "$GITHUB_REF_NAME"
+      - name: Write the npm packages
+        run: |
+          args=()
+          for dir in built/*/; do
+            platform=$(basename "$dir")
+            exe=commitscape
+            [ "$platform" = "win32-x64" ] && exe=commitscape.exe
+            chmod +x "$dir/out/$exe"
+            args+=(--binary "$platform=$dir/out/$exe")
+          done
+          cargo xtask npm --out target/npm --repository "https://github.com/$GITHUB_REPOSITORY" "${args[@]}"
+      - name: Publish the platform packages, then commitscape
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          for dir in target/npm/*/; do
+            [ "$(basename "$dir")" = "commitscape" ] && continue
+            npm publish --access public --provenance "$dir"
+          done
+          npm publish --provenance target/npm/commitscape
+      - name: Make the GitHub release, with the Homebrew formula
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          (cd built && sha256sum -- */commitscape-*.tar.gz | sed 's# [^ ]*/# #' > ../SHA256SUMS)
+          COMMITSCAPE_REPO="$GITHUB_REPOSITORY" scripts/homebrew-formula.sh "${GITHUB_REF_NAME#v}" SHA256SUMS > commitscape.rb
+          gh release create "$GITHUB_REF_NAME" --generate-notes built/*/commitscape-*.tar.gz SHA256SUMS commitscape.rb
