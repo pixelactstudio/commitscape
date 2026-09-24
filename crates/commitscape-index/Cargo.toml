@@ -31,6 +31,8 @@ gix = { version = "0.87.1", default-features = false, features = [
     "mailmap",
     "parallel",
     "max-performance-safe",
+    # `check` reads the staging area, and a branch's merge base.
+    "revision",
 ] }
 xxhash-rust = { version = "0.8.18", features = ["xxh3"] }
 globset = "0.4.20"

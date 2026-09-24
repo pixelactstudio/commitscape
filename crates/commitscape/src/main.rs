@@ -1,9 +1,12 @@
 //! `commitscape` binary entry point.
 
+mod check;
+mod health;
 mod json;
 mod people;
 mod text;
 mod web;
+mod who;
 
 use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
@@ -96,6 +99,17 @@ struct Cli {
 enum Command {
     /// Draw the repository's story on a card to share, as an SVG image.
     Card(CardArgs),
+    /// What you probably forgot to change: files that nearly always change
+    /// with the ones staged (or on a branch, in a pull request, in a
+    /// commit) and are missing.
+    Check(check::CheckArgs),
+    /// Who to ask about a file or folder: who worked on it most, and most
+    /// recently, and whether they still commit.
+    Who(who::WhoArgs),
+    /// Whether a project on GitHub is alive and whether it depends on one
+    /// person: its maintainers, Bus Factor, releases, issue answers and
+    /// trend, and its card. Keeps a partial clone in the cache directory.
+    Health(health::HealthArgs),
     /// Fetch the repository's pull requests, issues and releases from GitHub
     /// now, through the gh CLI. The interface does this in the background;
     /// a fetch that stops, at GitHub's rate limit say, resumes next time.
@@ -156,7 +170,7 @@ struct CardArgs {
 
 /// Options every way of running it shares.
 #[derive(Args)]
-struct Common {
+pub(crate) struct Common {
     /// A commit touching more files than this is a Bulk Commit, left out of
     /// Churn, Ownership and Change Coupling.
     #[arg(long, value_name = "FILES")]
@@ -182,7 +196,7 @@ struct Common {
 }
 
 impl Common {
-    fn cache(&self) -> CacheOptions {
+    pub(crate) fn cache(&self) -> CacheOptions {
         CacheOptions {
             root: if self.no_cache {
                 None
@@ -192,7 +206,7 @@ impl Common {
         }
     }
 
-    fn metrics(&self) -> Options {
+    pub(crate) fn metrics(&self) -> Options {
         let defaults = Options::default();
         Options {
             max_changeset_size: self
@@ -227,6 +241,9 @@ fn main() -> ExitCode {
 fn run(cli: Cli) -> anyhow::Result<()> {
     match cli.command {
         Some(Command::Card(args)) => return card(args),
+        Some(Command::Check(args)) => return check::run(args),
+        Some(Command::Who(args)) => return who::run(args),
+        Some(Command::Health(args)) => return health::run(args),
         Some(Command::Github(args)) => return github_history(args),
         Some(Command::Report(args)) => return report(args),
         None => {}
@@ -711,7 +728,7 @@ fn identities(
 
 /// The repository's directory name: the parent of `.git`, or a bare
 /// repository's own directory.
-fn repo_name(index: &Index) -> String {
+pub(crate) fn repo_name(index: &Index) -> String {
     let git_dir = std::path::Path::new(&index.repo.git_dir);
     let dir = if git_dir.file_name().is_some_and(|n| n == ".git") {
         git_dir.parent()
@@ -723,7 +740,7 @@ fn repo_name(index: &Index) -> String {
         .unwrap_or_else(|| "repository".to_string())
 }
 
-fn now() -> i64 {
+pub(crate) fn now() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
@@ -732,20 +749,20 @@ fn now() -> i64 {
 
 /// A single progress line on stderr, redrawn in place. Silent when stderr is
 /// not a terminal, so piped output stays clean.
-struct ProgressLine {
+pub(crate) struct ProgressLine {
     live: bool,
     drawn: bool,
 }
 
 impl ProgressLine {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         ProgressLine {
             live: std::io::stderr().is_terminal(),
             drawn: false,
         }
     }
 
-    fn show(&mut self, p: Progress) {
+    pub(crate) fn show(&mut self, p: Progress) {
         if !self.live {
             return;
         }
@@ -778,11 +795,46 @@ impl ProgressLine {
         self.drawn = true;
     }
 
-    fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         if self.drawn {
             let mut err = std::io::stderr().lock();
             let _ = write!(err, "\r\x1b[2K");
             let _ = err.flush();
         }
     }
+}
+
+/// `value` with each person's name written beside their id: the id alone
+/// means nothing outside this run.
+pub(crate) fn with_names(
+    mut value: serde_json::Value,
+    authors: &commitscape_core::AuthorTable,
+) -> serde_json::Value {
+    fn walk(v: &mut serde_json::Value, authors: &commitscape_core::AuthorTable) {
+        match v {
+            serde_json::Value::Object(map) => {
+                for key in ["author", "instead"] {
+                    let name = map
+                        .get(key)
+                        .and_then(serde_json::Value::as_u64)
+                        .and_then(|id| authors.get(commitscape_core::AuthorId(id as u32)))
+                        .map(|a| a.name.to_string());
+                    if let Some(name) = name {
+                        map.insert(format!("{key}_name"), name.into());
+                    }
+                }
+                for child in map.values_mut() {
+                    walk(child, authors);
+                }
+            }
+            serde_json::Value::Array(items) => {
+                for child in items {
+                    walk(child, authors);
+                }
+            }
+            _ => {}
+        }
+    }
+    walk(&mut value, authors);
+    value
 }

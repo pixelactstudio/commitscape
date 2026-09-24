@@ -34,6 +34,10 @@ _Avoid_: authorship, contribution, blame.
 The smallest number of Authors who together hold more than 80% of a directory's Ownership. A directory where one Author holds more than 80% of commits has a Bus Factor of 1; one split 60/30/10 has a Bus Factor of 2.
 _Avoid_: truck factor, key person risk.
 
+**Maintainer**:
+Someone who made at least three commits in the last 90 days: who keeps a project going now, as `health` counts them. Not a role anyone was given.
+_Avoid_: owner, core team, admin.
+
 **Staleness**:
 Time since the last commit touching a file, reported in buckets. Unlike Churn, it counts Bulk Commits — a file that was touched was touched.
 _Avoid_: age, freshness, last modified.

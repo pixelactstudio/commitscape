@@ -29,6 +29,7 @@ macro_rules! git_ctx {
 }
 
 mod blobs;
+mod changes;
 mod lines;
 mod tree_diff;
 mod walk;
@@ -82,6 +83,30 @@ impl GixRepo {
             sync,
             path: path.to_path_buf(),
         })
+    }
+
+    /// Opens the repository `path` is in: it, or the nearest folder above
+    /// it that is one.
+    pub fn discover(path: &Path) -> Result<Self, GixError> {
+        let mut repo = gix::discover(path).map_err(|e| GixError::NotARepository {
+            path: path.display().to_string(),
+            source: Box::new(e),
+        })?;
+        repo.object_cache_size_if_unset(OBJECT_CACHE_BYTES);
+        let sync = repo.clone().into_sync();
+        let top = repo
+            .workdir()
+            .map_or_else(|| repo.path().to_path_buf(), Path::to_path_buf);
+        Ok(GixRepo {
+            repo,
+            sync,
+            path: top,
+        })
+    }
+
+    /// The top of the working tree, or the repository itself when bare.
+    pub fn top(&self) -> &Path {
+        &self.path
     }
 
     fn to_oid(id: &gix::hash::oid) -> Result<Oid, GixError> {

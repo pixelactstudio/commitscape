@@ -1,0 +1,64 @@
+name: commitscape check
+description: >-
+  Comments on a pull request with the files it probably forgot to change,
+  from what the repository's history says usually changes together. One
+  comment, kept up to date; none when nothing looks forgotten.
+branding:
+  icon: check-circle
+  color: blue
+inputs:
+  strict:
+    description: Fail the check when something looks forgotten.
+    default: "false"
+  version:
+    description: The commitscape version to run, from npm.
+    default: latest
+  github-token:
+    description: A token that may comment on the pull request.
+    default: ${{ github.token }}
+runs:
+  using: composite
+  steps:
+    # All of history: the evidence is in it.
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - name: Check what the pull request probably forgot
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        PR: ${{ github.event.pull_request.number }}
+        BASE: ${{ github.event.pull_request.base.ref }}
+        REPO: ${{ github.repository }}
+        STRICT: ${{ inputs.strict }}
+        VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        if [ -z "$PR" ]; then
+          echo "commitscape check runs on pull requests only." >&2
+          exit 0
+        fi
+        # HEAD is the pull request merged into its base, so what it changed
+        # is what changed since it left the base.
+        npx --yes "commitscape@$VERSION" check --branch "origin/$BASE" --format markdown --offline > forgotten.md
+        marker='<!-- commitscape check -->'
+        comment=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
+          --jq ".[] | select(.body | startswith(\"$marker\")) | .id" | head -n 1) || comment=""
+        # A pull request from a fork gets a token that cannot comment: the
+        # step summary still says it, and only `strict` fails the check.
+        cant_comment() { echo "::warning::commitscape could not comment on the pull request (one from a fork?); see the step summary."; }
+        if [ -s forgotten.md ]; then
+          cat forgotten.md >> "$GITHUB_STEP_SUMMARY"
+          body="$marker"$'\n'"$(cat forgotten.md)"
+          if [ -n "$comment" ]; then
+            gh api -X PATCH "repos/$REPO/issues/comments/$comment" -f body="$body" > /dev/null || cant_comment
+          else
+            gh api "repos/$REPO/issues/$PR/comments" -f body="$body" > /dev/null || cant_comment
+          fi
+          if [ "$STRICT" = "true" ]; then
+            exit 1
+          fi
+        elif [ -n "$comment" ]; then
+          # Fixed since: the comment would now be wrong.
+          gh api -X DELETE "repos/$REPO/issues/comments/$comment" || cant_comment
+        fi

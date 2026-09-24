@@ -93,6 +93,22 @@ fn recent_pull_requests_and_issues_give_the_last_thirty_days() {
 }
 
 #[test]
+fn an_issues_first_answer_is_the_first_comment_by_someone_else() {
+    // Alice's May issue: her own comment after an hour, then Bob's after
+    // five. Carol's June issue has none. The last, by a deleted account,
+    // got a bot's welcome after a minute, which is no answer, and Erin's
+    // after two hours.
+    let g = acme();
+    let may_1 = JULY_1_2025 - 61 * 24 * HOUR;
+    let june_28 = JULY_1_2025 - 3 * 24 * HOUR;
+    let answers: Vec<Option<i64>> = g.recent_issues.iter().map(|i| i.first_answer).collect();
+    assert_eq!(
+        answers,
+        vec![Some(may_1 + 5 * HOUR), None, Some(june_28 + 2 * HOUR)]
+    );
+}
+
+#[test]
 fn a_response_github_really_sent_parses() {
     // pingdotgg/t3code on 23 September 2026, from the query this crate sends.
     let g = GitHub::from_graphql(include_bytes!("t3code.json")).expect("the response parses");

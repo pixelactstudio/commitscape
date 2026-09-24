@@ -116,6 +116,38 @@ Its text stays text, so it can be searched and copied.
 releases from GitHub now; the interfaces do it in the background, and a
 fetch that stops resumes next time.
 
+### Questions it answers
+
+**What did I forget?** Before you commit, `commitscape check` looks at what
+is staged and names the files that nearly always change with the ones you
+changed, with the evidence:
+
+```text
+$ commitscape check
+Probably forgotten:
+  You changed src/schema.ts. 9 of the last 10 commits that did also changed a file in migrations/.
+```
+
+It says nothing unless the evidence is strong (at least 8 of the file's last
+10 focused commits). `--branch main` checks what a branch changed since it
+left `main`, `--pr 123` a pull request (through `gh`), `--commit REV` one
+past commit. `--strict` exits with 1 when something looks forgotten, and
+`--format markdown` writes a pull request comment:
+[`actions/check`](actions/check/README.md) is a GitHub Action that posts it.
+
+**Who do I ask?** `commitscape who src/api` lists who worked on a file or
+folder most, and most recently, and says when the first of them has stopped
+committing and who to ask instead.
+
+**Can I rely on this project?** `commitscape health https://github.com/owner/name`
+(or `owner/name`) keeps a partial clone in the cache, history without old
+file contents, and says whether it is alive and whether it depends on one
+person: who kept it going in the last 90 days, its Bus Factor over the last
+year, how often it releases, how fast issues get a first answer, and whether
+it is getting busier or quieter. It draws the project's card too.
+
+`who` and `health` take `--json`, and `check` takes `--format json`.
+
 Other ways to run it:
 
 ```sh

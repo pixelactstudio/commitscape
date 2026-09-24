@@ -61,6 +61,51 @@ pub(crate) fn gh_graphql_with(
     Ok(out.stdout)
 }
 
+/// The paths a pull request changes, as GitHub lists them (it lists up to
+/// 3,000), for `check --pr`. Never from `gh`'s cache: a pull request moves.
+pub fn pull_request_files(remote: &Remote, number: u64) -> Result<Vec<String>, ForgeError> {
+    let query = format!(
+        "query($owner: String!, $name: String!, $after: String) {{
+  repository(owner: $owner, name: $name) {{
+    pullRequest(number: {number}) {{
+      files(first: 100, after: $after) {{ pageInfo {{ hasNextPage endCursor }} nodes {{ path }} }}
+    }}
+  }}
+}}"
+    );
+    let mut paths = Vec::new();
+    let mut after: Option<String> = None;
+    loop {
+        let vars: Vec<(&str, &str)> = after.as_deref().map(|a| ("after", a)).into_iter().collect();
+        let bytes = gh_graphql_with(remote, &query, None, &vars)?;
+        let v: serde_json::Value =
+            serde_json::from_slice(&bytes).map_err(|e| ForgeError::Unreadable(e.to_string()))?;
+        let files = v
+            .pointer("/data/repository/pullRequest/files")
+            .ok_or_else(|| ForgeError::NotFound(format!("pull request #{number}")))?;
+        paths.extend(
+            files
+                .pointer("/nodes")
+                .and_then(serde_json::Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|n| n.get("path").and_then(serde_json::Value::as_str))
+                .map(str::to_string),
+        );
+        let next = files
+            .pointer("/pageInfo/hasNextPage")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        after = files
+            .pointer("/pageInfo/endCursor")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string);
+        if !next || after.is_none() {
+            return Ok(paths);
+        }
+    }
+}
+
 /// A code host the tool can ask. GitHub is the first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Host {
@@ -180,6 +225,9 @@ pub struct Issue {
     pub created: i64,
     pub closed: Option<i64>,
     pub open: bool,
+    /// When someone other than its author first commented, among its first
+    /// five comments.
+    pub first_answer: Option<i64>,
 }
 
 /// Why GitHub's numbers are not available.
@@ -220,7 +268,9 @@ const QUERY: &str = "query($owner: String!, $name: String!) {
     recentPullRequests: pullRequests(last: 100) {
       nodes { createdAt mergedAt closedAt state author { login } }
     }
-    recentIssues: issues(last: 100) { nodes { createdAt closedAt state } }
+    recentIssues: issues(last: 100) {
+      nodes { createdAt closedAt state author { login } comments(first: 5) { nodes { createdAt author { login __typename } } } }
+    }
   }
 }";
 
@@ -298,10 +348,20 @@ impl GitHub {
                 .nodes
                 .into_iter()
                 .filter_map(|i| {
+                    let author = i.author.map(|a| a.login);
+                    let first_answer = i
+                        .comments
+                        .nodes
+                        .iter()
+                        // A bot's welcome is not the project answering.
+                        .filter(|c| c.author.as_ref().is_none_or(|a| !a.is_bot()))
+                        .filter(|c| c.author.as_ref().map(|a| &a.login) != author.as_ref())
+                        .find_map(|c| parse_iso8601(&c.created_at));
                     Some(Issue {
                         created: parse_iso8601(&i.created_at)?,
                         closed: time(&i.closed_at),
                         open: i.state == "OPEN",
+                        first_answer,
                     })
                 })
                 .collect(),
@@ -484,6 +544,15 @@ struct PrNode {
 #[derive(Deserialize)]
 struct Login {
     login: String,
+    /// `Bot` for an app's account; asked for only where it matters.
+    #[serde(rename = "__typename", default)]
+    kind: Option<String>,
+}
+
+impl Login {
+    fn is_bot(&self) -> bool {
+        self.kind.as_deref() == Some("Bot") || self.login.ends_with("[bot]")
+    }
 }
 
 #[derive(Deserialize)]
@@ -492,6 +561,24 @@ struct IssueNode {
     created_at: String,
     closed_at: Option<String>,
     state: String,
+    #[serde(default)]
+    author: Option<Login>,
+    #[serde(default)]
+    comments: CommentNodes,
+}
+
+#[derive(Deserialize, Default)]
+struct CommentNodes {
+    #[serde(default)]
+    nodes: Vec<CommentNode>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CommentNode {
+    created_at: String,
+    #[serde(default)]
+    author: Option<Login>,
 }
 
 #[cfg(test)]

@@ -284,7 +284,7 @@ gate for each phase.
 | 17 | GitHub, deeper: full PR, issue, review and release history, incremental (amends ADR-0009) | **DONE**: t3code and maihs fetched; t3code resumed after an interruption |
 | 18 | Browser UI foundation (ADR-0010): server, API, generated types, token, default choice, SSH | **DONE**: API tests through a real server; opened in Chromium here; VS Code simulated with `$BROWSER` |
 | 19 | Browser screens, filters, themes, PNG card, `commitscape report` | **DONE**: screenshots of every screen, both themes, on pixelactstudio, maihs and t3code in `target/preview/web/`; 8 Playwright tests on a fixture; first chart 740 ms rust-lang/rust, 459 ms Linux |
-| 20 | `check` plus its GitHub Action, `who`, `health` | not started |
+| 20 | `check` plus its GitHub Action, `who`, `health` | **DONE**: hand-worked tests for all three; replayed over real history, `check` flagged files the same author then changed in their next commits (10 in maihs, 12 in t3code) |
 | 21 | `wrapped` and the README card Action | not started |
 | 22 | Distribution (npm, Homebrew, Nix) and launch material | not started |
 
@@ -1028,6 +1028,85 @@ What the first Window cost on Linux, measured part by part: the Map 61 to
     with `?` on. Made by `web/scripts/screens.mjs`, which waits for the
     history, the lines and GitHub first.
 
+## Phase 20 findings
+
+1. **`check`** (`Analysis::forgotten`) reads each changed file's last 10
+   focused commits (merges, Bulk Commits and commits of more than 20 files
+   left out; a squashed pull request says little about any two of its
+   files) and names what 8 of them in 10 also changed: a file still at
+   HEAD, or a file somewhere in a folder (a new migration each time),
+   never a lockfile or a generated file. A file with fewer than 5 such
+   commits says nothing. It reads what is staged by default (the index
+   file against HEAD, through gix), `--branch BASE` (merge base to HEAD),
+   `--pr N` (the pull request's files through `gh`) or `--commit REV`
+   (against the history before it). Text, `--format markdown` for a
+   comment, or `--format json`; `--strict` exits with 1.
+2. **Found in real history.** `scripts/check-replay.sh` runs
+   `check --commit` over a repository's recent commits and prints each
+   file it flagged that the same author changed within their next three
+   commits: a file forgotten, then remembered. With the final thresholds
+   (saved in `target/preview/check-replay-*.txt`):
+   - maihs: 32 files flagged in 192 commits, 10 of them changed next. For
+     one, `a7825b2f` changed `src/lib/security/__tests__/api-access.test.ts`
+     without `src/lib/security/api-access.ts` (5 of 5 before it had both),
+     and `2545c384`, the next, changed it.
+   - t3code: 76 in 300, 12 changed next. For one, `3d74474f6` changed
+     `apps/web/src/themePalette.ts` without its test (5 of 5), and
+     `0a7c662d3` did.
+   - pixelactstudio: nothing flagged in 168 commits.
+   The first thresholds (7 in 10, every commit) flagged 313 files in 300
+   t3code commits; the bar was raised so it stays quiet.
+3. **The GitHub Action** (`actions/check/`) checks out all of history,
+   runs `npx commitscape check --branch origin/<base> --format markdown`
+   and keeps one comment on the pull request up to date, deleting it when
+   nothing looks forgotten; `strict: true` fails the check. It cannot run
+   until commitscape is on npm (Phase 22); its YAML was parsed and its
+   script passes shellcheck.
+4. **`who <path>`** (`Analysis::who`) orders people by their commits to a
+   file or folder, each counting half as much for every 180 days of age,
+   and shows their commits there and when they last changed it. Anyone
+   whose last commit anywhere is over 90 days old is "last seen …", and
+   when that is the first person, the first who still commits is named
+   instead. On maihs, `src/app/api/`: Ryan (194), Dev Talan (249), San Choo
+   (167, last seen 3 months ago), and so on.
+5. **`health <github-url>`** keeps a partial clone (`git clone
+   --filter=blob:none`: all of history and trees, and file contents only
+   for HEAD, which the checkout fetches in one go) under the cache
+   directory's `health/<owner>/<name>`, and updates it next time.
+   `Analysis::health` gives the Maintainers (3 or more commits in the last
+   90 days), the Bus Factor over the last year's commits, releases in the
+   last year with the median gap and the days since the last, how many of
+   the last 100 issues got a first answer from someone other than their
+   author and how fast (the median), and the last 90 days against the 90
+   before. It draws the card too. On BurntSushi/ripgrep: alive, Bus Factor
+   6, 3 releases in the year, 77 of 100 issues answered, typically within
+   5 hours; the clone is 6.6 MB.
+6. **GitHub's one-shot query** now asks each of the last 100 issues for
+   its author and first five comments, so `health` needs no second query;
+   tested on a response written by hand.
+7. **A median of an even list is now the mean of its two middles** in
+   `health`: with two gaps the upper one said "typically 8 months apart" of
+   three releases in a year.
+8. **Fixed in review:**
+   - A submodule, and a sparse checkout's folder, always looked staged.
+   - `check` and `who` failed below a repository's top folder; they now
+     look for the repository upwards (`GixRepo::discover`), and `who`
+     takes a path that no longer exists.
+   - A bot's welcome counted as an issue's first answer; comments by a
+     `Bot` account (or a `[bot]` login) no longer do.
+   - `check` could name a folder that is no longer at HEAD; it stops
+     reading history at a file's tenth commit, and orders what it found by
+     the evidence it keeps (more commits together, then fewer read).
+   - The Action failed on a pull request from a fork, whose token cannot
+     comment; the step summary says it instead, and only `strict` fails.
+   - `health ../..` would have cloned into the cache's parent: an owner
+     and a name must be names GitHub allows. When GitHub gave nothing,
+     `health` now says why.
+9. **A slip of mine, repaired:** two runs without `COMMITSCAPE_CACHE_DIR`
+   wrote to `~/.cache/commitscape`: one created a cache for t3code there,
+   now deleted, and one added an index to the owner's maihs cache there,
+   now removed with the cache pointed back at the index it had before.
+
 ## Decisions made during implementation, not in any ADR
 
 1. **`bincode` pinned to `=2.0.1`.** `cargo add` resolves to 3.0.0, which is a
@@ -1137,6 +1216,16 @@ What the first Window cost on Linux, measured part by part: the Map 61 to
     and 250 ms, and nobody is filtered for who has no commits in view.
 29. **The saved PNG is drawn at twice the card's size** (2,160 by 1,368), so
     it stays sharp on a high-density screen.
+30. **`health` clones with the `git` command**, as the fixture generator
+    does: gix is built without network clients (Decision 2), and a partial
+    clone is what the brief asks for. Reading stays with gix. `health`
+    never counts lines: that would fetch every old file's contents.
+31. **gix's `revision` feature is on**, for `check`: reading the staging
+    area and finding a branch's merge base. It adds `gix-index`.
+32. **The problem-solvers' thresholds**: `check` needs 5 focused commits
+    and 8 in 10 (Phase 20 finding 2 says why); a Maintainer has 3 commits
+    in 90 days; `who` halves a commit's weight every 180 days and calls
+    someone gone after 90 days without a commit.
 
 ---
 

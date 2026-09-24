@@ -524,6 +524,7 @@ pub fn github() -> GitHub {
             created: at(3, 0),
             closed: None,
             open: true,
+            first_answer: None,
         }],
     }
 }
