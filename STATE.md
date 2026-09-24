@@ -3,11 +3,17 @@
 Running log for Build Run 1 (Phases 0 to 7). Written so a fresh session with
 no context can read this plus `docs/adr/` and continue without asking anything.
 
-**Current position:** Build Run 2 complete (Phases 8 to 12). Build Run 1 (Phases 0
-to 7) built a correct, fast tool; the user found it hard to read and asked for
-it to be fun and visual: charts, a help window, plain explanations, stats
-about the project and its people, and GitHub numbers through the `gh` CLI.
-Build Run 2 is that redesign. Its phases are listed under "Build Run 2".
+**Current position:** Build Run 3 planned, not started (Phases 13 to 22).
+Build Run 1 (Phases 0 to 7) built a correct, fast tool. Build Run 2 (Phases 8
+to 12) made it fun and visual. On 2026-09-24 the owner used it on their own
+repositories and reviewed it. The review and the decisions that followed are
+in `IDEA.md`, which is the brief for Build Run 3:
+- a browser UI becomes the main interface (ADR-0010)
+- identities merge on strong evidence (ADR-0011)
+- contributions are shown through several views
+- problem-solving commands: `check`, `who`, `health`, `wrapped`
+- everything AI-related is removed
+- the terminal UI is cut from nine screens to five, then frozen
 
 ---
 
@@ -263,6 +269,24 @@ at the user's request.
 | 10 | GitHub numbers through `gh`, in the background and cached | **DONE** (the crate; its Panel comes with Phase 11) |
 | 11 | The interface rebuilt around charts, colour, plain language and a help window | **DONE**: nine screens, a help window, search; 28 render tests; first paint 55.1ms rust-lang/rust, 77.4ms Linux |
 | 12 | `commitscape card`: the Overview as a shareable SVG | **DONE**: a 1,080 by 684 pixel card, 19 to 27 KB on real repositories |
+
+### Build Run 3
+
+The brief is `IDEA.md`, including the owner's review of Build Run 2 and the
+gate for each phase.
+
+| Phase | What | Status |
+|---|---|---|
+| 13 | Remove everything AI-related, end to end | not started |
+| 14 | Trust fixes: identity merging (ADR-0011), `w` keeps your place, mouse, review fixes | not started |
+| 15 | Line counts in a background pass (new ADR amending ADR-0004); People contribution views | not started |
+| 16 | Terminal UI: nine screens to five, themes, Kinds of work from files, unusual facts only; then frozen | not started |
+| 17 | GitHub, deeper: full PR, issue, review and release history, incremental (amends ADR-0009) | not started |
+| 18 | Browser UI foundation (ADR-0010): server, API, generated types, token, default choice, SSH | not started |
+| 19 | Browser screens, filters, themes, PNG card, `commitscape report` | not started |
+| 20 | `check` plus its GitHub Action, `who`, `health` | not started |
+| 21 | `wrapped` and the README card Action | not started |
+| 22 | Distribution (npm, Homebrew, Nix) and launch material | not started |
 
 ### Phase 8 measured numbers
 
@@ -747,30 +771,25 @@ What the first Window cost on Linux, measured part by part: the Map 61 to
 
 ## Where to pick up
 
-Build Run 2 is done. In rough order of value:
-
-1. **Distribution (ADR-0003):** the npm package with per-platform binaries,
-   and a release workflow. Nobody can use the tool without building it from
-   source today.
-2. **The card as PNG**, for the sites that take no SVG: a rasterizer such
-   as `resvg` with an embedded font, which is a dependency worth an ADR.
-3. **Other hosts:** GitLab and others for the GitHub screen, through their
-   CLIs as ADR-0009 does for GitHub.
-4. **Agent-era metrics:** Context Weight, Stale Rule and Agent Footprint, as
-   defined in `CONTEXT.md`. Agent Commits are counted already.
-5. **`--deep`:** blame for line-level Code Age and line counts per change,
-   which ADR-0004 keeps out of the default path.
-6. **A smaller head write.** The head file is rewritten on every update
-   (about 15 MB for rust-lang/rust); only its changed sections need writing.
-7. **Classification gaps:** a vendored tree with no lockfile of its own
-   still needs `linguist-vendored` in `.gitattributes`, and rust-lang/rust's
-   generated shell completions and blessed MIR test output rank as code. A
-   hint in the interface could suggest the `.gitattributes` lines.
-8. **`bincode` is archived upstream.** It works and its format is frozen;
-   moving to `postcard` or `rkyv` is a decision to make before it becomes a
-   forced one.
+Start Build Run 3 at Phase 13 and follow `IDEA.md` in order. The earlier list
+of next steps is folded into it:
+- **Distribution** is Phase 22.
+- **The PNG card** comes from the browser (ADR-0010), so `resvg` is no longer
+  needed.
+- **Agent-era metrics are dropped.** The owner removed everything
+  AI-related.
+- **GitLab, `--deep` blame, a smaller head write and replacing `bincode`**
+  are listed under "Later" in `IDEA.md`.
+- **The classification gaps** still stand.
 
 Seams signed off by the user and not open for revision:
 `RepoSource` (fake + real), `Index`, the `Analysis` methods, `--json` golden
 files, TUI render via `insta`/`TestBackend`. Phase 10 added one: the forge,
-tested with a response written by hand and one GitHub really sent.
+tested with a response written by hand and one GitHub really sent. Build Run 3
+adds, as pre-agreed seams:
+- the HTTP API, tested through a real local server
+- the generated TypeScript types, checked for drift in CI
+- `check`, `who`, `health` and `wrapped` as `Analysis`-level functions with
+  hand-worked fixture values
+- the browser screens, through a small set of Playwright tests against a
+  fixture repository

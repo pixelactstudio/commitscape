@@ -4,7 +4,7 @@ The tool can show what GitHub knows about a repository (stars, forks, issues, pu
 
 ## Status
 
-accepted. Reverses "no network calls" in the original brief's v0.1 scope, at the user's request.
+accepted. Build Run 3 (Phase 17, see `IDEA.md`) replaces the latest-hundred sample with the full pull request, issue, review and release history, fetched once and then incrementally; that phase amends this record. Reverses "no network calls" in the original brief's v0.1 scope, at the user's request.
 
 ## Context
 

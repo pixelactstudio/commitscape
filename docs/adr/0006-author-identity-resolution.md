@@ -4,7 +4,7 @@ We resolve a person's several git identities using the repository's own `.mailma
 
 ## Status
 
-accepted
+accepted; its "Nothing else merges" rule is superseded by ADR-0011 (2026-09-24), which merges on GitHub accounts and same full names, visibly and undoably.
 
 ## Context
 

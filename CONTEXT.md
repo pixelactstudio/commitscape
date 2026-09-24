@@ -117,17 +117,3 @@ _Avoid_: treemap, tree view, file browser.
 **Card**:
 A composited image summarizing a repository, rendered for sharing rather than for reading in a terminal: the Overview's story of all of history, unless a shorter Window is asked for. The tool's growth mechanism, treated as a product feature.
 _Avoid_: report, summary image, badge.
-
-### Agent-era terms
-
-**Context Weight**:
-The proportion of a repository's tokens that exist to instruct coding agents rather than to run — agent rule files, skill definitions, and scaffolding, measured against source.
-_Avoid_: prompt size, agent overhead, instruction bloat.
-
-**Stale Rule**:
-An agent instruction file referencing a path, script, or package that no longer exists in the tree.
-_Avoid_: broken rule, dead config, outdated docs.
-
-**Agent Footprint**:
-The share of commits, diff volume, and revert rate attributable to coding agents rather than people, identified through trailers, co-author lines, and known bot identities.
-_Avoid_: AI commits, bot activity, automation.

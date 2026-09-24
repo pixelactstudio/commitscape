@@ -8,6 +8,10 @@ one person holds, and how much has gone untouched for a year. With the
 GitHub CLI signed in, it adds the repository's stars, pull requests, issues
 and releases.
 
+Where it is going next is in [`IDEA.md`](IDEA.md): a browser interface,
+commands that answer "who do I ask?" and "what did I forget to change?",
+and a year in review.
+
 ## Build
 
 You need Rust (the version is pinned in `rust-toolchain.toml`, and `rustup`
