@@ -362,7 +362,8 @@ fn a_clone_knows_where_it_came_from() {
     use commitscape_index::RepoSource;
     let bare = GixRepo::open(&fixture("bare.git")).expect("opening fixture");
     let url = bare.remote_url().expect("a clone has an origin");
-    assert!(url.ends_with("fixtures/linear"), "{url}");
+    // A clone of a local path records that path, with `\` on Windows.
+    assert!(url.replace('\\', "/").ends_with("fixtures/linear"), "{url}");
     let linear = GixRepo::open(&fixture("linear")).expect("opening fixture");
     assert_eq!(linear.remote_url(), None, "linear was never cloned");
 }

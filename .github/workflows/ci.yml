@@ -50,9 +50,11 @@ jobs:
 
       - name: Test
         # A snapshot that differs fails the run; none is ever written here.
+        # --no-fail-fast runs every test binary, so one failure does not hide
+        # the others.
         env:
           INSTA_UPDATE: "no"
-        run: cargo test --workspace --all-targets
+        run: cargo test --workspace --all-targets --no-fail-fast
 
       - name: Doc tests
         run: cargo test --workspace --doc
