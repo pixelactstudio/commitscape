@@ -23,8 +23,8 @@ a second.
 | How | Command |
 |---|---|
 | npm | `npx commitscape`, or `npm install -g commitscape` |
-| Homebrew | `brew install <owner>/commitscape/commitscape` |
-| Nix | `nix run github:<owner>/commitscape`, or add the flake |
+| Homebrew | `brew install pixelactstudio/commitscape/commitscape` |
+| Nix | `nix run github:pixelactstudio/commitscape`, or add the flake |
 | From source | `cargo build --release` (the web app first: `cd web && npm ci && npm run build`) |
 
 The npm package is a small starter and one prebuilt binary for your

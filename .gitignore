@@ -1,8 +1,9 @@
+# Rust build output
 /target
 **/*.rs.bk
 *.pdb
 
-# Generated test fixtures — rebuilt by `cargo xtask fixtures`
+# Generated test fixtures, rebuilt by `cargo xtask fixtures`
 /fixtures/
 
 # Benchmark output
@@ -11,11 +12,33 @@
 # Local scratch
 /.scratch/
 
-# Editor settings
-/.idea/
+# What commitscape writes when run from this folder: cards, reports, Wrapped
+/*-card.svg
+/*-report.html
+/wrapped-*.html
 
-# The browser interface: dependencies, and the build cargo embeds.
+# The browser interface: dependencies, and the build cargo embeds
 web/node_modules/
 web/dist/
 web/test-results/
 web/playwright-report/
+
+# Nix: `nix build` links its output here; direnv keeps its cache here
+/result
+/result-*
+/.direnv/
+
+# Secrets
+.env
+.env.*
+
+# Editors and operating systems
+/.idea/
+/.vscode/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
