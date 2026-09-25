@@ -5,10 +5,10 @@
 #   scripts/homebrew-formula.sh <version> <SHA256SUMS> > commitscape.rb
 #
 # Put the result in a tap (a repository named homebrew-commitscape), and
-# `brew install <owner>/commitscape/commitscape` installs it.
+# `brew install pixelactstudio/commitscape/commitscape` installs it.
 set -euo pipefail
 version=$1; sums=$2
-repo=${COMMITSCAPE_REPO:-OWNER/commitscape}
+repo=${COMMITSCAPE_REPO:-pixelactstudio/commitscape}
 sum() { awk -v f="commitscape-$1.tar.gz" '$2 == f { print $1 }' "$sums"; }
 url() { echo "https://github.com/$repo/releases/download/v$version/commitscape-$1.tar.gz"; }
 cat <<RUBY

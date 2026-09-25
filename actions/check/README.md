@@ -17,7 +17,7 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: <owner>/commitscape/actions/check@v1
+      - uses: pixelactstudio/commitscape/actions/check@v1
         with:
           strict: false   # true fails the check when something looks forgotten
 ```

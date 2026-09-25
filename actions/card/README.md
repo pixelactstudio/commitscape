@@ -17,7 +17,7 @@ jobs:
   card:
     runs-on: ubuntu-latest
     steps:
-      - uses: <owner>/commitscape/actions/card@v1
+      - uses: pixelactstudio/commitscape/actions/card@v1
         with:
           path: .github/commitscape-card.svg   # the default
           window: all                          # or 1y, 90d, 30d
