@@ -1,6 +1,6 @@
 # commitscape
 
-A terminal UI that reads a git repository and reports the things about it that change what you do next. Every number it shows must either alter a decision or be interesting enough to screenshot, and every number must be enterable.
+A tool that reads a git repository, locally or on the Site, and reports the things about it that change what you do next. Every number it shows must either alter a decision or be interesting enough to screenshot, and every number must be enterable.
 
 ## Language
 
@@ -131,8 +131,16 @@ A composited image summarizing a repository, rendered for sharing rather than fo
 _Avoid_: summary image, badge (and report, which is the Report).
 
 **Report**:
-The browser interface written into one file, for every Window, to send or keep: it needs no server and answers only what it was written with.
+Every answer the browser interface needs, for every Window, written ahead of time: it needs no server and answers only what it was written with. Kept as one file, stored on the Site for a repository, or uploaded as a Shared Report.
 _Avoid_: export, snapshot, dump.
+
+**Shared Report**:
+A Report someone uploaded from their own machine so another browser can open it, locked with a key that exists only in its link. The Site stores it without being able to read it; it expires after hours, and anyone with the link can delete it.
+_Avoid_: session, tunnel, upload, snapshot.
+
+**Commit List**:
+One short row per commit (who, when, its subject line, its Commit Kind, how much it changed), searched in the browser. On the Site it names people but never shows their email addresses.
+_Avoid_: log, history, search index.
 
 **Wrapped**:
 One person's year across every repository in a folder: only their own commits, under every address they commit with, told as a page and a Card.
@@ -141,3 +149,25 @@ _Avoid_: year in review, stats, recap.
 **Moment**:
 One event in the project's life, on the Overview's story line: the first commit, a release, someone who made a real share of the commits joining or leaving, the busiest day, the biggest clean-up, a quiet stretch, a change of main language.
 _Avoid_: event, milestone.
+
+### Where it runs
+
+**Site**:
+The hosted website: the landing page, any public GitHub repository's Report, Shared Reports, a signed-in person's Connected Repositories, and the Leaderboards. It shows the same screens as the local browser interface.
+_Avoid_: dashboard, cloud, platform, web app.
+
+**Builder**:
+What reads a repository's history for the Site and writes its Report: the same engine the CLI runs, on the owner's server, one Build at a time.
+_Avoid_: worker, backend, crawler.
+
+**Build**:
+One run of the Builder for one repository, from clone to stored Report. A repository's Report is rebuilt when someone asks for it and it is more than a day old.
+_Avoid_: job, scan, analysis, refresh.
+
+**Connected Repository**:
+A repository someone let the Site read by choosing it in commitscape's GitHub App. Its Report is shown only to people who can see the repository on GitHub.
+_Avoid_: linked repo, imported repo, private repo.
+
+**Leaderboard**:
+A ranking of repositories, never of people, by something commitscape measures, such as Bus Factor or how quickly issues get a first answer. It says when it was built and from how many repositories.
+_Avoid_: ranking of developers, top contributors, hall of fame.
