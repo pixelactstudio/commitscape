@@ -3,7 +3,7 @@
 Running log for Build Run 1 (Phases 0 to 7). Written so a fresh session with
 no context can read this plus `docs/adr/` and continue without asking anything.
 
-**Current position:** Build Run 3 is done (Phases 13 to 22); see the Build Run 3 table. Nothing is published: there is no git remote yet.
+**Current position:** Build Run 4 (Phases 23 to 31) is planned and not started; its brief is `IDEA.md`, with ADR-0013 to ADR-0019. Build Run 3 is done (Phases 13 to 22). The repository is on GitHub (`pixelactstudio/commitscape`) and CI is green on Linux, macOS and Windows. Nothing is published: the name may still change.
 Build Run 1 (Phases 0 to 7) built a correct, fast tool. Build Run 2 (Phases 8
 to 12) made it fun and visual. On 2026-09-24 the owner used it on their own
 repositories and reviewed it. The review and the decisions that followed are
@@ -287,6 +287,45 @@ gate for each phase.
 | 20 | `check` plus its GitHub Action, `who`, `health` | **DONE**: hand-worked tests for all three; replayed over real history, `check` flagged files the same author then changed in their next commits (10 in maihs, 12 in t3code) |
 | 21 | `wrapped` and the README card Action | **DONE**: the owner's 2026 across `~/code` in `target/preview/wrapped/`; hand-worked test for the year; the card Action simulated against a local remote |
 | 22 | Distribution (npm, Homebrew, Nix) and launch material | **DONE, but not published**: `npx commitscape` ran on clean Debian and Alpine containers from the packed tarballs; the flake builds; nothing is on npm yet (no remote, no token) |
+
+### Build Run 4
+
+The brief is `IDEA.md` (written 2026-09-25), with ADR-0013 to ADR-0019:
+- a monorepo
+- the web UI on Astryx
+- commit search
+- a hosted Site on Cloudflare's free plan
+- a Builder on the owner's VPS
+- encrypted Shared Reports
+- GitHub sign-in through a GitHub App
+- Leaderboards
+
+The agent doing the work never commits, pushes, publishes or deploys; the owner commits.
+
+| Phase | What | Status |
+|---|---|---|
+| 23 | Monorepo (ADR-0013): pnpm + Turborepo, `apps/local`, `packages/ui`, `packages/data`, the Data Source seam | not started |
+| 24 | The browser interface on Astryx (ADR-0018), command palette, shortcuts, avatars | not started |
+| 25 | Commit search (ADR-0019): subjects in the index, the Commit List, the Commits screen | not started |
+| 26 | The Site's foundation (ADR-0014): landing page, repository page, D1, rate limits, `/privacy` | not started |
+| 27 | The Builder and public lookup (ADR-0015): `report --data`, clone policy, instant GitHub facts | not started |
+| 28 | Sharing (ADR-0016): `commitscape share`, the Share button, `/s/` | not started |
+| 29 | GitHub sign-in (ADR-0017): `/me`, installations, access checks, webhooks | not started |
+| 30 | Leaderboards | not started |
+| 31 | Ready to launch: README, `DEPLOY.md`, security pass | not started |
+
+### Measured while planning Build Run 4 (2026-09-25)
+
+On this machine, release build, cache under `target/`:
+
+| Repository | Commits | Full clone | Partial clone (`--filter=blob:none`, HEAD checked out) | First analysis (`--json --no-lines --window all`) | Again, cached |
+|---|---|---|---|---|---|
+| BurntSushi/ripgrep | 2,287 | 6.3 MB | 2.9 MB, 2.9 s | 63 ms | 10 ms |
+| facebook/react | 21,708 | 1.1 GB | 62 MB, 14.0 s | 1.39 s | 81 ms |
+
+- **A bare partial clone fails.** It reports "failed while reading a file at HEAD": the head pass needs HEAD's blobs.
+- **`commitscape report` fails on a partial clone.** It reports "failed while reading a blob for its lines": the line-count pass (ADR-0012) needs every old blob. ADR-0015's clone policy answers this.
+- **ripgrep's Report from a full clone** took 263 ms and is 1.1 MB, 144 KB gzipped.
 
 ### Phase 8 measured numbers
 
@@ -1393,23 +1432,21 @@ What the first Window cost on Linux, measured part by part: the Map 61 to
 
 ## Where to pick up
 
-Build Run 3 is done. What is left needs the owner:
+Start Build Run 4 at Phase 23. Read `IDEA.md`, ADR-0013 to ADR-0019 and `CONTEXT.md` first.
 
-1. **Put the repository on GitHub** (there is no remote), then replace
-   `<owner>` in the README, `actions/*/README.md`, and
-   `scripts/homebrew-formula.sh`'s `COMMITSCAPE_REPO`; add a `repository`
-   field to `npm/commitscape/package.json`, so npm shows the README's
-   images.
-2. **Publishing**: an npm organisation for the `@commitscape` scope, an
-   `NPM_TOKEN` secret, and a tap repository for Homebrew. Then tag
-   `v0.1.0`; the release workflow does the rest. Its first run on GitHub
-   is its real test: none of the workflows has run there yet.
-3. **Launch material** (IDEA.md): the post with the owner's Wrapped
-   (`target/preview/wrapped/`) and a repository card; the README's GIFs are
-   in `docs/media/`.
-4. **Later**, as IDEA.md lists: `commitscape ssh host:path`, the replay
-   video, GitLab, blame-based surviving lines, a smaller head write,
-   replacing `bincode`.
+Done since Build Run 3:
+- The repository is on GitHub.
+- The `<owner>` placeholders are replaced.
+- CI passes on all three operating systems:
+  - a Windows path test is fixed
+  - `.gitattributes` forces LF
+  - `cargo test --no-fail-fast` is on
+
+Still for the owner, and not part of any phase:
+1. **The name.** It may change before the first release, so nothing is published yet.
+2. **Publishing.** Then add a `repository` field to `npm/commitscape/package.json` so npm shows the README's images. Set up an npm organisation for the platform packages' scope, an `NPM_TOKEN` secret and a Homebrew tap. Tag `v0.1.0`; the release workflow does the rest, and its first run on GitHub is its real test.
+3. **Hosting.** Create the Cloudflare account and resources, set up the VPS, create the GitHub App. `DEPLOY.md` is written in Phase 31.
+4. **Launch material.** The post with the owner's Wrapped (`target/preview/wrapped/`) and a repository card; the README's GIFs are in `docs/media/`.
 
 Seams signed off by the user and not open for revision:
 `RepoSource` (fake + real), `Index`, the `Analysis` methods, `--json` golden

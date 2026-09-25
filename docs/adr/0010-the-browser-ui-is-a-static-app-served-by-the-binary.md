@@ -4,7 +4,7 @@ The main interface moves to the browser. It is a static single-page app (Vite, R
 
 ## Status
 
-accepted (2026-09-24, Build Run 3)
+accepted (2026-09-24, Build Run 3). Amended by ADR-0013 (the app moves from `web/` to `apps/local`, its screens to `packages/ui`) and ADR-0018 (Astryx). ADR-0014 adds a hosted Site; this ADR still governs the local interface.
 
 ## Context
 
