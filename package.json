@@ -8,7 +8,9 @@
     "lint": "turbo run lint",
     "test": "turbo run test",
     "check": "turbo run typecheck lint test build",
-    "e2e": "pnpm --filter @commitscape/local e2e"
+    "e2e": "pnpm --filter @commitscape/local e2e",
+    "dev:site": "node apps/site/scripts/dev.ts",
+    "dev:site:seed": "node --env-file=target/site-dev/builder.env apps/builder/dist/builder.mjs seed"
   },
   "devDependencies": {
     "turbo": "2.11.4"
