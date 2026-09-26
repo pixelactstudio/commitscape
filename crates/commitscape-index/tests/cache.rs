@@ -48,7 +48,7 @@ fn load_all(repo: &ScriptedRepo, root: &Path) -> Loaded {
     load_with(repo, Some(root), Since::All)
 }
 
-type Observed = Vec<(Oid, i64, String, Vec<(String, ChangeKind)>)>;
+type Observed = Vec<(Oid, i64, String, String, Vec<(String, ChangeKind)>)>;
 
 /// What a user could observe of an index.
 fn observe(idx: &Index) -> Observed {
@@ -66,7 +66,7 @@ fn observe(idx: &Index) -> Observed {
                 .map(|ch| (idx.paths.path_lossy(ch.file), ch.kind))
                 .collect();
             changes.sort_by(|a, b| a.0.cmp(&b.0));
-            (c.id, c.time, author, changes)
+            (c.id, c.time, author, idx.subject_of(c).to_string(), changes)
         })
         .collect()
 }
@@ -81,8 +81,11 @@ fn scratch(repo: &ScriptedRepo) -> Index {
 fn linear() -> ScriptedRepo {
     ScriptedRepo::new()
         .commit(JAN_2024, ALICE, &[(b"a.txt", Added, blob(1))])
+        .said("feat: a\n\nThe first file.")
         .commit(JAN_2024 + DAY, BOB, &[(b"a.txt", Modified, blob(2))])
+        .said("fix: a, again")
         .commit(JAN_2024 + 2 * DAY, ALICE, &[(b"b.txt", Added, blob(3))])
+        .said("b")
 }
 
 #[test]
@@ -105,13 +108,31 @@ fn the_first_load_builds_and_the_second_is_warm() {
 }
 
 #[test]
+fn each_commit_keeps_its_subject_line_through_the_cache() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let built = load_all(&linear(), dir.path());
+    let subjects = |i: &Index| -> Vec<String> {
+        i.commits
+            .iter()
+            .map(|c| i.subject_of(c).to_string())
+            .collect()
+    };
+    assert_eq!(subjects(&built.index), ["feat: a", "fix: a, again", "b"]);
+    let warm = load_all(&linear(), dir.path());
+    assert_eq!(warm.freshness, Freshness::Warm);
+    assert_eq!(subjects(&warm.index), ["feat: a", "fix: a, again", "b"]);
+}
+
+#[test]
 fn new_commits_are_added_without_a_rebuild() {
     let dir = tempfile::tempdir().expect("temp dir");
     load_all(&linear(), dir.path());
 
     let grown = linear()
         .commit(JAN_2024 + 3 * DAY, BOB, &[(b"b.txt", Modified, blob(4))])
-        .commit(JAN_2024 + 4 * DAY, ALICE, &[(b"c.txt", Added, blob(5))]);
+        .said("b, later")
+        .commit(JAN_2024 + 4 * DAY, ALICE, &[(b"c.txt", Added, blob(5))])
+        .said("c");
     let updated = load_all(&grown, dir.path());
     assert_eq!(updated.freshness, Freshness::Updated { added: 2 });
     assert_eq!(observe(&updated.index), observe(&scratch(&grown)));
@@ -129,7 +150,9 @@ fn branched() -> ScriptedRepo {
         .commit(JAN_2024, ALICE, &[(b"main.txt", Added, blob(1))])
         .commit(JAN_2024 + DAY, ALICE, &[(b"main.txt", Modified, blob(2))])
         .commit(JAN_2024 + 2 * DAY, BOB, &[(b"side.txt", Added, blob(3))])
+        .said("side one")
         .commit(JAN_2024 + 3 * DAY, BOB, &[(b"side.txt", Modified, blob(4))])
+        .said("side two")
         .at(2)
         .commit(
             JAN_2024 + 4 * DAY,
@@ -142,6 +165,7 @@ fn branched() -> ScriptedRepo {
             &[(b"main.txt", Modified, blob(6))],
         )
         .merge(JAN_2024 + 6 * DAY, ALICE, 4, &[])
+        .said("Merge branch 'side'")
 }
 
 #[test]
@@ -266,9 +290,13 @@ fn four_months() -> ScriptedRepo {
     let mid = |month_start: i64| month_start + 9 * DAY;
     ScriptedRepo::new()
         .commit(mid(JAN_2024), ALICE, &[(b"a.txt", Added, blob(1))])
+        .said("january")
         .commit(mid(1_706_745_600), BOB, &[(b"a.txt", Modified, blob(2))])
+        .said("february")
         .commit(mid(1_709_251_200), ALICE, &[(b"b.txt", Added, blob(3))])
+        .said("march")
         .commit(mid(1_711_929_600), BOB, &[(b"b.txt", Modified, blob(4))])
+        .said("april")
 }
 
 #[test]

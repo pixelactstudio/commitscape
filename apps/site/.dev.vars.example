@@ -1,0 +1,10 @@
+# Copy to .dev.vars for `wrangler dev` (it is ignored by git). Secrets on
+# the deployed Site are set with `wrangler secret put` (DEPLOY.md).
+BUILDER_SECRET=a-random-string-of-32-characters-or-more
+# Optional locally: without it GitHub allows 60 requests an hour.
+GITHUB_TOKEN=
+# The GitHub App's secrets (DEPLOY.md), for signing in locally.
+GITHUB_APP_CLIENT_SECRET=
+GITHUB_APP_PRIVATE_KEY=
+GITHUB_WEBHOOK_SECRET=
+SESSION_KEY=another-random-string-of-32-characters-or-more

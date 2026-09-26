@@ -3,12 +3,12 @@
 
 include!(concat!(env!("OUT_DIR"), "/assets.rs"));
 
-/// Served in place of the app when `web/dist` was not built.
+/// Served in place of the app when `apps/local/dist` was not built.
 const NOT_BUILT: &str = "<!doctype html><meta charset=utf-8><title>commitscape</title>\
 <body style=\"font-family:system-ui;max-width:40em;margin:4em auto;line-height:1.5\">\
 <h1>The browser interface was not built</h1>\
 <p>This commitscape was compiled without its web app. Build it with \
-<code>npm ci &amp;&amp; npm run build</code> in <code>web/</code>, then \
+<code>pnpm install &amp;&amp; pnpm build</code> at the repository's root, then \
 <code>cargo build --release</code> again, or use the terminal interface: \
 <code>commitscape --tui</code>.</p>";
 

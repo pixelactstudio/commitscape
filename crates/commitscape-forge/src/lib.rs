@@ -550,8 +550,10 @@ struct Login {
 }
 
 impl Login {
+    /// GitHub's own Bot accounts, and user accounts named as automation
+    /// (`facebook-github-bot`, `elasticsearchmachine`), as commits' authors are.
     fn is_bot(&self) -> bool {
-        self.kind.as_deref() == Some("Bot") || self.login.ends_with("[bot]")
+        self.kind.as_deref() == Some("Bot") || commitscape_core::is_bot_name(&self.login)
     }
 }
 

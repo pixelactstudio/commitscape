@@ -59,6 +59,8 @@ pub struct RawCommit<'a> {
     /// What the message says it is, read as the commit was walked
     /// ([`crate::message::kind_of`]).
     pub kind: CommitKind,
+    /// Its message's subject line ([`crate::message::subject_of`]).
+    pub subject: &'a str,
     pub parent_count: usize,
 }
 

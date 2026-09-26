@@ -4,7 +4,7 @@ The hosted Site is a TanStack Start app on Cloudflare Workers. It uses D1 for it
 
 ## Status
 
-accepted (2026-09-25, Build Run 4 plan). Reverses IDEA.md's Build Run 3 "Not doing" lines on a hosted service and on TanStack Start. ADR-0010 still governs the local interface.
+accepted (2026-09-25, Build Run 4 plan); amended in Phase 29 (below). Reverses IDEA.md's Build Run 3 "Not doing" lines on a hosted service and on TanStack Start. ADR-0010 still governs the local interface.
 
 ## Context
 
@@ -43,3 +43,16 @@ Cloudflare's free-plan limits, from its docs on 2026-09-25:
 - **No live connection between a user's machine and the Site.** This is why sharing uploads a Report (ADR-0016) rather than relaying one.
 - **Per-IP limits** on Builds and Shares are needed from day one. Use Cloudflare's rate-limiting rule or binding if the free plan includes it, otherwise a counter in D1. Verify which before building.
 - **Every handler's CPU time is measured** (`wrangler dev` and `wrangler tail` report it) and recorded in STATE.md.
+
+## Amendment: sessions without an auth library (Phase 29)
+
+Better Auth was the first candidate for sessions. It is not used: reports
+from people running it on Workers with D1 on the free plan were of requests
+"exceeding the CPU time limit", and the Site needs only one way to sign in
+(the GitHub App's OAuth web flow, ADR-0017). That flow is a few requests,
+written in `apps/site/src/api/auth.ts`: a random session token in an
+HttpOnly cookie, kept in D1 only as its SHA-256, and GitHub's user token
+locked with the Site's own `SESSION_KEY` (AES-256-GCM). Measured like every
+handler: signing in takes 0.5 ms of CPU, `/api/me` 0.4 ms. Rate limits use
+the D1 counter this ADR allows (Phase 26), since Cloudflare's rate-limiting
+binding is not documented for the free plan.

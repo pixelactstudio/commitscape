@@ -1,0 +1,25 @@
+{
+  "name": "@commitscape/builder",
+  "private": true,
+  "version": "0.0.0",
+  "description": "The Builder's job runner (ADR-0015): takes one Build at a time from the Site, runs commitscape on a clone, and uploads the Report.",
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/main.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/builder.mjs --external:@resvg/resvg-js",
+    "start": "node dist/builder.mjs",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint -c ../../.oxlintrc.json src",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@resvg/resvg-js": "2.6.2"
+  },
+  "devDependencies": {
+    "@commitscape/data": "workspace:*",
+    "@types/node": "catalog:",
+    "esbuild": "0.28.2",
+    "oxlint": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

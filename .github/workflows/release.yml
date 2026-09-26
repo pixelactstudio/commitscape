@@ -28,14 +28,15 @@ jobs:
           targets: ${{ matrix.target }}
       - if: contains(matrix.target, 'musl')
         run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: web/package-lock.json
+          node-version: 24
+          cache: pnpm
       # The web app goes inside the binary.
-      - run: npm ci && npm run build
-        working-directory: web
+      - run: |
+          pnpm install --frozen-lockfile
+          pnpm --filter @commitscape/local build
       - run: cargo build --profile dist --target ${{ matrix.target }} -p commitscape
       - name: Pack the binary
         shell: bash

@@ -6,7 +6,7 @@
 //! sits in the data file.
 //!
 //! **Data** (`*.data`): history, as one block per calendar month holding its
-//! commits and their changes, and every indexed commit id, as a few sorted
+//! commits, their changes and their subject lines, and every indexed commit id, as a few sorted
 //! runs. Each piece is located by an extent in the head (offset, length,
 //! checksum), so a warm start reads only the months its window needs, and an
 //! update reads the id runs to stop its walk at the first indexed commit on
@@ -231,20 +231,23 @@ fn decode_head(payload: &[u8]) -> Result<Head, Unusable> {
     })
 }
 
-/// One month of history. Each commit's `changes_start` is relative to the
-/// block's own change list.
+/// One month of history. Each commit's `changes_start` and
+/// `subject_start` are relative to the block's own lists.
 #[derive(Serialize, Deserialize)]
 struct Block {
     commits: Vec<CommitMeta>,
     changes: Vec<FileChange>,
+    /// Bincode writes a `u8` as one byte, so this is the text as it is.
+    subjects: Vec<u8>,
 }
 
 /// A run of blocks decoded into flat arrays, with `changes_start` relative to
-/// `changes`.
+/// `changes` and `subject_start` to `subjects`.
 #[derive(Debug, Default)]
 pub(super) struct Decoded {
     pub commits: Vec<CommitMeta>,
     pub changes: Vec<FileChange>,
+    pub subjects: Vec<u8>,
 }
 
 fn config() -> bincode::config::Configuration {
@@ -323,14 +326,19 @@ pub(super) fn read_blocks(
             return Err(Unusable::Damaged);
         }
         let base = out.changes.len() as u32;
+        let subject_base = out.subjects.len() as u32;
         for mut c in block.commits {
-            if c.changes_start as u64 + c.changes_len as u64 > entry.changes as u64 {
+            if c.changes_start as u64 + c.changes_len as u64 > entry.changes as u64
+                || c.subject_start as u64 + c.subject_len as u64 > block.subjects.len() as u64
+            {
                 return Err(Unusable::Damaged);
             }
             c.changes_start += base;
+            c.subject_start += subject_base;
             out.commits.push(c);
         }
         out.changes.extend(block.changes);
+        out.subjects.extend(block.subjects);
     }
     Ok(out)
 }
@@ -394,6 +402,7 @@ pub(super) fn read_ids(dir: &Path, head: &Head) -> Result<SortedIds, Unusable> {
 pub(super) fn encode_blocks(
     commits: &[CommitMeta],
     changes: &[FileChange],
+    subjects: &[u8],
 ) -> Vec<(Month, u32, u32, Vec<u8>)> {
     let mut out = Vec::new();
     let mut i = 0;
@@ -409,12 +418,17 @@ pub(super) fn encode_blocks(
         let mut block = Block {
             commits: Vec::with_capacity(run.len()),
             changes: Vec::new(),
+            subjects: Vec::new(),
         };
         for c in run {
             let slice = changes.get(c.changes()).unwrap_or(&[]);
+            let text = subjects.get(c.subject()).unwrap_or(&[]);
             let mut local = *c;
             local.changes_start = block.changes.len() as u32;
             block.changes.extend_from_slice(slice);
+            local.subject_start = block.subjects.len() as u32;
+            local.subject_len = text.len() as u8;
+            block.subjects.extend_from_slice(text);
             block.commits.push(local);
         }
         let (n_commits, n_changes) = (block.commits.len() as u32, block.changes.len() as u32);

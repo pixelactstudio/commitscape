@@ -26,7 +26,9 @@
 
 use std::collections::{HashMap, HashSet};
 
-use commitscape_core::{Author, AuthorId, AuthorTable, PersonTraits, Signature, SignatureId};
+use commitscape_core::{
+    is_bot_name, Author, AuthorId, AuthorTable, PersonTraits, Signature, SignatureId, AUTOMATION,
+};
 
 use crate::mailmap::Mailmap;
 
@@ -520,31 +522,12 @@ fn unaccent(c: char) -> char {
     }
 }
 
-/// Automation accounts that carry no `[bot]` suffix, by name or address.
-const AUTOMATION: &[&str] = &[
-    "action@github.com",
-    "allcontributors",
-    "bors",
-    "codecov",
-    "dependabot",
-    "dependabot-preview",
-    "github-actions",
-    "greenkeeper",
-    "imgbot",
-    "mergify",
-    "pre-commit-ci",
-    "renovate",
-    "snyk-bot",
-];
-
 fn is_bot(name: &str, email: &str) -> bool {
     let name = name.trim().to_ascii_lowercase();
     let email = email.trim().to_ascii_lowercase();
-    name.ends_with("[bot]")
+    is_bot_name(&name)
         || email.contains("[bot]@")
-        || name.ends_with("-bot")
         || name.split_whitespace().last() == Some("bot") && name.contains(' ')
-        || AUTOMATION.contains(&name.as_str())
         || AUTOMATION.contains(&email.as_str())
 }
 

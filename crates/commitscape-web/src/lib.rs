@@ -54,6 +54,9 @@ pub type ChangePeople =
     Arc<dyn Fn(&AuthorTable, AuthorId, bool) -> Option<AuthorTable> + Send + Sync>;
 /// Draws the card for an index and a Window, as SVG.
 pub type DrawCard = Arc<dyn Fn(&Index, Span, i64) -> String + Send + Sync>;
+/// Shares the repository's Report for so many hours (ADR-0016): its link
+/// and when it expires, or why not.
+pub type ShareReport = Arc<dyn Fn(u32) -> Result<(String, i64), String> + Send + Sync>;
 
 /// What the server opens on, and how to do what comes after.
 pub struct Session {
@@ -72,6 +75,12 @@ pub struct Session {
     pub accounts: Option<ReadAccounts>,
     pub people: Option<ChangePeople>,
     pub card: Option<DrawCard>,
+    /// Whether the page may show GitHub avatars: false with `--offline`.
+    pub avatars: bool,
+    /// Where a commit's page is on GitHub, its id appended.
+    pub commit_link: Option<String>,
+    /// The page's Share button: none with `--offline`.
+    pub share: Option<ShareReport>,
 }
 
 impl Session {
@@ -92,6 +101,9 @@ impl Session {
             accounts: None,
             people: None,
             card: None,
+            avatars: false,
+            commit_link: None,
+            share: None,
         }
     }
 }
@@ -182,6 +194,8 @@ struct State {
     generation: u32,
     listeners: Vec<Sender<String>>,
     hooks: Hooks,
+    avatars: bool,
+    commit_link: Option<String>,
 }
 
 #[derive(Default)]
@@ -195,6 +209,7 @@ struct Hooks {
     accounts: Option<ReadAccounts>,
     people: Option<ChangePeople>,
     card: Option<DrawCard>,
+    share: Option<ShareReport>,
 }
 
 impl Shared {
@@ -232,6 +247,8 @@ impl Shared {
             logins: Arc::default(),
             generation: 0,
             listeners: Vec::new(),
+            avatars: session.avatars,
+            commit_link: session.commit_link,
             hooks: Hooks {
                 older: session.older,
                 lines: session.lines,
@@ -242,6 +259,7 @@ impl Shared {
                 accounts: session.accounts,
                 people: session.people,
                 card: session.card,
+                share: session.share,
             },
         };
         state.people_changed();
@@ -410,6 +428,8 @@ fn meta(s: &State) -> api::Meta {
         },
         github_history: s.github_history.clone(),
         can_change_people: s.hooks.people.is_some(),
+        can_share: s.hooks.share.is_some(),
+        avatars: s.avatars,
         generation: s.generation,
     }
 }
@@ -575,6 +595,7 @@ fn handle(shared: &Shared, request: Request) {
             "/api/person/undo" | "/api/person/redo" => {
                 change_people(shared, request, &p, path.ends_with("undo"))
             }
+            "/api/share" => share(shared, request, &p),
             _ => message(request, 404, "No such API."),
         }
         return;
@@ -625,6 +646,9 @@ pub(crate) struct Snapshot {
     pub history: Option<Arc<History>>,
     pub colours: Arc<HashMap<AuthorId, u8>>,
     pub logins: Arc<HashMap<String, AuthorId>>,
+    pub commit_link: Option<String>,
+    /// Whether answers may carry email addresses: never on the Site.
+    pub emails: bool,
 }
 
 fn snapshot(shared: &Shared) -> Option<Snapshot> {
@@ -638,6 +662,8 @@ fn snapshot(shared: &Shared) -> Option<Snapshot> {
         history: s.gh_history.clone(),
         colours: Arc::clone(&s.colours),
         logins: Arc::clone(&s.logins),
+        commit_link: s.commit_link.clone(),
+        emails: true,
     })
 }
 
@@ -647,6 +673,22 @@ pub(crate) fn screen(
     path: &str,
     p: &HashMap<String, String>,
 ) -> Result<Vec<u8>, (u16, String)> {
+    if path == "/api/commits" {
+        // Every commit loaded, whatever the Window: the page filters it.
+        let login_of = api::login_of(&snap.logins);
+        let cx = api::Context {
+            window: "all",
+            colours: &snap.colours,
+            releases: &snap.releases,
+            lines_counted: snap.lines_counted,
+            history: snap.history.as_deref(),
+            logins: &snap.logins,
+            login_of: &login_of,
+            emails: snap.emails,
+        };
+        let list = api::CommitList::of(&snap.index, &cx, snap.commit_link.as_deref(), snap.emails);
+        return serde_json::to_vec(&list).map_err(|e| (500, e.to_string()));
+    }
     let asked = asked(p, snap.span, snap.anchor);
     let filtered;
     let index: &Index = if asked.filter.is_empty() {
@@ -669,6 +711,7 @@ pub(crate) fn screen(
             "That window needs history that is still being read.".to_string(),
         )
     })?;
+    let login_of = api::login_of(&snap.logins);
     let cx = api::Context {
         window: &asked.label,
         colours: &snap.colours,
@@ -676,6 +719,8 @@ pub(crate) fn screen(
         lines_counted: snap.lines_counted,
         history: snap.history.as_deref(),
         logins: &snap.logins,
+        login_of: &login_of,
+        emails: snap.emails,
     };
     let missing = || (404, "No such person, folder or file.".to_string());
     let body = match path {
@@ -771,6 +816,34 @@ fn change_people(shared: &Shared, request: Request, p: &HashMap<String, String>,
             409,
             "That person's identities could not be changed.",
         );
+    }
+}
+
+/// Shares the Report (ADR-0016) with the hook the binary gave: the same as
+/// `commitscape share`.
+fn share(shared: &Shared, request: Request, p: &HashMap<String, String>) {
+    let Some(hook) = shared.with(|s| s.hooks.share.clone()).flatten() else {
+        message(
+            request,
+            409,
+            "Sharing is off here: commitscape was started with --offline.",
+        );
+        return;
+    };
+    let hours = p
+        .get("hours")
+        .and_then(|h| h.parse::<u32>().ok())
+        .unwrap_or(4);
+    if !(1..=12).contains(&hours) {
+        message(request, 400, "A Shared Report lasts 1 to 12 hours.");
+        return;
+    }
+    match hook(hours) {
+        Ok((link, expires_at)) => json(
+            request,
+            &serde_json::json!({ "link": link, "expiresAt": expires_at }),
+        ),
+        Err(why) => message(request, 502, &why),
     }
 }
 
