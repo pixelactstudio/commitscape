@@ -1,0 +1,16 @@
+{
+  "name": "commitscape-workspace",
+  "private": true,
+  "packageManager": "pnpm@12.6.0",
+  "scripts": {
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "check": "turbo run typecheck lint test build",
+    "e2e": "pnpm --filter @commitscape/local e2e"
+  },
+  "devDependencies": {
+    "turbo": "2.11.4"
+  }
+}

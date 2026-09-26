@@ -238,6 +238,22 @@ impl Analysis<'_> {
         self.committers(false)
     }
 
+    /// Commits that are not merges in the Window, and the people who made
+    /// them, bots left out: all of them, where [`contributors`](Self::contributors)
+    /// keeps the first [`RANKING_LIMIT`](crate::RANKING_LIMIT).
+    pub fn activity(&self) -> (u32, u32) {
+        let index = self.index();
+        let mut people = std::collections::HashSet::new();
+        let mut commits = 0;
+        for c in self.window_commits().iter().filter(|c| !c.is_merge()) {
+            if let Some(a) = index.author_of(c).filter(|&a| !index.authors.is_bot(a)) {
+                commits += 1;
+                people.insert(a);
+            }
+        }
+        (commits, people.len() as u32)
+    }
+
     /// The automation accounts that made commits in the Window, most commits
     /// first.
     pub fn bots(&self) -> Vec<Contributor> {

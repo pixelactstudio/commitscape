@@ -4,7 +4,7 @@ People sign in to the Site with GitHub through a GitHub App, which also grants a
 
 ## Status
 
-accepted (2026-09-25, Build Run 4 plan). Extends ADR-0009 to the Site. The local binary still asks GitHub only through `gh`.
+accepted (2026-09-25, Build Run 4 plan); amended in Phase 31 (below). Extends ADR-0009 to the Site. The local binary still asks GitHub only through `gh`.
 
 ## Context
 
@@ -31,3 +31,15 @@ A GitHub App grants the following:
 
 - **The owner creates the App on GitHub.** They keep its private key, client secret and webhook secret as Worker secrets. `DEPLOY.md` lists the settings.
 - **Private repositories' history is cloned onto the owner's VPS during a Build.** The clone is deleted after the Build. Only the Report is kept, in R2, which Cloudflare encrypts at rest. The privacy page says exactly this.
+
+## Amendment: the same repository, not only the same name (Phase 31)
+
+The security pass found that a name is not enough. After a Connected
+Repository is renamed or transferred, or its owner renames their account,
+someone else can create a public repository under the old name, and "can
+this person see `owner/name` on GitHub" would then pass for everyone. The
+Site now keeps GitHub's own number for each repository (`github_id`), and
+the access check also requires GitHub's answer to be that number. A public
+repository whose name has passed to another has its old Report deleted,
+and a public one whose facts are an hour old is asked about again before
+its Report is served, so one made private stops being shown.

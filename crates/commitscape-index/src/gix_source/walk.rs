@@ -59,6 +59,7 @@ struct Walked {
     author_offset: i32,
     /// Read now: the message itself is not kept past this pass.
     kind: commitscape_core::CommitKind,
+    subject: Box<str>,
     tree: ObjectId,
     parents: Vec<ObjectId>,
 }
@@ -105,6 +106,7 @@ pub(super) fn walk(
             offset: 0,
         });
         let kind = message::kind_of(commit.message);
+        let subject = message::subject_of(commit.message).into_boxed_str();
         let key = (author.name.to_vec(), author.email.to_vec());
         let signature = match signature_ids.get(&key) {
             Some(&i) => i,
@@ -121,6 +123,7 @@ pub(super) fn walk(
             author_time: written.seconds,
             author_offset: written.offset,
             kind,
+            subject,
             tree: commit.tree(),
             parents: commit.parents().collect(),
         });
@@ -233,6 +236,7 @@ pub(super) fn walk(
                         author_time: w.author_time,
                         author_offset: w.author_offset,
                         kind: w.kind,
+                        subject: &w.subject,
                         parent_count: w.parents.len(),
                     };
                     stats.commits_visited += 1;

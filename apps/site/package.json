@@ -1,0 +1,46 @@
+{
+  "name": "@commitscape/site",
+  "private": true,
+  "version": "0.0.0",
+  "description": "The hosted Site: TanStack Start on Cloudflare's free Workers plan (ADR-0014). Pages are static assets; only /api/* runs as Worker code.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "preview": "wrangler dev --port 8787",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint -c .oxlintrc.json src e2e scripts",
+    "test": "vitest run",
+    "e2e": "playwright test",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate:local": "wrangler d1 migrations apply commitscape --local",
+    "cf-typegen": "wrangler types --include-runtime=false"
+  },
+  "dependencies": {
+    "@astryxdesign/core": "catalog:",
+    "@astryxdesign/theme-neutral": "catalog:",
+    "@commitscape/data": "workspace:*",
+    "@commitscape/ui": "workspace:*",
+    "@stylexjs/stylex": "catalog:",
+    "@tanstack/react-router": "1.170.39",
+    "@tanstack/react-start": "1.168.58",
+    "drizzle-orm": "0.45.3",
+    "react": "catalog:",
+    "react-dom": "catalog:"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "1.60.1",
+    "@cloudflare/workers-types": "5.20260925.2",
+    "@playwright/test": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
+    "drizzle-kit": "0.31.11",
+    "oxlint": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:",
+    "wrangler": "4.140.0"
+  }
+}

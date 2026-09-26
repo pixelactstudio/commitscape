@@ -10,7 +10,7 @@ The analysis stays in Rust and in one place, and it runs as a command, never as 
 
 ## Status
 
-accepted (2026-09-25, Build Run 4 plan).
+accepted (2026-09-25, Build Run 4 plan); amended in Phase 27 and in Phases 30 and 31 (below).
 
 ## Context
 
@@ -50,3 +50,41 @@ A bare partial clone fails: the head pass reads the files at HEAD. `commitscape 
 - **The first visitor to a large repository waits:** about 15 s for React-sized ones. Everyone after gets the stored Report.
 - **The VPS is the one piece the owner runs by hand.** `DEPLOY.md` documents it: Node, git, `gh`, the binary, the service, the secrets.
 - **The Site works without the Builder,** with GitHub's instant facts and a "Builds are paused" message, so the VPS can be down without taking the Site with it.
+
+## Amendment: the threshold, measured in Phase 27
+
+`commitscape report --data owner/name` from nothing (clone, index, lines,
+write), on this machine:
+
+| Repository | GitHub's size | Full clone, lines counted | Partial clone, no lines |
+|---|---|---|---|
+| BurntSushi/ripgrep | 6 MB | 3.0 s | 4.2 s |
+| vitejs/vite | 75 MB | 15.8 s | 8.9 s |
+| astral-sh/ruff | 207 MB | 44.8 s | 18.4 s |
+| facebook/react | 1,071 MB | 212.5 s | 18.8 s |
+
+A full clone costs about 0.2 s per MB of GitHub's size; a partial one 4 to
+19 s whatever the size. **Full clones stop at 100 MB**, not 200: a first
+visitor waits about 20 s at most for a Report with lines, rather than 45 s
+at 200 MB. The Builder's `FULL_CLONE_UP_TO_MB` changes it.
+
+## Amendment: tokens, the queue, and what a private Build leaves (Phases 30 and 31)
+
+- **Public Builds use no GitHub token.** Hosted Reports are made with
+  `--offline` (Phase 27): they read git only, so the installation token
+  "from the App's installation on the owner's own account" planned above
+  is not needed. One read-only token for public repositories,
+  `GITHUB_TOKEN` (a fine-grained personal access token, DEPLOY.md), serves
+  the Site's instant facts and, on the Builder, the Leaderboards' seed
+  search and `health`'s issue answers. Commands the Builder runs never see
+  its own environment's secrets: they get an allow-listed environment,
+  and a token only by name where they need one.
+- **The queue.** People's Builds go ahead of the night's seeds. The Site
+  refuses a new Build while 30 of people's Builds are waiting or running
+  ("The Builder has many repositories to read just now"), and the Builder
+  refuses past 250 waiting; either way no one can queue hours of work.
+- **A private Build leaves nothing.** `commitscape` keeps an index of each
+  clone in its cache folder; a Connected Repository's Build gets a cache
+  folder of its own (`<work>/private/<build>`), deleted, clone and index,
+  when the Build ends. The disk budget counts public indexes as well as
+  clones.

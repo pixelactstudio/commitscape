@@ -33,6 +33,13 @@ pub struct Report {
     /// The GitHub login of each address GitHub linked to an account.
     pub accounts: HashMap<String, String>,
     pub card: Option<DrawCard>,
+    /// Whether the page may show GitHub avatars: false with `--offline`.
+    pub avatars: bool,
+    /// Where a commit's page is on GitHub, its id appended.
+    pub commit_link: Option<String>,
+    /// Whether it may carry email addresses: never a Report for the Site
+    /// (ADR-0019).
+    pub emails: bool,
 }
 
 /// What the page finds in `window.__COMMITSCAPE__`.
@@ -43,6 +50,8 @@ struct Inlined {
     data: BTreeMap<String, serde_json::Value>,
     /// Each Window's card, as SVG.
     cards: BTreeMap<String, String>,
+    /// The repository in a few numbers, for the Site's Leaderboards.
+    stats: Option<api::Stats>,
 }
 
 /// A request as the page writes it: its path, then its parameters sorted.
@@ -71,6 +80,12 @@ fn encode(s: &str) -> String {
 
 /// The report, as one HTML page.
 pub fn report(r: Report) -> String {
+    page("__COMMITSCAPE__", &data(r))
+}
+
+/// The report's data alone, as JSON: what the page is given, and what the
+/// Site stores (ADR-0015).
+pub fn data(r: Report) -> String {
     let accounts = r.accounts;
     let colours = api::colours(&r.index);
     let logins = api::logins(&r.index, &accounts);
@@ -84,6 +99,8 @@ pub fn report(r: Report) -> String {
         history: r.history.map(Arc::new),
         colours: Arc::new(colours),
         logins: Arc::new(logins),
+        commit_link: r.commit_link,
+        emails: r.emails,
     };
     let mut data = BTreeMap::new();
     let mut cards = BTreeMap::new();
@@ -99,6 +116,8 @@ pub fn report(r: Report) -> String {
             data.insert(key(path, params), value);
         }
     };
+    // The Commit List, once: it is every commit, whatever the Window.
+    ask("/api/commits", &[]);
     for span in Span::EVERY {
         let w = span.label();
         for path in ["/api/overview", "/api/activity", "/api/people", "/api/risk"] {
@@ -160,13 +179,18 @@ pub fn report(r: Report) -> String {
             "off".to_string()
         },
         can_change_people: false,
+        can_share: false,
+        avatars: r.avatars,
         generation: 0,
     };
-    let inlined = Inlined { meta, data, cards };
-    page(
-        "__COMMITSCAPE__",
-        &serde_json::to_string(&inlined).unwrap_or_default(),
-    )
+    let stats = api::Stats::of(&snap.index, snap.anchor, snap.options, &snap.releases);
+    let inlined = Inlined {
+        meta,
+        data,
+        cards,
+        stats,
+    };
+    serde_json::to_string(&inlined).unwrap_or_default()
 }
 
 /// The Wrapped page: the app, showing one person's year, as one file.

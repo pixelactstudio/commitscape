@@ -1,0 +1,52 @@
+// The Site on Cloudflare's free Workers plan (ADR-0014). Nothing here is
+// deployed by the build run: `wrangler dev` runs all of it locally, with
+// local D1 and R2. DEPLOY.md says what to fill in before a deploy.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "commitscape-site",
+  "compatibility_date": "2026-09-25",
+  "compatibility_flags": ["nodejs_compat"],
+  "main": "./src/server.ts",
+  "assets": {
+    "binding": "ASSETS",
+    // Pages are static assets; a path with no file gets the app's shell.
+    "not_found_handling": "single-page-application",
+    // Only the API runs as Worker code, and a repository's page, which is
+    // the shell with its social preview's tags written in when it was
+    // built (served from R2, never rendered per request).
+    "run_worker_first": ["/api/*", "/gh/*"]
+  },
+  "vars": {
+    // Where the Builder listens (ADR-0015).
+    "BUILDER_URL": "http://127.0.0.1:8788",
+    "GITHUB_API": "https://api.github.com",
+    "GITHUB_OAUTH": "https://github.com",
+    // The GitHub App (ADR-0017; DEPLOY.md says how to create it). Empty:
+    // signing in is off. Its secrets are set with `wrangler secret put`:
+    // GITHUB_APP_CLIENT_SECRET, GITHUB_APP_PRIVATE_KEY,
+    // GITHUB_WEBHOOK_SECRET, and the Site's own SESSION_KEY,
+    // BUILDER_SECRET and GITHUB_TOKEN.
+    "GITHUB_APP_ID": "",
+    "GITHUB_APP_CLIENT_ID": "",
+    "GITHUB_APP_SLUG": ""
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "commitscape",
+      // Set by `wrangler d1 create commitscape` (DEPLOY.md).
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "drizzle"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "REPORTS",
+      "bucket_name": "commitscape-reports"
+    }
+  ],
+  // Expired Shared Reports go every 15 minutes (R2's lifecycle rules act only
+  // in days, so they are a backstop). The free plan allows 5 Cron Triggers.
+  "triggers": { "crons": ["*/15 * * * *"] },
+  "observability": { "enabled": true }
+}

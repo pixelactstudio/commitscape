@@ -1,0 +1,43 @@
+# The TypeScript workspace (ADR-0013). The Rust crates are Cargo's.
+packages:
+  - apps/*
+  - packages/*
+
+# One version of each shared dependency, named as `catalog:` by the packages.
+catalog:
+  # Astryx is pinned exactly and upgraded on purpose (ADR-0018).
+  "@astryxdesign/core": 0.6.3
+  "@astryxdesign/theme-neutral": 0.6.3
+  "@stylexjs/stylex": 0.19.1
+  "@playwright/test": 1.63.0
+  "@types/node": 24.13.6
+  "@types/react": 19.3.0
+  "@types/react-dom": 19.3.0
+  "@vitejs/plugin-react": 6.1.1
+  oxlint: 1.85.0
+  react: 19.3.0
+  react-dom: 19.3.0
+  typescript: 6.0.3
+  vite: 8.3.1
+  vitest: 5.0.1
+
+minimumReleaseAgeExclude:
+  - '@turbo/darwin-64@2.11.4'
+  - '@turbo/darwin-arm64@2.11.4'
+  - '@turbo/linux-64@2.11.4'
+  - '@turbo/linux-arm64@2.11.4'
+  - '@turbo/windows-64@2.11.4'
+  - '@turbo/windows-arm64@2.11.4'
+  - turbo@2.11.4
+  - '@cloudflare/vite-plugin@1.60.1'
+  - miniflare@5.20260923.0-alpha
+  - wrangler@4.140.0
+  - '@cloudflare/workers-types@5.20260925.2'
+
+# Install scripts that may run. Astryx's only prints a nudge to run
+# `astryx init`, which this repository never does (ADR-0018). esbuild's and
+# workerd's check their platform's binary, which Wrangler runs.
+allowBuilds:
+  "@astryxdesign/core": false
+  esbuild: true
+  workerd: true

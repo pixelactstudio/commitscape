@@ -3,7 +3,7 @@
 Running log for Build Run 1 (Phases 0 to 7). Written so a fresh session with
 no context can read this plus `docs/adr/` and continue without asking anything.
 
-**Current position:** Build Run 4 (Phases 23 to 31) is planned and not started; its brief is `IDEA.md`, with ADR-0013 to ADR-0019. Build Run 3 is done (Phases 13 to 22). The repository is on GitHub (`pixelactstudio/commitscape`) and CI is green on Linux, macOS and Windows. Nothing is published: the name may still change.
+**Current position:** Build Run 4 (Phases 23 to 31) is done, all of it uncommitted in the working tree: its brief is `IDEA.md`, with ADR-0013 to ADR-0019. Every phase's findings and the files it created, changed or deleted are below. Build Run 3 is done (Phases 13 to 22). The repository is on GitHub (`pixelactstudio/commitscape`) and CI is green on Linux, macOS and Windows for what is committed. Nothing is published or deployed: the name may still change.
 Build Run 1 (Phases 0 to 7) built a correct, fast tool. Build Run 2 (Phases 8
 to 12) made it fun and visual. On 2026-09-24 the owner used it on their own
 repositories and reviewed it. The review and the decisions that followed are
@@ -304,15 +304,15 @@ The agent doing the work never commits, pushes, publishes or deploys; the owner 
 
 | Phase | What | Status |
 |---|---|---|
-| 23 | Monorepo (ADR-0013): pnpm + Turborepo, `apps/local`, `packages/ui`, `packages/data`, the Data Source seam | not started |
-| 24 | The browser interface on Astryx (ADR-0018), command palette, shortcuts, avatars | not started |
-| 25 | Commit search (ADR-0019): subjects in the index, the Commit List, the Commits screen | not started |
-| 26 | The Site's foundation (ADR-0014): landing page, repository page, D1, rate limits, `/privacy` | not started |
-| 27 | The Builder and public lookup (ADR-0015): `report --data`, clone policy, instant GitHub facts | not started |
-| 28 | Sharing (ADR-0016): `commitscape share`, the Share button, `/s/` | not started |
-| 29 | GitHub sign-in (ADR-0017): `/me`, installations, access checks, webhooks | not started |
-| 30 | Leaderboards | not started |
-| 31 | Ready to launch: README, `DEPLOY.md`, security pass | not started |
+| 23 | Monorepo (ADR-0013): pnpm + Turborepo, `apps/local`, `packages/ui`, `packages/data`, the Data Source seam | **DONE**: 242 Rust, 8 vitest and 9 Playwright tests pass from the new layout; `cargo build` embeds `apps/local/dist`; `nix build` builds (10.1 MB); actionlint passes on both workflows |
+| 24 | The browser interface on Astryx (ADR-0018), command palette, shortcuts, avatars | **DONE**: 13 Playwright tests pass, a keyboard-only walk among them; every screen in both themes on ripgrep in `target/preview/web/`; the embedded app 305 KB → 1,053 KB; canary charts tried side by side and not taken |
+| 25 | Commit search (ADR-0019): subjects in the index, the Commit List, the Commits screen | **DONE**: hand-worked tests of subjects and the Commit List; types regenerated; facebook/react 35,275 commits, 1.5 MB gzipped, 13 ms a keystroke; rust-lang/rust 345,135 commits, 16.2 MB gzipped, 50 ms in a worker; cache schema 10 |
+| 26 | The Site's foundation (ADR-0014): landing page, repository page, D1, rate limits, `/privacy` | **DONE**: 5 Playwright tests under `wrangler dev` (landing, a fixture's stored Report, `/privacy`, the API); every handler's CPU measured, 0.02 to 0.18 ms median |
+| 27 | The Builder and public lookup (ADR-0015): `report --data`, clone policy, instant GitHub facts | **DONE**: on this machine against GitHub, ripgrep's Report on screen in 8.2 s and facebook/react's in 25.8 s (0.6–0.8 s after); not found, private, too big and timed out each say so (Playwright); full clones up to 100 MB |
+| 28 | Sharing (ADR-0016): `commitscape share`, the Share button, `/s/` | **DONE**: end to end on this machine, CLI and Share button to browser; the key in no request (Playwright); a changed byte fails; expired answers 410 and the Cron Trigger removes it; built on Linux only (macOS and Windows are CI's) |
+| 29 | GitHub sign-in (ADR-0017): `/me`, installations, access checks, webhooks | **DONE**: 8 Playwright tests against GitHub's responses written by hand (sign-in, `/me`, a private Build with an installation token, access asked and remembered five minutes, signed webhooks, retention, "Delete my data"); no test App on GitHub yet |
+| 30 | Leaderboards: seed list, nightly budget, the boards | **DONE**: 53 seed repositories built on this machine against GitHub on the first night (median 26 s a Build, 45 min in all; torvalds/linux refused as too big), 107 after three more; the six boards written and screenshotted in both themes (`target/preview/site/`); bots answering issues and a 1,000-person cap found on the boards and fixed |
+| 31 | Ready to launch: README, `DEPLOY.md`, security pass | **DONE**: README for the three ways and "What leaves your machine" rewritten; `DEPLOY.md` written and followed from scratch against local stand-ins (all its checks pass, `wrangler deploy --dry-run` 743 KiB gzipped); security pass: 4 medium and 7 low findings, all fixed with tests; every local check green (255 Rust, 49 vitest, 16 local and 22 Site Playwright tests, `nix build`, actionlint); CI itself runs when the owner pushes |
 
 ### Measured while planning Build Run 4 (2026-09-25)
 
@@ -1277,6 +1277,1025 @@ What the first Window cost on Linux, measured part by part: the Map 61 to
       not a hand-read Cargo.toml; every script finds Chromium as the
       Playwright config does.
 
+## Phase 23 findings
+
+1. **The layout (ADR-0013).** `web/` is now three pieces of a pnpm
+   workspace, run through Turborepo:
+   - `apps/local`: the page the binary embeds. It only picks the Data
+     Source and renders the screens.
+   - `packages/ui`: every screen, chart and component, moved as they were.
+   - `packages/data`: the generated API types, the Report format and the
+     Data Sources, with no React in it, so the Site's Worker and the
+     Builder can use it too.
+
+   The two packages are used as TypeScript source (`exports` points at
+   `src/index.ts`), so they have no build step of their own: Vite compiles
+   them into the app. Shared versions are pinned once, in
+   `pnpm-workspace.yaml`'s `catalog:`.
+2. **The Data Source seam.** `packages/data/src/source.ts` has the one
+   interface every screen reads through: `get`, `card`, `listen` and an
+   optional `changePerson`, with three makers:
+   - `serverSource(meta)`: the local server, as before.
+   - `reportSource(report)`: an inlined Report (`window.__COMMITSCAPE__`).
+   - `fetchReport(url, { decrypt })`: downloads a Report, decrypts it if
+     it is a Shared Report, undoes gzip when the bytes are gzipped, then
+     reads it exactly like an inlined one.
+
+   The screens get it from React context (`SourceContext`, `useSource`,
+   `useData` in `packages/ui/src/data.ts`) and no screen calls `fetch`.
+   The People profile shows "undo the merge" only when the source has
+   `changePerson`. Five vitest tests cover the seam, including a fetched,
+   gzipped and "decrypted" Report.
+3. **The name and origin constants** are in `packages/data/src/product.ts`:
+   `PRODUCT = "commitscape"` and `SITE_ORIGIN = "https://commitscape.invalid"`.
+   No domain is bought, so the origin is a name that can never resolve
+   (see "Open questions for the owner").
+4. **Rust changes, in plain words.** Three paths moved and nothing else:
+   - `crates/commitscape-web/build.rs` embeds `apps/local/dist` instead of
+     `web/dist`;
+   - `src/assets.rs`'s "not built" page says `pnpm install && pnpm build`;
+   - the types test in `src/api.rs` writes and compares
+     `packages/data/src/types.ts`.
+5. **Versions.** pnpm 12.6.0 (pinned by `packageManager`), Turborepo
+   2.11.4; everything else as it was (React 19.3.0, Vite 8.3.1, TypeScript
+   6.0.3, vitest 5.0.1, Playwright 1.63.0, oxlint 1.85.0). TypeScript 7
+   is out but was left for a separate, deliberate upgrade. pnpm 12 refuses
+   to install a package whose install script nobody decided on;
+   `pnpm-workspace.yaml`'s `allowBuilds` says no to Astryx's, which only
+   prints a nudge to run `astryx init`. pnpm 12 also holds back packages
+   published in the last day: it wrote Turborepo's platform packages into
+   `minimumReleaseAgeExclude`.
+6. **CI and release.** Both workflows use `pnpm/action-setup@v6` (which
+   reads `packageManager`) with Node 24. The web job runs `pnpm install
+   --frozen-lockfile`, `pnpm check` (Turborepo's typecheck, lint, test and
+   build), builds the binary, then Playwright from `apps/local`. The
+   release builds only the local page (`pnpm --filter @commitscape/local
+   build`). actionlint (with shellcheck) passes on both. Neither has run on
+   GitHub yet.
+7. **Nix.** `flake.nix` builds the web app with nixpkgs' `fetchPnpmDeps`
+   and `pnpmConfigHook` (pnpm 12, fetcher version 4), fetching only what
+   `@commitscape/local` and its packages need, from a source filtered to
+   the TypeScript workspace so a Rust change does not rebuild it. The
+   binary is now built with the `dist` profile, as npm and Homebrew's are
+   (Decision 36): `nix build` gave a 10.1 MB binary that serves the app.
+   The dependency hash is `sha256-UlfKRiriCZnSzAIxZNgsNtwKqIxkoDriCxElvxhbFSA=`
+   and changes whenever the local page's dependencies do: build once with
+   `pkgs.lib.fakeHash` and copy the hash Nix prints.
+8. **Measured.** Every existing test passes from the new layout: 242 Rust
+   tests, 8 vitest tests (3 moved, 5 new), 9 Playwright tests. The
+   embedded app before Astryx: 304,636 bytes in `apps/local/dist`, its
+   script 284,793 bytes (87,124 gzipped) and its styles 9,860 bytes (2,856
+   gzipped).
+9. **This machine.** `/home` (and `/nix`, `/tmp`) had 2.3 GB free, and it
+   is btrfs with snapshots, so deleting files there frees nothing. The
+   build kept everything big on `/srv/bulk`:
+   - `target/` in this worktree is a symbolic link to
+     `/srv/bulk/datasets/commitscape-br4/target` (git ignores it);
+   - pnpm's store and its packages live in
+     `/srv/bulk/datasets/commitscape-br4/pnpm-store`, linked into
+     `node_modules` (a machine setting passed through the environment, not
+     written into the repository).
+
+   `nix build` needs about 1 GB in `/tmp`, so it ran with a guard that
+   would stop it below 400 MB free.
+
+Files created, changed or deleted in Phase 23:
+- Moved: `web/` → `apps/local/` (`index.html`, `public/`, `e2e/`,
+  `scripts/`, `playwright.config.ts`, `README.md`); `web/src/*` except
+  `main.tsx` and `api/` → `packages/ui/src/`; `web/src/api/types.ts` →
+  `packages/data/src/types.ts`.
+- Deleted: `web/package-lock.json`, `web/src/api/client.ts`,
+  `web/src/api/useData.ts`, `web/.oxlintrc.json` (now `.oxlintrc.json`).
+- Created: `package.json`, `pnpm-workspace.yaml`, `pnpm-lock.yaml`,
+  `turbo.json`, `tsconfig.base.json`, `.oxlintrc.json`;
+  `apps/local/package.json`, `src/main.tsx`, `tsconfig.app.json`,
+  `tsconfig.node.json`, `vite.config.ts`, `README.md` (rewritten);
+  `packages/data/{package.json,tsconfig.json,vitest.config.ts}` and
+  `src/{index.ts,product.ts,source.ts,source.test.ts}`;
+  `packages/ui/{package.json,tsconfig.json,vitest.config.ts}` and
+  `src/{index.ts,data.ts}`.
+- Changed: `packages/ui/src/App.tsx` and `screens/People.tsx` (the Data
+  Source), every screen's imports; `apps/local/e2e/serve.ts` (the root
+  path); `crates/commitscape-web/build.rs`, `src/assets.rs`, `src/api.rs`;
+  `.github/workflows/ci.yml`, `release.yml`; `flake.nix`; `.gitignore`;
+  `.gitattributes`; `README.md`; `STATE.md`.
+
+## Phase 24 findings
+
+1. **Astryx under Vite, without its compiler.** `@astryxdesign/core`,
+   `@astryxdesign/theme-neutral` (both 0.6.3) and `@stylexjs/stylex`
+   (0.19.1) are pinned exactly in `packages/ui`. Astryx's precompiled
+   `reset.css` and `astryx.css` are imported first in `index.css`; they sit
+   in cascade layers, so every rule of ours is scoped to our own classes
+   (an unlayered `button {…}` would override Astryx's buttons). No StyleX
+   compiler: we style our parts with `className` and Astryx's CSS
+   variables, never `xstyle`. `astryx init` and `swizzle` were never run;
+   the CLI's read-only `component` and `docs` commands were used to read
+   the API. pnpm is told not to run Astryx's install script, which only
+   prints a nudge to run `init`.
+2. **One theme.** `commitscapeTheme` (`packages/ui/src/theme.ts`) is
+   `defineTheme` extending Astryx's neutral theme (its system fonts and
+   Lucide icons) with our blue as the seed (`#2a78d6` light, `#3987e5`
+   dark) and warm greys. Modes: system, light, dark; Midnight is gone. The
+   charts' eight series colours and two ramps keep the values validated in
+   Phase 19, written once with `light-dark()`, so they follow whichever
+   mode Astryx's `Theme` sets on the page.
+3. **What is on Astryx now.** The shell is `AppShell` with `TopNav` (the
+   repository's name, "Jump to…", Help, the theme `Selector`, "Save the
+   card"); screens are a `TabList`, Windows a `SegmentedControl`; the
+   filters are `Selector` (people, with search), `TextInput` (folder) and
+   `DateInput` (dates); every figure and number tile is a `Card` with a
+   `Heading`; the People and Hotspots tables are Astryx `Table`s (People's
+   columns sort through its sortable plugin); profile and file buttons are
+   `Button`s; avatars are `Avatar`; key hints are `Kbd`; "Save the card"
+   reports a failure as a `Toast`. The screens' own `<main>` became a
+   `div`, since `AppShell` already renders the page's one `main`.
+4. **Charts stay ours.** `@astryxdesign/charts@0.6.3-canary.ca469c7` was
+   tried on ripgrep's data in a throwaway app outside the repository (it
+   needs a canary build of Astryx core, not the pinned 0.6.3). Side by side
+   (`target/preview/web/charts-side-by-side/side-by-side-{light,dark}.png`)
+   it cut the first digits off its y-axis labels (`0,000` for 50,000),
+   wrote dates as `2025-09-25`, and has nothing for release marks, stacking
+   by person or a table of the numbers. Its curved lines are nicer. Not
+   plainly better, so ADR-0018's rule keeps ours, restyled with Astryx's
+   tokens (surfaces, text, borders, radii, the popover for tooltips).
+5. **⌘K.** The command palette (`CommandPalette`) jumps to a screen, a
+   person in the Window, a folder or file from the Map's first two levels,
+   or a Hotspot. Its list is asked of the Data Source when it opens, so it
+   works in a Report too; a query typed before the list arrives is answered
+   when it does. Enter with nothing highlighted takes the first match, as
+   npmx.dev does (Astryx's palette needs an arrow key first; we catch the
+   Enter).
+6. **Keys.** `1`–`5` screens, `/` and ⌘K/Ctrl+K the palette, `w`/`W` the
+   next and previous Window, `?` help, Esc closes help or the file panel.
+   All are off while typing in a field, except ⌘K. `?` shows the list of
+   keys above the screen, every number's explanation, and outlines every
+   key hint on screen (`.keys-on`). The Map's blocks are now focusable and
+   open with Enter, so every screen can be used without a mouse.
+7. **Avatars (Rust change, in plain words).** Every person in the API now
+   carries their GitHub `login` when one is known (from the accounts GitHub
+   linked, or a noreply address), and the page's state carries `avatars`:
+   true unless `--offline` was given. The page loads
+   `avatars.githubusercontent.com/<login>` only when both are there;
+   otherwise a colour swatch, as before. Files: `api.rs` (`PersonRef.login`,
+   `Meta.avatars`, `login_of`), `lib.rs` and `report.rs` (`avatars` on the
+   Session and the Report), `main.rs` (`avatars: !offline`). README's "What
+   leaves your machine" says so.
+8. **Measured.**
+   - The embedded app: 304,636 bytes before, 1,053,217 after. The script
+     285 KB → 865 KB (87 → 261 KB gzipped); the styles 9.9 KB → 178 KB (2.9
+     → 31 KB gzipped). Most of it is the Astryx components used (the date
+     input and its calendar are the largest part) and Astryx's one CSS
+     file. The `nix build` binary grew from 10.1 to 10.9 MB, and each
+     one-file Report grows by the same 0.75 MB. More than ADR-0018's "a few
+     hundred KB"; see "Open questions for the owner".
+   - The page is now one script: Vite had split two lazy chunks off, which
+     a one-file Report cannot load (`inlineDynamicImports`).
+   - Tests: 242 Rust, 9 vitest (a palette test added), 13 Playwright (4
+     new: a keyboard-only walk through every screen, ⌘K to a person with
+     typing left alone in fields, `?` marking the keys, no avatar request
+     with `--offline`).
+   - Screenshots of every screen in both themes on ripgrep, GitHub read
+     (35 people with avatars in the last year):
+     `target/preview/web/{overview,activity,people,person,map,map-file,risk}-{light,dark}.png`
+     and `overview-help-light.png`.
+9. **Nix.** `/nix` ran out of space fetching the new dependencies (1.2 GB
+   free). The flake is now checked with a Nix store on `/srv/bulk`
+   (`nix build --store <dir>`, which builds in our own `TMPDIR`), so
+   nothing lands in `/nix`: the new pnpm hash is
+   `sha256-LLwfHwVnkpv/Sygge6KSiMjGKhnuJsVzfGgX3MFe6sQ=` and the binary
+   built.
+
+Files created, changed or deleted in Phase 24:
+- Created: `packages/ui/src/{Palette.tsx,jump.ts,jump.test.ts,keys.ts}`,
+  `packages/ui/src/components/{Key.tsx,Logo.tsx,Tile.tsx,avatar.ts}`.
+- Changed: `packages/ui/package.json` (Astryx), `pnpm-workspace.yaml`
+  (`allowBuilds`), `pnpm-lock.yaml`; `packages/ui/src/{App.tsx,Wrapped.tsx,
+  theme.ts,help.ts,route.ts,index.css}`, `charts/common.tsx`,
+  `components/{Name.tsx,SaveCard.tsx}`, every screen in `screens/`;
+  `packages/data/src/{types.ts,source.test.ts}`;
+  `apps/local/{vite.config.ts,tsconfig.node.json}`,
+  `apps/local/e2e/screens.spec.ts`, `apps/local/scripts/{screens,demo}.mjs`;
+  `crates/commitscape-web/src/{api.rs,lib.rs,report.rs}`,
+  `crates/commitscape/src/main.rs`; `flake.nix`; `README.md`; `STATE.md`.
+
+## Phase 25 findings
+
+1. **Subjects in the index (Rust change, in plain words).** Each commit now
+   keeps its subject line: the message's first line, trimmed, at most 200
+   bytes, cut where a character ends (`message::subject_of`). They are
+   stored the way each commit's changes already were: one long byte string
+   on the Index (`Index::subjects`) and, on each commit, where its piece
+   starts and how long it is (`CommitMeta::subject_start`, `subject_len`).
+   Every place that moves commits around moves their subjects the same way:
+   the builder, the merge of new commits into cached ones, the older months
+   read later, each month's block in the cache file, and the web filter
+   (which leaves them out: no filtered screen needs them). The cache schema
+   is now 10, so every cache rebuilds once. The walk reads each message
+   already, for its Commit Kind, so nothing new is read from git.
+2. **Tests, worked by hand.** Every cache test now compares subjects too
+   (a warm load, an update, a late-merged older branch, a recent-first load
+   completed later), with messages written into the scripted repositories;
+   a unit test covers the 200-byte cut at a two-byte character; a server
+   test checks `/api/commits` on four scripted commits column by column
+   (newest first, Alice seen first so person 0, the kinds by their labels,
+   lines unknown rather than 0 without a line pass, the GitHub link).
+3. **The Commit List (`/api/commits`).** Every loaded commit, newest first,
+   whatever the Window, sent as columns (ids, author times, time zones,
+   person, subject, kind, merge, files, lines added and removed) rather than
+   an object per row. People are listed once, with their addresses locally
+   (hosted lists will carry none, Phase 27). Each row links to GitHub when
+   the remote is there. A Report carries the same list under the same key,
+   so the Commits screen works from a one-file Report too.
+4. **The Commits screen** is the sixth (`6`). Every word typed must appear
+   in the subject or in the name, login or address of who made it; the
+   Window, the person filter and dates narrow it, and a kind selector.
+   The folder filter says it does not apply (the list keeps no files).
+   `/` focuses its search box. Only the rows in view are drawn. Typing
+   searches at the first keystroke and then at most every 100 ms; the text
+   stays in the search box and reaches the address with
+   `history.replaceState`, so a keystroke does not re-render the page.
+5. **Measured** (`apps/local/scripts/search-time.mjs`, headless Chromium,
+   keys 150 ms apart so each searches at once; from the key to the count
+   changing on screen):
+
+   | Repository | Commits in the list | List | Gzipped | Per keystroke, median |
+   |---|---|---|---|---|
+   | facebook/react (partial clone, lines not counted) | 35,275 | 5.1 MB | 1.5 MB (43 B a commit) | 13 ms on the page; 18 ms through the worker |
+   | rust-lang/rust (lines counted) | 345,135 | 45.0 MB | 16.2 MB (47 B a commit) | 50 ms, in the worker |
+
+   The search alone takes 2 to 3 ms at React's size (Node, 20 runs). The
+   first version took 62 ms a keystroke: each one re-rendered the whole
+   page through the route. The worker's round trip costs about 5 ms, so it
+   now starts at 50,000 rows rather than 20,000: ADR-0019 is amended with
+   these numbers. React's list is its every branch, not only its main line
+   (21,708).
+6. **The cache** (release build, `--summary --window all`, fresh caches):
+
+   | Repository | Schema 9 | Schema 10 | Warm start, median of 10 |
+   |---|---|---|---|
+   | rust-lang/rust | 44.4 MB | 62.5 MB (+41%) | 41 → 42 ms |
+   | Linux | 128.2 MB | 217.0 MB (+69%) | 58 → 56 ms |
+
+   rust-lang/rust's cold index took 24.2 s before and 21.4 s after (one run
+   each: no cost to see). A warm start reads only the months it needs, so
+   it does not grow with the subjects.
+7. **Tests now:** 245 Rust, 11 vitest (2 for the search), 15 Playwright (2
+   for Commits: typing, `/`, an address finding its person's commits, and a
+   one-file Report searched with no server).
+
+Files created, changed or deleted in Phase 25:
+- Created: `packages/ui/src/{search.ts,search.test.ts,searcher.ts,search.worker.ts,worker.d.ts,leading.ts}`,
+  `packages/ui/src/screens/Commits.tsx`, `apps/local/scripts/search-time.mjs`.
+- Changed: `crates/commitscape-core/src/{index.rs,lib.rs}`;
+  `crates/commitscape-index/src/{message.rs,source.rs,build.rs,scripted.rs,gix_source/walk.rs,cache/format.rs,cache/mod.rs}`,
+  `crates/commitscape-index/tests/cache.rs`;
+  `crates/commitscape-metrics/tests/support/mod.rs`;
+  `crates/commitscape-web/src/{api.rs,lib.rs,report.rs,filter.rs}`,
+  `crates/commitscape-web/tests/server.rs`; `crates/commitscape/src/main.rs`;
+  `packages/data/src/types.ts`; `packages/ui/src/{App.tsx,route.ts,keys.ts,index.css}`;
+  `apps/local/e2e/screens.spec.ts`; `docs/adr/0019-commit-search-runs-in-the-browser.md`;
+  `STATE.md`.
+
+## Phase 26 findings
+
+1. **The Site (`apps/site`, ADR-0014).** TanStack Start 1.168.58 with
+   React 19, on Cloudflare's Vite plugin 1.60.1 and Wrangler 4.140.0:
+   - **Every page is a static asset.** Start runs in SPA mode and writes
+     one shell, `index.html`; Wrangler serves it for every path with no
+     file of its own (`not_found_handling: "single-page-application"`),
+     so a page view never runs Worker code and is not billed.
+   - **Only `/api/*` reaches the Worker** (`run_worker_first`). The
+     Worker's entry (`src/server.ts`) sends `/api/*` to `src/api.ts`,
+     a small hand-written router with no framework in the way, and anything
+     else to Start's handler.
+   - **Verified before building:** TanStack Start documents SPA mode and
+     Cloudflare documents Start on Workers, and both worked as written. One
+     surprise: the shell must hold no page. Start pre-renders it from the
+     `/` route, and a browser opening `/gh/…` then hydrates the landing
+     page's HTML with another page (React error 418). Every page is now
+     drawn in the browser behind one shared placeholder (`Client.tsx`), so
+     the shell matches whatever path it is served for. `/privacy` is
+     therefore drawn in the browser too, like the rest.
+   - Astryx under Start works as under Vite, with the same theme; the theme
+     mode now comes from `useSyncExternalStore`, so a page written ahead
+     of time starts as "system" and then takes the stored mode, without a
+     mismatch.
+2. **Pages.** `/` (the one line, the paste box with examples, the three
+   ways with their commands, install), `/gh/<owner>/<repo>` (the six
+   screens from the stored Report through the fetched-Report Data Source,
+   or a plain "no Report yet"), `/privacy` (what is kept, where, how long
+   and who reads it, for public lookups, Shared Reports and sign-in, as the
+   ADRs decide them). The top bar has the Connect menu's "Share from your
+   terminal"; sign-in comes with Phase 29. `packages/data` gained
+   `parseGitHub` (a link, `git@…`, or `owner/name`), tested.
+3. **D1 through Drizzle.** `src/db/schema.ts` has `repositories`,
+   `builds` and `rate_limits`; `drizzle-kit generate` wrote
+   `drizzle/0000_init.sql`, which `wrangler d1 migrations apply`
+   applies. Later phases add their tables as new migrations.
+4. **Rate limits: a counter in D1** (ADR-0014's fallback). Cloudflare's
+   rate-limiting binding is not documented for the free plan, counts per
+   location, and is "intentionally designed to not be used as an accurate
+   accounting system". `api/limits.ts` counts per action, per hashed
+   address, per window, with one `INSERT … ON CONFLICT … RETURNING`; the
+   address itself is never kept; the Cron Trigger (Phase 28) sweeps old
+   windows. Unit-tested against the real SQL on Node's built-in SQLite
+   (`src/test/d1.ts`, a D1 stand-in over `node:sqlite`).
+5. **`commitscape report --data`** writes the Report's data alone as
+   gzipped JSON (the same JSON a one-file Report inlines): 6,644 bytes for
+   the `ownership` fixture. The Worker passes a Report from R2 to the
+   browser without reading it, as `application/gzip`; the Data Source
+   gunzips it in the browser.
+6. **CPU of every API handler** (`apps/site/scripts/cpu.test.ts`: the
+   real handlers in Node against SQLite and an in-memory R2, 200 requests
+   each after 20 warm-ups; SQLite's work is counted, which D1's never is on
+   Cloudflare, so these are upper bounds). Wrangler's local traces give
+   wall time only (40 to 450 ms locally, most of it the local D1).
+
+| Handler | Status | CPU, median | CPU, 99th percentile |
+|---|---|---|---|
+| GET /api/repos/:owner/:name (stored) | 200 | 0.18 ms | 1.67 ms |
+| GET /api/repos/:owner/:name (unknown) | 200 | 0.15 ms | 2.50 ms |
+| GET /api/reports/:owner/:name (6644 bytes) | 200 | 0.14 ms | 4.21 ms |
+| GET /api/nope | 404 | 0.02 ms | 1.08 ms |
+
+   Budget: 10 ms. CI runs this and fails a handler whose median passes it.
+7. **Under `wrangler dev`** (`apps/site/e2e/start.ts` writes the
+   fixture's Report with the real binary, applies the migrations and
+   stores it in fresh local D1 and R2 under `target/`, then starts
+   `wrangler dev`): 5 Playwright tests pass: the landing page (a bad paste
+   says why; a link goes to the repository), a repository page from the
+   stored Report on three screens including Commits' search, a repository
+   with no Report, `/privacy`, and the API's answers (404 and 400 in plain
+   words, the Report as gzip, an unknown page served as the app). Unit
+   tests: 3.
+8. **The Worker's types** come from `@cloudflare/workers-types`, with
+   Wrangler generating only our `Env` (389 bytes, rather than a 604 KB
+   file with the runtime's types in it).
+9. **Screenshots** (fixture Report): `target/preview/site/`.
+
+Files created, changed or deleted in Phase 26:
+- Created: `apps/site/` (`package.json`, `vite.config.ts`,
+  `wrangler.jsonc`, `worker-configuration.d.ts`, `tsconfig.json`,
+  `.oxlintrc.json`, `drizzle.config.ts`, `drizzle/0000_init.sql` and
+  `drizzle/meta/`, `vitest.config.ts`, `playwright.config.ts`,
+  `public/favicon.svg`, `e2e/{start.ts,site.spec.ts}`,
+  `scripts/{cpu.test.ts,vitest.config.ts}`, `src/{server.ts,api.ts,router.tsx,routeTree.gen.ts,site.css}`,
+  `src/api/{http.ts,limits.ts,limits.test.ts,reports.ts,reports.test.ts}`,
+  `src/db/schema.ts`, `src/test/{d1.ts,r2.ts}`,
+  `src/components/{Frame.tsx,Connect.tsx,Client.tsx}`,
+  `src/routes/{__root.tsx,index.tsx,privacy.tsx,gh.$owner.$repo.tsx}`);
+  `packages/data/src/{github.ts,github.test.ts}`.
+- Changed: `packages/data/src/index.ts`; `packages/ui/src/{index.ts,App.tsx,theme.ts}`,
+  `packages/ui/package.json`; `pnpm-workspace.yaml` (Astryx in the
+  catalog; esbuild's and workerd's install scripts allowed),
+  `pnpm-lock.yaml`; `crates/commitscape-web/src/report.rs`
+  (`report::data`), `crates/commitscape/{Cargo.toml,src/main.rs}`
+  (`--data`, gzip through `flate2`), `Cargo.lock`;
+  `.github/workflows/ci.yml`; `.gitignore`; `README.md`; `STATE.md`.
+
+## Phase 27 findings
+
+1. **`commitscape report --data`, grown (Rust, in plain words).**
+   - It takes a GitHub URL or `owner/name` as well as a folder, cloning
+     into the cache as `health` does. The clone code moved from
+     `health.rs` to its own `clone.rs`, shared by both, and can clone
+     whole (`clones/`) or partially (`health/`); `COMMITSCAPE_GIT_BASE`
+     points clones elsewhere, for tests.
+   - `--partial` clones history without old file contents, for a large
+     project, and implies `--no-lines`; `--no-lines` leaves the line
+     pass out and the Report says "lines" are off.
+   - `--no-emails` leaves every address out: a person's profile has no
+     email, addresses or `.mailmap` lines, and the Commit List's people
+     none (ADR-0019). People keep their names and GitHub logins. Two new
+     integration tests check both, on the `ownership` fixture.
+2. **The clone threshold** (ADR-0015 amended). From nothing to a Report:
+
+   | Repository | GitHub's size | Full clone, lines | Partial, no lines |
+   |---|---|---|---|
+   | BurntSushi/ripgrep | 6 MB | 3.0 s | 4.2 s |
+   | vitejs/vite | 75 MB | 15.8 s | 8.9 s |
+   | astral-sh/ruff | 207 MB | 44.8 s | 18.4 s |
+   | facebook/react | 1,071 MB | 212.5 s | 18.8 s |
+
+   Full clones now stop at **100 MB** (`FULL_CLONE_UP_TO_MB`).
+3. **The Builder (`apps/builder`)**: TypeScript on Node, bundled by
+   esbuild into one file (`dist/builder.mjs`, 12 KB) for the VPS.
+   - `POST /builds`, signed by the Site, queues a Build; one runs at a
+     time (`CONCURRENCY`). `GET /health` says how busy it is.
+   - A Build refuses a repository over `MAX_REPOSITORY_MB` (3,000),
+     picks the clone by size, runs `report --data --no-emails --offline`
+     and `card`, draws the card as a PNG with resvg (or keeps the SVG
+     where resvg is missing), uploads both, and says how it ended.
+   - It stops a Build after `TIME_LIMIT_SECONDS` (900): the command and
+     everything it started, as one process group. The first version killed
+     only the command, and its `git` kept running and holding the pipe.
+   - A Connected Repository's clone is deleted after its Build. Past
+     `DISK_BUDGET_GB` (20), the clones built least recently are deleted.
+   - 7 unit tests: the clone choice, too big, timed out (a real process
+     group), not found, a private clone deleted, the disk budget, and the
+     queue only the Site can fill, one Build at a time.
+4. **Signing (ADR-0015).** `packages/data/src/hmac.ts` signs a request's
+   method, path, time and body with HMAC-SHA256 over WebCrypto, so the
+   Worker and the Builder share it; signatures older than five minutes are
+   refused. An upload is signed over its length, not its bytes (hashing a
+   16 MB Report would pass the Worker's CPU budget), and carries a one-time
+   token issued with its Build and stored only as a hash.
+5. **The Site's side.**
+   - `GET /api/repos/:owner/:name` asks GitHub for its instant facts
+     (four requests; cached an hour in D1) and says whether a Build may
+     start. `POST /api/builds` starts one: 20 an hour per address, and
+     only for a public repository whose Report is missing or a day old,
+     with nothing running and no failure in the last hour.
+   - The Builder's callbacks are `progress`, `PUT report`, `PUT
+     card` (streamed into R2, 64 MB and 2 MB at most) and `done`, which
+     stores the Report, deletes the one it replaces, and writes the
+     repository's page: the app's shell with its Open Graph and Twitter
+     tags, into R2, once.
+   - **`/gh/*` now runs through the Worker**, to serve that stored page
+     (or the plain shell): crawlers that make link previews run no
+     JavaScript, so the tags must be in the page itself. It costs one
+     Worker request per repository page view, 0.1 ms of CPU; see "Open
+     questions for the owner".
+   - The page shows GitHub's facts at once (description, stars, forks,
+     languages, the top contributors with avatars, releases), the Build's
+     progress, then the Report; an older Report shows with "updating…"
+     while a newer one builds; each failure has its plain words
+     (`FAILURE_WORDS` in `packages/data`), and "Builds are paused" when
+     the Builder does not answer.
+   - A repository GitHub knows by a newer name (facebook/react is now
+     react/react) keeps the address people asked for.
+6. **End to end on this machine, against GitHub** (`wrangler dev` and the
+   Builder, unauthenticated requests to GitHub; `target/real-run.sh`):
+
+   | Repository | GitHub's facts on screen | First Report on screen | The Build | Again |
+   |---|---|---|---|---|
+   | BurntSushi/ripgrep | 1.1 s | 8.2 s | 4.9 s, full clone | 0.64 s |
+   | facebook/react | 3.1 s | 25.8 s | 20.6 s, partial | 0.75 s |
+
+   Screenshots: `target/preview/site-real/`. Locally, workerd did not
+   trust GitHub's certificate until given NixOS's bundle
+   (`NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`); Cloudflare needs neither.
+7. **Tested** under `wrangler dev` with the real Builder, a stand-in for
+   GitHub's API answering from responses written by hand
+   (`apps/site/e2e/github/`), and the fixture as the git remote: 8
+   Playwright tests: a pasted link, facts then Report; every screen with no
+   address; the page's preview tags and the card; not found, private, too
+   big and timed out (the Builder's real time limit, on a repository a
+   wrapper makes slow); a day-old Report "updating…" then rebuilt; the
+   20-an-hour limit; the API's plain answers; `/privacy`. Unit tests: the
+   paused Builder; signing (8 cases).
+8. **CPU of every handler** (as in Phase 26, upper bounds):
+
+| Handler | Status | CPU, median | CPU, 99th percentile |
+|---|---|---|---|
+| GET /api/repos/:owner/:name (facts kept) | 200 | 0.39 ms | 2.63 ms |
+| GET /api/repos/:owner/:name (facts asked of GitHub) | 200 | 0.66 ms | 4.17 ms |
+| GET /api/reports/:owner/:name (6644 bytes) | 200 | 0.13 ms | 2.85 ms |
+| GET /api/cards/:owner/:name | 200 | 0.16 ms | 1.16 ms |
+| GET /gh/:owner/:name (the stored page) | 200 | 0.10 ms | 2.09 ms |
+| POST /api/builds (asks GitHub, starts one) | 202 | 1.12 ms | 8.97 ms |
+| POST /api/builds/:id/progress | 200 | 0.28 ms | 0.96 ms |
+| PUT /api/builds/:id/report (200000 bytes) | 200 | 0.51 ms | 9.07 ms |
+| POST /api/builds/:id/done (stores the page) | 200 | 0.70 ms | 1.80 ms |
+| GET /api/nope | 404 | 0.02 ms | 0.05 ms |
+9. **Decisions:** hosted Reports carry no pull-request or issue history for
+   now (`--offline`: reading React's would take minutes), so Activity says
+   GitHub's history is not read there; Phase 30's issue numbers come from
+   `health`.
+
+Files created, changed or deleted in Phase 27:
+- Created: `apps/builder/` (`package.json`, `tsconfig.json`,
+  `src/{config.ts,site.ts,run.ts,disk.ts,server.ts,main.ts,builder.test.ts}`);
+  `packages/data/src/{hmac.ts,hmac.test.ts,builds.ts,lookup.ts}`;
+  `apps/site/drizzle/0001_builds.sql` (and its `meta/`),
+  `apps/site/.dev.vars.example`,
+  `apps/site/src/api/{github.ts,lookup.ts,builds.ts,builds.test.ts,random.ts}`,
+  `apps/site/src/components/Facts.tsx`,
+  `apps/site/e2e/{github.ts,github/acme-ownership.json,slow-commitscape.sh}`;
+  `crates/commitscape/src/clone.rs`, `crates/commitscape/tests/report_data.rs`.
+- Changed: `crates/commitscape/src/{main.rs,health.rs}`,
+  `crates/commitscape-web/src/{api.rs,lib.rs,report.rs}`;
+  `packages/data/src/index.ts`, `packages/ui/src/index.ts`;
+  `apps/site/{wrangler.jsonc,worker-configuration.d.ts,package.json,playwright.config.ts}`,
+  `apps/site/src/{api.ts,server.ts,site.css,db/schema.ts,api/reports.ts,routes/gh.$owner.$repo.tsx}`,
+  `apps/site/e2e/{start.ts,site.spec.ts}`, `apps/site/scripts/cpu.test.ts`,
+  `apps/site/src/test/r2.ts`; `docs/adr/0015-*.md`; `flake.nix` (hash);
+  `pnpm-lock.yaml`; `.gitignore`; `STATE.md`.
+
+## Phase 28 findings
+
+1. **`commitscape share` (Rust, in plain words; `crates/commitscape/src/share.rs`).**
+   - It builds the Report on this machine (the same code as `report`, now
+     shared as `make_report`), with its lines and without any email
+     address, gzips it, and locks it with AES-256-GCM under a fresh random
+     256-bit key and a random 96-bit nonce. What is uploaded is the nonce,
+     then the ciphertext and its tag.
+   - The Delete Token is HKDF-SHA256 of the key (no salt, info
+     "commitscape delete"); the Site gets only its SHA-256.
+   - Upload: `POST /api/shares` (size, hours, the hash) answers an id (128
+     random bits) and a one-time upload token; `PUT /api/shares/<id>`
+     streams the bytes into R2. It prints `<site>/s/<id>#<key>` and exits.
+   - Before uploading it says what goes (file paths, names and logins,
+     commit subjects; no addresses) and asks once; `--yes` skips the
+     question, and without a terminal it refuses rather than guess.
+     `--offline` refuses. `--expires` takes 1 to 12 hours (default 4).
+     `--list` shows this machine's live links and `--delete <link>`
+     takes one down; the list is `shares.json` in the cache directory, and
+     `--no-cache` keeps none (it would otherwise have written to the
+     default cache, under `~/.cache`).
+   - The Site's origin comes from `packages/data/src/product.ts`, read by
+     a new `build.rs` into the binary; `COMMITSCAPE_SITE` overrides it.
+   - New crates: `ureq` 3.4 (rustls on `ring`, with Mozilla's roots
+     built in, so no system certificates or extra build tools on any OS),
+     `aes-gcm` 0.11, `hkdf` 0.13, `sha2` 0.11, `getrandom` 0.3.
+     `cargo build`, clippy and the tests pass here on Linux; macOS and
+     Windows were not built here (CI will be their first build).
+2. **One test vector, two languages.** A fixed key and nonce, locked and
+   turned into a Delete Token, computed first with Node's WebCrypto; the
+   Rust tests and `packages/data/src/share.test.ts` both assert those
+   exact strings, so the command and the browser agree byte for byte. The
+   first guesses written into the tests were wrong and were replaced by the
+   computed values, never the other way round.
+3. **The Site.** `drizzle/0002_shares.sql` adds `shares` (size, times,
+   the two hashes, whether uploaded). `api/shares.ts`: create (30 an hour
+   per address; 1 to 12 hours; at most 25 MB), upload (one time, the size
+   said), get (410 once expired, 404 once deleted), delete (the Delete
+   Token's hash compared in constant time). The Cron Trigger (every 15
+   minutes; the free plan allows 5 per account, 10 ms of CPU and 50
+   subrequests a run, checked in Cloudflare's limits page) removes expired
+   Shared Reports and never-finished uploads, a hundred at a time, with one
+   R2 call and one SQL statement.
+4. **`/s/<id>#<key>`.** The key is taken from the address and removed
+   with `history.replaceState` as the app starts, before any page draws
+   (`src/share-key.ts`, imported first by the root). The page fetches the
+   locked bytes, unlocks them with WebCrypto, and reads them through the
+   same Report Data Source; it shows when the link expires and a Delete
+   button. A changed byte, a wrong key, a cut link, an expired or a deleted
+   Shared Report each say so plainly.
+5. **The local page's Share button** asks the local server
+   (`POST /api/share`), which runs the same code as the command through a
+   hook the binary gives it; the button says what will be uploaded, takes
+   the hours, and shows the link to copy. `--offline` removes it, and a
+   Report has none (`Meta.can_share`).
+6. **Tested end to end on this machine** (the Site under `wrangler dev
+   --test-scheduled`, the real binary): 5 new Playwright tests.
+   - `share --yes` prints a link; the page opens it (21 commits); every
+     request the page made (address, headers, body) was checked and none
+     holds the key; the stored bytes do not either; the address bar has no
+     `#` once the page is drawn.
+   - A byte changed in transit (Playwright rewrites the response), a wrong
+     key, and a cut link each fail plainly.
+   - The Delete button and `share --delete` both take a link down (404
+     after); `--list` shows and then drops it.
+   - An expired Shared Report answers 410 and says so; the Cron Trigger,
+     fired through Wrangler's local `/cdn-cgi/handler/scheduled`, removes
+     it (404 after).
+   - The local page's Share button uploads, and its link opens on the Site.
+   And one more on the local page: no Share button with `--offline`.
+7. **CPU** (upper bounds, as before):
+
+| Handler | Status | CPU, median | CPU, 99th percentile |
+|---|---|---|---|
+| GET /api/repos/:owner/:name (facts kept) | 200 | 0.39 ms | 2.69 ms |
+| GET /api/repos/:owner/:name (facts asked of GitHub) | 200 | 0.65 ms | 4.03 ms |
+| GET /api/reports/:owner/:name (6644 bytes) | 200 | 0.13 ms | 2.06 ms |
+| GET /api/cards/:owner/:name | 200 | 0.17 ms | 1.16 ms |
+| GET /gh/:owner/:name (the stored page) | 200 | 0.10 ms | 1.48 ms |
+| POST /api/builds (asks GitHub, starts one) | 202 | 1.10 ms | 10.40 ms |
+| POST /api/builds/:id/progress | 200 | 0.28 ms | 2.82 ms |
+| PUT /api/builds/:id/report (200000 bytes) | 200 | 0.51 ms | 14.51 ms |
+| POST /api/builds/:id/done (stores the page) | 200 | 0.71 ms | 1.91 ms |
+| POST /api/shares | 201 | 0.23 ms | 1.70 ms |
+| PUT /api/shares/:id (200000 bytes) | 200 | 0.42 ms | 8.44 ms |
+| GET /api/shares/:id (200000 bytes) | 200 | 0.24 ms | 7.68 ms |
+| DELETE /api/shares/:id | 200 | 0.20 ms | 3.24 ms |
+| GET /api/nope | 404 | 0.02 ms | 0.02 ms |
+| Cron Trigger: 100 expired Shared Reports removed | – | 0.76 ms | 1.32 ms (max of 30) |
+
+Files created, changed or deleted in Phase 28:
+- Created: `crates/commitscape/{build.rs,src/share.rs}`;
+  `packages/data/src/{share.ts,share.test.ts}`;
+  `packages/ui/src/components/Share.tsx`; `apps/site/drizzle/0002_shares.sql`
+  (and `meta/`), `apps/site/src/{share-key.ts,api/shares.ts}`,
+  `apps/site/src/routes/s.$id.tsx`.
+- Changed: `crates/commitscape/{Cargo.toml,src/main.rs}`, `Cargo.lock`;
+  `crates/commitscape-web/src/{lib.rs,api.rs,report.rs}`;
+  `crates/commitscape/tests/report_data.rs`;
+  `packages/data/src/{index.ts,source.ts,source.test.ts,types.ts}`;
+  `packages/ui/src/{App.tsx,index.css}`;
+  `apps/site/{wrangler.jsonc,src/api.ts,src/server.ts,src/db/schema.ts,src/routes/__root.tsx,src/routeTree.gen.ts,e2e/start.ts,e2e/site.spec.ts,scripts/cpu.test.ts}`;
+  `apps/local/e2e/screens.spec.ts`; `README.md`; `STATE.md`.
+
+## Phase 29 findings
+
+1. **Signing in, without an auth library** (ADR-0014 amended). Better Auth,
+   the first candidate, has reports of free-plan Workers with D1 exceeding
+   the CPU limit; the Site needs one way to sign in, so it is written out
+   in `apps/site/src/api/auth.ts`:
+   - `/api/auth/github` sends the person to the App's OAuth page with a
+     random `state` (a ten-minute cookie); `/api/auth/callback` checks
+     it, exchanges the code, asks GitHub who they are, and starts a session.
+   - A session is a random token in an HttpOnly, SameSite=Lax cookie
+     (Secure over HTTPS), kept in D1 only as its SHA-256; it lasts 30 days.
+     A second, readable cookie holds only the login, so pages can say who is
+     signed in without a request; the API never trusts it.
+   - GitHub's user token (which checks access) is kept locked with the
+     Site's `SESSION_KEY` (AES-256-GCM), never in the clear, and refreshed
+     with its refresh token when it expires.
+   - Requests that change something (sign out, "Delete my data", a private
+     Build) are refused when their `Origin` is another site.
+2. **The GitHub App** (`api/app.ts`, `api/crypto.ts`). The Site signs
+   the App's JWT with RS256 in WebCrypto. GitHub hands out the App's key as
+   PKCS#1 ("BEGIN RSA PRIVATE KEY"), which WebCrypto cannot read, so the
+   Site wraps it in PKCS#8 itself; a unit test checks the wrapping equals
+   Node's own export byte for byte, and that the JWT verifies with the
+   public key. The key may be set as the PEM or as the PEM base64-encoded
+   (one line, easier as a secret). A Build of a Connected Repository gets a
+   one-hour installation token for that one repository, read-only, which
+   goes to the Builder and is never stored; the Builder gives it to git
+   only through git's environment (`GIT_CONFIG_COUNT`, an
+   `http.extraHeader`), never a command line or a file. Signing the JWT
+   costs about 3 ms of CPU, so an isolate keeps it for five of its nine
+   minutes: a private Build's start went from 3.96 to 1.09 ms median.
+3. **Who sees what.**
+   - A repository GitHub does not show publicly is, to anyone signed out
+     or not shown it by GitHub, as if it did not exist ("GitHub has no
+     public repository of that name"), with a hint to sign in. The Site says
+     "This repository is private" only to someone who can see it on GitHub,
+     with the way to add the App.
+   - Access is asked with the person's own token, `GET /repos/…`, on every
+     view and remembered five minutes (`access` table).
+   - A Connected Repository's Report is served `private, no-store`; it gets
+     no card and no page with a social preview.
+4. **`/me`** lists the person's installations' repositories as GitHub
+   lists them to them, each linking to its Report; "Add repositories" goes
+   to the App's installation page; "Sign out"; "Delete my data" removes the
+   account, every session (and their remembered access answers), and the
+   Reports of what they connected, at once.
+5. **Webhooks** (`POST /api/github/webhooks`) are believed only with a
+   valid `X-Hub-Signature-256`: `installation` deleted removes that
+   installation's Reports, `installation_repositories` removed removes
+   those repositories'. **Retention:** the Cron Trigger removes a Connected
+   Repository's Report after 30 days without a view (and ends old sessions
+   and access answers).
+6. **Tests against GitHub's responses written by hand** (`apps/site/e2e/github.ts`
+   and `github/*.json`): the stand-in plays the OAuth flow, two people,
+   installations, and the App's endpoints, which check the Site's JWT
+   against the test App's public key (a new key pair each run). 8 new
+   Playwright tests, all under `wrangler dev` with the real Builder:
+   signed out sees nothing; Alice signs in, lists her repositories, and
+   her private one is built with the installation token and shown; Bob
+   sees nothing, and his own private repository without the App says so;
+   access remembered five minutes and asked again after; the 30-day
+   retention; webhooks refused unsigned and acted on signed; "Delete my
+   data"; a callback with a made-up state refused. Unit tests: sealing,
+   the JWT, webhook signatures; the Builder's token handling. No test App
+   exists on GitHub yet, so nothing ran against GitHub itself.
+7. **Verified before building:** Better Auth on Workers' free plan (not
+   used, above). A GitHub App's user authorization uses the same OAuth
+   endpoints as an OAuth App, with tokens that expire in eight hours and a
+   refresh token, as GitHub documents; the stand-in answers that way.
+8. **CPU** (upper bounds, as before):
+
+| Handler | Status | CPU, median | CPU, 99th percentile |
+|---|---|---|---|
+| GET /api/repos/:owner/:name (facts kept) | 200 | 0.41 ms | 2.42 ms |
+| GET /api/repos/:owner/:name (facts asked of GitHub) | 200 | 0.68 ms | 3.95 ms |
+| GET /api/reports/:owner/:name (6644 bytes) | 200 | 0.20 ms | 4.28 ms |
+| GET /api/cards/:owner/:name | 200 | 0.17 ms | 1.17 ms |
+| GET /gh/:owner/:name (the stored page) | 200 | 0.11 ms | 2.11 ms |
+| POST /api/builds (asks GitHub, starts one) | 202 | 1.14 ms | 8.84 ms |
+| POST /api/builds/:id/progress | 200 | 0.28 ms | 1.33 ms |
+| PUT /api/builds/:id/report (200000 bytes) | 200 | 0.53 ms | 10.04 ms |
+| POST /api/builds/:id/done (stores the page) | 200 | 0.74 ms | 1.89 ms |
+| POST /api/shares | 201 | 0.22 ms | 1.22 ms |
+| PUT /api/shares/:id (200000 bytes) | 200 | 0.34 ms | 10.10 ms |
+| GET /api/shares/:id (200000 bytes) | 200 | 0.35 ms | 10.84 ms |
+| DELETE /api/shares/:id | 200 | 0.20 ms | 1.20 ms |
+| GET /api/auth/github (off to GitHub) | 302 | 0.02 ms | 0.02 ms |
+| GET /api/auth/callback (signs in) | 302 | 0.49 ms | 2.20 ms |
+| GET /api/me (30 repositories) | 200 | 0.41 ms | 2.27 ms |
+| GET /api/repos/:owner/:name (private, access asked) | 200 | 0.69 ms | 2.71 ms |
+| GET /api/reports/:owner/:name (private, access kept) | 200 | 0.45 ms | 4.64 ms |
+| POST /api/builds (private: App JWT and installation token) | 202 | 1.09 ms | 2.62 ms |
+| POST /api/github/webhooks (signed) | 200 | 0.10 ms | 1.09 ms |
+| GET /api/nope | 404 | 0.01 ms | 0.02 ms |
+| Cron Trigger: 100 expired Shared Reports removed | – | 0.80 ms | 5.04 ms (max of 30) |
+
+Files created, changed or deleted in Phase 29:
+- Created: `apps/site/drizzle/0003_accounts.sql` (and `meta/`),
+  `apps/site/src/api/{auth.ts,app.ts,access.ts,cookies.ts,crypto.ts,crypto.test.ts,webhooks.ts}`,
+  `apps/site/src/routes/me.tsx`, `apps/site/e2e/{signin.spec.ts,constants.ts}`,
+  `apps/site/e2e/github/{user-alice,user-bob,installations-alice,installation-42-repositories,acme-private-thing}.json`.
+- Changed: `apps/site/{wrangler.jsonc,worker-configuration.d.ts,.dev.vars.example}`,
+  `apps/site/src/{api.ts,server.ts,db/schema.ts,routeTree.gen.ts}`,
+  `apps/site/src/api/{lookup.ts,builds.ts,reports.ts,github.ts}`,
+  `apps/site/src/components/Connect.tsx`, `apps/site/src/routes/gh.$owner.$repo.tsx`,
+  `apps/site/e2e/{github.ts,start.ts,site.spec.ts}`, `apps/site/scripts/cpu.test.ts`;
+  `apps/builder/src/{run.ts,builder.test.ts}`; `packages/data/src/lookup.ts`;
+  `docs/adr/0014-*.md`; `STATE.md`.
+
+## Phase 30 findings
+
+1. **The numbers behind the boards come from the Report.** A Report now
+   carries `stats` (`crates/commitscape-web/src/api.rs`, `Stats::of`):
+   commits and people over all of history, the Bus Factor of the last year
+   (the fewest people who made over 80% of its commits), maintainers (3 or
+   more commits in 90 days), commits and people in the last 30 days, lines
+   of code at HEAD, and lines in files nobody has changed for five years.
+   The Builder reads them from the Report it just made and sends them with
+   `done`, so the Worker never opens a Report. A seed's Build also runs
+   `health --json` for how fast its issues get a first answer. A
+   hand-worked test (`crates/commitscape-web/tests/server.rs`) checks every
+   number.
+2. **Seeds.** The Builder asks GitHub's search for the most starred
+   repositories in each language (not archived, not forks; nine languages,
+   10 each by default), paced 7 s apart without a token (GitHub allows 10
+   searches a minute) and waiting out its limit up to three times. It sends
+   the list to the Site (`POST /api/seeds`, signed), which marks them seeds
+   and answers with that night's Builds within the budget: never built
+   first, then the oldest, none built in the last day, none already
+   building. When they are done the Builder asks the Site to write the
+   boards (`POST /api/leaderboards/write`, signed). The Cron Trigger also
+   writes them once they are a day old. `SEED_HOUR` (3 UTC unless set)
+   starts a night; `node builder.mjs seed` starts one now.
+3. **The boards** are one JSON document in R2, written once a day from D1
+   and served as it is (`GET /api/leaderboards`, 0.04 ms): `/leaderboards`
+   is a static page that reads it, and the landing page shows three of
+   them. Each board says how it ranks, when it was written and from how
+   many repositories, and each row links to the repository's page.
+   Repositories only; no board names a person (tested). Rules: "Resting on
+   one person" is a Bus Factor of 1, most stars first; "Fastest to answer
+   issues" needs 10 or more issues answered; "Oldest code still running"
+   needs 1,000 lines of code or more.
+4. **Built on this machine against the real GitHub, 54 seeds, 53 built**
+   (the gate is 50): 6 in each of the nine languages but C, which had 5.
+   torvalds/linux was refused as too big (over 3,000 MB), as designed.
+   The first night, every clone new:
+
+| | |
+|---|---|
+| Builds | 54: 53 done, 1 too big |
+| Clones | 21 full (up to 100 MB), 32 partial |
+| Time for one Build | median 26 s, 90th percentile 103 s, longest 274 s (microsoft/typescript, 2.8 GB, partial) |
+| Longest after it | elastic/elasticsearch 153 s, rust-lang/rust 130 s, microsoft/vscode 106 s, tensorflow/tensorflow 106 s, nodejs/node 103 s |
+| The night | 2,697 s (45 min), one Build at a time |
+| Disk after it | 17 GB of clones and indexes (the default budget is 20 GB) |
+
+   Three more nights followed, each started by hand
+   (`node builder.mjs seed`):
+
+| Night | Builds | Result | Time for one Build | The night |
+|---|---|---|---|---|
+| 2: every Report aged two days by hand | 38 (interrupted once by a session restart, then resumed) | 36 done, 1 too big (openclaw/openclaw), 1 failed (an upload the local dev server dropped, below) | median 14.3 s, 90th percentile 27.4 s: clones kept, only new commits fetched | about 20 min |
+| 3: the rest due | 58 | 58 done | median 26.2 s, 90th percentile 82.2 s, longest 280 s (microsoft/TypeScript) | 3,208 s (53 min); the disk budget started deleting the least recently used clones and indexes (22 GB of work folder before) |
+| 4: two repositories rebuilt after fixes (below), with never-built seeds | 17 | 15 done, 2 too big | | 776 s (13 min) |
+
+   The boards are now written from **107 repositories**. Screenshots of
+   `/leaderboards` and the landing page, light and dark, are in
+   `target/preview/site/`.
+5. **Found by reading the boards, and fixed:**
+   - **Bots answering issues.** The first "Fastest to answer issues" had
+     elastic/elasticsearch and facebook/react-native answering in a
+     minute, then ansible/ansible. Their first comments come from
+     `elasticsearchmachine`, `react-native-bot` and `ansibot`, which
+     GitHub types as users, not bots, so `health` took them as the project
+     answering. The rules that already kept such accounts out of commit
+     counts (a `[bot]` or `-bot` suffix, a list of known automation
+     accounts) now live in `commitscape-core` (`bots.rs`) and apply to
+     issue answers too, with `elasticsearchmachine` and `ansibot` added to
+     the list. A plain "ends in bot" rule was not taken: it would catch
+     people called Talbot. The recorded GitHub response in
+     `commitscape-forge`'s tests gained a triage account's comment, which
+     the old rule took as the answer. This also improves the local
+     `health` command's answer times.
+   - **A month's people stopped at 1,000.** NousResearch/hermes-agent
+     showed exactly 1,000 people in 30 days; git counts 1,101 names. The
+     Report's `stats` counted the Contributors ranking, which, like every
+     ranking, keeps its first 1,000 (`RANKING_LIMIT`). The counts now come
+     from `Analysis::activity`, which counts every commit and person. A
+     test of 1,005 people failed first (1,000 and 1,000), then passed. The
+     board now shows 1,136 people.
+   - **"Oldest code still running" ranked abandoned projects**
+     (NARKOZ/hacker-scripts, 100% of its lines untouched). It now ranks
+     only projects with commits in the last year, and the "most" boards
+     leave out repositories with none (no "0 maintainers" rows).
+   - **The landing page suggested torvalds/linux**, which the Builder
+     refuses as too big. It suggests vitejs/vite instead.
+6. **Found and fixed on the way:**
+   - GitHub's search answered 403 when asked for nine languages at once
+     without a token. It is now paced and waits out the limit.
+   - GitHub's search does not give the same list twice: its answers say
+     `incomplete_results: true`, and the second night's list had, for
+     Python, NVIDIA/pix2pixHD among the top six. Seeds therefore gather
+     over nights (a repository stays a seed), and each night builds the
+     never-built ones first. With a `GITHUB_TOKEN` the lists should be
+     steadier; that is untested here.
+   - During the second night the Site's local dev server dropped one
+     Report upload ("Network connection lost") while the machine was busy
+     with a Nix build, and the Build failed. The Builder now tries each
+     call to the Site again once, two seconds later, on a dropped
+     connection or a 5xx, the seed and boards requests too. Each is safe
+     to repeat: the upload writes the same key, `done` after the end
+     changes nothing, and seeds already queued are busy the second time.
+   - The seeds handler first took 16.6 ms of CPU in the harness, building
+     90 upserts through Drizzle; with one D1 statement bound again for
+     each, 5.4 ms, and 2.4 ms without SQLite's share after Phase 31's
+     rewrite of its reads.
+   - A test's fake command runner wrote a file called `health` into
+     `apps/builder/` (its `--out` lookup read `args[-1 + 1]`); fixed and
+     the file removed.
+7. **Tests:** 4 unit tests of the seeds and boards handlers
+   (`apps/site/src/api/boards.test.ts`), 2 of the Builder's seeds and
+   stats, 3 in Rust (the hand-worked stats, the 1,005 people, bots by
+   name), a Playwright test end to end (the stand-in GitHub's search, a
+   signed seed night through the real Builder, the stats stored, the page
+   rendered and linking, no person named), and the new handlers in the CPU
+   harness. At the end of Build Run 4: 255 Rust, 49 vitest, 16 local and
+   22 Site Playwright tests pass.
+8. **Screenshots:** `/leaderboards` and the landing page in both themes,
+   in `target/preview/site/`.
+9. **Decisions:** the boards are one document read by one static page
+   rather than five pages ("static pages" in IDEA.md): the same result
+   with one R2 object and no page per board to keep in step. A seed is
+   read like any public repository: its Report is the one people see at
+   `/gh/`. "Most active this month" is two boards, by commits and by
+   people, as IDEA.md lists them.
+
+Files created, changed or deleted in Phase 30:
+- Created: `apps/builder/src/seeds.ts`; `apps/site/drizzle/0004_leaderboards.sql`
+  (and `meta/0004_snapshot.json`), `apps/site/src/api/{boards.ts,boards.test.ts}`,
+  `apps/site/src/routes/leaderboards.tsx`; `packages/data/src/boards.ts`;
+  `crates/commitscape-core/src/bots.rs`.
+- Changed: `crates/commitscape-web/src/{api.rs,report.rs}`,
+  `crates/commitscape-web/tests/server.rs`,
+  `crates/commitscape-core/src/lib.rs`, `crates/commitscape-index/src/identity.rs`,
+  `crates/commitscape-forge/src/lib.rs`, `crates/commitscape-forge/tests/{acme-rocket.json,github.rs}`;
+  `packages/data/src/{builds.ts,index.ts,types.ts}`;
+  `apps/site/src/{api.ts,server.ts,db/schema.ts,routeTree.gen.ts,site.css}`,
+  `apps/site/src/api/builds.ts`, `apps/site/src/components/Frame.tsx`,
+  `apps/site/src/routes/{index.tsx,privacy.tsx}`, `apps/site/src/test/d1.ts`,
+  `apps/site/drizzle/meta/_journal.json`, `apps/site/scripts/cpu.test.ts`,
+  `apps/site/e2e/{github.ts,start.ts,site.spec.ts,slow-commitscape.sh}`;
+  `apps/builder/src/{run.ts,server.ts,main.ts,site.ts,builder.test.ts}`; `STATE.md`.
+
+## Phase 31 findings
+
+1. **README** now opens with the three ways to use commitscape (on your
+   machine, shared from a terminal, on the Site), has a section "On the
+   Site" (any public repository, your own through the App, search,
+   Leaderboards), and "What leaves your machine" rewritten in two halves:
+   what the command sends (nothing unless asked: `gh`, avatars, `share`,
+   `health`) and what the Site keeps when you use it. The Develop table
+   names `apps/builder`, and `DEPLOY.md` is linked.
+2. **`DEPLOY.md`**, written from nothing, in seven steps: the name and
+   `SITE_ORIGIN`; three secrets (`openssl rand -hex 32`) and a read-only
+   fine-grained token; the GitHub App (every field, the four read-only
+   permissions, the two events, the callback and setup URLs, the PKCS#1
+   key handed over as base64); Cloudflare (D1, R2, migrations, vars,
+   secrets, deploy, custom domain, an R2 lifecycle backstop); the Builder
+   on a VPS (Node 24, git, `gh`, fonts, the binary, `@resvg/resvg-js`, the
+   settings file, a hardened systemd unit, Caddy for HTTPS); checks; and
+   running it (updates, secrets, backups, the free plan's limits).
+3. **`DEPLOY.md` followed from scratch against local stand-ins**, in a
+   fresh copy of the working tree (`/srv/bulk/datasets/commitscape-br4/deploy-drill`):
+   - Step 1: `SITE_ORIGIN` set to the drill's Site; `pnpm install`,
+     `pnpm build` (3 tasks: local, site, builder); the binary built from
+     the copy. `commitscape share` with no `COMMITSCAPE_SITE` uploaded to
+     the drill's Site: the origin is read at build time, as documented.
+   - Step 2 and 3: secrets from `openssl`; the App's key made with
+     `openssl genrsa -traditional` (PKCS#1, as GitHub gives it) and handed
+     over as `base64 -w0`, which the Site read; the e2e tests' stand-in for
+     GitHub played the App.
+   - Step 4: `wrangler.jsonc`'s vars edited as written, secrets in
+     `.dev.vars` (the local form of `wrangler secret put`), migrations
+     applied locally, `pnpm build`, and `wrangler deploy --dry-run`, which
+     read every binding: **the Worker is 3,228 KiB, 743 KiB gzipped**,
+     under the free plan's 3 MB.
+   - Step 5: `builder.mjs` copied into an empty folder with only
+     `npm install @resvg/resvg-js@2.6.2` beside it; the settings file as
+     written (mode 600); the unit file passes `systemd-analyze verify`, and
+     the Builder ran as a systemd service with the unit's hardening
+     (`NoNewPrivileges`, `ProtectSystem=strict`, `ReadWritePaths`). Caddy
+     is not on this machine, so HTTPS in front was not tried.
+   - Step 6, "Check it", every check passing (one failed first on the
+     drill script's own mistake, a field name): a Build (the Report in
+     4.8 s), the Report served gzipped, the page's `og:image`, the card as
+     a PNG (resvg), signing in through the App's OAuth flow, `/api/me`
+     listing the installation's repositories, a signed webhook taken and
+     an unsigned one refused (401), the Cron Trigger, `share`, `share
+     --list` and `share --delete` (then 404), and `node builder.mjs seed`
+     writing the boards.
+   - Found and fixed on the way: `share` printed "It works in any browser
+     until in 3 h 59 min"; it now says "and expires in 3 h 59 min". The
+     seed check first needed an inline signing script, now a command,
+     `node builder.mjs seed`.
+4. **The security pass** read every endpoint, the Builder and `share`,
+   each finding checked against the code before it was fixed. Nothing
+   high; four medium, seven low, all fixed:
+
+| Finding | Severity | Fix |
+|---|---|---|
+| One address could queue 20 large Builds an hour, 900 s each, one at a time: hours of work for the Builder | medium | The Site refuses a Build while 30 of people's Builds wait or run; the Builder refuses past 250; people's Builds go ahead of the night's seeds |
+| An IPv6 client has a /64 of addresses, each with its own limits; 30 Shared Reports an hour of 25 MB could fill R2's 10 GB | medium | Limits count an IPv6 address by its /64; all Shared Reports together are capped at 4 GB ("try again in an hour or two") |
+| A Connected Repository's index (names, subjects, paths) stayed on the Builder's disk after its Build; indexes were never pruned | medium | A private Build gets its own cache folder, deleted, clone and index, when it ends; the disk budget counts indexes |
+| A private Report could be served to anyone once its name passed to a new public repository | medium | The Site keeps GitHub's repository id; access needs the same id (ADR-0017 amended) |
+| `$'` in a description garbled the stored `/gh/` page (no script ran) | low | The replacement is a function |
+| A public Report stayed readable at `/api/reports` after the repository went private | low | Facts an hour old are asked again before a public Report is served |
+| Deleting an installation of over 100 repositories, or a person with many sessions, passed D1's limits | low | Deletes in chunks of 50, and one statement for access answers |
+| Lookups were unlimited: each unknown repository costs four GitHub requests | low | 300 lookups that ask GitHub per address an hour (429 after); names GitHub had none for are forgotten after a week |
+| `/gh/%E0/x` threw (Cloudflare's error page) | low | Caught: the app's shell; the API says 400 |
+| The Builder's secrets reached git and commitscape's environment | low | Commands get an allow-listed environment; `health` gets `GH_TOKEN` by name |
+| `shares.json` (links with their keys) was written readable by others | low | Written mode 600 on Unix |
+| (Correctness) `.github` passed the Site but not the Builder | – | The Builder takes names starting with a dot, but not `.` or `..` |
+
+   Checked and found right: the HMAC over method, path, time and body
+   (±300 s), upload tokens compared by hash, R2 keys from D1 rather than
+   the request, names rejected before any path or URL, OAuth state tied to
+   a cookie, sessions and tokens hashed or sealed, cookies HttpOnly and
+   SameSite=Lax, Origin checks on every change, webhook HMACs, the
+   Builder on 127.0.0.1 with 64 KB bodies, the process-group kill, Shared
+   Reports' keys never sent and removed from the address bar, no
+   `dangerouslySetInnerHTML`, escaped card text, and no `@` anywhere in a
+   hosted Report (tested).
+5. **Found by the security work, beyond the review:** the seeds handler
+   bound one value per due repository, up to twice the budget, past D1's
+   100 a statement (a budget of 60 is 120). It is one query now, each
+   repository joined to its last Build, with a new index on
+   `builds(repo_id, requested_at)`, which every lookup's last-Build query
+   uses too (migration `0005_security`).
+6. **CPU of every handler**, measured again with the machine quiet, after
+   the fixes (`apps/site/scripts/cpu.test.ts`: the real handlers in Node,
+   200 runs each). The harness now counts SQLite's own share, which is
+   D1's on Cloudflare and not the Worker's, and asserts that both the
+   whole median and the Worker's own are under 10 ms. Every median is,
+   the heaviest the nightly seeds (2.4 ms of the Worker's own) and the
+   boards (2.1 ms). The 99th percentiles swing from run to run (76 ms once
+   for a two-query handler): Node's garbage collector and compiler count in
+   `process.cpuUsage()`, so they are an upper bound, not a prediction. The
+   two nightly requests are retried once by the Builder should one ever be
+   cut off.
+
+| Handler | Status | CPU, median | CPU, 99th percentile | Without SQLite, median | Without SQLite, 99th |
+|---|---|---|---|---|---|
+| GET /api/repos/:owner/:name (facts kept) | 200 | 0.50 ms | 76.16 ms | 0.39 ms | 75.79 ms |
+| GET /api/repos/:owner/:name (facts asked of GitHub) | 200 | 0.92 ms | 5.59 ms | 0.67 ms | 4.21 ms |
+| GET /api/reports/:owner/:name (6644 bytes) | 200 | 0.24 ms | 2.02 ms | 0.20 ms | 1.74 ms |
+| GET /api/cards/:owner/:name | 200 | 0.18 ms | 1.18 ms | 0.16 ms | 1.16 ms |
+| GET /gh/:owner/:name (the stored page) | 200 | 0.10 ms | 2.13 ms | 0.08 ms | 1.50 ms |
+| POST /api/builds (asks GitHub, starts one) | 202 | 1.41 ms | 8.65 ms | 1.00 ms | 8.01 ms |
+| POST /api/builds/:id/progress | 200 | 0.28 ms | 1.27 ms | 0.24 ms | 1.22 ms |
+| PUT /api/builds/:id/report (200000 bytes) | 200 | 0.52 ms | 16.24 ms | 0.47 ms | 16.11 ms |
+| POST /api/builds/:id/done (stores the page) | 200 | 0.83 ms | 2.00 ms | 0.66 ms | 1.80 ms |
+| POST /api/shares | 201 | 0.25 ms | 1.96 ms | 0.17 ms | 1.89 ms |
+| PUT /api/shares/:id (200000 bytes) | 200 | 0.43 ms | 6.13 ms | 0.38 ms | 6.08 ms |
+| GET /api/shares/:id (200000 bytes) | 200 | 0.35 ms | 5.57 ms | 0.23 ms | 5.54 ms |
+| DELETE /api/shares/:id | 200 | 0.20 ms | 3.19 ms | 0.16 ms | 3.09 ms |
+| GET /api/auth/github (off to GitHub) | 302 | 0.02 ms | 0.02 ms | 0.02 ms | 0.02 ms |
+| GET /api/auth/callback (signs in) | 302 | 0.46 ms | 3.23 ms | 0.41 ms | 3.18 ms |
+| GET /api/me (30 repositories) | 200 | 0.39 ms | 1.40 ms | 0.34 ms | 1.35 ms |
+| GET /api/repos/:owner/:name (private, access asked) | 200 | 0.71 ms | 2.10 ms | 0.56 ms | 1.95 ms |
+| GET /api/reports/:owner/:name (private, access kept) | 200 | 0.49 ms | 1.50 ms | 0.40 ms | 1.41 ms |
+| POST /api/builds (private: App JWT and installation token) | 202 | 1.26 ms | 9.00 ms | 0.86 ms | 7.85 ms |
+| POST /api/github/webhooks (signed) | 200 | 0.10 ms | 0.66 ms | 0.10 ms | 0.66 ms |
+| POST /api/seeds (90 seeds, all due) | 200 | 4.44 ms | 31.10 ms | 2.37 ms | 28.20 ms |
+| POST /api/leaderboards/write (90 built) | 200 | 3.25 ms | 9.52 ms | 2.05 ms | 6.06 ms |
+| GET /api/leaderboards | 200 | 0.04 ms | 0.30 ms | 0.04 ms | 0.30 ms |
+| GET /api/nope | 404 | 0.02 ms | 0.99 ms | 0.02 ms | 0.99 ms |
+| Cron Trigger: 100 expired Shared Reports removed | – | 0.86 ms | 5.64 ms (max of 30) | 0.47 ms | 3.81 ms |
+| Cron Trigger: the boards written again (90 built) | – | 3.42 ms | 10.44 ms (max of 30) | 2.23 ms | 8.67 ms |
+
+7. **Checks:** `cargo fmt`, clippy, 255 Rust tests (after `cargo xtask fixtures --force`), 49 vitest, 16 local and 22 Site Playwright tests, `cargo xtask
+   check-layering`, `pnpm check` (typecheck, lint, test and build of
+   every package through Turborepo), actionlint with shellcheck on both
+   workflows, and `nix build` (the pnpm hash unchanged; the binary is
+   13.4 MB, 10.9 MB before Phase 28's `share`). None has run on GitHub's
+   CI: that happens when the owner pushes.
+8. **Decisions:** the drill used `wrangler deploy --dry-run` and `.dev.vars`
+   in place of a deploy and `wrangler secret put`, and a systemd user
+   service in place of a system one; nothing reached Cloudflare or GitHub.
+   Limits chosen: 30 people's Builds waiting Site-wide, 250 on the
+   Builder, 300 lookups an hour per address, 4 GB of Shared Reports.
+
+Files created, changed or deleted in Phase 31:
+- Created: `DEPLOY.md`; `apps/site/drizzle/0005_security.sql` (and
+  `meta/0005_snapshot.json`), `apps/site/src/api/security.test.ts`.
+- Changed: `README.md`; `docs/adr/0015-*.md`, `docs/adr/0017-*.md`;
+  `crates/commitscape/src/share.rs`;
+  `crates/commitscape-metrics/src/people.rs`, `crates/commitscape-web/src/api.rs`,
+  `crates/commitscape-web/tests/server.rs` (the 1,000-person cap, found on
+  the boards);
+  `apps/site/src/{api.ts,server.ts,db/schema.ts}`,
+  `apps/site/src/api/{access.ts,auth.ts,boards.ts,boards.test.ts,builds.ts,github.ts,http.ts,lookup.ts,reports.ts,shares.ts,webhooks.ts}`,
+  `apps/site/src/routes/{index.tsx,privacy.tsx}`, `apps/site/src/test/r2.ts`,
+  `apps/site/drizzle/meta/_journal.json`, `apps/site/scripts/cpu.test.ts`,
+  `apps/site/e2e/site.spec.ts`;
+  `apps/builder/src/{run.ts,server.ts,disk.ts,site.ts,seeds.ts,main.ts,builder.test.ts}`;
+  `STATE.md`.
+- Deleted: none (a stray `apps/builder/health`, written by a test in
+  Phase 30 and never tracked, was removed).
+
 ## Decisions made during implementation, not in any ADR
 
 1. **`bincode` pinned to `=2.0.1`.** `cargo add` resolves to 3.0.0, which is a
@@ -1414,6 +2433,45 @@ What the first Window cost on Linux, measured part by part: the Map 61 to
 
 ---
 
+## Open questions for the owner
+
+Build Run 4 took the most conservative option for each and carried on.
+
+1. **The Site's origin.** No domain is bought, so `SITE_ORIGIN` in
+   `packages/data/src/product.ts` is `https://commitscape.invalid`, which
+   never resolves: `commitscape share` without `COMMITSCAPE_SITE` fails
+   plainly rather than uploading anywhere. Set it before the first deploy
+   (`DEPLOY.md`, step 1).
+2. **Repository pages through the Worker.** A link preview needs its tags
+   in the page itself, so `/gh/*` runs as Worker code (0.1 ms of CPU) to
+   serve each repository's stored page. That is one of the free plan's
+   100,000 daily requests per repository page view, beside the two API
+   requests every view already makes. Taking `/gh/*` out of
+   `run_worker_first` in `wrangler.jsonc` saves it and loses the previews.
+3. **A test GitHub App.** Phase 29 is tested against GitHub's responses
+   written by hand, and Phase 31's drill against the same stand-in.
+   Creating a test App (`DEPLOY.md`, step 3) and signing in once through
+   `wrangler dev` would check the real thing.
+4. **Astryx's weight.** The page grew by 0.75 MB (174 KB more gzipped),
+   more than ADR-0018 expected. It is kept, since the ADR chose Astryx for
+   every component. If it matters, the date inputs are the cheapest part
+   to replace (a native date field would save roughly a fifth).
+5. **The seed list moves.** GitHub's search does not give the same "most
+   starred" list twice (`incomplete_results`), so seeds gather over nights
+   and a repository stays a seed. If the boards should be a fixed set, a
+   list kept in the repository would do it; with a `GITHUB_TOKEN` the
+   search may also be steadier (untested).
+6. **Bots by name.** "Fastest to answer issues" leaves out answers by
+   GitHub's Bot accounts and by accounts named as automation (`-bot`,
+   `[bot]`, a list in `crates/commitscape-core/src/bots.rs`). A project's
+   own triage account under another name would still rank it first; add
+   it to the list when one shows up.
+7. **Hosted Reports have no pull-request or issue history** (Phase 27:
+   `--offline`, since reading React's takes minutes). The Activity screen
+   says so on the Site.
+
+---
+
 ## Open uncertainties for review
 
 - **`bincode` is on life support.** It works and its format is frozen, but
@@ -1432,21 +2490,32 @@ What the first Window cost on Linux, measured part by part: the Map 61 to
 
 ## Where to pick up
 
-Start Build Run 4 at Phase 23. Read `IDEA.md`, ADR-0013 to ADR-0019 and `CONTEXT.md` first.
+Build Run 4 is done and uncommitted. The owner reviews it phase by phase,
+using each phase's file list below ("Files created, changed or deleted in
+Phase N"), and commits. Read `IDEA.md`, ADR-0013 to ADR-0019 and
+`CONTEXT.md` for the why; `DEPLOY.md` for running it.
 
-Done since Build Run 3:
-- The repository is on GitHub.
-- The `<owner>` placeholders are replaced.
-- CI passes on all three operating systems:
-  - a Windows path test is fixed
-  - `.gitattributes` forces LF
-  - `cargo test --no-fail-fast` is on
+Left for the owner, none of which an agent does (IDEA.md, "Needs the owner"):
+1. **The name.** Then set `PRODUCT` and `SITE_ORIGIN` in
+   `packages/data/src/product.ts`.
+2. **The domain**, then the Site's origin as above.
+3. **Hosting**, following `DEPLOY.md`: the Cloudflare account, D1, R2,
+   secrets and the deploy (step 4); the VPS with the Builder (step 5); its
+   checks (step 6).
+4. **The GitHub App** (`DEPLOY.md`, step 3): a test one first helps.
+5. **Publishing.** Add a `repository` field to
+   `npm/commitscape/package.json` so npm shows the README's images, set up
+   an npm organisation for the platform packages' scope, an `NPM_TOKEN`
+   secret and a Homebrew tap, and tag `v0.1.0`; the release workflow does
+   the rest, and its first run on GitHub is its real test.
+6. **GitHub Sponsors**, then `.github/FUNDING.yml`.
+7. **Launch material.** The post with the owner's Wrapped
+   (`target/preview/wrapped/`), a repository card, and the Site's "paste
+   any GitHub link"; the README's GIFs are in `docs/media/`.
 
-Still for the owner, and not part of any phase:
-1. **The name.** It may change before the first release, so nothing is published yet.
-2. **Publishing.** Then add a `repository` field to `npm/commitscape/package.json` so npm shows the README's images. Set up an npm organisation for the platform packages' scope, an `NPM_TOKEN` secret and a Homebrew tap. Tag `v0.1.0`; the release workflow does the rest, and its first run on GitHub is its real test.
-3. **Hosting.** Create the Cloudflare account and resources, set up the VPS, create the GitHub App. `DEPLOY.md` is written in Phase 31.
-4. **Launch material.** The post with the owner's Wrapped (`target/preview/wrapped/`) and a repository card; the README's GIFs are in `docs/media/`.
+On this machine, `target/real-run.sh` (not in the repository) starts the
+Site and the Builder against the real GitHub with the Leaderboards' state
+kept (`KEEP=1`); `target/site-state-real` holds the 107 seeds.
 
 Seams signed off by the user and not open for revision:
 `RepoSource` (fake + real), `Index`, the `Analysis` methods, `--json` golden

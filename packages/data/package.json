@@ -1,0 +1,20 @@
+{
+  "name": "@commitscape/data",
+  "private": true,
+  "version": "0.0.0",
+  "description": "The generated API types, the Report format and the Data Sources every screen reads through (ADR-0013).",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint -c ../../.oxlintrc.json src",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "oxlint": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

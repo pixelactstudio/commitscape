@@ -1,0 +1,6 @@
+{
+  "total_count": 1,
+  "repositories": [
+    { "full_name": "acme/private-thing", "private": true, "description": "Something only Alice may see.", "html_url": "https://github.com/acme/private-thing" }
+  ]
+}
