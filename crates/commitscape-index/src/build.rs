@@ -1,15 +1,3 @@
-//! Assembles an [`Index`] from whatever a [`crate::RepoSource`] pushes at it.
-//!
-//! Three things happen here that deliberately do *not* happen in the adapters,
-//! so that they are written once and tested once: exact-rename pairing, the
-//! sort that establishes the ascending-time invariant, and file identity.
-//!
-//! Identity is resolved after the sort, oldest commit first, because it
-//! depends on order: a rename moves a file and frees its old path, and a file
-//! created at that path afterwards is a different file. The walk does not
-//! produce commits in time order, so nothing order-dependent happens while it
-//! runs. It only interns paths and signatures to small ids.
-
 use std::collections::HashMap;
 use std::ops::ControlFlow;
 
@@ -23,16 +11,13 @@ use crate::identity::resolve_authors;
 use crate::identity::IdentityRules;
 use crate::source::{CommitSink, RawChange, RawChangeKind, RawCommit};
 
-/// One change as the walk saw it, before identity resolution.
 #[derive(Debug, Clone, Copy)]
 struct PendingChange {
     path: PathId,
     kind: ChangeKind,
-    /// For a rename, the path it left. Equal to `path` otherwise.
     from: PathId,
 }
 
-/// A commit as the walk saw it. `changes` indexes `IndexBuilder::pending`.
 #[derive(Debug, Clone, Copy)]
 struct PendingCommit {
     id: Oid,
@@ -44,7 +29,6 @@ struct PendingCommit {
     offset_minutes: i16,
     author_delta: i32,
     kind: CommitKind,
-    /// Where its subject line is in the builder's own arena.
     subject_start: u32,
     subject_len: u8,
 }
@@ -57,21 +41,16 @@ fn signature_hash(name: &[u8], email: &[u8]) -> u64 {
     h.digest()
 }
 
-/// Accumulates commits pushed by a walk, in whatever order it produces them.
 pub struct IndexBuilder {
     rules: IdentityRules,
     paths: PathTable,
     path_ids: HashIndex,
     signatures: Vec<Signature>,
-    /// Commits per signature, including any already in `base`.
     used: Vec<u32>,
     signature_ids: HashIndex,
     commits: Vec<PendingCommit>,
     pending: Vec<PendingChange>,
-    /// Every added commit's subject line, one after another.
     subjects: Vec<u8>,
-    /// The index being extended, with its path and author tables moved out
-    /// into the fields above.
     base: Option<Index>,
 }
 
@@ -91,17 +70,6 @@ impl IndexBuilder {
         }
     }
 
-    /// Continues an existing index. New commits resolve against its paths and
-    /// signatures, and [`finish`](Self::finish) merges them into its history.
-    ///
-    /// `index` may hold only recent history. It must hold every commit at or
-    /// after the oldest commit the walk will add, or the merge cannot place
-    /// them; the cache arranges that before resuming.
-    ///
-    /// New commits are resolved after every commit already indexed, even one
-    /// dated older (a long-lived branch merged late). A full reindex would
-    /// interleave them by date instead. The two can differ only when such a
-    /// commit renames a path that newer history also touched.
     pub fn resume(mut index: Index, rules: IdentityRules) -> Self {
         let paths = std::mem::take(&mut index.paths);
         let mut path_ids = HashIndex::default();
@@ -130,24 +98,18 @@ impl IndexBuilder {
         }
     }
 
-    /// Commits added so far.
     pub fn commit_count(&self) -> usize {
         self.commits.len()
     }
 
-    /// The ids of the commits added so far.
     pub fn added_ids(&self) -> Vec<Oid> {
         self.commits.iter().map(|c| c.id).collect()
     }
 
-    /// The time of the oldest commit added so far.
     pub fn oldest_pending_time(&self) -> Option<i64> {
         self.commits.iter().map(|c| c.time).min()
     }
 
-    /// Extends the resumed index further back, so that it covers the oldest
-    /// commit being added. `commits` and `changes` are the history just
-    /// before what is loaded; `loaded_from` is the new start of coverage.
     pub fn prepend_base(
         &mut self,
         commits: Vec<CommitMeta>,
@@ -175,8 +137,6 @@ impl IndexBuilder {
     }
 
     fn signature_id(&mut self, name: &[u8], email: &[u8]) -> SignatureId {
-        // Signatures are stored as text, so compare in the form they were
-        // stored in; a name that is not UTF-8 is stored lossily either way.
         let name = String::from_utf8_lossy(name);
         let email = String::from_utf8_lossy(email);
         let hash = signature_hash(name.as_bytes(), email.as_bytes());
@@ -198,13 +158,6 @@ impl IndexBuilder {
         id
     }
 
-    /// Sorts into ascending commit time, resolves file identity oldest first,
-    /// resolves signatures to people, and merges with the resumed index if
-    /// there is one.
-    ///
-    /// ADR-0002 makes ascending time an invariant because it is what turns a
-    /// time window into a contiguous range. Ties are broken by commit id so
-    /// the order, and every id derived from it, is deterministic.
     pub fn finish(
         mut self,
         repo: RepoIdentity,
@@ -239,8 +192,6 @@ impl IndexBuilder {
                 match history.get_mut(file.idx()) {
                     Some(h) => *h = h.touched(c.time),
                     None => {
-                        // Identities are dense and appear in order, so a new
-                        // one is always the next slot.
                         history.resize(
                             file.idx(),
                             FileHistory {
@@ -257,8 +208,6 @@ impl IndexBuilder {
                 changes.push(FileChange {
                     file,
                     kind: p.kind,
-                    // Always None in v0.1: the walk never reads blob contents,
-                    // and line counts require exactly that (ADR-0004).
                     lines: None,
                 });
             }
@@ -315,11 +264,6 @@ impl IndexBuilder {
     }
 }
 
-/// Merges time-sorted new commits into an index's time-sorted history.
-///
-/// New commits are almost always newer than everything indexed, and are
-/// appended. A long-lived branch merged late can bring older ones, and then
-/// only the tail from the oldest of them onward is re-sorted.
 fn merge_history(
     index: &mut Index,
     new_commits: Vec<CommitMeta>,
@@ -344,8 +288,6 @@ fn merge_history(
         .unwrap_or(index.subjects.len());
     let old_subjects = index.subjects.split_off(subject_split);
 
-    // Two sorted runs, merged; each commit's changes are copied from the
-    // arena it came from.
     let mut a = tail.into_iter().peekable();
     let mut b = new_commits.into_iter().peekable();
     loop {
@@ -445,7 +387,6 @@ pub(crate) enum Resolved<'a> {
         from: &'a [u8],
         to: &'a [u8],
     },
-    /// `raw` is the change's place in the list it was resolved from.
     Plain {
         path: &'a [u8],
         kind: ChangeKind,
@@ -453,17 +394,6 @@ pub(crate) enum Resolved<'a> {
     },
 }
 
-/// Turns `Added`/`Deleted` pairs that share a blob id into renames.
-///
-/// This is the whole of ADR-0004's rename support. A rename with identical
-/// content produces a deletion at the old path and an addition at the new one,
-/// both naming the same blob — so detecting it is an id comparison and never
-/// touches file contents. A file that moved *and* changed has two different
-/// blob ids and is correctly left as a separate delete and add.
-///
-/// `gix`'s own rewrite tracker would do this too, but it lives behind
-/// `gix-diff`'s `blob` feature, which we do not enable precisely because
-/// ADR-0004 forbids blob access in the walk.
 pub(crate) fn pair_exact_renames<'a>(changes: &[RawChange<'a>]) -> Vec<Resolved<'a>> {
     let mut deletions_by_blob: HashMap<Oid, Vec<usize>> = HashMap::new();
     for (i, c) in changes.iter().enumerate() {
@@ -479,7 +409,6 @@ pub(crate) fn pair_exact_renames<'a>(changes: &[RawChange<'a>]) -> Vec<Resolved<
         if c.kind != RawChangeKind::Added {
             continue;
         }
-        // A blob of all zeroes is not a real object; never pair on it.
         if c.blob == Oid::ZERO {
             continue;
         }
@@ -554,8 +483,6 @@ mod tests {
 
     #[test]
     fn a_move_with_an_edit_is_not_a_rename() {
-        // Different blob ids: this is the move-plus-edit case ADR-0004 says we
-        // deliberately do not detect, because doing so needs content similarity.
         let changes = [
             raw(b"old/path.txt", RawChangeKind::Deleted, oid(7)),
             raw(b"new/path.txt", RawChangeKind::Added, oid(8)),
@@ -593,8 +520,6 @@ mod tests {
 
     #[test]
     fn a_file_copied_to_two_places_pairs_only_once() {
-        // One deletion cannot satisfy two additions. The second addition is a
-        // genuine addition, not a second rename of the same file.
         let changes = [
             raw(b"src.txt", RawChangeKind::Deleted, oid(5)),
             raw(b"copy-a.txt", RawChangeKind::Added, oid(5)),

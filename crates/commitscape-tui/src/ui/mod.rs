@@ -1,6 +1,3 @@
-//! Drawing. A frame is a function of the App's state alone: nothing here
-//! computes a metric.
-
 mod activity;
 pub(crate) mod card;
 pub(crate) mod charts;
@@ -23,7 +20,6 @@ use crate::format::{counted, grouped, short_date};
 use crate::list::Cursor;
 use crate::theme::{self, ACCENT, LINE, MUTED, SELECTED, SURFACE, TEXT, TEXT_2};
 
-/// A Window's span in words: `the last 90 days`.
 pub(crate) fn phrase(span: Span) -> &'static str {
     match span {
         Span::Month => "the last 30 days",
@@ -33,7 +29,6 @@ pub(crate) fn phrase(span: Span) -> &'static str {
     }
 }
 
-/// A Window's span, short: `90 days`, `all time`.
 pub(crate) fn short_phrase(span: Span) -> &'static str {
     match span {
         Span::Month => "30 days",
@@ -68,7 +63,6 @@ pub(crate) fn draw(app: &mut App, frame: &mut Frame) {
     }
 }
 
-/// Fades everything already drawn, under an overlay.
 fn dim(frame: &mut Frame, area: Rect) {
     let buf = frame.buffer_mut();
     for y in area.y..area.y + area.height {
@@ -217,8 +211,6 @@ fn draw_tabs(app: &App, frame: &mut Frame, area: Rect, rule: Rect) {
     }
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
 
-    // A hairline under the tabs, heavy and in the accent under the one
-    // that is open.
     let buf = frame.buffer_mut();
     for dx in 0..rule.width {
         let under = dx >= active.0 && dx < active.0 + active.1;
@@ -306,9 +298,6 @@ fn draw_footer(app: &App, frame: &mut Frame, area: Rect) {
     frame.render_widget(Paragraph::new(line), area);
 }
 
-/// A section `width` columns wide: a rounded hairline border with a title
-/// and, on the right, a note in muted ink. The note gives way when the two
-/// would not both fit.
 pub(crate) fn section<'a>(width: u16, title: &str, note: Option<String>) -> Block<'a> {
     let mut block = Block::bordered()
         .border_type(BorderType::Rounded)
@@ -327,7 +316,6 @@ pub(crate) fn section<'a>(width: u16, title: &str, note: Option<String>) -> Bloc
     block
 }
 
-/// Draws a [`section`] over `area` and returns the space inside it.
 pub(crate) fn boxed(frame: &mut Frame, area: Rect, title: &str, note: Option<String>) -> Rect {
     let block = section(area.width, title, note);
     let inner = block.inner(area);
@@ -335,8 +323,6 @@ pub(crate) fn boxed(frame: &mut Frame, area: Rect, title: &str, note: Option<Str
     inner
 }
 
-/// Wrapped text a column in from each side of `area`, so every line of a
-/// paragraph keeps the same margin.
 pub(crate) fn prose(frame: &mut Frame, area: Rect, lines: Vec<Line<'static>>) {
     frame.render_widget(
         Paragraph::new(lines).wrap(Wrap { trim: false }),
@@ -344,13 +330,11 @@ pub(crate) fn prose(frame: &mut Frame, area: Rect, lines: Vec<Line<'static>>) {
     );
 }
 
-/// How many rows [`prose`] takes to show `lines` in `width` columns.
 pub(crate) fn prose_height(lines: &[Line<'static>], width: u16) -> u16 {
     let paragraph = Paragraph::new(lines.to_vec()).wrap(Wrap { trim: false });
     u16::try_from(paragraph.line_count(width.saturating_sub(2))).unwrap_or(u16::MAX)
 }
 
-/// `area` less a column on each side.
 pub(crate) fn inset(area: Rect) -> Rect {
     Rect {
         x: area.x + 1,
@@ -359,8 +343,6 @@ pub(crate) fn inset(area: Rect) -> Rect {
     }
 }
 
-/// A folder's label as the interface shows it: the root holds the whole
-/// project.
 pub(crate) fn folder(label: &str) -> &str {
     if label.is_empty() || label == "(root)" {
         "whole project"
@@ -369,7 +351,6 @@ pub(crate) fn folder(label: &str) -> &str {
     }
 }
 
-/// A file's folder, or `top level` for a file at the root.
 pub(crate) fn home(dir: &str) -> &str {
     if dir.is_empty() {
         "top level"
@@ -378,8 +359,6 @@ pub(crate) fn home(dir: &str) -> &str {
     }
 }
 
-/// Two paths by their names, with as many of their folders as tell them
-/// apart: `server/store.ts` and `web/store.ts` rather than `store.ts` twice.
 pub(crate) fn names_apart(a: &str, b: &str) -> (String, String) {
     let (xs, ys): (Vec<&str>, Vec<&str>) = (a.split('/').collect(), b.split('/').collect());
     let mut keep = 1;
@@ -396,7 +375,6 @@ pub(crate) fn names_apart(a: &str, b: &str) -> (String, String) {
     (tail(&xs), tail(&ys))
 }
 
-/// A path's directory and file name: `src/engine/` and `core.rs`.
 pub(crate) fn split_path(path: &str) -> (&str, &str) {
     match path.rfind('/') {
         Some(i) => (
@@ -407,8 +385,6 @@ pub(crate) fn split_path(path: &str) -> (&str, &str) {
     }
 }
 
-/// `s` in at most `width` characters, cut from the front: the end of a path
-/// or name says more than its start.
 pub(crate) fn fit(s: &str, width: usize) -> String {
     let n = s.chars().count();
     if n <= width {
@@ -421,7 +397,6 @@ pub(crate) fn fit(s: &str, width: usize) -> String {
     format!("…{keep}")
 }
 
-/// A line in at most `width` characters, ending in `…` when it was longer.
 pub(crate) fn fit_line(line: Line<'static>, width: usize) -> Line<'static> {
     let total: usize = line.spans.iter().map(|s| s.content.chars().count()).sum();
     if total <= width {
@@ -447,8 +422,6 @@ pub(crate) fn fit_line(line: Line<'static>, width: usize) -> Line<'static> {
     Line::from(out)
 }
 
-/// Spans word-wrapped to `width` columns, every line after the first
-/// indented by `indent`: a bullet whose text lines up under itself.
 pub(crate) fn wrap_spans(
     spans: Vec<Text<'static>>,
     width: usize,
@@ -475,7 +448,6 @@ pub(crate) fn wrap_spans(
     lines
 }
 
-/// `s` in at most `width` characters, cut from the end.
 pub(crate) fn clip(s: &str, width: usize) -> String {
     if s.chars().count() <= width {
         return s.to_string();
@@ -487,8 +459,6 @@ pub(crate) fn clip(s: &str, width: usize) -> String {
     format!("{keep}…")
 }
 
-/// The rows of a list that fit in `height`, scrolled to keep the selection
-/// in view, with the selection's position inside them.
 pub(crate) fn visible(
     cursor: &mut Cursor,
     len: usize,
@@ -499,8 +469,6 @@ pub(crate) fn visible(
     (shown, at)
 }
 
-/// Makes a list's rows clickable: row `k` of `shown` is drawn `height`
-/// rows tall, from the top of `area`.
 pub(crate) fn clickable_rows(app: &App, area: Rect, shown: std::ops::Range<usize>, height: u16) {
     for (k, i) in shown.enumerate() {
         let y = area.y + k as u16 * height;
@@ -516,7 +484,6 @@ pub(crate) fn clickable_rows(app: &App, area: Rect, shown: std::ops::Range<usize
     }
 }
 
-/// Paints a selected row's background across `area`'s width at `y`.
 pub(crate) fn highlight(frame: &mut Frame, area: Rect, y: u16) {
     let buf = frame.buffer_mut();
     for x in area.x..area.x + area.width {
@@ -529,7 +496,6 @@ pub(crate) fn highlight(frame: &mut Frame, area: Rect, y: u16) {
     }
 }
 
-/// A one-line message in the middle of an empty section.
 pub(crate) fn empty(frame: &mut Frame, area: Rect, message: &str) {
     frame.render_widget(
         Paragraph::new(vec![
@@ -542,8 +508,6 @@ pub(crate) fn empty(frame: &mut Frame, area: Rect, message: &str) {
     );
 }
 
-/// A number and what it counts, as a tile: the value large and bold, the
-/// label and a second line muted.
 pub(crate) fn tile(frame: &mut Frame, area: Rect, value: &str, label: &str, note: &str) {
     let block = Block::bordered()
         .border_type(BorderType::Rounded)
@@ -558,13 +522,11 @@ pub(crate) fn tile(frame: &mut Frame, area: Rect, value: &str, label: &str, note
     frame.render_widget(Paragraph::new(lines), inner);
 }
 
-/// Clears an area, for overlays.
 pub(crate) fn clear(frame: &mut Frame, area: Rect) {
     frame.render_widget(Clear, area);
     frame.render_widget(Block::new().style(Style::new().bg(SURFACE)), area);
 }
 
-/// `n` grouped with a unit: `1,234 commits`.
 pub(crate) fn many(n: u64, one: &str, several: &str) -> String {
     format!("{} {}", grouped(n), if n == 1 { one } else { several })
 }

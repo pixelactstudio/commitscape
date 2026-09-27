@@ -1,6 +1,3 @@
-//! One Index, one Window, one set of thresholds: every metric the interface
-//! shows.
-
 use std::cmp::Ordering;
 use std::ops::Range;
 
@@ -9,42 +6,18 @@ use serde::Serialize;
 
 use crate::window::Window;
 
-/// Commits touching more files than this are Bulk Commits unless the caller
-/// says otherwise.
-///
-/// Chosen from the changeset sizes of seven repositories (`cargo xtask
-/// changesets`, recorded in STATE.md). Over 50 files is 0.15% of Linux's
-/// commits and 1.2% of rust-lang/rust's: the reformat and mass-move tail. In
-/// young application repositories it is 2 to 6%, mostly scaffolding drops,
-/// which are what must not drive Change Coupling; a commit of 51 to 100 files
-/// alone makes 1,275 to 4,950 pairs.
 pub const DEFAULT_MAX_CHANGESET_SIZE: u32 = 50;
 
-/// Change Coupling ignores files that changed in fewer commits than this.
 pub const DEFAULT_COUPLING_SUPPORT: u32 = 5;
 
-/// Directories with fewer commits than this in the Window are not reported
-/// for Ownership: one person making the only two commits in a directory is
-/// not a finding.
 pub const DEFAULT_OWNERSHIP_MIN_COMMITS: u32 = 10;
 
-/// The most rows a ranking returns. No Panel shows more, and ordering every
-/// one of a large repository's 90,000 files to show the first dozen measured
-/// 23ms of a warm start. A file past this is still reachable by asking about
-/// it directly, as [`Analysis::churn_of`] does.
 pub const RANKING_LIMIT: usize = 1000;
 
-/// The thresholds an Analysis applies. Changing one never touches the Index.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct Options {
-    /// A commit touching more files than this is a Bulk Commit, excluded
-    /// from Churn and Change Coupling.
     pub max_changeset_size: u32,
-    /// Files that changed in fewer commits than this within the Window are
-    /// left out of Change Coupling.
     pub coupling_support: u32,
-    /// Directories with fewer commits than this within the Window are left
-    /// out of Ownership.
     pub ownership_min_commits: u32,
 }
 
@@ -58,68 +31,42 @@ impl Default for Options {
     }
 }
 
-/// The Window starts before the history loaded so far. Wait for the rest of
-/// history to load, or use a shorter Window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[error("the window starts before the history loaded so far")]
 pub struct NotLoaded;
 
-/// What happened to the commits in the Window.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct CommitCounts {
     pub in_window: u64,
-    /// Merge Commits, excluded from Churn.
     pub merges: u64,
-    /// Bulk Commits, excluded from Churn. Shown, so an exclusion is never
-    /// silent.
     pub bulk: u64,
-    /// Commits Churn counted: the rest.
     pub counted: u64,
 }
 
-/// A file's Churn in the Window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct Churn {
     pub file: FileId,
     pub commits: u32,
 }
 
-/// A Hotspot, with the numbers its score is made of.
-///
-/// Both factors are percentile ranks: the share of files whose value is at or
-/// below this one's. Ranks rather than fractions of the maximum, because
-/// real repositories have pathological files; rust-lang/rust has a parser
-/// test a hundred times more deeply indented than any real source, and
-/// dividing by it made every other score round to zero.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct Hotspot {
     pub file: FileId,
-    /// Churn in the Window.
     pub churn: u32,
-    /// Complexity Proxy at HEAD: the sum of indentation levels.
     pub complexity: u32,
-    /// Where `churn` ranks among files with any Churn in the Window.
     pub churn_percentile: f64,
-    /// Where `complexity` ranks among every file that can be ranked.
     pub complexity_percentile: f64,
-    /// `churn_percentile * complexity_percentile`.
     pub score: f64,
-    /// Where `churn` stands among files with any Churn in the Window.
     pub churn_rank: Rank,
-    /// Where `complexity` stands among every file that can be ranked.
     pub complexity_rank: Rank,
 }
 
-/// Where a value stands among the files it was compared with: 2nd of 4.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct Rank {
-    /// 1 for the highest value. Files that tie share the higher place.
     pub place: u32,
-    /// How many files were compared.
     pub of: u32,
 }
 
-/// A file at HEAD, by size.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct LargeFile {
     pub file: FileId,
@@ -128,42 +75,31 @@ pub struct LargeFile {
     pub complexity: u32,
 }
 
-/// The repository in numbers: all of its history, and what is at HEAD. The
-/// history numbers are there even when only part of history is loaded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct Totals {
     pub commits: u64,
     pub merges: u64,
-    /// Committer time of the oldest and newest commit.
     pub first_commit: Option<i64>,
     pub last_commit: Option<i64>,
-    /// Everyone who ever committed, after identities are resolved.
     pub people: usize,
-    /// Files people wrote at HEAD: code and prose.
     pub files: u32,
     pub code_files: u32,
     pub code_lines: u64,
     pub prose_lines: u64,
-    /// Files at HEAD no person wrote: lockfiles, generated and vendored
-    /// code, binaries.
     pub generated_files: u32,
 }
 
-/// Every metric over one Window of one Index.
 pub struct Analysis<'i> {
     index: &'i Index,
     window: Window,
     options: Options,
-    /// The Window's commits, a contiguous run of the time-ordered history.
     range: Range<usize>,
-    /// Churn by `FileId`.
     churn: Vec<u32>,
     counts: CommitCounts,
 }
 
 impl<'i> Analysis<'i> {
-    /// Refuses a Window reaching past the history loaded so far, rather than
-    /// computing numbers from part of it.
+    /// Every metric over one Window of an Index.
     pub fn new(index: &'i Index, window: Window, options: Options) -> Result<Self, NotLoaded> {
         if !window.is_loaded(index) {
             return Err(NotLoaded);
@@ -213,25 +149,19 @@ impl<'i> Analysis<'i> {
         self.options
     }
 
-    /// The person who made a commit, unless it was a bot: who holds the
-    /// code is a question about people (ADR-0011).
     pub fn person_of(&self, commit: &CommitMeta) -> Option<AuthorId> {
         let author = self.index.author_of(commit)?;
         (!self.index.authors.is_bot(author)).then_some(author)
     }
 
-    /// The Window's commits, in time order.
     pub fn window_commits(&self) -> &'i [CommitMeta] {
         self.index.commits.get(self.range.clone()).unwrap_or(&[])
     }
 
-    /// How many commits the Window holds, and which were excluded.
     pub fn commits(&self) -> CommitCounts {
         self.counts
     }
 
-    /// Churn of every file that can be ranked, most churned first. Files with
-    /// none in the Window are left out.
     pub fn churn(&self) -> Vec<Churn> {
         let mut out: Vec<Churn> = self
             .ranked()
@@ -251,9 +181,6 @@ impl<'i> Analysis<'i> {
         out
     }
 
-    /// Code files that are both heavily changed and structurally complex,
-    /// highest score first. A file with no Churn in the Window, or no
-    /// indentation at all, is not a Hotspot.
     pub fn hotspots(&self) -> Vec<Hotspot> {
         let mut churns: Vec<u32> = self
             .code()
@@ -294,7 +221,6 @@ impl<'i> Analysis<'i> {
         out
     }
 
-    /// Code files at HEAD, most lines first.
     pub fn largest(&self) -> Vec<LargeFile> {
         let mut out: Vec<LargeFile> = self
             .code()
@@ -311,9 +237,6 @@ impl<'i> Analysis<'i> {
         out
     }
 
-    /// The Window's counted commits that touched every one of `files`,
-    /// newest first: the commits behind a Churn number or a coupled pair.
-    /// Merge Commits and Bulk Commits are left out, as they are from both.
     pub fn commits_touching(&self, files: &[FileId]) -> Vec<&'i CommitMeta> {
         let index = self.index;
         self.window_commits()
@@ -327,7 +250,6 @@ impl<'i> Analysis<'i> {
             .collect()
     }
 
-    /// The repository in numbers, whatever the Window.
     pub fn totals(&self) -> Totals {
         let index = self.index;
         let mut t = Totals {
@@ -361,18 +283,14 @@ impl<'i> Analysis<'i> {
         t
     }
 
-    /// Churn of one file in the Window.
     pub fn churn_of(&self, file: FileId) -> u32 {
         self.churn.get(file.idx()).copied().unwrap_or(0)
     }
 
-    /// Files at HEAD a person wrote: the only ones any ranking shows.
     pub(crate) fn ranked(&self) -> impl Iterator<Item = &'i HeadFile> {
         self.index.head.iter().filter(|h| h.class.is_rankable())
     }
 
-    /// Code files at HEAD a person wrote: the ones size and the Complexity
-    /// Proxy mean anything for.
     pub(crate) fn code(&self) -> impl Iterator<Item = &'i HeadFile> {
         self.index.head.iter().filter(|h| h.class.is_code())
     }
@@ -382,7 +300,6 @@ impl<'i> Analysis<'i> {
     }
 }
 
-/// The share of a sorted population at or below `value`.
 fn percentile(sorted: &[u32], value: u32) -> f64 {
     if sorted.is_empty() {
         return 0.0;
@@ -390,7 +307,6 @@ fn percentile(sorted: &[u32], value: u32) -> f64 {
     sorted.partition_point(|&v| v <= value) as f64 / sorted.len() as f64
 }
 
-/// Where `value` stands in a sorted population, counting from the top.
 fn rank(sorted: &[u32], value: u32) -> Rank {
     let above = sorted.len() - sorted.partition_point(|&v| v <= value);
     Rank {
@@ -399,8 +315,6 @@ fn rank(sorted: &[u32], value: u32) -> Rank {
     }
 }
 
-/// Keeps the first [`RANKING_LIMIT`] rows in `order`, sorted: a linear
-/// selection, then a sort of what is kept.
 pub(crate) fn top<T>(rows: &mut Vec<T>, mut order: impl FnMut(&T, &T) -> Ordering) {
     if rows.len() > RANKING_LIMIT {
         rows.select_nth_unstable_by(RANKING_LIMIT, &mut order);
@@ -414,13 +328,10 @@ enum Excluded {
     Bulk,
 }
 
-/// Whether a commit counts for Churn, Ownership and Change Coupling: not a
-/// Merge Commit and not a Bulk Commit.
 pub(crate) fn counts(commit: &CommitMeta, options: &Options) -> bool {
     exclusion(commit, options).is_none()
 }
 
-/// Why a commit is left out of Churn, if it is.
 fn exclusion(commit: &CommitMeta, options: &Options) -> Option<Excluded> {
     if commit.is_merge() {
         Some(Excluded::Merge)

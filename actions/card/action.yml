@@ -21,7 +21,6 @@ inputs:
 runs:
   using: composite
   steps:
-    # All of history: the card tells it.
     - uses: actions/checkout@v4
       with:
         fetch-depth: 0
@@ -34,9 +33,6 @@ runs:
         MESSAGE: ${{ inputs.message }}
       run: |
         set -euo pipefail
-        # The card's own commit is history too: with nothing committed since
-        # it, a card of all of history would differ only by that commit. A
-        # shorter Window moves on with the days, so it is always redrawn.
         last=$(git log -1 --format=%H -- "$CARD")
         if [ "$WINDOW" = "all" ] && [ -n "$last" ] && [ -z "$(git log --format=%H "$last..HEAD")" ]; then
           echo "Nothing has been committed since the card was drawn."

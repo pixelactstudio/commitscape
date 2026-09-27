@@ -1,14 +1,3 @@
-//! The cache, driven through the scripted adapter and a temporary directory.
-//!
-//! ADR-0002 is the specification: a warm load reads the cache and walks
-//! nothing; new commits are added without a rebuild, including older-dated
-//! ones a merge made reachable; rewritten history, damage and torn writes all
-//! degrade to a rebuild and never to an error.
-//!
-//! Loads are compared by what a user could observe: each commit's changes by
-//! path, and each commit's author. Internal ids may legitimately differ
-//! between an incremental load and a full build.
-
 #![allow(clippy::expect_used)]
 
 use std::path::Path;
@@ -24,7 +13,6 @@ const ALICE: (&str, &str) = ("Alice Example", "alice@example.com");
 const ALICE_WORK: (&str, &str) = ("A. Example", "alice@work.example.org");
 const BOB: (&str, &str) = ("Bob Example", "bob@example.com");
 
-/// 2024-01-01T00:00:00Z.
 const JAN_2024: i64 = 1_704_067_200;
 const DAY: i64 = 86_400;
 
@@ -50,7 +38,6 @@ fn load_all(repo: &ScriptedRepo, root: &Path) -> Loaded {
 
 type Observed = Vec<(Oid, i64, String, String, Vec<(String, ChangeKind)>)>;
 
-/// What a user could observe of an index.
 fn observe(idx: &Index) -> Observed {
     idx.commits
         .iter()
@@ -143,8 +130,6 @@ fn new_commits_are_added_without_a_rebuild() {
     assert_eq!(observe(&again.index), observe(&scratch(&grown)));
 }
 
-/// main: 1 (Jan 1), 2 (Jan 2); side from 2: 3 (Jan 3), 4 (Jan 4);
-/// main again: 5 (Jan 5), 6 (Jan 6); merge of 6 and 4: 7 (Jan 7).
 fn branched() -> ScriptedRepo {
     ScriptedRepo::new()
         .commit(JAN_2024, ALICE, &[(b"main.txt", Added, blob(1))])
@@ -170,8 +155,6 @@ fn branched() -> ScriptedRepo {
 
 #[test]
 fn older_commits_a_merge_makes_reachable_are_added_on_the_next_load() {
-    // ADR-0002's frontier case, through the cache. The first load sees main
-    // up to commit 6 and never sees the side branch.
     let dir = tempfile::tempdir().expect("temp dir");
     let before = load_all(&branched().only_tips(&[6]), dir.path());
     assert_eq!(before.index.commits.len(), 4);
@@ -191,8 +174,6 @@ fn rewritten_history_is_rebuilt() {
     let dir = tempfile::tempdir().expect("temp dir");
     load_all(&linear(), dir.path());
 
-    // Same repository path, different history: a force-push that replaced
-    // every commit.
     let rewritten = ScriptedRepo::new()
         .commit(JAN_2024 + 7, BOB, &[(b"z.txt", Added, blob(9))])
         .commit(JAN_2024 + 9, BOB, &[(b"z.txt", Modified, blob(8))]);
@@ -245,9 +226,6 @@ fn a_damaged_cache_is_rebuilt_and_never_reported_as_an_error() {
 
 #[test]
 fn a_head_whose_history_was_lost_reads_as_stale_rather_than_corrupt() {
-    // An update appends to the data file and then writes a new head. If the
-    // appended bytes are lost (a crash before they reached the disk), the
-    // head names months that are not there.
     let dir = tempfile::tempdir().expect("temp dir");
     load_all(&linear(), dir.path());
     let data = data_file(dir.path());
@@ -285,7 +263,6 @@ fn a_writer_that_crashed_mid_append_leaves_the_cache_readable() {
     assert_eq!(observe(&loaded.index), observe(&scratch(&repo)));
 }
 
-/// Commits on the 10th of January, February, March and April 2024.
 fn four_months() -> ScriptedRepo {
     let mid = |month_start: i64| month_start + 9 * DAY;
     ScriptedRepo::new()
@@ -306,7 +283,6 @@ fn a_recent_window_reads_only_the_months_it_needs_and_the_rest_later() {
     let repo = four_months();
     load_all(&repo, dir.path());
 
-    // Anything in March: the March and April months are read, whole.
     let mut recent = load_with(&repo, Some(dir.path()), Since::Time(MAR_1_2024 + 20 * DAY));
     assert_eq!(recent.freshness, Freshness::Warm);
     assert_eq!(recent.index.loaded_from, Some(MAR_1_2024));
@@ -347,7 +323,6 @@ fn a_window_relative_to_the_newest_commit_resolves_against_the_cache() {
     let repo = four_months();
     load_all(&repo, dir.path());
 
-    // The newest commit is 10 April. Five days back is still April.
     let recent = load_with(&repo, Some(dir.path()), Since::BeforeNewest(5 * DAY));
     assert_eq!(recent.index.loaded_from, Some(APR_1_2024));
     assert_eq!(recent.index.commits.len(), 1);
@@ -432,7 +407,6 @@ fn without_a_cache_directory_nothing_is_read_or_written() {
     assert_eq!(observe(&loaded.index), observe(&scratch(&linear())));
 }
 
-/// The repository's cache directory: the one subdirectory of the root.
 fn repo_cache(root: &Path) -> std::path::PathBuf {
     std::fs::read_dir(root)
         .expect("cache root")
@@ -442,15 +416,12 @@ fn repo_cache(root: &Path) -> std::path::PathBuf {
         .path()
 }
 
-/// The live head file.
 fn live_head(root: &Path) -> std::path::PathBuf {
     let dir = repo_cache(root);
     let generation = std::fs::read_to_string(dir.join("index.current")).expect("pointer");
     dir.join(format!("{}.head", generation.trim()))
 }
 
-/// The data file. After a write there is exactly one the live head uses;
-/// this finds the newest.
 fn data_file(root: &Path) -> std::path::PathBuf {
     let mut data: Vec<_> = std::fs::read_dir(repo_cache(root))
         .expect("repo cache")
@@ -462,17 +433,12 @@ fn data_file(root: &Path) -> std::path::PathBuf {
     data.pop().expect("a data file")
 }
 
-/// Every file a load reads.
 fn cache_files(root: &Path) -> Vec<std::path::PathBuf> {
     vec![live_head(root), data_file(root)]
 }
 
 #[test]
 fn a_late_merge_of_old_commits_reaches_back_past_a_partial_load() {
-    // Main: the four monthly commits. A side branch from the January commit
-    // gets one commit on 20 January and is merged on 20 April. The first load
-    // never sees the side branch; the second loads only April onward, so the
-    // January commit lands in a month it did not read.
     const APR_1_2024: i64 = 1_711_929_600;
     let full = || {
         four_months()
@@ -520,9 +486,6 @@ fn old_generations_are_removed_keeping_only_the_last_two() {
 
 #[test]
 fn repeated_updates_do_not_let_the_data_file_grow_without_bound() {
-    // Every update re-encodes the current month and appends it, leaving the
-    // old copy behind. Compaction must keep the file within a small multiple
-    // of what a fresh build writes.
     let dir = tempfile::tempdir().expect("temp dir");
     let mut repo = linear();
     for i in 0..60u8 {

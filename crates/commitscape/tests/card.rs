@@ -1,6 +1,3 @@
-//! `commitscape card`: the binary draws the repository's story and writes
-//! it as an SVG image.
-
 #![allow(clippy::expect_used)]
 
 use std::path::PathBuf;
@@ -19,8 +16,6 @@ fn fixture(name: &str) -> PathBuf {
 
 #[test]
 fn card_writes_the_story_of_all_of_history_as_an_svg() {
-    // The rhythm fixture: six commits by three people between 1 and 8
-    // January 2024.
     let dir = tempfile::tempdir().expect("a temporary directory");
     let out = dir.path().join("rhythm.svg");
     let run = Command::new(env!("CARGO_BIN_EXE_commitscape"))

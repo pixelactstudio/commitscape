@@ -1,9 +1,5 @@
 name: CI
 
-# Build and test only. Publishing is deliberately not here: ADR-0003 describes a
-# release that must publish six platform packages before the package that
-# depends on them, and that ordering is not something to bolt onto a push hook.
-
 on:
   push:
     branches: [main]
@@ -29,8 +25,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Configure git for fixture generation
-        # The fixture generator stamps its own authors and dates, but git
-        # refuses to commit at all without some identity configured.
         run: |
           git config --global user.name "commitscape ci"
           git config --global user.email "ci@example.invalid"
@@ -40,8 +34,6 @@ jobs:
         run: cargo xtask fixtures --force
 
       - name: Check the walk against git
-        # The walk computes its own tree diffs, including git's combined diff
-        # for merges. Every fixture commit must match `git diff-tree -c`.
         shell: bash
         run: |
           for f in linear coupling ownership renames bulk merges conflict rhythm detached shallow; do
@@ -49,9 +41,6 @@ jobs:
           done
 
       - name: Test
-        # A snapshot that differs fails the run; none is ever written here.
-        # --no-fail-fast runs every test binary, so one failure does not hide
-        # the others.
         env:
           INSTA_UPDATE: "no"
         run: cargo test --workspace --all-targets --no-fail-fast
@@ -76,21 +65,18 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Layering
-        # ADR-0001's seam is only real if the metrics crate genuinely cannot
-        # reach gix. This asserts it on every push.
         run: cargo xtask check-layering
 
   web:
-    # The TypeScript workspace (ADR-0013): its checks through Turborepo,
-    # then the local page's screens in Chromium against a fixture, through
-    # the real binary.
     name: web
     runs-on: ubuntu-latest
+    env:
+      TEST_DATABASE_URL: postgres://commitscape:commitscape@localhost:5434/commitscape
+      TEST_S3_ENDPOINT: http://localhost:9100
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      # pnpm's version comes from package.json's packageManager.
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v4
         with:
@@ -103,31 +89,23 @@ jobs:
           git config --global user.email "ci@example.invalid"
           git config --global init.defaultBranch main
 
+      - name: Postgres and S3
+        run: |
+          docker compose -f compose.dev.yaml up -d --wait postgres minio
+          docker compose -f compose.dev.yaml up minio-bucket
+
       - name: Typecheck, lint, test and build
         run: |
           pnpm install --frozen-lockfile
           pnpm check
 
-      - name: Build the binary, with the web app inside, and the fixtures
+      - name: Build the binary and the fixtures
         run: |
           cargo xtask fixtures --force
           cargo build --release -p commitscape
 
-      - name: The screens, end to end
-        working-directory: apps/local
+      - name: The Site, end to end
+        working-directory: apps/site
         run: |
           pnpm exec playwright install --with-deps chromium
           pnpm e2e
-
-      - name: The Site, end to end under wrangler dev
-        # Local D1 and R2 only: nothing is deployed (ADR-0014).
-        working-directory: apps/site
-        run: pnpm e2e
-
-      - name: The Site's API handlers stay far under 10 ms of CPU
-        working-directory: apps/site
-        env:
-          REPORT_FILE: ${{ runner.temp }}/ownership.json.gz
-        run: |
-          ../../target/release/commitscape report --data --offline --no-cache --window all --out "$REPORT_FILE" ../../fixtures/ownership
-          pnpm exec vitest run --config scripts/vitest.config.ts

@@ -1,4 +1,3 @@
-/** commitscape's mark: a small Map, three blocks of code. */
 export function Logo({ size = 22 }: { size?: number }) {
   return (
     <svg className="logo" width={size} height={size} viewBox="0 0 22 22" aria-hidden>

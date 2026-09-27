@@ -9,9 +9,6 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
-# The interface reads an Index and computes with commitscape-metrics. It never
-# reaches git or the cache: older history arrives through a function the
-# caller provides (`Session::older`).
 [dependencies]
 commitscape-core = { path = "../commitscape-core" }
 commitscape-forge = { path = "../commitscape-forge" }

@@ -1,3 +1,1 @@
-# Check text out with LF everywhere, Windows included: tests compare
-# generated text (packages/data/src/types.ts, snapshots, golden JSON) byte for byte.
 * text=auto eol=lf

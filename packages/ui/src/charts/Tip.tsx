@@ -1,7 +1,3 @@
-/**
- * The hover layer every chart has: a tooltip that follows the pointer, and
- * the same text on focus for the keyboard.
- */
 import { useState, type ReactNode } from "react";
 import { TipContext, type Show } from "./tip";
 

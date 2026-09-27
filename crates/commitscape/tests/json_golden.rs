@@ -1,12 +1,3 @@
-//! The `--json` seam: the document the binary prints for each fixture,
-//! compared byte for byte with `tests/golden/<fixture>.json`.
-//!
-//! Each golden file was checked by hand against `docs/fixtures.md` when it
-//! was written, and `fixture_metrics.rs` asserts the same literals through
-//! the library. To accept a deliberate change, run with
-//! `COMMITSCAPE_UPDATE_GOLDEN=1` and review the diff before committing it.
-//! CI never sets it, so a missing or stale golden file fails there.
-
 #![allow(clippy::expect_used, clippy::panic)]
 
 use std::path::PathBuf;

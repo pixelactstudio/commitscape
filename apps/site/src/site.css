@@ -1,4 +1,3 @@
-/* The Site's own pages; the screens' styles are @commitscape/ui's. */
 .site { max-width: 72rem; margin: 0 auto; padding: 1rem 1.5rem 3rem; line-height: 1.5; }
 .site a { color: var(--color-text-accent); }
 .site-foot { text-align: center; padding: 2rem 1rem 3rem; }

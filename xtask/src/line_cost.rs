@@ -1,7 +1,3 @@
-//! What the line pass (ADR-0012) costs on a real repository: every
-//! non-merge commit's changes diffed line by line, timed, with the share
-//! that Bulk Commits and lockfiles take.
-
 use std::path::Path;
 use std::sync::Mutex;
 use std::time::Instant;
@@ -77,7 +73,6 @@ pub fn run(path: &Path, newest: Option<usize>, verify: bool) -> Result<()> {
     Ok(())
 }
 
-/// Compares every change's count with `git show --numstat --no-renames`.
 fn compare_with_git(
     path: &Path,
     source: &GixRepo,

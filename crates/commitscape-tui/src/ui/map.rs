@@ -1,7 +1,3 @@
-//! The Map: the code at HEAD as rectangles, each as large as its lines,
-//! coloured by where the work is, how long since it was touched, or who
-//! holds it.
-
 use commitscape_metrics::MapNode;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -54,8 +50,6 @@ pub(super) fn draw(app: &App, frame: &mut Frame, area: Rect, cursor: &mut Cursor
         Some(format!("sized by lines · {colour_name}")),
     );
 
-    // Every child, even one without lines, so the selection matches what
-    // Enter opens.
     let children: Vec<&MapNode> = here.children.iter().filter_map(|&c| nodes.get(c)).collect();
     cursor.step(0, children.len());
     if here.lines == 0 {
@@ -64,8 +58,6 @@ pub(super) fn draw(app: &App, frame: &mut Frame, area: Rect, cursor: &mut Cursor
     }
     let sizes: Vec<u64> = children.iter().map(|n| n.lines).collect();
     let rects = charts::treemap(&sizes, inner);
-    // One heat scale for everything drawn: the folders here and the
-    // folders and files inside them.
     let hottest = children
         .iter()
         .flat_map(|n| {
@@ -85,8 +77,6 @@ pub(super) fn draw(app: &App, frame: &mut Frame, area: Rect, cursor: &mut Cursor
             continue;
         }
         app.clickable(*rect, crate::app::Click::Row(k));
-        // A gap of surface on the right and bottom edges separates
-        // neighbours, where there is room for one.
         let gap_x = u16::from(rect.width > 2);
         let gap_y = u16::from(rect.height > 1);
         let body = Rect {
@@ -99,8 +89,6 @@ pub(super) fn draw(app: &App, frame: &mut Frame, area: Rect, cursor: &mut Cursor
             && body.width >= 14
             && body.height >= 5;
         if nested {
-            // A folder large enough to show what is inside it: a title bar,
-            // then its own contents laid out in the rest.
             paint(buf, body, GRID);
             buf.set_string(
                 body.x + 1,
@@ -128,7 +116,6 @@ pub(super) fn draw(app: &App, frame: &mut Frame, area: Rect, cursor: &mut Cursor
         }
     }
 
-    // What is selected, in words.
     let Some(node) = children.get(selected.min(children.len().saturating_sub(1))) else {
         return;
     };
@@ -205,7 +192,6 @@ pub(super) fn draw(app: &App, frame: &mut Frame, area: Rect, cursor: &mut Cursor
     );
 }
 
-/// Fills a rectangle's cells with a colour, leaving their symbols.
 fn paint(buf: &mut ratatui::buffer::Buffer, r: Rect, colour: Color) {
     for y in r.y..r.y + r.height {
         for x in r.x..r.x + r.width {
@@ -216,8 +202,6 @@ fn paint(buf: &mut ratatui::buffer::Buffer, r: Rect, colour: Color) {
     }
 }
 
-/// One rectangle of the map: its fill, less a gap to its neighbours, and
-/// its name, with its size below when there is room.
 fn tile(buf: &mut ratatui::buffer::Buffer, node: &MapNode, rect: Rect, fill: Color, inner: bool) {
     if rect.width == 0 || rect.height == 0 {
         return;
@@ -257,7 +241,6 @@ fn fill(app: &App, node: &MapNode, hottest: u32) -> Color {
         }
         MapColour::Age => {
             let days = (app.anchor - node.last_touched).div_euclid(86_400).max(0);
-            // The longer untouched, the lighter: stale code stands out.
             let step = match days {
                 ..=30 => 0,
                 31..=180 => 1,
@@ -270,7 +253,6 @@ fn fill(app: &App, node: &MapNode, hottest: u32) -> Color {
     }
 }
 
-/// A node's name, a folder's with a slash.
 fn name(node: &MapNode) -> String {
     if node.file.is_none() {
         format!("{}/", node.name)
@@ -279,7 +261,6 @@ fn name(node: &MapNode) -> String {
     }
 }
 
-/// The title bar of a folder drawn with its contents.
 fn label(node: &MapNode) -> String {
     format!("{}  {} lines", name(node), compact(node.lines))
 }
@@ -306,8 +287,6 @@ fn legend(app: &App, shown: &[&MapNode]) -> Line<'static> {
             }
         }
         MapColour::Owner => {
-            // Everyone who holds something on screen, in their colours,
-            // in the order the colours were given out.
             let rank = |a| {
                 SERIES
                     .iter()
@@ -342,8 +321,6 @@ fn legend(app: &App, shown: &[&MapNode]) -> Line<'static> {
     Line::from(spans)
 }
 
-/// Draws a frame of heavy lines inside a rectangle, over its fill, with
-/// `title` in its top edge.
 fn outline(buf: &mut ratatui::buffer::Buffer, r: Rect, gap_x: u16, gap_y: u16, title: &str) {
     let (right, bottom) = (r.x + r.width - 1 - gap_x, r.y + r.height - 1 - gap_y);
     if right <= r.x || bottom <= r.y {

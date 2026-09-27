@@ -4,7 +4,7 @@ import { Button } from "@astryxdesign/core/Button";
 import { Heading } from "@astryxdesign/core/Heading";
 import { pixel, proportional, Table, useTableSortable, type TableColumn } from "@astryxdesign/core/Table";
 import type { People as Data, Person, PersonRow } from "@commitscape/data";
-import { useData, useSource } from "../data";
+import { useData } from "../data";
 import { Bars } from "../charts/Bars";
 import { Figure } from "../charts/common";
 import { Calendar, WeekGrid } from "../charts/Grid";
@@ -15,6 +15,7 @@ import { AvatarsContext } from "../help";
 import { Explain } from "../explain";
 import { compact, date, githubWhy, grouped, many, WINDOW_WORDS } from "../format";
 import { openers, type ScreenProps } from "./props";
+import { ScreenSkeleton } from "../components/Loading";
 
 type Column = {
   key: string;
@@ -24,14 +25,12 @@ type Column = {
   why: string;
 };
 
-/** Hours to merge, in the unit that reads best. */
 function hoursWords(h: number): string {
   if (h < 1) return `${Math.max(1, Math.round(h * 60))} min`;
   if (h < 48) return `${Math.round(h)} h`;
   return `${Math.round(h / 24)} days`;
 }
 
-/** A number that may not be known yet: never 0 when it is not known. */
 function known(n: number | null, words: (n: number) => string = grouped): string {
   return n === null ? "—" : words(n);
 }
@@ -55,12 +54,12 @@ export function People(props: ScreenProps) {
 type Row = PersonRow & Record<string, unknown>;
 
 function PeopleTable({ meta, params, go }: ScreenProps) {
-  const { data, error, stale } = useData<Data>("/api/people", params, meta.generation);
+  const { data, error, stale } = useData<Data>("/api/people", params);
   const [sort, setSort] = useState([{ sortKey: "commits", direction: "descending" as "ascending" | "descending" }]);
   const sortable = useTableSortable<Row>({ sort, onSortChange: (next) => setSort(next.length > 0 ? next : sort) });
   const open = openers(go);
   if (error) return <p className="error">{error}</p>;
-  if (!data) return <p className="waiting">Reading…</p>;
+  if (!data) return <ScreenSkeleton />;
   const by = sort[0] ?? { sortKey: "commits", direction: "descending" };
   const column = COLUMNS.find((c) => c.key === by.sortKey) ?? COLUMNS[0];
   const rows = [...data.people].sort((a, b) => (column?.value(b) ?? -1) - (column?.value(a) ?? -1));
@@ -169,7 +168,6 @@ function PeopleTable({ meta, params, go }: ScreenProps) {
   );
 }
 
-/** Bots by name: one bot commits under several addresses. */
 function botsByName(bots: Data["bots"]): { name: string; id: number; commits: number; accounts: number }[] {
   const by = new Map<string, { name: string; id: number; commits: number; accounts: number }>();
   for (const b of bots) {
@@ -191,26 +189,14 @@ const TRAITS: Record<string, string> = {
   bot: "An automation account.",
 };
 
-function Profile({ meta, params, go, id }: ScreenProps & { id: number }) {
-  const { data: p, error, stale } = useData<Person>("/api/person", { ...params, id }, meta.generation);
-  const { changePerson } = useSource();
+function Profile({ params, go, id }: ScreenProps & { id: number }) {
+  const { data: p, error, stale } = useData<Person>("/api/person", { ...params, id });
   const avatars = useContext(AvatarsContext);
   const [copied, setCopied] = useState(false);
-  const [changing, setChanging] = useState<string | null>(null);
   const open = openers(go);
   if (error) return <p className="error">{error}</p>;
-  if (!p) return <p className="waiting">Reading…</p>;
+  if (!p) return <ScreenSkeleton />;
   const r = p.row;
-  const change = (undo: boolean) => {
-    if (!changePerson) return;
-    setChanging(undo ? "Undoing…" : "Joining again…");
-    changePerson(p.person.id, undo)
-      .then(() => {
-        setChanging(null);
-        go({ id: undefined });
-      })
-      .catch((e: Error) => setChanging(e.message));
-  };
   const copy = () => {
     void navigator.clipboard?.writeText(p.mailmap).then(() => setCopied(true));
   };
@@ -298,15 +284,6 @@ function Profile({ meta, params, go, id }: ScreenProps & { id: number }) {
             {TRAITS[t] ?? t}
           </p>
         ))}
-        <div className="actions">
-          {meta.can_change_people && changePerson && p.addresses.length > 1 && (
-            <Button label="These are different people: undo the merge" variant="secondary" size="sm" onClick={() => change(true)} />
-          )}
-          {meta.can_change_people && changePerson && p.traits.includes("kept_apart") && (
-            <Button label="Join them again" variant="secondary" size="sm" onClick={() => change(false)} />
-          )}
-          {changing && <span className="note">{changing}</span>}
-        </div>
         {p.mailmap && (
           <>
             <p className="note">To make this merge permanent for everyone, add these lines to the repository's .mailmap:</p>
@@ -315,8 +292,7 @@ function Profile({ meta, params, go, id }: ScreenProps & { id: number }) {
           </>
         )}
         <Explain>
-          Addresses are joined only on strong evidence: a .mailmap, the same GitHub account, or the same full name. An
-          undo is kept in commitscape's cache directory, never in the repository.
+          Addresses are joined only on strong evidence: a .mailmap, the same GitHub account, or the same full name.
         </Explain>
       </Figure>
     </div>

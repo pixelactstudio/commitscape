@@ -1,12 +1,3 @@
-//! Who is who (ADR-0011): the Signatures a person committed under, joined on
-//! strong evidence, visibly, and kept apart when the user says so.
-//!
-//! The Signatures below are shaped like the ones found in real repositories:
-//! one owner under a Gmail address and a GitHub noreply address with the same
-//! full name, and a contributor whose GitHub account was renamed, who
-//! committed under two personal addresses, a university one, and three
-//! different names.
-
 #![allow(clippy::expect_used)]
 
 use commitscape_core::{AuthorId, AuthorTable, PersonTraits, Signature, SignatureId};
@@ -20,8 +11,6 @@ fn sig(name: &str, email: &str) -> Signature {
     }
 }
 
-/// Resolves with every signature used `n` times, `n` counting from 1, so a
-/// person is displayed under their latest signature.
 fn resolve(sigs: &[Signature], rules: &IdentityRules) -> AuthorTable {
     let used = (1..=sigs.len() as u32).collect();
     resolve_authors(sigs.to_vec(), used, rules)
@@ -31,7 +20,6 @@ fn plain() -> IdentityRules {
     IdentityRules::default()
 }
 
-/// Every person's signatures, as signature numbers, in person order.
 fn people(t: &AuthorTable) -> Vec<Vec<u32>> {
     t.iter()
         .map(|(_, a)| a.signatures.iter().map(|s| s.0).collect())
@@ -105,8 +93,6 @@ fn generic_names_never_join() {
 
 #[test]
 fn a_renamed_github_account_is_one_account() {
-    // GitHub's noreply address carries the account's number, which stays
-    // when the login changes.
     let t = resolve(
         &[
             sig("Ryan", "46247385+ryandev2@users.noreply.github.com"),
@@ -122,25 +108,21 @@ fn a_renamed_github_account_is_one_account() {
     );
 }
 
-/// A contributor's eight signatures, shaped like maihs's Ryan.
 fn ryan() -> Vec<Signature> {
     vec![
-        sig("Ryan", "ryantuijp@hotmail.example"), // 0
-        sig("Ryan", "46247385+ryandev2@users.noreply.github.com"), // 1
-        sig("ryandev2", "ryantuijp@hotmail.example"), // 2
-        sig("RyanLand", "ryanlandofficial@hotmail.example"), // 3
-        sig("Ryan Tuijp", "ryan.tuijp2@uni.example"), // 4
-        sig("Ryan Tuijp", "RyanTuijp@hotmail.example"), // 5
-        sig("Ryan", "46247385+RyanLandDev@users.noreply.github.com"), // 6
-        sig("RyanLandDev", "ryanlandofficial@hotmail.example"), // 7
+        sig("Ryan", "ryantuijp@hotmail.example"),
+        sig("Ryan", "46247385+ryandev2@users.noreply.github.com"),
+        sig("ryandev2", "ryantuijp@hotmail.example"),
+        sig("RyanLand", "ryanlandofficial@hotmail.example"),
+        sig("Ryan Tuijp", "ryan.tuijp2@uni.example"),
+        sig("Ryan Tuijp", "RyanTuijp@hotmail.example"),
+        sig("Ryan", "46247385+RyanLandDev@users.noreply.github.com"),
+        sig("RyanLandDev", "ryanlandofficial@hotmail.example"),
     ]
 }
 
 #[test]
 fn without_github_a_contributor_can_stay_split() {
-    // By address: {0, 2, 5} share the Hotmail address, {1, 6} the GitHub
-    // account, {3, 7} the other Hotmail address, and 4 stands alone. "Ryan
-    // Tuijp" joins 4 to the first. The rest share only one-word names.
     let t = resolve(&ryan(), &plain());
     let mut seen = people(&t);
     seen.sort();
@@ -246,8 +228,6 @@ fn bots_are_grouped_as_bots_and_never_joined_by_name() {
 
 #[test]
 fn a_name_that_is_someone_elses_login_is_suggested() {
-    // "RyanLandDev" commits from an address GitHub knows nothing of; the
-    // noreply address says RyanLandDev is a login. Suggested, not merged.
     let t = resolve(
         &[
             sig("Ryan", "46247385+RyanLandDev@users.noreply.github.com"),

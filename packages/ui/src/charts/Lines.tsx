@@ -1,7 +1,3 @@
-/**
- * Weekly counts as lines on one axis, with a crosshair that reads every
- * series at the week under the pointer.
- */
 import { useState } from "react";
 import { day, grouped } from "../format";
 import { Legend, TableView, YAxis } from "./common";

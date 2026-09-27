@@ -1,17 +1,12 @@
 #!/usr/bin/env node
-// Starts the commitscape binary that npm installed for this platform
-// (ADR-0003). It does nothing else: commitscape needs no Node to run.
 "use strict";
 
 const fs = require("node:fs");
 const { spawnSync } = require("node:child_process");
 
-// The packages that may hold this platform's binary, likeliest first.
 function candidates() {
   const { platform, arch } = process;
   if (platform === "linux" && arch === "x64") {
-    // npm picks by libc. A musl loader means Alpine, most likely; a glibc
-    // system with musl installed has one too, so both are tried.
     const musl = fs.existsSync("/lib/ld-musl-x86_64.so.1");
     const gnu = "@commitscape/linux-x64-gnu";
     const alpine = "@commitscape/linux-x64-musl";
@@ -31,7 +26,6 @@ for (const pkg of packages) {
     binary = require.resolve(`${pkg}/bin/${exe}`);
     break;
   } catch {
-    // Not installed: try the next.
   }
 }
 if (!binary) {
@@ -48,10 +42,6 @@ if (!binary) {
 
 const args = process.argv.slice(2);
 
-// Where Node can, become the binary (Node 22.15 and 23.11 on): no second
-// process, and a start-up that costs Node's alone (ADR-0003). A failed
-// execve cannot be caught, so it is tried only on a binary that can run.
-// Its warning that execve is new would land in commitscape's output.
 let runnable = true;
 try {
   fs.accessSync(binary, fs.constants.X_OK);
@@ -63,8 +53,6 @@ if (runnable && typeof process.execve === "function") {
   process.execve(binary, [binary, ...args], process.env);
 }
 
-// Otherwise it runs as a child. Ctrl-C reaches it too, and it decides when
-// to stop: this process only waits and passes its status on.
 const signals = ["SIGINT", "SIGTERM", "SIGHUP"];
 const ignore = () => {};
 for (const signal of signals) process.on(signal, ignore);
@@ -74,7 +62,6 @@ if (result.error) {
   process.exit(1);
 }
 if (result.signal) {
-  // Die of the same signal, so a script sees what happened.
   for (const signal of signals) process.removeListener(signal, ignore);
   process.kill(process.pid, result.signal);
 } else {

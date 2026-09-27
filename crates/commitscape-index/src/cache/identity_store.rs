@@ -1,15 +1,3 @@
-//! What people are resolved from besides the repository (ADR-0011): the
-//! GitHub accounts commits were linked to, and the merges the user undid.
-//!
-//! Kept next to the cache, never in the repository, as two small text files
-//! a person can read:
-//!
-//! - `accounts`: `email<TAB>number<TAB>login` for an address GitHub linked
-//!   to an account, and `email<TAB>-` for one it did not, so it is not asked
-//!   again.
-//! - `kept-apart`: one undone merge per line, its address keys separated by
-//!   spaces.
-
 use std::collections::HashSet;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -23,14 +11,12 @@ use crate::mailmap::Mailmap;
 const ACCOUNTS: &str = "accounts";
 const KEPT_APART: &str = "kept-apart";
 
-/// One repository's identity files.
 #[derive(Debug, Clone)]
 pub struct IdentityStore {
     dir: PathBuf,
 }
 
 impl IdentityStore {
-    /// The store for a repository, or `None` when caching is off.
     pub fn for_repo(options: &CacheOptions, repo: &RepoIdentity) -> Option<Self> {
         Some(IdentityStore::in_dir(&super::repo_dir(options, repo)?))
     }
@@ -41,7 +27,6 @@ impl IdentityStore {
         }
     }
 
-    /// The rules to resolve with: the mailmap given, and what is stored.
     pub fn rules(&self, mailmap: Mailmap) -> IdentityRules {
         let mut rules = IdentityRules::from_mailmap(mailmap);
         for line in self.lines(ACCOUNTS) {
@@ -63,14 +48,12 @@ impl IdentityStore {
         rules
     }
 
-    /// Addresses GitHub has been asked about, whatever it answered.
     pub fn asked(&self) -> HashSet<String> {
         self.lines(ACCOUNTS)
             .filter_map(|l| l.split('\t').next().map(str::to_string))
             .collect()
     }
 
-    /// Records GitHub's answers: an account, or none.
     pub fn save_accounts(&self, answers: &[(String, Option<Account>)]) -> io::Result<()> {
         let mut text = self.read(ACCOUNTS);
         for (email, account) in answers {
@@ -82,8 +65,6 @@ impl IdentityStore {
         self.write(ACCOUNTS, &text)
     }
 
-    /// Undoes a merge: these address keys ([`crate::identity::keys_of`]) are
-    /// never joined to each other by name or account again.
     pub fn keep_apart(&self, keys: &[String]) -> io::Result<()> {
         let mut text = self.read(KEPT_APART);
         text.push_str(&keys.join(" "));
@@ -91,7 +72,6 @@ impl IdentityStore {
         self.write(KEPT_APART, &text)
     }
 
-    /// Redoes a merge: forgets every undo that kept any of these keys apart.
     pub fn merge_again(&self, keys: &[String]) -> io::Result<()> {
         let text: String = self
             .lines(KEPT_APART)

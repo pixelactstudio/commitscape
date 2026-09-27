@@ -1,10 +1,3 @@
-//! The Phase 4 gate: every value in `docs/fixtures.md`, asserted from the
-//! whole pipeline. A fixture repository is read by the gix adapter, indexed,
-//! and analysed; nothing is recomputed here the way the code computes it.
-//!
-//! Windows are anchored at each fixture's newest commit, as `--json` anchors
-//! them, and cover all of its history.
-
 #![allow(clippy::expect_used)]
 
 use std::collections::HashMap;
@@ -14,7 +7,6 @@ use commitscape_core::Index;
 use commitscape_index::{index_from_scratch, reresolve_authors, GixRepo, IdentityRules};
 use commitscape_metrics::{Analysis, Options, Window};
 
-/// 2024-01-01T00:00:00Z: every fixture's day 0.
 const EPOCH: i64 = 1_704_067_200;
 const DAY: i64 = 86_400;
 
@@ -36,8 +28,6 @@ fn index(name: &str) -> Index {
     index_from_scratch(&repo).expect("indexing fixture")
 }
 
-/// The bulk threshold `docs/fixtures.md` works with, and every directory
-/// reported for Ownership however few its commits.
 fn options() -> Options {
     Options {
         max_changeset_size: 50,
@@ -59,7 +49,6 @@ fn churn(idx: &Index) -> HashMap<String, u32> {
         .collect()
 }
 
-/// Days since day 0 that each file was last touched.
 fn last_touched(idx: &Index) -> HashMap<String, i64> {
     analysis(idx)
         .staleness()
@@ -156,8 +145,6 @@ fn conflict() {
     );
 }
 
-/// Each directory's owners as (email, commits), most first, and its Bus
-/// Factor.
 fn ownership(idx: &Index) -> HashMap<String, (Vec<(String, u32)>, u32)> {
     analysis(idx)
         .ownership()
@@ -221,7 +208,6 @@ fn ownership_with_the_mailmap() {
 
 #[test]
 fn ownership_without_the_mailmap() {
-    // Alice's work address stays a separate person: 6/10 = 60%, bus factor 2.
     let mut idx = index("ownership");
     reresolve_authors(&mut idx, &IdentityRules::default());
     let by_dir = ownership(&idx);
@@ -256,8 +242,6 @@ fn an_empty_repository_is_a_clear_message() {
     assert!(err.to_string().contains("no commits"), "{err}");
 }
 
-/// Each coupled pair by path: (first, second, both, jaccard, P(first|second),
-/// P(second|first), cross-directory).
 fn pairs(idx: &Index, support: u32) -> Vec<(String, String, u32, f64, f64, f64, bool)> {
     let anchor = idx.span.newest.expect("commits");
     let options = Options {
@@ -284,9 +268,6 @@ fn pairs(idx: &Index, support: u32) -> Vec<(String, String, u32, f64, f64, f64, 
 
 #[test]
 fn coupling_with_a_support_of_five_prunes_src_b() {
-    // src/b.txt changed in 4 commits, under the support of 5, so the
-    // (src/a, src/b) pair never forms. (pkg/c, other/d): together in 4 of
-    // 5 + 5 - 4 = 6 commits, Jaccard 2/3; each is 4/5 = 0.8 given the other.
     let idx = index("coupling");
     let found = pairs(&idx, 5);
     assert_eq!(found.len(), 1, "{found:?}");
@@ -304,8 +285,6 @@ fn coupling_with_a_support_of_five_prunes_src_b() {
 
 #[test]
 fn coupling_with_a_support_of_four_keeps_both_pairs() {
-    // (src/a, src/b): together 3 times of 5 + 4 - 3 = 6, Jaccard 1/2.
-    // P(src/a | src/b) = 3/4, P(src/b | src/a) = 3/5. Same directory.
     let idx = index("coupling");
     let found = pairs(&idx, 4);
     assert_eq!(found.len(), 2, "{found:?}");
@@ -333,7 +312,6 @@ fn lines_each_person_wrote_leave_out_lockfiles_ignored_revs_and_bulk_commits() {
     let mut idx = index_from_scratch(&repo).expect("indexing fixture");
     let pass = commitscape_index::line_pass(&repo, &idx, None, &mut |_, _| {}).expect("counting");
 
-    // Every change the pass counts: 214 added and 35 removed, logo.png not.
     let counted: Vec<_> = pass.lines.iter().flatten().collect();
     assert_eq!(counted.iter().map(|d| d.added).sum::<u32>(), 214);
     assert_eq!(counted.iter().map(|d| d.removed).sum::<u32>(), 35);

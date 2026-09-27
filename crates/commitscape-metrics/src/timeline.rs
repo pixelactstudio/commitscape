@@ -1,7 +1,3 @@
-//! The project's life as moments on a line: its first commit, its
-//! releases, people joining and leaving, its busiest day and biggest
-//! clean-up, its quiet stretches, and a change of main language.
-
 use std::collections::HashMap;
 
 use commitscape_core::{AuthorId, CommitMeta, FileClass};
@@ -13,25 +9,16 @@ use crate::roles::{is_lockfile, looks_generated};
 
 const DAY: i64 = 86_400;
 
-/// Who counts for joining and leaving: at least this share of the Window's
-/// commits.
 const MATTERS: f64 = 0.05;
-/// A stretch this long without a commit is worth telling.
 const QUIET_DAYS: i64 = 30;
-/// How many of the longest quiet stretches are told.
 const QUIET_SHOWN: usize = 3;
-/// Someone whose last commit is this long before the Window's end has left.
 const GONE_DAYS: i64 = 90;
-/// The fewest lines, net, a commit must remove to be a clean-up.
 const CLEANUP_LINES: u64 = 500;
-/// The fewest lines added in a quarter for its main language to count.
 const LANGUAGE_LINES: u64 = 500;
 
-/// One moment in the project's life.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Moment {
-    /// The project's first commit, when the Window holds it.
     FirstCommit {
         time: i64,
         author: Option<AuthorId>,
@@ -40,37 +27,27 @@ pub enum Moment {
         time: i64,
         name: String,
     },
-    /// Someone who made at least a twentieth of the Window's commits, at
-    /// their first commit ever, when the Window holds it.
     Joined {
         time: i64,
         author: AuthorId,
     },
-    /// The same, at their last commit up to the Window's end, when that
-    /// was over 90 days before it.
     Left {
         time: i64,
         author: AuthorId,
     },
-    /// The day with the most commits, at its start.
     BusiestDay {
         time: i64,
         commits: u32,
     },
-    /// The commit that removed the most lines net, 500 or more, leaving out
-    /// lockfiles and generated files.
     Cleanup {
         time: i64,
         author: Option<AuthorId>,
         removed: u64,
     },
-    /// A month or more with no commit, from the last before it to the next.
     Quiet {
         time: i64,
         until: i64,
     },
-    /// The language most lines were added in changed from one quarter to
-    /// the next, at the start of the quarter it changed in.
     LanguageShift {
         time: i64,
         from: &'static str,
@@ -92,7 +69,6 @@ impl Moment {
         }
     }
 
-    /// Which comes first when two share a time.
     fn rank(&self) -> u8 {
         match self {
             Moment::FirstCommit { .. } => 0,
@@ -108,8 +84,6 @@ impl Moment {
 }
 
 impl Analysis<'_> {
-    /// The Window's moments, in time order, with `releases` (name, time)
-    /// among them.
     pub fn timeline(&self, releases: &[(String, i64)]) -> Vec<Moment> {
         let index = self.index();
         let window = self.window();
@@ -122,8 +96,6 @@ impl Analysis<'_> {
         if commits.is_empty() {
             return out;
         }
-        // Everyone's first commit ever and last up to the Window's end.
-        // Firsts are known only once all of history is loaded.
         let complete = index.loaded_from.is_none();
         let mut ever: HashMap<AuthorId, (i64, i64)> = HashMap::new();
         let mut project_first: Option<&CommitMeta> = None;
@@ -155,7 +127,6 @@ impl Analysis<'_> {
             }
         }
 
-        // Joining and leaving, by those who made a real share.
         let mut made: HashMap<AuthorId, u32> = HashMap::new();
         for c in &commits {
             if let Some(a) = self.person_of(c) {
@@ -182,7 +153,6 @@ impl Analysis<'_> {
             }
         }
 
-        // The busiest day, the earliest on a tie.
         let mut per_day: HashMap<i64, u32> = HashMap::new();
         for c in &commits {
             *per_day.entry(c.landed_clock().div_euclid(DAY)).or_default() += 1;
@@ -199,7 +169,6 @@ impl Analysis<'_> {
             }
         }
 
-        // The biggest clean-up, and lines added by language and quarter.
         let mut class: Vec<Option<FileClass>> = vec![None; index.paths.len()];
         for h in &index.head {
             if let Some(slot) = class.get_mut(h.file.idx()) {
@@ -266,7 +235,6 @@ impl Analysis<'_> {
             main = Some(top);
         }
 
-        // Quiet stretches: the longest gaps between commits.
         let mut gaps: Vec<(i64, i64)> = commits
             .windows(2)
             .filter_map(|w| match w {
@@ -284,7 +252,6 @@ impl Analysis<'_> {
     }
 }
 
-/// A quarter as a count since the epoch's first.
 fn quarter_of(time: i64) -> i64 {
     let (y, m, _) = commitscape_core::civil_from_unix(time);
     y * 4 + i64::from((m - 1) / 3)

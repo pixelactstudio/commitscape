@@ -1,7 +1,3 @@
-//! `wrapped`: one person's year across every repository they work in. Each
-//! repository gives its part ([`Analysis::year_in`]) and [`wrapped`] puts
-//! them together, so a streak or a busy day can run across repositories.
-
 use std::collections::{BTreeMap, HashMap};
 
 use std::ops::RangeInclusive;
@@ -15,19 +11,13 @@ use crate::roles::{is_lockfile, looks_generated};
 
 const DAY: i64 = 86_400;
 
-/// One repository's part of a person's year.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct YearIn {
     pub commits: u32,
-    /// Lines added and removed, lockfiles and generated files left out;
-    /// `None` when none of the commits' lines were counted.
     pub lines_added: Option<u64>,
     pub lines_removed: Option<u64>,
-    /// Commits by day since the epoch, on the author's clock when written.
     pub days: BTreeMap<i64, u32>,
-    /// Commits by hour, on the author's clock.
     pub hours: [u32; 24],
-    /// Lines added by language.
     pub languages: BTreeMap<String, u64>,
 }
 
@@ -45,7 +35,6 @@ pub struct LanguageYear {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct DayCount {
-    /// Days since the epoch.
     pub day: i64,
     pub commits: u32,
 }
@@ -56,31 +45,22 @@ pub struct StreakYear {
     pub days: u32,
 }
 
-/// A person's year, across repositories.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Wrapped {
     pub commits: u32,
     pub active_days: u32,
-    /// Most commits first.
     pub repositories: Vec<RepoYear>,
     pub lines_added: Option<u64>,
     pub lines_removed: Option<u64>,
-    /// By lines added, most first.
     pub languages: Vec<LanguageYear>,
     pub busiest_day: Option<DayCount>,
-    /// The most days in a row with a commit, the earliest on a tie.
     pub streak: Option<StreakYear>,
-    /// Commits between 22:00 and 05:00 on the author's clock.
     pub night: u32,
     pub hours: [u32; 24],
     pub days: BTreeMap<i64, u32>,
 }
 
 impl Analysis<'_> {
-    /// The commits by `people` (one person's identities) written on
-    /// `days` (days since the epoch, on their own clock) that `keep`
-    /// keeps, merges left out. The Window must hold them all: a day on
-    /// someone's clock can start up to 14 hours either side of UTC's.
     pub fn year_in(
         &self,
         people: &[AuthorId],
@@ -94,7 +74,6 @@ impl Analysis<'_> {
             if c.is_merge() || !index.author_of(c).is_some_and(|a| people.contains(&a)) {
                 continue;
             }
-            // When it was written, on its author's clock: its day and hour.
             let clock = c.author_clock();
             if !days.contains(&clock.div_euclid(DAY)) || !keep(c) {
                 continue;
@@ -131,7 +110,6 @@ impl Analysis<'_> {
     }
 }
 
-/// The year across repositories, each named.
 pub fn wrapped(repos: &[(String, YearIn)]) -> Wrapped {
     let mut days: BTreeMap<i64, u32> = BTreeMap::new();
     let mut hours = [0u32; 24];

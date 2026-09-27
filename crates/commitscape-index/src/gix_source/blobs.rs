@@ -1,10 +1,3 @@
-//! Reading blobs at HEAD, on every core.
-//!
-//! The one place blob contents are read (ADR-0004), once per file at HEAD. A
-//! large repository has tens of thousands of files there, and reading each is
-//! a pack lookup and an inflate that do not depend on each other, so they are
-//! spread across threads the same way the history walk spreads its diffs.
-
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Mutex;
 
@@ -14,10 +7,8 @@ use gix::objs::FindExt;
 use super::{GixError, GixRepo};
 use crate::source::BlobSink;
 
-/// Blobs per unit of work handed to a thread.
 const BATCH: usize = 256;
 
-/// Delta bases each reading thread keeps.
 const THREAD_DELTA_CACHE_BYTES: usize = 32 * 1024 * 1024;
 
 pub(super) fn read(source: &GixRepo, blobs: &[Oid], sink: BlobSink<'_>) -> Result<(), GixError> {

@@ -1,7 +1,3 @@
-//! `commitscape check`: what a change probably forgot, from what history
-//! says usually changes with the files it changed. It stays quiet unless
-//! the evidence is strong, and fails only with `--strict`.
-
 use std::io::Write;
 use std::path::PathBuf;
 
@@ -47,12 +43,12 @@ pub struct CheckArgs {
 
 #[derive(Serialize)]
 struct Report<'a> {
-    /// What was checked: `staged`, `branch`, `pr` or `commit`.
     checked: &'a str,
     changed: &'a [String],
     forgotten: &'a [Forgotten],
 }
 
+/// `commitscape check`: the files that usually change with these and did not.
 pub fn run(args: CheckArgs) -> anyhow::Result<()> {
     let repo = GixRepo::discover(&args.repo)?;
     let (checked, changed, before) = if let Some(base) = &args.branch {
@@ -100,7 +96,6 @@ pub fn run(args: CheckArgs) -> anyhow::Result<()> {
         meter.show(p)
     })?;
     meter.clear();
-    // A past commit is checked against the history before it.
     let window = Window {
         from: None,
         to: before.map_or_else(now, |t| t - 1),
@@ -122,7 +117,6 @@ pub fn run(args: CheckArgs) -> anyhow::Result<()> {
             writeln!(out)?;
         }
         "markdown" => {
-            // Nothing at all when nothing looks forgotten: no comment.
             if !forgotten.is_empty() {
                 write!(out, "{}", markdown(&forgotten))?;
             }
@@ -136,7 +130,6 @@ pub fn run(args: CheckArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// What `f` is, in words: a file, or a file in a folder.
 fn missing(f: &Forgotten, code: fn(&str) -> String) -> String {
     if f.folder {
         format!("a file in {}", code(&f.missing))

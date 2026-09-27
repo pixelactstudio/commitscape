@@ -1,23 +1,20 @@
-/**
- * `/gh/<owner>/<repo>` (ADR-0015): a public repository's Report, the same
- * six screens as the local page, read through the fetched-Report Data
- * Source. GitHub's facts show at once; a first Build's progress shows
- * until its Report is there; an older Report shows "updating" while a
- * newer one is built. Each way a Build can fail has its plain message.
- */
-import { useEffect, useRef, useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { useEffect, useMemo, useRef } from "react";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Heading } from "@astryxdesign/core/Heading";
 import { Spinner } from "@astryxdesign/core/Spinner";
-import { FAILURE_WORDS, fetchReport, type DataSource, type Lookup } from "@commitscape/data";
-import { App, SourceContext } from "@commitscape/ui";
-import { Connect } from "../components/Connect";
-import { Facts } from "../components/Facts";
-import { Frame } from "../components/Frame";
-
-export const Route = createFileRoute("/gh/$owner/$repo")({ component: Repository });
+import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { FAILURE_WORDS, PRODUCT, type Lookup } from "@commitscape/data";
+import { App, dataQuery, paramsOf, primaryRequest, SourceContext, toRoute, toSearch, type Route as Where } from "@commitscape/ui";
+import { startBuild } from "#/functions/repos";
+import { lookupQuery, reportHeadQuery, running } from "#/lib/queries";
+import { siteSource } from "#/lib/source";
+import { Connect } from "#/components/Connect";
+import { signIn } from "#/lib/auth-client";
+import { Facts } from "#/components/Facts";
+import { Frame } from "#/components/Frame";
+import { RepoSkeleton } from "#/components/States";
 
 const STEPS: Record<string, string> = {
   queued: "Waiting for its turn to be read",
@@ -25,78 +22,79 @@ const STEPS: Record<string, string> = {
   uploading: "Storing its Report",
 };
 
-async function ask(base: string): Promise<Lookup> {
-  const answer = await fetch(`/api/repos/${base}`);
-  const body = (await answer.json()) as Lookup & { error?: string };
-  if (!answer.ok) throw new Error(body.error ?? "The Site could not answer.");
-  return body;
-}
+export const Route = createFileRoute("/gh/$owner/$repo")({
+  validateSearch: (search: Record<string, unknown>) => toSearch(search),
+  loaderDeps: ({ search }) => search,
+  loader: async ({ params, deps, context }) => {
+    const { queryClient } = context;
+    const lookup = await queryClient.ensureQueryData(lookupQuery(params.owner, params.repo));
+    if (lookup.report) {
+      const head = await queryClient.ensureQueryData(reportHeadQuery(params.owner, params.repo, lookup.report.at));
+      const source = siteSource(params.owner, params.repo, head.at, head.meta);
+      const route = toRoute(deps);
+      const first = primaryRequest(route, paramsOf(route, head.meta));
+      if (first) await queryClient.ensureQueryData(dataQuery(source, first[0], first[1])).catch(() => null);
+    }
+    return {
+      name: `${lookup.owner}/${lookup.name}`,
+      description: lookup.facts?.description ?? null,
+      card: !!lookup.report && lookup.access === "public",
+      origin: context.origin ?? "",
+    };
+  },
+  head: ({ loaderData, params }) => {
+    const title = `${loaderData?.name ?? `${params.owner}/${params.repo}`} on ${PRODUCT}`;
+    const words = loaderData?.description || "Who built it, who knows which part, what is fragile, and what changes together.";
+    return {
+      meta: [
+        { title },
+        { name: "description", content: words },
+        { property: "og:title", content: title },
+        { property: "og:description", content: words },
+        { property: "og:type", content: "website" },
+        { name: "twitter:card", content: loaderData?.card ? "summary_large_image" : "summary" },
+        { property: "og:url", content: `${loaderData?.origin ?? ""}/gh/${params.owner}/${params.repo}` },
+        ...(loaderData?.card ? [{ property: "og:image", content: `${loaderData.origin}/api/cards/${params.owner}/${params.repo}` }] : []),
+      ],
+    };
+  },
+  pendingComponent: RepoSkeleton,
+  component: Repository,
+});
 
 function Repository() {
   const { owner, repo } = Route.useParams();
-  const base = `${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
-  const [lookup, setLookup] = useState<Lookup | null>(null);
-  const [source, setSource] = useState<{ at: number; source: DataSource } | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const where = toRoute(Route.useSearch());
+  const navigate = useNavigate({ from: Route.fullPath });
+  const queryClient = useQueryClient();
+  const { data: lookup } = useSuspenseQuery(lookupQuery(owner, repo));
+  const build = useMutation({
+    mutationFn: () => startBuild({ data: { owner, repo } }),
+    onSuccess: (next) => queryClient.setQueryData(lookupQuery(owner, repo).queryKey, next),
+  });
   const asked = useRef(false);
-
-  // What the Site knows, again every two seconds while a Build runs.
   useEffect(() => {
-    let current = true;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const poll = async () => {
-      try {
-        let l = await ask(base);
-        if (l.canBuild && !asked.current) {
-          asked.current = true;
-          const started = await fetch("/api/builds", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ owner, name: repo }),
-          });
-          const body = (await started.json()) as Lookup & { error?: string };
-          if (started.ok) l = body;
-          else if (current) setError(body.error ?? null);
-        }
-        if (!current) return;
-        setLookup(l);
-        const running = l.build && (l.build.state === "queued" || l.build.state === "running");
-        if (running) timer = setTimeout(() => void poll(), 2000);
-      } catch (e) {
-        if (current) setError((e as Error).message);
-      }
-    };
-    void poll();
-    return () => {
-      current = false;
-      clearTimeout(timer);
-    };
-  }, [base, owner, repo]);
+    if (lookup.canBuild && !asked.current) {
+      asked.current = true;
+      build.mutate();
+    }
+  }, [lookup.canBuild, build]);
+  const head = useQuery({ ...reportHeadQuery(owner, repo, lookup.report?.at ?? 0), enabled: !!lookup.report });
+  const source = useMemo(() => (head.data ? siteSource(owner, repo, head.data.at, head.data.meta) : null), [owner, repo, head.data]);
+  const go = (change: Partial<Where>, replace = false) => void navigate({ search: (prev) => toSearch({ ...prev, ...change }), replace });
 
-  // The Report, fetched once for each one built.
-  const reportAt = lookup?.report?.at;
-  useEffect(() => {
-    if (reportAt === undefined || source?.at === reportAt) return;
-    let current = true;
-    fetchReport(`/api/reports/${base}?at=${reportAt}`)
-      .then((s) => current && setSource({ at: reportAt, source: s }))
-      .catch((e: Error) => current && setError(e.message));
-    return () => {
-      current = false;
-    };
-  }, [base, reportAt, source?.at]);
-
-  const running = !!lookup?.build && (lookup.build.state === "queued" || lookup.build.state === "running");
-  if (source && lookup) {
-    const built = new Date(lookup.report ? lookup.report.at * 1000 : 0).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  if (source && lookup.report) {
+    const built = new Date(lookup.report.at * 1000).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
     return (
-      <SourceContext value={source.source}>
+      <SourceContext value={source}>
         <App
+          route={where}
+          go={go}
           home="/"
           nav={
             <>
-              {running ? <Badge label="updating…" variant="info" /> : <span className="note small">built {built}</span>}
-              {lookup.report && !lookup.report.lines && <Badge label="lines not counted" variant="neutral" />}
+              {running(lookup) ? <Badge label="updating…" variant="info" /> : <span className="note small">built {built}</span>}
+              {!lookup.report.lines && <Badge label="lines not counted" variant="neutral" />}
               <Connect />
             </>
           }
@@ -104,27 +102,36 @@ function Repository() {
       </SourceContext>
     );
   }
+  if (lookup.report) return <RepoSkeleton />;
+  return <Waiting lookup={lookup} owner={owner} repo={repo} error={build.error?.message ?? null} />;
+}
+
+function Waiting({ lookup, owner, repo, error }: { lookup: Lookup; owner: string; repo: string; error: string | null }) {
+  const busy = running(lookup);
   return (
     <Frame>
       <section className="repo-waiting">
         <Heading level={1}>
           <a href={`https://github.com/${owner}/${repo}`}>
-            {lookup?.owner ?? owner}/{lookup?.name ?? repo}
+            {lookup.owner}/{lookup.name}
           </a>
         </Heading>
-        {!lookup && !error && <p className="note">Asking the Site…</p>}
         {error && <Banner status="error" title={error} />}
-        {lookup?.status === "not_found" && (
+        {lookup.status === "not_found" && (
           <>
             <Banner status="warning" title={FAILURE_WORDS.not_found} />
             {lookup.access === "signed_out" && (
               <p>
-                If it is a private repository of yours, <a href="/api/auth/github">sign in with GitHub</a> to see it.
+                If it is a private repository of yours,{" "}
+                <button type="button" className="link" onClick={() => signIn(`/gh/${owner}/${repo}`)}>
+                  sign in with GitHub
+                </button>{" "}
+                to see it.
               </p>
             )}
           </>
         )}
-        {lookup?.status === "private" && (
+        {lookup.status === "private" && (
           <>
             <Banner status="info" title={FAILURE_WORDS.private} />
             {lookup.access === "not_connected" && (
@@ -134,16 +141,16 @@ function Repository() {
             )}
           </>
         )}
-        {lookup?.status === "ok" && running && (
+        {lookup.status === "ok" && busy && (
           <p className="build-step">
             <Spinner size="sm" /> {STEPS[lookup.build?.step ?? lookup.build?.state ?? "queued"] ?? "Reading its history"}… Most
             repositories take seconds; a large one up to a minute, the first time.
           </p>
         )}
-        {lookup?.status === "ok" && lookup.build?.state === "failed" && lookup.build.reason && (
+        {lookup.status === "ok" && lookup.build?.state === "failed" && lookup.build.reason && (
           <Banner status={lookup.build.reason === "paused" ? "info" : "warning"} title={FAILURE_WORDS[lookup.build.reason]} />
         )}
-        {lookup?.facts && <Facts facts={lookup.facts} />}
+        {lookup.facts && <Facts facts={lookup.facts} />}
       </section>
     </Frame>
   );

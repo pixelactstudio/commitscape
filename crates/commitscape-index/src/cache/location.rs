@@ -1,12 +1,5 @@
-//! Where caches live by default: the platform's user cache directory, never
-//! inside the repository being read.
-
 use std::path::PathBuf;
 
-/// `COMMITSCAPE_CACHE_DIR` if set, otherwise the platform's cache directory
-/// followed by `commitscape`: `$XDG_CACHE_HOME` or `~/.cache` on Linux,
-/// `~/Library/Caches` on macOS, `%LOCALAPPDATA%` on Windows. `None` if none
-/// of those can be determined, which disables caching.
 pub fn default_cache_root() -> Option<PathBuf> {
     if let Some(dir) = std::env::var_os("COMMITSCAPE_CACHE_DIR") {
         return Some(PathBuf::from(dir));

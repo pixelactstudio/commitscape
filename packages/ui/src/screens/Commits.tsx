@@ -1,8 +1,3 @@
-/**
- * Commits: every commit, searched as you type (ADR-0019). The Commit List
- * arrives once; the search runs in the browser, in a Web Worker for long
- * lists, and only the rows in view are drawn.
- */
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Selector } from "@astryxdesign/core/Selector";
@@ -15,9 +10,9 @@ import { useData } from "../data";
 import { Explain } from "../explain";
 import { compact, date, grouped, many, WINDOW_WORDS } from "../format";
 import { useLeading } from "../leading";
-import { format, parse } from "../route";
 import { searcher } from "../searcher";
 import type { ScreenProps } from "./props";
+import { ScreenSkeleton } from "../components/Loading";
 
 const ROW = 46;
 const SHOWN = 14;
@@ -25,9 +20,7 @@ const DAY = 86_400;
 const SPANS: Record<string, number> = { "30d": 30 * DAY, "90d": 90 * DAY, "1y": 365 * DAY };
 
 export function Commits({ meta, route, params, go }: ScreenProps) {
-  const { data: list, error } = useData<CommitList>("/api/commits", {}, meta.generation);
-  // What is searched for: the search box asks as its text changes, so a
-  // keystroke re-renders only the box, and the list when its answer comes.
+  const { data: list, error } = useData<CommitList>("/api/commits", {});
   const [asked, setAsked] = useState(route.q ?? "");
   const [kind, setKind] = useState<string | null>(null);
   const found = useFound(list, {
@@ -39,7 +32,7 @@ export function Commits({ meta, route, params, go }: ScreenProps) {
   const onPerson = useCallback((id: number) => go({ screen: "people", id }), [go]);
   const [top, setTop] = useState(0);
   if (error) return <p className="error">{error}</p>;
-  if (!list) return <p className="waiting">Reading…</p>;
+  if (!list) return <ScreenSkeleton />;
   const span = route.from !== undefined || route.to !== undefined ? "the dates chosen" : WINDOW_WORDS[String(params.window)] ?? "all time";
   const first = Math.max(0, Math.floor(top / ROW) - 4);
   const last = Math.min(found.rows.length, first + SHOWN + 8);
@@ -52,7 +45,7 @@ export function Commits({ meta, route, params, go }: ScreenProps) {
         note={`${grouped(found.rows.length)} of ${many(list.ids.length, "commit", "commits")}, over ${span}. Newest first.`}
       >
         <div className="commit-tools">
-          <SearchBox initial={route.q ?? ""} onAsk={setAsked} />
+          <SearchBox initial={route.q ?? ""} onAsk={setAsked} go={go} />
           <Selector
             label="Kind"
             isLabelHidden
@@ -92,7 +85,6 @@ export function Commits({ meta, route, params, go }: ScreenProps) {
   );
 }
 
-/** The Window, or the dates chosen, as seconds. */
 function rangeOf(params: ScreenProps["params"], anchor: number): { from?: number; to?: number } {
   if (params.from !== undefined || params.to !== undefined) {
     return { from: params.from === undefined ? undefined : Number(params.from), to: params.to === undefined ? undefined : Number(params.to) };
@@ -101,7 +93,6 @@ function rangeOf(params: ScreenProps["params"], anchor: number): { from?: number
   return span === undefined ? {} : { from: anchor - span, to: anchor };
 }
 
-/** The rows matching, searched off the page's thread for long lists. */
 function useFound(
   list: CommitList | null,
   q: { text: string; person?: number; kind?: number; range: { from?: number; to?: number } },
@@ -120,17 +111,12 @@ function useFound(
     return () => {
       current = false;
     };
-    // `key` is the question.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [s, key]);
   return { rows };
 }
 
-/**
- * The search box. Its text is its own: the address follows it quietly, and
- * the list is asked at once, then at most every 100 ms while typing goes on.
- */
-function SearchBox({ initial, onAsk }: { initial: string; onAsk: (text: string) => void }) {
+function SearchBox({ initial, onAsk, go }: { initial: string; onAsk: (text: string) => void; go: ScreenProps["go"] }) {
   const [text, setText] = useState(initial);
   const ask = useLeading(onAsk, 100);
   return (
@@ -143,7 +129,7 @@ function SearchBox({ initial, onAsk }: { initial: string; onAsk: (text: string) 
         onChange={(v) => {
           setText(v);
           ask(v);
-          window.history.replaceState(null, "", format({ ...parse(window.location.hash), q: v || undefined }));
+          go({ q: v || undefined }, true);
         }}
         hasClear
         width="100%"

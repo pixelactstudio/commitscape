@@ -1,8 +1,3 @@
-//! What opens when a number is entered: the facts behind one row.
-//!
-//! Each detail resolves its paths and names when it opens, so drawing it
-//! needs neither the Index nor an Analysis.
-
 use commitscape_core::{AuthorId, CommitMeta, FileHistory, FileId, HeadFile, Index, PersonTraits};
 use commitscape_metrics::{
     Age, Analysis, Contributor, CoupledPair, DirectoryOwnership, Hotspot, Pulse,
@@ -11,11 +6,8 @@ use commitscape_metrics::{
 use crate::findings::Findings;
 use crate::list::Cursor;
 
-/// The most commits a file or pair lists: enough to see a pattern without
-/// holding every commit of a file changed thousands of times.
 const COMMITS_SHOWN: usize = 50;
 
-/// A row that can be entered.
 #[derive(Clone)]
 pub(crate) enum Target {
     File(FileId),
@@ -45,11 +37,8 @@ pub(crate) struct FileDetail {
     pub hotspot: Option<Hotspot>,
     pub former: Vec<String>,
     pub owners: Vec<Person>,
-    /// The other file of each coupled pair it is in, with the pair.
     pub coupled: Vec<(String, CoupledPair)>,
-    /// Newest first.
     pub commits: Vec<CommitLine>,
-    /// Commits in the Window beyond those listed.
     pub more: usize,
 }
 
@@ -69,26 +58,14 @@ pub(crate) struct DirectoryDetail {
 pub(crate) struct PersonDetail {
     pub author: AuthorId,
     pub email: String,
-    /// Their row among the Window's contributors, if they committed in it.
     pub contributor: Option<Contributor>,
-    /// Their lines and areas, if they committed in it.
     pub contribution: Option<commitscape_metrics::Contribution>,
-    /// When they commit, on their own clock.
     pub pulse: Pulse,
-    /// The files they changed most, with how many commits.
     pub work: Vec<(String, u32)>,
-    /// Directories only they hold: bus factor 1 with them as the owner, with
-    /// their commits there and the folder's.
     pub held: Vec<(String, u32, u32)>,
-    /// Every address they committed under, with its commits over all of
-    /// history, most first.
     pub addresses: Vec<(String, u32)>,
-    /// What joined their addresses, and whether they are a bot.
     pub traits: PersonTraits,
-    /// `.mailmap` lines that would join their addresses in every tool.
     pub merge_lines: String,
-    /// Others who may be the same person, and the `.mailmap` lines that
-    /// would join them.
     pub maybe_also: Vec<Person>,
     pub mailmap: String,
 }
@@ -96,9 +73,7 @@ pub(crate) struct PersonDetail {
 pub(crate) struct ListedFile {
     pub file: FileId,
     pub path: String,
-    /// Days since last touched, or lines at HEAD.
     pub number: i64,
-    /// The date last touched, or the Complexity Proxy.
     pub other: i64,
 }
 
@@ -110,9 +85,7 @@ pub(crate) enum Detail {
     Person(Box<PersonDetail>),
 }
 
-/// A detail on the stack, with where its list or text is scrolled to.
 pub(crate) struct Opened {
-    /// What was entered, so it can be opened again over another Window.
     pub origin: Target,
     pub detail: Detail,
     pub cursor: Cursor,
@@ -129,7 +102,6 @@ impl Opened {
         }
     }
 
-    /// Rows with a selection, for details that are lists.
     pub fn list_len(&self) -> Option<usize> {
         match &self.detail {
             Detail::Bucket { files, .. } => Some(files.len()),
@@ -137,7 +109,6 @@ impl Opened {
         }
     }
 
-    /// What Enter opens from here.
     pub fn target(&self) -> Option<Target> {
         match &self.detail {
             Detail::Bucket { files, .. } => files
@@ -149,9 +120,6 @@ impl Opened {
 }
 
 impl Target {
-    /// The same row among another Window's findings, if it is there: a
-    /// folder with too few commits in that Window, or a pair that did not
-    /// change together in it, is not.
     pub fn among(&self, findings: &Findings) -> Option<Target> {
         match self {
             Target::Directory(d) => findings

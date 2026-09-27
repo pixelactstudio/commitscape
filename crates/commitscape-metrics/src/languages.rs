@@ -1,12 +1,9 @@
-//! What a repository is written in: its code at HEAD, by language.
-
 use std::collections::HashMap;
 
 use serde::Serialize;
 
 use crate::analysis::Analysis;
 
-/// The code at HEAD in one language.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct Language {
     pub name: &'static str,
@@ -14,22 +11,16 @@ pub struct Language {
     pub lines: u64,
 }
 
-/// The code at HEAD, by language.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Languages {
-    /// Most lines first.
     pub languages: Vec<Language>,
-    /// Configuration and data: JSON, YAML, TOML, XML and the like. Code, but
-    /// not a language anyone would say the project is written in.
     pub data_files: u32,
     pub data_lines: u64,
-    /// Code in no language on the list.
     pub other_files: u32,
     pub other_lines: u64,
 }
 
 impl Analysis<'_> {
-    /// The code files at HEAD, by language, most lines first.
     pub fn languages(&self) -> Languages {
         let index = self.index();
         let mut out = Languages {
@@ -39,8 +30,6 @@ impl Analysis<'_> {
             other_files: 0,
             other_lines: 0,
         };
-        // Each extension is looked up once: Linux has seventy thousand code
-        // files and a few hundred extensions.
         let mut seen: HashMap<&[u8], Written> = HashMap::new();
         for h in self.code() {
             let lines = u64::from(h.loc);
@@ -93,7 +82,6 @@ enum Written {
     Unknown,
 }
 
-/// The last component of a path.
 fn file_name(path: &[u8]) -> &[u8] {
     match path.iter().rposition(|&b| b == b'/') {
         Some(i) => path.get(i + 1..).unwrap_or_default(),
@@ -101,8 +89,6 @@ fn file_name(path: &[u8]) -> &[u8] {
     }
 }
 
-/// The language a path is written in, if it is code in a language this
-/// knows: not configuration, data or prose.
 pub(crate) fn language_of(path: &[u8]) -> Option<&'static str> {
     let name = path.rsplit(|&b| b == b'/').next().unwrap_or(path);
     let written = by_name(name).or_else(|| extension(name).map(by_extension))?;
@@ -112,7 +98,6 @@ pub(crate) fn language_of(path: &[u8]) -> Option<&'static str> {
     }
 }
 
-/// A file known by its whole name, such as a `Makefile`.
 fn by_name(name: &[u8]) -> Option<Written> {
     if let Some(&(_, language)) = BY_NAME.iter().find(|(n, _)| n.as_bytes() == name) {
         return Some(Written::Code(language));
@@ -121,13 +106,11 @@ fn by_name(name: &[u8]) -> Option<Written> {
         .then_some(Written::Code("Dockerfile"))
 }
 
-/// What follows a name's last dot.
 fn extension(name: &[u8]) -> Option<&[u8]> {
     let dot = name.iter().rposition(|&b| b == b'.')?;
     name.get(dot + 1..)
 }
 
-/// A file by its extension, in any case.
 fn by_extension(extension: &[u8]) -> Written {
     if DATA
         .iter()
@@ -144,7 +127,6 @@ fn by_extension(extension: &[u8]) -> Written {
     }
 }
 
-/// Files known by their whole name.
 const BY_NAME: &[(&str, &str)] = &[
     ("Dockerfile", "Dockerfile"),
     ("Containerfile", "Dockerfile"),
@@ -165,7 +147,6 @@ const BY_NAME: &[(&str, &str)] = &[
     ("WORKSPACE", "Starlark"),
 ];
 
-/// Configuration and data formats, by extension.
 const DATA: &[&str] = &[
     "json",
     "jsonc",
@@ -186,7 +167,6 @@ const DATA: &[&str] = &[
     "svg",
 ];
 
-/// Languages by extension, lowercased.
 const BY_EXTENSION: &[(&str, &str)] = &[
     ("rs", "Rust"),
     ("ts", "TypeScript"),

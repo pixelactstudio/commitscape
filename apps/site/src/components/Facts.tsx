@@ -1,7 +1,3 @@
-/**
- * GitHub's instant facts (ADR-0015), shown while a repository's first Build
- * runs: what GitHub tells anyone, with its people's avatars.
- */
 import { Avatar } from "@astryxdesign/core/Avatar";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Card } from "@astryxdesign/core/Card";

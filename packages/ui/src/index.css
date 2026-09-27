@@ -1,14 +1,6 @@
-/* Astryx's reset and components (ADR-0018), in their own cascade layers.
-   Everything below is ours and unlayered, so it styles only our own
-   classes: a bare element rule here would override Astryx's components. */
 @import "@astryxdesign/core/reset.css";
 @import "@astryxdesign/core/astryx.css";
 
-/* The charts' colours by role. Each mode's series and ramps were validated
-   against its own surface (STATE.md, Phase 19); `light-dark()` picks the
-   one for the mode Astryx's Theme sets on the page. Ramps run weakest
-   first: light to dark in light mode, dark to light in dark mode. The rest
-   are Astryx's tokens, so the charts match the components. */
 :root {
   --surface: var(--color-background-surface);
   --surface-2: var(--color-background-muted);
@@ -51,17 +43,13 @@ button.link {
 button.link:hover { text-decoration-color: var(--text-2); }
 button.link:focus-visible, .bars li:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; border-radius: 2px; }
 
-/* The shell */
 .app { max-width: 84rem; margin: 0 auto; padding: 0.75rem 1.5rem 3rem; font-size: 0.94rem; line-height: 1.45; }
 .logo { display: block; }
 .tools { display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; }
 .screen-bar { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 0.5rem 1.5rem; }
 .windows { display: flex; align-items: center; gap: 0.4rem; padding-bottom: 0.35rem; }
-.filters { display: flex; flex-wrap: wrap; gap: 0.5rem 0.9rem; align-items: flex-end; margin: 0.8rem 0 0.2rem; }
-.status { color: var(--muted); font-size: 0.88rem; margin: 0.4rem 0 0; }
 footer { margin-top: 3rem; }
 
-/* Keys: a hint beside what each one does; `?` lights them all up. */
 .key-hint { display: inline-flex; opacity: 0.7; transition: opacity var(--duration-fast), box-shadow var(--duration-fast); border-radius: var(--radius-inner); }
 .keys-on .key-hint, .help .key-hint { opacity: 1; box-shadow: 0 0 0 2px var(--color-accent); background: var(--color-accent-muted); }
 .help {
@@ -83,7 +71,6 @@ footer { margin-top: 3rem; }
 .small { font-size: 0.82rem; }
 .figure > .note { margin: 0 0 0.6rem; font-size: 0.88rem; }
 .error { color: var(--error); }
-.waiting { padding: 2rem 1.5rem; color: var(--muted); }
 .explain {
   font-size: 0.85rem; color: var(--text-2); border-left: 3px solid var(--color-accent); padding: 0.3rem 0.7rem;
   margin: 0.5rem 0; background: var(--color-accent-muted); border-radius: 0 var(--radius-inner) var(--radius-inner) 0;
@@ -96,7 +83,6 @@ footer { margin-top: 3rem; }
 .tile span { color: var(--text-2); }
 .tile .note { color: var(--muted); }
 
-/* Charts: ours, drawn with the theme's tokens. */
 .chart { position: relative; min-width: 0; }
 .chart svg { display: block; overflow: visible; }
 .axis line { stroke: var(--line); stroke-width: 1; }
@@ -197,9 +183,6 @@ g:hover > .hit { fill: var(--text); fill-opacity: 0.05; }
 .night { fill: var(--surface-2); }
 .night-label { fill: var(--muted); font-size: 11px; }
 .hour-bar { fill: var(--s3); }
-.wrapped .card { max-width: 100%; border-radius: var(--radius-container); border: 1px solid var(--line); }
-.wrapped-head { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; padding-top: 1rem; }
-.wrapped-head h1 { margin: 0 auto 0 0; }
 
 @media (max-width: 760px) {
   .map-and-file { flex-direction: column; }
@@ -208,7 +191,6 @@ g:hover > .hit { fill: var(--text); fill-opacity: 0.05; }
   .app { padding: 0.5rem 0.75rem 2rem; }
 }
 
-/* Commits */
 .commit-tools { display: flex; gap: 0.75rem; align-items: center; margin: 0.25rem 0 0.75rem; }
 .commit-search { flex: 1; display: flex; align-items: center; gap: 0.5rem; }
 .commit-search > :first-child { flex: 1; }
@@ -233,4 +215,3 @@ g:hover > .hit { fill: var(--text); fill-opacity: 0.05; }
 }
 
 .dialog-body { padding: 0 1.25rem 1.25rem; }
-.share-link { font-family: var(--mono); font-size: 0.85rem; background: var(--color-background-muted); border-radius: var(--radius-element); padding: 0.6rem; overflow-x: auto; user-select: all; }

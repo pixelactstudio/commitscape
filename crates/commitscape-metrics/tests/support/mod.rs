@@ -1,9 +1,3 @@
-//! Hand-built indexes for metric tests.
-//!
-//! Metrics are pure functions over an `Index`, so their tests build one
-//! directly from the core types: no git, no adapter, and every commit and file
-//! written out so the expected values can be worked out by hand.
-
 #![allow(dead_code, clippy::expect_used)]
 
 use commitscape_core::{
@@ -12,28 +6,19 @@ use commitscape_core::{
     PersonTraits, RepoIdentity, Signature, SignatureId,
 };
 
-/// 2024-01-01T00:00:00Z.
 pub const EPOCH: i64 = 1_704_067_200;
 pub const DAY: i64 = 86_400;
 
-/// One commit: its day, its author as an email or as `Name <email>`, whether
-/// it is a merge, and the paths it touched. By default it is made at midnight
-/// UTC on its day, and says nothing conventional.
 pub struct C<'a> {
     pub day: i64,
     pub author: &'a str,
     pub merge: bool,
     pub touched: &'a [&'a str],
-    /// Seconds after midnight on the author's clock.
     pub clock: i64,
     pub offset_minutes: i16,
     pub kind: CommitKind,
-    /// Lines each touched path added and removed, in order, when counted.
     pub lines: Vec<(u32, u32)>,
-    /// Author time minus commit time, for a commit rebased after it was
-    /// written.
     pub author_delta: i32,
-    /// Its subject line.
     pub subject: &'a str,
 }
 
@@ -60,15 +45,12 @@ pub fn merge<'a>(day: i64, author: &'a str, touched: &'a [&'a str]) -> C<'a> {
 }
 
 impl C<'_> {
-    /// Made at `hour:minute` on the author's clock, in a time zone
-    /// `offset_minutes` east of UTC. `day` is then the author's own date.
     pub fn local(mut self, hour: i64, minute: i64, offset_minutes: i16) -> Self {
         self.clock = hour * 3600 + minute * 60;
         self.offset_minutes = offset_minutes;
         self
     }
 
-    /// Lines added and removed by each touched path, in order.
     pub fn lines(mut self, lines: &[(u32, u32)]) -> Self {
         self.lines = lines.to_vec();
         self
@@ -79,21 +61,17 @@ impl C<'_> {
         self
     }
 
-    /// Written at `hour:00` on `day` of the author's clock, and committed
-    /// as `day` and `local` say: a commit rebased after it was written.
     pub fn written(mut self, day: i64, hour: i64) -> Self {
         let written = EPOCH + day * DAY + hour * 3600 - i64::from(self.offset_minutes) * 60;
         self.author_delta = (written - self.time()) as i32;
         self
     }
 
-    /// When the commit was made, in UTC.
     fn time(&self) -> i64 {
         EPOCH + self.day * DAY + self.clock - i64::from(self.offset_minutes) * 60
     }
 }
 
-/// A file at HEAD: path, lines, indentation levels, class.
 pub struct H<'a> {
     pub path: &'a str,
     pub loc: u32,
@@ -128,7 +106,6 @@ pub fn generated(path: &str, loc: u32, indent: u32) -> H<'_> {
     }
 }
 
-/// `Name <email>` split in two; a bare email is its own name.
 fn name_and_email(author: &str) -> (String, String) {
     match author.split_once(" <") {
         Some((name, email)) => (name.to_string(), email.trim_end_matches('>').to_string()),
@@ -136,13 +113,10 @@ fn name_and_email(author: &str) -> (String, String) {
     }
 }
 
-/// Builds an index. Every author email is its own person; each path is added
-/// the first time a commit touches it and modified after that.
 pub fn index(commits: &[C<'_>], head: &[H<'_>]) -> Index {
     index_with_suspects(commits, head, Vec::new())
 }
 
-/// Like [`index`], with groups of people flagged as suspected duplicates.
 pub fn index_with_suspects(
     commits: &[C<'_>],
     head: &[H<'_>],
@@ -241,7 +215,6 @@ pub fn index_with_suspects(
             name: s.name.clone(),
             email: s.email.clone(),
             signatures: vec![SignatureId(i as u32)],
-            // The index crate recognises bots; here a `[bot]` suffix will do.
             traits: if s.name.ends_with("[bot]") {
                 PersonTraits::BOT
             } else {

@@ -1,11 +1,3 @@
-//! Repository automation. Run with `cargo xtask <command>`.
-//!
-//! Its jobs: build the synthetic fixture repositories that metric tests
-//! assert against, run the benchmark harness that guards the budgets in
-//! ADR-0002, assert the crate layering that ADR-0001 depends on, and check the
-//! history walk against git on a real repository, and write the npm
-//! packages releases publish.
-
 mod bench;
 mod changesets;
 mod fixtures;
@@ -157,7 +149,6 @@ fn main() -> Result<()> {
     }
 }
 
-/// The workspace root, derived from this crate's manifest location.
 pub fn workspace_root() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()

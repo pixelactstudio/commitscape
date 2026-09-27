@@ -1,8 +1,3 @@
-/**
- * The disk budget (ADR-0015): when the kept clones and indexes pass it,
- * the ones used least recently are deleted until they fit. A later Build of one of them
- * clones it again.
- */
 import { readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -15,12 +10,6 @@ async function size(path: string): Promise<number> {
   return total;
 }
 
-/**
- * Everything kept between Builds: each clone,
- * `<work>/<clones|health>/<owner>/<name>`, and each index `commitscape`
- * keeps beside them, `<work>/<16 hex digits>`. An index deleted is
- * rebuilt from its clone at the next Build.
- */
 async function kept(work: string): Promise<string[]> {
   const out: string[] = [];
   for (const kind of ["clones", "health"]) {
@@ -32,7 +21,7 @@ async function kept(work: string): Promise<string[]> {
   return out;
 }
 
-/** Deletes the least recently used clones and indexes until all fit in `budget` bytes. Returns what was deleted. */
+/** Deletes the least recently built clones until the work folder fits the budget. */
 export async function prune(work: string, budget: number, keep?: string): Promise<string[]> {
   const found = await Promise.all(
     (await kept(work)).map(async (path) => ({ path, bytes: await size(path), at: (await stat(path)).mtimeMs })),

@@ -1,9 +1,5 @@
 import { useCallback, useRef, useState } from "react";
 
-/**
- * An element's width in pixels, kept up to date. A callback ref, so it
- * follows the element even when it appears after the first render.
- */
 export function useWidth<T extends Element>(): [(el: T | null) => void, number] {
   const [width, setWidth] = useState(0);
   const observer = useRef<ResizeObserver | null>(null);
@@ -20,7 +16,6 @@ export function useWidth<T extends Element>(): [(el: T | null) => void, number] 
   return [ref, width];
 }
 
-/** Up to `count` round whole steps from 0 to at least `max`. */
 export function ticks(max: number, count = 3): number[] {
   if (max <= 0) return [0];
   const raw = max / count;
@@ -32,7 +27,6 @@ export function ticks(max: number, count = 3): number[] {
   return out;
 }
 
-/** Each step's range of counts, from upper bounds: [1, 3, 7] → 1, 2–3, 4–7. */
 export function ranges(bounds: number[]): { step: number; from: number; to: number }[] {
   const out = [];
   let from = 1;

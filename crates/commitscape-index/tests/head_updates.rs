@@ -1,11 +1,3 @@
-//! Moving HEAD in a real repository: the updated HEAD table must match a
-//! from-scratch one, whether the update diffed the two trees or listed HEAD
-//! again.
-//!
-//! The repository is built with the `git` binary, under the same declared
-//! exception to ADR-0001 as the fixture generator: test tooling writes
-//! repositories, the product only reads them.
-
 #![allow(clippy::expect_used, clippy::panic)]
 
 use std::collections::BTreeMap;
@@ -51,7 +43,6 @@ fn commit(dir: &Path, message: &str) {
     git(dir, &["commit", "-q", "-m", message]);
 }
 
-/// Every file at HEAD by path: lines, indentation, class.
 fn table(idx: &Index) -> BTreeMap<String, (u32, u32, FileClass)> {
     idx.head
         .iter()
@@ -93,7 +84,6 @@ fn moving_head_updates_the_head_table_to_match_a_full_build() {
     let (first, _) = cached(dir, cache.path());
     assert_eq!(table(&first), table(&scratch(dir)));
 
-    // A modification, a deletion, an addition and an exact rename.
     write(
         dir,
         "src/a.rs",
@@ -113,7 +103,6 @@ fn moving_head_updates_the_head_table_to_match_a_full_build() {
     assert!(!table(&second).contains_key("src/b.rs"));
     assert!(!table(&second).contains_key("src/d.rs"));
 
-    // A .gitattributes change reclassifies files that did not change.
     write(dir, ".gitattributes", "src/c.rs linguist-generated\n");
     commit(dir, "third");
     let (third, _) = cached(dir, cache.path());

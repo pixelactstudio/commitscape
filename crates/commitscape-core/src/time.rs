@@ -1,27 +1,16 @@
-//! Calendar arithmetic in UTC, without a date library.
-//!
-//! Commit times are seconds since the Unix epoch. The cache groups commits by
-//! calendar month and the metrics report ages by month and quarter, so both
-//! need the civil date of a timestamp. The conversions are Howard Hinnant's
-//! `days_from_civil` and `civil_from_days`, exact over the whole `i64` range
-//! git can produce.
-
 use serde::{Deserialize, Serialize};
 
 const SECONDS_PER_DAY: i64 = 86_400;
 
-/// A calendar month in UTC, counted in months since January of year 0.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct Month(pub i64);
 
 impl Month {
-    /// The month containing a Unix timestamp.
     pub fn of(unix: i64) -> Month {
         let (year, month, _) = civil_from_days(unix.div_euclid(SECONDS_PER_DAY));
         Month(year * 12 + (month as i64 - 1))
     }
 
-    /// The first second of this month.
     pub fn start(self) -> i64 {
         let year = self.0.div_euclid(12);
         let month = self.0.rem_euclid(12) as u32 + 1;
@@ -32,7 +21,6 @@ impl Month {
         self.0.div_euclid(12)
     }
 
-    /// 1 for January through 12 for December.
     pub fn number(self) -> u32 {
         self.0.rem_euclid(12) as u32 + 1
     }
@@ -42,8 +30,6 @@ impl Month {
     }
 }
 
-/// A Unix timestamp as an RFC 3339 / ISO 8601 UTC time, to the second:
-/// `2024-01-05T00:00:00Z`.
 pub fn iso8601(unix: i64) -> String {
     let (y, m, d) = civil_from_unix(unix);
     let secs = unix.rem_euclid(SECONDS_PER_DAY);
@@ -55,8 +41,6 @@ pub fn iso8601(unix: i64) -> String {
     )
 }
 
-/// Reads a UTC time written as GitHub writes them, `2024-01-05T00:00:00Z`,
-/// as seconds since the epoch. Anything else is `None`.
 pub fn parse_iso8601(text: &str) -> Option<i64> {
     let number = |range: std::ops::Range<usize>| text.get(range)?.parse::<i64>().ok();
     let separators = [
@@ -89,12 +73,10 @@ pub fn parse_iso8601(text: &str) -> Option<i64> {
     })
 }
 
-/// `(year, month, day)` of a Unix timestamp, in UTC.
 pub fn civil_from_unix(unix: i64) -> (i64, u32, u32) {
     civil_from_days(unix.div_euclid(SECONDS_PER_DAY))
 }
 
-/// Days since 1970-01-01 of a civil date.
 fn days_from_civil(year: i64, month: u32, day: u32) -> i64 {
     let y = if month <= 2 { year - 1 } else { year };
     let era = y.div_euclid(400);
@@ -105,7 +87,6 @@ fn days_from_civil(year: i64, month: u32, day: u32) -> i64 {
     era * 146_097 + doe - 719_468
 }
 
-/// Civil date of a count of days since 1970-01-01.
 fn civil_from_days(days: i64) -> (i64, u32, u32) {
     let z = days + 719_468;
     let era = z.div_euclid(146_097);
@@ -123,8 +104,6 @@ fn civil_from_days(days: i64) -> (i64, u32, u32) {
 mod tests {
     use super::*;
 
-    // Timestamps below were computed by hand from day counts and checked with
-    // `date -u -d @<n>`.
     const JAN_1_2024: i64 = 1_704_067_200;
     const FEB_1_2024: i64 = 1_706_745_600;
     const FEB_29_2000: i64 = 951_782_400;

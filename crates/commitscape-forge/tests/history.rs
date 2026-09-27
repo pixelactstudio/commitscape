@@ -1,8 +1,3 @@
-//! A repository's whole GitHub history (ADR-0009, amended in Build Run 3):
-//! every pull request, issue and release, fetched a page at a time, oldest
-//! change first, saved after every page. Pages here are written by hand and
-//! served by a fake in place of `gh`.
-
 #![allow(clippy::expect_used)]
 
 use std::cell::RefCell;
@@ -10,12 +5,9 @@ use std::cell::RefCell;
 use commitscape_forge::history::{History, Query};
 use commitscape_forge::ForgeError;
 
-/// 2025-07-01T00:00:00Z.
 const JULY_1_2025: i64 = 1_751_328_000;
 const HOUR: i64 = 3_600;
 
-/// A page of pull requests: `numbers`, each opened on 1 July 2025 at hour
-/// `n`, merged an hour later by `lead` when `n` is even, with one review.
 fn pr_page(numbers: &[u64], next: Option<&str>) -> String {
     let nodes: Vec<String> = numbers
         .iter()
@@ -44,8 +36,6 @@ fn connection(name: &str, total: u64, nodes: &[String], next: Option<&str>) -> S
     )
 }
 
-/// One issue, opened by `alice` at 09:00, first answered by `bob` at 10:00
-/// after a comment of her own at 09:30, closed at 12:00.
 fn issue_page() -> String {
     let node = r#"{"number":7,"author":{"login":"alice"},"createdAt":"2025-07-01T09:00:00Z","closedAt":"2025-07-01T12:00:00Z","comments":{"nodes":[{"author":{"login":"alice"},"createdAt":"2025-07-01T09:30:00Z"},{"author":{"login":"bob"},"createdAt":"2025-07-01T10:00:00Z"}]}}"#;
     connection("issues", 1, &[node.to_string()], None)
@@ -56,7 +46,6 @@ fn release_page() -> String {
     connection("releases", 1, &[node.to_string()], None)
 }
 
-/// Serves pages by what the query asks for and where it starts.
 fn serve(query: &Query) -> Result<Vec<u8>, ForgeError> {
     let page = match (query.connection, query.after.as_deref()) {
         ("pullRequests", None) => pr_page(&[1, 2], Some("p1")),
@@ -108,7 +97,6 @@ fn an_interrupted_fetch_resumes_where_it_stopped() {
     let dir = tempfile::tempdir().expect("temp dir");
     let path = dir.path().join("github.json");
 
-    // GitHub stops answering after the first page: the rate limit.
     let mut first = History::default();
     let calls = RefCell::new(0);
     let mut limited = |q: &Query| {
@@ -122,7 +110,6 @@ fn an_interrupted_fetch_resumes_where_it_stopped() {
     assert!(stopped.is_err());
     assert!(!first.complete);
 
-    // The next run starts from what was saved, at the second page.
     let mut again = History::load(&path);
     assert_eq!(again.pull_requests.len(), 2, "the first page was kept");
     let mut asked = Vec::new();
@@ -150,8 +137,6 @@ fn a_later_fetch_asks_only_for_what_changed_and_replaces_it() {
         .update(None, &mut serve, &mut |_| {})
         .expect("fetched");
 
-    // Pull request 1, open before, is merged since: it comes after the
-    // cursor, as the most recently updated.
     let mut later = |q: &Query| -> Result<Vec<u8>, ForgeError> {
         match (q.connection, q.after.as_deref()) {
             ("pullRequests", Some("end")) => {

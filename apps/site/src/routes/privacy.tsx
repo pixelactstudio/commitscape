@@ -1,13 +1,7 @@
-/**
- * `/privacy`: exactly what the Site stores, where, for how long, and who
- * can read it. Written once at build time. It follows the ADRs: 0014 (the
- * Site), 0015 (the Builder), 0016 (Shared Reports), 0017 (GitHub sign-in),
- * 0019 (no addresses in hosted Commit Lists).
- */
 import { createFileRoute } from "@tanstack/react-router";
 import { Heading } from "@astryxdesign/core/Heading";
 import { PRODUCT } from "@commitscape/data";
-import { Frame } from "../components/Frame";
+import { Frame } from "#/components/Frame";
 
 export const Route = createFileRoute("/privacy")({
   head: () => ({ meta: [{ title: `What ${PRODUCT} keeps` }] }),
@@ -32,8 +26,8 @@ function Privacy() {
             releases). Never an email address.
           </li>
           <li>
-            <strong>Where:</strong> the Report in Cloudflare R2, the rest in Cloudflare D1. The history is read on our own
-            server, from a clone kept to make the next update quick.
+            <strong>Where:</strong> the Report in Cloudflare R2, the rest in a database on our own server. The history is read
+            on our server too, from a clone kept to make the next update quick.
           </li>
           <li>
             <strong>How long:</strong> while people look at it; it is rebuilt when it is more than a day old and someone asks.
@@ -57,7 +51,7 @@ function Privacy() {
             send to a server. We store the locked bytes, their size, when they expire, and a hash of the Delete Token.
           </li>
           <li>
-            <strong>Where:</strong> Cloudflare R2 and D1.
+            <strong>Where:</strong> the locked bytes in Cloudflare R2, the rest in our database.
           </li>
           <li>
             <strong>How long:</strong> 4 hours unless you chose otherwise, 12 at most; then it answers "gone" and is removed.
@@ -71,14 +65,15 @@ function Privacy() {
         <Heading level={2}>Signing in with GitHub</Heading>
         <ul>
           <li>
-            <strong>What:</strong> your GitHub account's id, login and name, your sessions, and which repositories you chose
-            in {PRODUCT}'s GitHub App, which can only read. For a repository you chose, its Report, as above. GitHub's
-            short-lived tokens are used for a Build and never stored.
+            <strong>What:</strong> your GitHub account's id, login, name, picture and email address, your sessions, the
+            token GitHub gave the sign-in (encrypted, to ask GitHub which repositories you may see), and which repositories
+            you chose in {PRODUCT}'s GitHub App, which can only read. For a repository you chose, its Report, as above. The
+            short-lived tokens a Build reads a repository with are never stored.
           </li>
           <li>
-            <strong>Where:</strong> D1 and R2. A private repository's history is cloned onto our server for its Build, and the
-            clone and everything read from it are deleted when the Build ends; only the Report is kept, which Cloudflare
-            encrypts at rest.
+            <strong>Where:</strong> our database and R2. A private repository's history is cloned onto our server for its
+            Build, and the clone and everything read from it are deleted when the Build ends; only the Report is kept, which
+            Cloudflare encrypts at rest.
           </li>
           <li>
             <strong>How long:</strong> a chosen repository's Report is deleted after 30 days without a view. Removing the App
@@ -97,8 +92,12 @@ function Privacy() {
             address counts with its neighbours in the same /64). It keeps a hash of the address, never the address, and deletes
             the count when the hour ends.
           </li>
-          <li>Cloudflare, which runs the Site, keeps its own logs of requests, as any host does.</li>
-          <li>No analytics, no advertising, no cookies but the sign-in's.</li>
+          <li>Our server keeps logs of requests, as any host does.</li>
+          <li>
+            Errors in the Site are reported to Sentry, without the request's body or cookies. Pages viewed are
+            counted with PostHog, which honours your browser's Do Not Track setting and is never told who you are. No
+            advertising.
+          </li>
         </ul>
         <p className="note">
           The Site's code is open: <a href="https://github.com/pixelactstudio/commitscape">github.com/pixelactstudio/commitscape</a>.

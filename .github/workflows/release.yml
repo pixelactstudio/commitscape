@@ -1,7 +1,3 @@
-# A tag `v<version>` builds commitscape for six platforms, publishes the npm
-# packages (ADR-0003: the platform packages first, `commitscape` last), and
-# makes a GitHub release with a tarball for each, which the Homebrew formula
-# installs from. The tag must match the workspace's version.
 name: Release
 on:
   push:
@@ -28,15 +24,6 @@ jobs:
           targets: ${{ matrix.target }}
       - if: contains(matrix.target, 'musl')
         run: sudo apt-get update && sudo apt-get install -y musl-tools
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-      # The web app goes inside the binary.
-      - run: |
-          pnpm install --frozen-lockfile
-          pnpm --filter @commitscape/local build
       - run: cargo build --profile dist --target ${{ matrix.target }} -p commitscape
       - name: Pack the binary
         shell: bash

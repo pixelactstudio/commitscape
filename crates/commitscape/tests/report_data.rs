@@ -1,10 +1,4 @@
-//! `commitscape report --data`: the Report's data alone, gzipped, as the
-//! Site stores it (ADR-0015), and as a hosted Report must be: no email
-//! address anywhere (ADR-0019).
-
 #![allow(clippy::expect_used)]
-// Indexing a `serde_json::Value` gives `null` for what is missing: it does
-// not panic.
 #![allow(clippy::indexing_slicing)]
 
 use std::io::Read;
@@ -26,14 +20,7 @@ fn report_data(args: &[&str]) -> serde_json::Value {
     let dir = tempfile::tempdir().expect("a temporary directory");
     let out = dir.path().join("ownership.json.gz");
     let run = Command::new(env!("CARGO_BIN_EXE_commitscape"))
-        .args([
-            "report",
-            "--data",
-            "--no-cache",
-            "--offline",
-            "--window",
-            "all",
-        ])
+        .args(["report", "--no-cache", "--offline", "--window", "all"])
         .args(args)
         .arg("--out")
         .arg(&out)
@@ -55,8 +42,6 @@ fn report_data(args: &[&str]) -> serde_json::Value {
 
 #[test]
 fn a_report_for_the_site_names_people_but_holds_no_address() {
-    // The ownership fixture: Alice commits under three addresses the
-    // mailmap and case join, alice@example.com among them.
     let local = report_data(&[]);
     assert!(local.to_string().contains("alice@example.com"));
     let hosted = report_data(&["--no-emails"]);
@@ -70,7 +55,6 @@ fn a_report_for_the_site_names_people_but_holds_no_address() {
     ] {
         assert!(!text.contains(address), "{address} leaked");
     }
-    // Its profiles and Commit List are there, without addresses.
     assert!(hosted["data"]["/api/commits?"]["people"][0]["emails"]
         .as_array()
         .is_some_and(Vec::is_empty));

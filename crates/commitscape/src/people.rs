@@ -1,7 +1,3 @@
-//! Who is who, beyond what the repository says (ADR-0011): undoing a merge
-//! and linking commits to GitHub accounts, both kept in the cache
-//! directory's identity store, never in the repository.
-
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
@@ -12,12 +8,8 @@ use commitscape_index::identity::{keys_of, Account, IdentityRules};
 use commitscape_index::{resolve_authors, GixRepo, IdentityStore, Mailmap, RepoSource};
 use commitscape_tui::{ChangePeople, LinkAccounts, PeopleChange};
 
-/// Commits asked about per address: one that was never pushed says
-/// nothing, so a few are tried.
 const SAMPLES: usize = 3;
 
-/// The repository's mailmap, read again: cheap, and it keeps the closures
-/// below free of the repository handle.
 fn mailmap(repo: &std::path::Path) -> Mailmap {
     GixRepo::open(repo)
         .and_then(|r| r.mailmap())
@@ -29,7 +21,6 @@ fn reresolve(table: &AuthorTable, rules: &IdentityRules) -> AuthorTable {
     resolve_authors(signatures, used, rules)
 }
 
-/// Undoes and redoes merges, keeping each in the store.
 pub fn change(repo: PathBuf, store: IdentityStore) -> ChangePeople {
     std::sync::Arc::new(move |table, change| {
         let rules = store.rules(mailmap(&repo));
@@ -42,8 +33,6 @@ pub fn change(repo: PathBuf, store: IdentityStore) -> ChangePeople {
     })
 }
 
-/// Asks GitHub about every address it has not been asked about yet, keeps
-/// the answers, and re-resolves.
 pub fn link(repo: PathBuf, store: IdentityStore, remote: Remote) -> LinkAccounts {
     Box::new(move |index: &Index| {
         let asked = store.asked();

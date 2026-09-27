@@ -1,11 +1,4 @@
 #!/usr/bin/env bash
-# Writes the Homebrew formula for a release, from its SHA256SUMS: macOS and
-# Linux, Intel and ARM, each from the release's prebuilt tarball.
-#
-#   scripts/homebrew-formula.sh <version> <SHA256SUMS> > commitscape.rb
-#
-# Put the result in a tap (a repository named homebrew-commitscape), and
-# `brew install pixelactstudio/commitscape/commitscape` installs it.
 set -euo pipefail
 version=$1; sums=$2
 repo=${COMMITSCAPE_REPO:-pixelactstudio/commitscape}

@@ -1,6 +1,3 @@
-//! The code at HEAD as a tree: every directory and file sized by its lines
-//! and heated by the Window's commits. What the Map Panel draws.
-
 use std::collections::HashMap;
 
 use commitscape_core::{AuthorId, FileId};
@@ -9,40 +6,26 @@ use serde::Serialize;
 use crate::analysis::{counts, Analysis};
 use crate::people::Owner;
 
-/// One directory or file on the map.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct MapNode {
-    /// The last component of its path; empty for the root.
     pub name: String,
-    /// Its full path. A directory's ends in `/`; the root's is empty.
     pub path: String,
-    /// Its place in [`CodeMap::nodes`]; `None` for the root.
     pub parent: Option<usize>,
-    /// Largest first.
     pub children: Vec<usize>,
-    /// Set for a file, `None` for a directory.
     pub file: Option<FileId>,
-    /// Lines at HEAD in the files people wrote under it.
     pub lines: u64,
     pub files: u32,
-    /// Commits in the Window that touched it or anything under it, merges
-    /// and Bulk Commits left out, as for Churn.
     pub churn: u32,
-    /// The latest last touch among its files.
     pub last_touched: i64,
-    /// Who made the most of those commits, and how many.
     pub owner: Option<Owner>,
 }
 
-/// The code at HEAD as a tree. `nodes[0]` is the root.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CodeMap {
     pub nodes: Vec<MapNode>,
 }
 
 impl Analysis<'_> {
-    /// The files people wrote at HEAD as a tree, with each directory's
-    /// lines, the Window's commits under it, and who made most of them.
     pub fn code_map(&self) -> CodeMap {
         let index = self.index();
         let mut nodes = vec![node(String::new(), String::new(), None, None)];
@@ -86,8 +69,6 @@ impl Analysis<'_> {
             }
         }
 
-        // Every node comes after its parent, so one pass from the end adds
-        // each node into its parent after the node itself is complete.
         for i in (1..nodes.len()).rev() {
             let Some(child) = nodes.get(i) else {
                 continue;
@@ -101,8 +82,6 @@ impl Analysis<'_> {
             }
         }
 
-        // A commit counts once for a node, however many files under it it
-        // touched, so each node remembers the last commit that counted.
         let options = self.options();
         let mut counted_for = vec![0u32; nodes.len()];
         let mut made: Vec<(usize, AuthorId)> = Vec::new();
@@ -117,7 +96,6 @@ impl Analysis<'_> {
             for change in index.changes_of(commit) {
                 let mut at = leaf_of.get(change.file.idx()).copied().flatten();
                 while let Some(i) = at {
-                    // Its ancestors were counted with it.
                     if counted_for.get(i) == Some(&stamp) {
                         break;
                     }
@@ -188,7 +166,6 @@ fn node(name: String, path: String, parent: Option<usize>, file: Option<FileId>)
     }
 }
 
-/// Appends a node and records it as its parent's child.
 fn add(nodes: &mut Vec<MapNode>, new: MapNode) -> usize {
     let n = nodes.len();
     if let Some(p) = new.parent.and_then(|p| nodes.get_mut(p)) {

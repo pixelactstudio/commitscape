@@ -1,21 +1,8 @@
-//! A plain git object id.
-//!
-//! Deliberately ours rather than `gix_hash::ObjectId`: ADR-0001 keeps gix types
-//! inside the index crate, and an object id appears in the cache format and in
-//! `--json` output, both of which outlive any particular git library.
-
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-/// A SHA-1 git object id.
-///
-/// v0.1 assumes SHA-1 repositories. A SHA-256 repository will fail to open with
-/// a clear message rather than being silently truncated into this type.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Oid(pub [u8; 20]);
 
-/// Serialized as one byte string rather than twenty separate bytes: the cache
-/// holds one per commit and one per file at HEAD, and decoding them byte by
-/// byte was a measurable share of a warm start.
 impl Serialize for Oid {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         s.serialize_bytes(&self.0)
@@ -32,8 +19,6 @@ impl<'de> Deserialize<'de> for Oid {
 impl Oid {
     pub const ZERO: Oid = Oid([0; 20]);
 
-    /// Parses 40 hex characters. Returns `None` on any other length or on a
-    /// non-hex byte.
     pub fn from_hex(s: &str) -> Option<Self> {
         let bytes = s.as_bytes();
         if bytes.len() != 40 {
@@ -48,8 +33,6 @@ impl Oid {
         Some(Oid(out))
     }
 
-    /// Builds from raw bytes. Returns `None` unless exactly 20 bytes, which is
-    /// how a SHA-256 repository is rejected rather than truncated.
     pub fn from_bytes(b: &[u8]) -> Option<Self> {
         let arr: [u8; 20] = b.try_into().ok()?;
         Some(Oid(arr))
@@ -64,7 +47,6 @@ impl Oid {
         s
     }
 
-    /// The abbreviated form used in human-facing output.
     pub fn short(self) -> String {
         self.to_hex().chars().take(9).collect()
     }
@@ -102,8 +84,6 @@ impl std::fmt::Display for Oid {
 mod tests {
     use super::*;
 
-    // Expected values here are a known-good git object id typed out by hand,
-    // not a value computed by this module.
     const KNOWN: &str = "adcc5f3bdc1a3c205141996ba01404b6e4b27310";
 
     #[test]
@@ -114,7 +94,6 @@ mod tests {
 
     #[test]
     fn first_byte_is_parsed_big_endian() {
-        // 0xad = 173. If the nibbles were swapped this would be 0xda = 218.
         let oid = Oid::from_hex(KNOWN).expect("valid hex");
         assert_eq!(oid.0[0], 0xad);
         assert_eq!(oid.0[19], 0x10);
@@ -141,7 +120,6 @@ mod tests {
     fn rejects_wrong_length_and_non_hex() {
         assert!(Oid::from_hex("abc").is_none());
         assert!(Oid::from_hex(&"z".repeat(40)).is_none());
-        // A SHA-256 id must be rejected, not truncated to its first 20 bytes.
         assert!(Oid::from_bytes(&[0u8; 32]).is_none());
     }
 }

@@ -6,7 +6,7 @@ members = [
     "crates/commitscape-index",
     "crates/commitscape-metrics",
     "crates/commitscape-tui",
-    "crates/commitscape-web",
+    "crates/commitscape-report",
     "crates/commitscape",
     "xtask",
 ]
@@ -18,8 +18,6 @@ license = "MIT OR Apache-2.0"
 rust-version = "1.98"
 
 [workspace.lints.rust]
-# ADR working agreement: no unwrap/expect outside tests and main.
-# Enforced per-crate; see each crate's [lints] section.
 unsafe_code = "forbid"
 
 [workspace.lints.clippy]
@@ -34,16 +32,11 @@ lto = "thin"
 codegen-units = 1
 debug = 1
 
-# What is shipped (npm, Homebrew, the flake): the release build without its
-# debug information, a tenth of the size.
 [profile.dist]
 inherits = "release"
 debug = 0
 strip = true
 
-# Benchmarks are meaningless on a debug build. `cargo xtask bench` refuses to
-# run one, but this keeps an accidental `cargo run` from being catastrophically
-# slow while still being usable.
 [profile.dev]
 opt-level = 1
 

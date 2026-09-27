@@ -7,10 +7,6 @@ export const TipContext = createContext<{ show: Show; hide: () => void }>({
   hide: () => {},
 });
 
-/**
- * What to spread on a mark for its tooltip: on hover, and on focus from
- * the element's own position.
- */
 export function useTip() {
   const { show, hide } = useContext(TipContext);
   return (content: ReactNode) => ({

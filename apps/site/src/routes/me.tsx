@@ -1,69 +1,56 @@
-/**
- * `/me` (ADR-0017): signed in, the repositories commitscape's GitHub App
- * may read for you, each opening its Report; "Add repositories" goes to the
- * App's page on GitHub; "Delete my data" removes your account, sessions and
- * the Reports of what you connected, at once.
- */
-import { useEffect, useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { useState } from "react";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { Card } from "@astryxdesign/core/Card";
 import { Heading } from "@astryxdesign/core/Heading";
-import { Frame } from "../components/Frame";
+import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { deleteMe } from "#/functions/account";
+import { authClient, signIn } from "#/lib/auth-client";
+import { meQuery } from "#/lib/queries";
+import { Frame } from "#/components/Frame";
 
-export const Route = createFileRoute("/me")({ component: Me });
-
-type Mine = {
-  user: { login: string; name: string | null; avatar: string | null } | null;
-  installations: { id: number; account: string; repositories: { name: string; private: boolean; description: string | null }[] }[];
-  install: string | null;
-};
+export const Route = createFileRoute("/me")({
+  loader: ({ context }) => context.queryClient.ensureQueryData(meQuery()),
+  head: () => ({ meta: [{ title: "Your repositories · commitscape" }] }),
+  component: Me,
+});
 
 function Me() {
-  const [mine, setMine] = useState<Mine | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [out, setOut] = useState<string | null>(null);
-  useEffect(() => {
-    fetch("/api/me")
-      .then(async (r) => {
-        const body = (await r.json()) as Mine & { error?: string };
-        if (!r.ok) throw new Error(body.error ?? "The Site could not answer.");
-        setMine(body);
-      })
-      .catch((e: Error) => setError(e.message));
-  }, []);
-  const post = async (path: string, done: string) => {
-    const answer = await fetch(path, { method: "POST" });
-    if (answer.ok) {
-      setMine(null);
-      setOut(done);
-    } else setError(((await answer.json()) as { error?: string }).error ?? "That did not work.");
+  const { data: mine } = useSuspenseQuery(meQuery());
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  const [done, setDone] = useState<string | null>(null);
+  const after = async (words: string) => {
+    setDone(words);
+    queryClient.removeQueries();
+    await router.invalidate();
   };
+  const signOut = useMutation({ mutationFn: () => authClient.signOut(), onSuccess: () => after("Signed out.") });
+  const remove = useMutation({ mutationFn: () => deleteMe(), onSuccess: () => after("Your data is deleted.") });
   const count = mine?.installations.reduce((n, i) => n + i.repositories.length, 0) ?? 0;
   return (
     <Frame>
       <section className="repo-waiting me">
         <Heading level={1}>Your repositories</Heading>
-        {out && <Banner status="success" title={out} />}
-        {!out && error && (
+        {done && <Banner status="success" title={done} />}
+        {remove.error && <Banner status="error" title={remove.error.message} />}
+        {!mine && !done && (
           <>
-            <Banner status="info" title={error} />
-            <p>
-              <Button label="Sign in with GitHub" variant="primary" href="/api/auth/github" />
-            </p>
+            <p>Sign in with GitHub to see the repositories you let commitscape read.</p>
+            <Button label="Sign in with GitHub" variant="primary" onClick={() => signIn()} />
           </>
         )}
         {mine && (
           <>
             <p className="note">
-              Signed in as <strong>{mine.user?.login}</strong>. These are the repositories you let commitscape's GitHub App read,
+              Signed in as <strong>{mine.user.login}</strong>. These are the repositories you let commitscape's GitHub App read,
               which can only read. Each one's Report is shown only to people GitHub shows it to, checked on every visit.
             </p>
             <div className="actions">
               {mine.install && <Button label="Add repositories" variant="primary" size="sm" href={mine.install} />}
-              <Button label="Sign out" variant="secondary" size="sm" onClick={() => void post("/api/auth/signout", "Signed out.")} />
+              <Button label="Sign out" variant="secondary" size="sm" onClick={() => signOut.mutate()} isDisabled={signOut.isPending} />
             </div>
             {count === 0 && <p>None yet: add some through the GitHub App.</p>}
             {mine.installations.map((i) => (
@@ -93,8 +80,9 @@ function Me() {
                 label="Delete my data"
                 variant="destructive"
                 size="sm"
+                isDisabled={remove.isPending}
                 onClick={() => {
-                  if (window.confirm("Delete your account, sessions and the Reports you connected?")) void post("/api/me/delete", "Your data is deleted.");
+                  if (window.confirm("Delete your account, sessions and the Reports you connected?")) remove.mutate();
                 }}
               />
             </Card>

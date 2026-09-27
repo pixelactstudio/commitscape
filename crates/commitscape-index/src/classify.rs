@@ -1,23 +1,8 @@
-//! Which files at HEAD a person wrote, and which no person should be asked to
-//! look at.
-//!
-//! A hotspot list headed by `pnpm-lock.yaml` makes the tool look broken on
-//! first run, so every Generated File is excluded from every ranking. The
-//! repository's own declarations come first: `.gitattributes` with
-//! `linguist-generated` or `linguist-vendored`, the attributes GitHub reads,
-//! set or explicitly unset. After that, conventions that are close to
-//! certain: lockfile names, ORM snapshots, `*.gen.*` and similar outputs,
-//! minified bundles, snapshot tests, a generator's header comment, and the
-//! directory names package managers vendor into.
-
 use commitscape_core::FileClass;
 use globset::{Glob, GlobBuilder, GlobSet, GlobSetBuilder};
 
-/// Bumped whenever a rule here changes. A cache classified by another version
-/// has its HEAD table classified again; its history is kept.
 pub const CLASSIFIER_VERSION: u32 = 5;
 
-/// Files that a package manager or build tool writes.
 const LOCKFILES: &[&str] = &[
     "package-lock.json",
     "npm-shrinkwrap.json",
@@ -54,7 +39,6 @@ const LOCKFILES: &[&str] = &[
     ".pnp.loader.mjs",
 ];
 
-/// File name endings that only generators produce.
 const GENERATED_SUFFIXES: &[&str] = &[
     ".min.js",
     ".min.mjs",
@@ -81,20 +65,14 @@ const GENERATED_SUFFIXES: &[&str] = &[
     ".snap",
 ];
 
-/// Fragments of a file name that mark generator output: `routeTree.gen.ts`,
-/// `schema.generated.ts`, `zz_generated.deepcopy.go`.
 const GENERATED_INFIXES: &[&str] = &[".gen.", ".generated.", "_generated.", "zz_generated"];
 
-/// Directories an IDE writes its project files into: JetBrains keeps
-/// `.idea/`, Xcode `App.xcodeproj/` and `App.xcworkspace/`. People commit
-/// them; nobody writes them.
 fn is_ide_project(path: &str) -> bool {
     path.split('/').rev().skip(1).any(|segment| {
         segment == ".idea" || segment.ends_with(".xcodeproj") || segment.ends_with(".xcworkspace")
     })
 }
 
-/// Path segments package managers and vendoring tools write into.
 const VENDOR_DIRS: &[&str] = &[
     "vendor",
     "vendors",
@@ -108,8 +86,6 @@ const VENDOR_DIRS: &[&str] = &[
     "Carthage",
 ];
 
-/// Phrases a generator writes into the top of its output, compared in lower
-/// case against the first kilobyte.
 const GENERATED_MARKERS: &[&str] = &[
     "@generated",
     "code generated",
@@ -121,7 +97,6 @@ const GENERATED_MARKERS: &[&str] = &[
     "this file was generated",
 ];
 
-/// Extensions of files written to be read rather than run.
 const PROSE_EXTENSIONS: &[&str] = &[
     ".md",
     ".markdown",
@@ -133,7 +108,6 @@ const PROSE_EXTENSIONS: &[&str] = &[
     ".textile",
 ];
 
-/// Documents conventionally named without an extension.
 const PROSE_NAMES: &[&str] = &[
     "README",
     "CHANGELOG",
@@ -153,28 +127,19 @@ const PROSE_NAMES: &[&str] = &[
     "NOTICE",
 ];
 
-/// How much of a file's start is searched for a generator's marker.
 const HEADER_BYTES: usize = 1024;
 
-/// Average line length above which a script or stylesheet is minified.
 const MINIFIED_LINE_LENGTH: usize = 300;
 
-/// More lines than anyone writes by hand. Files this long are dumps,
-/// amalgamations, rendered output or data: rust-lang/rust has a 313,000-line
-/// HTML example, Linux has register tables of 100,000 to 220,000 lines.
 const MACHINE_SIZED_LINES: usize = 100_000;
 
-/// A C or C++ header this long that is nearly all `#define` lines is a
-/// generated constant table, such as a hardware register map.
 const DEFINE_TABLE_MIN_LINES: usize = 1_000;
 const DEFINE_TABLE_SHARE: f64 = 0.9;
 
-/// The value one `.gitattributes` line gives a linguist attribute.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Setting {
     Set,
     Unset,
-    /// `!attr`: back to unspecified.
     Reset,
 }
 
@@ -185,22 +150,13 @@ struct Rule {
     binary: bool,
 }
 
-/// Classifies files, given the `.gitattributes` files at HEAD.
 pub struct Classifier {
     globs: GlobSet,
-    /// Parallel to the globs, in precedence order: later entries win.
     rules: Vec<Rule>,
-    /// Directories that are other projects' checkouts, each ending in `/`.
     nested_projects: Vec<Vec<u8>>,
 }
 
 impl Classifier {
-    /// `gitattributes` pairs each file's directory, as a path prefix ending in
-    /// `/` or empty for the root, with its contents. Shallower files must come
-    /// first: a deeper `.gitattributes` overrides a shallower one.
-    ///
-    /// Everything under `nested_projects` is vendored unless declared
-    /// otherwise; see [`nested_projects`].
     pub fn new(gitattributes: &[(Vec<u8>, Vec<u8>)], nested_projects: Vec<Vec<u8>>) -> Classifier {
         let mut builder = GlobSetBuilder::new();
         let mut rules = Vec::new();
@@ -222,7 +178,6 @@ impl Classifier {
         }
     }
 
-    /// Classifies one file at HEAD from its path and contents.
     pub fn classify(&self, path: &[u8], contents: &[u8], symlink: bool) -> FileClass {
         if symlink {
             return FileClass::Symlink;
@@ -242,9 +197,6 @@ impl Classifier {
             _ if nested || is_vendored_path(&path) => return FileClass::Vendored,
             _ => {}
         }
-        // A lockfile is machine-written whatever `.gitattributes` says.
-        // rust-lang/rust sets `Cargo.lock linguist-generated=false`, which
-        // makes GitHub show its diffs; it does not make a person its author.
         if LOCKFILES.contains(&file_name(&path)) {
             return FileClass::Generated;
         }
@@ -262,7 +214,6 @@ impl Classifier {
         }
     }
 
-    /// The attributes `.gitattributes` gives a path, last match winning.
     fn declared(&self, path: &str) -> Rule {
         let mut out = Rule {
             generated: None,
@@ -287,8 +238,6 @@ impl Classifier {
     }
 }
 
-/// One `.gitattributes` line, if it says anything about the attributes this
-/// cares about.
 fn parse_line(dir: &str, line: &str) -> Option<(Glob, Rule)> {
     let line = line.trim();
     if line.is_empty() || line.starts_with('#') {
@@ -296,8 +245,6 @@ fn parse_line(dir: &str, line: &str) -> Option<(Glob, Rule)> {
     }
     let mut parts = line.split_whitespace();
     let pattern = parts.next()?;
-    // Negative patterns are not allowed in attributes files, and a pattern
-    // naming a directory does not match the files inside it.
     if pattern.starts_with('!') || pattern.ends_with('/') {
         return None;
     }
@@ -328,8 +275,6 @@ fn parse_line(dir: &str, line: &str) -> Option<(Glob, Rule)> {
     if rule.generated.is_none() && rule.vendored.is_none() && !rule.binary {
         return None;
     }
-    // A pattern with a slash is relative to the attributes file's directory;
-    // one without matches a file name at any depth below it.
     let pattern = pattern.strip_prefix('/').map_or_else(
         || {
             if pattern.contains('/') {
@@ -347,12 +292,6 @@ fn parse_line(dir: &str, line: &str) -> Option<(Glob, Rule)> {
     Some((glob, rule))
 }
 
-/// Whether a change to `path` can change how *other* files are classified,
-/// so every class has to be decided again. Any change to a `.gitattributes`
-/// does. A lockfile, a license file or a nested `.github/` folder's file
-/// appearing or disappearing can make or unmake a nested project; editing
-/// one in place, which happens in most commits that add a dependency,
-/// cannot.
 pub fn is_classification_input(path: &[u8], added_or_deleted: bool) -> bool {
     let name = path.rsplit(|&b| b == b'/').next().unwrap_or(path);
     let name = String::from_utf8_lossy(name);
@@ -366,21 +305,12 @@ pub fn is_classification_input(path: &[u8], added_or_deleted: bool) -> bool {
                 || github_home(path).is_some()))
 }
 
-/// The directory a nested `.github/` folder sits in, ending in `/`, for a
-/// path inside one: `vendor/x/` for `vendor/x/.github/ci.yml`. `None` at
-/// the root, where `.github/` is this repository's own.
 fn github_home(path: &[u8]) -> Option<&[u8]> {
     const MARK: &[u8] = b"/.github/";
     let at = path.windows(MARK.len()).position(|w| w == MARK)?;
     path.get(..=at)
 }
 
-/// Directories below the root holding a lockfile and either a license file
-/// or a `.github/` folder: another project's checkout, committed whole. A
-/// monorepo's own packages share the root's lockfile; a project with its
-/// own lockfile and its own license, or the `.github/` GitHub only reads at
-/// a repository's root, was brought in from elsewhere. Each result ends in
-/// `/`.
 pub fn nested_projects<'p>(paths: impl Iterator<Item = &'p [u8]>) -> Vec<Vec<u8>> {
     let mut lockfile_dirs = std::collections::BTreeSet::new();
     let mut own_dirs = std::collections::BTreeSet::new();
@@ -405,7 +335,6 @@ pub fn nested_projects<'p>(paths: impl Iterator<Item = &'p [u8]>) -> Vec<Vec<u8>
         }
     }
     let mut found: Vec<Vec<u8>> = lockfile_dirs.intersection(&own_dirs).cloned().collect();
-    // A project nested inside another nested project is already covered.
     found.sort();
     let mut out: Vec<Vec<u8>> = Vec::new();
     for dir in found {
@@ -416,7 +345,6 @@ pub fn nested_projects<'p>(paths: impl Iterator<Item = &'p [u8]>) -> Vec<Vec<u8>
     out
 }
 
-/// git's own test: a NUL byte in the first 8000 bytes.
 fn looks_binary(contents: &[u8]) -> bool {
     contents.iter().take(8000).any(|&b| b == 0)
 }
@@ -472,8 +400,6 @@ fn is_define_table(name: &str, contents: &[u8]) -> bool {
     let mut defines = 0usize;
     for line in contents.split(|&b| b == b'\n') {
         let trimmed = line.trim_ascii_start();
-        // Register maps label each register with a comment line; only code
-        // lines count towards the share.
         let comment = [b"//".as_slice(), b"/*", b"*"]
             .iter()
             .any(|c| trimmed.starts_with(c));
@@ -488,8 +414,6 @@ fn is_define_table(name: &str, contents: &[u8]) -> bool {
     lines >= DEFINE_TABLE_MIN_LINES && defines as f64 >= DEFINE_TABLE_SHARE * lines as f64
 }
 
-/// Drizzle writes `meta/NNNN_snapshot.json` and `meta/_journal.json` beside
-/// its migrations; newer versions write `<migration>/snapshot.json`.
 fn is_orm_snapshot(path: &str, name: &str) -> bool {
     let in_meta = path.contains("/meta/") || path.starts_with("meta/");
     (in_meta && (name.ends_with("_snapshot.json") || name == "_journal.json"))
@@ -699,8 +623,6 @@ mod tests {
     #[test]
     fn a_header_of_nothing_but_defines_is_a_generated_table() {
         let c = plain();
-        // Linux's AMD register maps: a comment naming each register, then
-        // its defines.
         let mut table = String::from("/* register map */\n#ifndef X\n");
         for i in 0..1200 {
             table.push_str(&format!("//REG_{i}\n#define REG_{i}__SHIFT 0x0\n"));
@@ -814,11 +736,6 @@ mod tests {
 
     #[test]
     fn a_checkout_with_its_own_github_folder_is_vendored_without_a_license() {
-        // t3code keeps a copy of alchemy-effect under .repos/ with its own
-        // bun.lock and .github/ but no license. GitHub reads .github/ only at
-        // a repository's root, so one further down came with a copied
-        // repository. A package with a .github/ but no lockfile of its own
-        // is still this project's.
         let paths: Vec<&[u8]> = vec![
             b"bun.lock",
             b".github/workflows/ci.yml",
@@ -833,8 +750,6 @@ mod tests {
             vec![b".repos/alchemy/".to_vec()]
         );
 
-        // Adding or removing such a folder's files can make or unmake a
-        // nested project; the root's own .github/ cannot.
         assert!(is_classification_input(
             b".repos/alchemy/.github/workflows/ci.yml",
             true

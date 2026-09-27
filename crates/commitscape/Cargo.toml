@@ -23,7 +23,7 @@ commitscape-forge = { path = "../commitscape-forge" }
 commitscape-index = { path = "../commitscape-index" }
 commitscape-metrics = { path = "../commitscape-metrics" }
 commitscape-tui = { path = "../commitscape-tui" }
-commitscape-web = { path = "../commitscape-web" }
+commitscape-report = { path = "../commitscape-report" }
 flate2 = { version = "1.1.10", default-features = false, features = ["zlib-rs"] }
 getrandom = "0.3"
 hkdf = "0.13.0"

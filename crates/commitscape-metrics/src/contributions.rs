@@ -1,7 +1,3 @@
-//! What each person did in the Window, several ways side by side: commits,
-//! lines added and removed, and the folders that depend on them. There is no
-//! single score, and never will be (IDEA.md).
-
 use std::collections::HashMap;
 
 use commitscape_core::{AuthorId, CommitFlags, FileClass, FileId};
@@ -11,35 +7,23 @@ use crate::analysis::{counts, Analysis};
 use crate::people::{Contributor, Ownership};
 use crate::roles::{is_lockfile, looks_generated};
 
-/// Lines added and removed, counting only what a person wrote.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 pub struct LinesChanged {
     pub added: u64,
     pub removed: u64,
-    /// Changes whose lines were counted.
     pub counted: u32,
-    /// Changes the line pass could not count: binary, or over a megabyte.
     pub uncounted: u32,
 }
 
-/// One person's work in the Window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct Contribution {
     pub author: AuthorId,
-    /// Their commits that are not merges, Bulk Commits included.
     pub commits: u32,
-    /// Lines they added and removed. Left out: merges, Bulk Commits, commits
-    /// `.git-blame-ignore-revs` names, lockfiles, and generated and vendored
-    /// files.
     pub lines: LinesChanged,
-    /// Folders that depend on them: held by them alone (Bus Factor 1), a
-    /// folder inside another of theirs not counted again.
     pub areas: u32,
 }
 
 impl Analysis<'_> {
-    /// Everyone who made commits in the Window, most commits first, each
-    /// with their lines and areas. Bots are left out.
     pub fn contributions(&self) -> Vec<Contribution> {
         combine(
             &self.contributors(),
@@ -48,12 +32,9 @@ impl Analysis<'_> {
         )
     }
 
-    /// Each person's Lines Changed in the Window, by person. Bots are left
-    /// out.
     pub fn lines_by_person(&self) -> Vec<(AuthorId, LinesChanged)> {
         let index = self.index();
         let options = self.options();
-        // By file: whether a person wrote it, and whether it is a lockfile.
         let mut skip = vec![None::<bool>; index.paths.len()];
         for h in &index.head {
             if let Some(slot) = skip.get_mut(h.file.idx()) {
@@ -106,8 +87,6 @@ impl Analysis<'_> {
     }
 }
 
-/// Each contributor's commits, lines and areas, from the three computed
-/// apart: an interface that has Ownership already need not compute it again.
 pub fn combine(
     contributors: &[Contributor],
     ownership: &Ownership,

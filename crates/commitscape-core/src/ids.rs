@@ -1,9 +1,3 @@
-//! Dense integer identities.
-//!
-//! Every table in the index is a `Vec` indexed by one of these. They are
-//! newtypes rather than bare `u32` because mixing a `FileId` with an `AuthorId`
-//! is otherwise a silent, plausible-looking bug.
-
 use serde::{Deserialize, Serialize};
 
 macro_rules! dense_id {
@@ -15,7 +9,6 @@ macro_rules! dense_id {
         pub struct $name(pub u32);
 
         impl $name {
-            /// Position in the table this id indexes.
             #[inline]
             pub fn idx(self) -> usize {
                 self.0 as usize

@@ -1,8 +1,3 @@
-//! `commitscape wrapped [folder]`: your year across every repository under a
-//! folder, as a page and a card. Only your own commits, under every address
-//! you commit with; private repositories included, and nothing leaves the
-//! machine.
-
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -10,12 +5,11 @@ use clap::Args;
 use commitscape_core::{AuthorId, Index};
 use commitscape_index::{line_pass_where, load, GixRepo, LineStore, RepoSource, Since};
 use commitscape_metrics::{wrapped, Analysis, Window, YearIn};
-use commitscape_web::api::{Language, RepoCommits, WrappedYear};
+use commitscape_report::api::{Language, RepoCommits, WrappedYear};
 
 use crate::{now, Common};
 
 const DAY: i64 = 86_400;
-/// How deep under the folder repositories are looked for.
 const DEPTH: usize = 4;
 
 #[derive(Args)]
@@ -32,7 +26,7 @@ pub struct WrappedArgs {
     #[arg(long = "email", value_name = "ADDRESS")]
     emails: Vec<String>,
 
-    /// Where to write the page and the card. Defaults to here.
+    /// Where to write the card. Defaults to here.
     #[arg(long, value_name = "DIR")]
     out: Option<PathBuf>,
 
@@ -44,8 +38,6 @@ pub struct WrappedArgs {
     common: Common,
 }
 
-/// Every repository under `folder`, not looking inside one once found, nor
-/// in folders that hold dependencies or builds.
 fn repositories(folder: &Path) -> Vec<PathBuf> {
     fn walk(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
         if dir.join(".git").exists() {
@@ -82,8 +74,6 @@ fn repositories(folder: &Path) -> Vec<PathBuf> {
     out
 }
 
-/// Everyone in a repository who is you: one of their addresses is yours.
-/// A name alone is not enough: other people share names.
 fn me(index: &Index, emails: &HashSet<String>) -> Vec<AuthorId> {
     let authors = &index.authors;
     authors
@@ -98,8 +88,6 @@ fn me(index: &Index, emails: &HashSet<String>) -> Vec<AuthorId> {
         .collect()
 }
 
-/// Addresses that commit under your name and are not counted as you: ones
-/// you may want to add with `--email`.
 fn maybe_yours(index: &Index, emails: &HashSet<String>, name: &str, out: &mut HashSet<String>) {
     let authors = &index.authors;
     for (id, a) in authors.iter() {
@@ -113,6 +101,7 @@ fn maybe_yours(index: &Index, emails: &HashSet<String>, name: &str, out: &mut Ha
     }
 }
 
+/// `commitscape wrapped`: one person's year across every repository under a folder, as a card.
 pub fn run(args: WrappedArgs) -> anyhow::Result<()> {
     let options = args.common.cache();
     let today = now();
@@ -123,8 +112,6 @@ pub fn run(args: WrappedArgs) -> anyhow::Result<()> {
     let next = commitscape_core::parse_iso8601(&format!("{:04}-01-01T00:00:00Z", year + 1))
         .ok_or_else(|| anyhow::anyhow!("{year} is not a year this can read"))?;
     let end = (next - 1).min(today);
-    // Wide enough for the year on every clock, which can be 14 hours
-    // either side of UTC; each commit is then placed by its own.
     let window = Window {
         from: Some(start - 14 * 3600),
         to: end + 14 * 3600,
@@ -137,8 +124,6 @@ pub fn run(args: WrappedArgs) -> anyhow::Result<()> {
         "no git repositories under {}",
         args.folder.display()
     );
-    // Who you are, from every repository's configuration first: one can
-    // set another address than the rest.
     let repos: Vec<(PathBuf, GixRepo)> = found
         .iter()
         .filter_map(|p| GixRepo::open(p).ok().map(|r| (p.clone(), r)))
@@ -160,7 +145,6 @@ pub fn run(args: WrappedArgs) -> anyhow::Result<()> {
         .map(|p| p.display().to_string())
         .collect();
 
-    // Read each repository's year, leaving out those with no commits.
     let since = Since::Time(window.from.unwrap_or(start));
     let mut loaded = Vec::new();
     for (n, (path, repo)) in repos.iter().enumerate() {
@@ -180,8 +164,6 @@ pub fn run(args: WrappedArgs) -> anyhow::Result<()> {
     }
     eprint!("\r\x1b[2K");
 
-    // An address that is you in one repository is you in all of them: a
-    // GitHub account or a .mailmap joins it to yours there.
     loop {
         let before = emails.len();
         for (_, _, l) in &loaded {
@@ -202,8 +184,6 @@ pub fn run(args: WrappedArgs) -> anyhow::Result<()> {
 
     let mut parts: Vec<(String, YearIn)> = Vec::new();
     let mut maybe: HashSet<String> = HashSet::new();
-    // A commit counted once: a clone or a worktree of a repository holds
-    // the same commits again.
     let mut counted: HashSet<commitscape_core::Oid> = HashSet::new();
     for (label, repo, mut loaded) in loaded {
         if let Some(name) = &name {
@@ -215,7 +195,6 @@ pub fn run(args: WrappedArgs) -> anyhow::Result<()> {
             continue;
         }
         if !args.no_lines {
-            // Only this year's commits of yours are counted, and kept.
             let index = &loaded.index;
             let wanted = |c: &commitscape_core::CommitMeta| {
                 window.contains(c.time) && index.author_of(c).is_some_and(|a| mine.contains(&a))
@@ -283,13 +262,11 @@ pub fn run(args: WrappedArgs) -> anyhow::Result<()> {
             .collect(),
         card: String::new(),
     };
-    page.card = commitscape_web::wrapped_card::card(&page);
+    page.card = commitscape_report::wrapped_card::card(&page);
 
     let dir = args.out.unwrap_or_else(|| PathBuf::from("."));
     std::fs::create_dir_all(&dir)?;
-    let html = dir.join(format!("wrapped-{year}.html"));
     let svg = dir.join(format!("wrapped-{year}-card.svg"));
-    std::fs::write(&html, commitscape_web::report::wrapped_page(&page))?;
     std::fs::write(&svg, &page.card)?;
     println!(
         "{year}: {} commits in {} of {} repositories, on {} days.",
@@ -298,7 +275,7 @@ pub fn run(args: WrappedArgs) -> anyhow::Result<()> {
         page.looked_in,
         page.active_days
     );
-    println!("wrote {}\nwrote {}", html.display(), svg.display());
+    println!("wrote {}", svg.display());
     if !skipped.is_empty() {
         println!("Could not read, so left out: {}.", skipped.join(", "));
     }
@@ -309,9 +286,6 @@ pub fn run(args: WrappedArgs) -> anyhow::Result<()> {
             "Commits under your name from other addresses were not counted. If they are yours, add: {}",
             maybe.iter().map(|e| format!("--email {e}")).collect::<Vec<_>>().join(" ")
         );
-    }
-    if !commitscape_web::built() {
-        eprintln!("This build has no web app, so the page only says how to build one; the card is complete.");
     }
     Ok(())
 }

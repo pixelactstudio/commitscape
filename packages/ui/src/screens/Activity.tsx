@@ -9,11 +9,12 @@ import { Explain } from "../explain";
 import { githubWhy, grouped, many, share, WINDOW_WORDS } from "../format";
 import { personColour } from "../theme";
 import type { ScreenProps } from "./props";
+import { ScreenSkeleton } from "../components/Loading";
 
 export function Activity({ meta, params }: ScreenProps) {
-  const { data: a, error, stale } = useData<Data>("/api/activity", params, meta.generation);
+  const { data: a, error, stale } = useData<Data>("/api/activity", params);
   if (error) return <p className="error">{error}</p>;
-  if (!a) return <p className="waiting">Reading…</p>;
+  if (!a) return <ScreenSkeleton />;
   const span = WINDOW_WORDS[a.window] ?? a.window;
   const series = [
     ...a.people.map((p, i) => ({

@@ -1,29 +1,3 @@
-//! Resolving one person's several git identities (ADR-0011, which amends
-//! ADR-0006).
-//!
-//! In the order of the evidence:
-//!
-//! 1. `.mailmap`, honoured as git defines it.
-//! 2. Case-insensitive email equality.
-//! 3. GitHub's noreply addresses: `NNNN+login@users.noreply.github.com` is
-//!    account `NNNN` whatever the login says, since a renamed account keeps
-//!    its number, and a bare `login@users.noreply.github.com` is that login's
-//!    account.
-//! 4. GitHub accounts: addresses GitHub links to the same account.
-//! 5. The same full display name: two or more words, not a placeholder such
-//!    as `Your Name`, compared ignoring case, accents and spacing.
-//!
-//! Rules 1 to 3 join Signatures under one address and are exact. Rules 4 and
-//! 5 join addresses, are recorded on the person ([`PersonTraits`]), and can
-//! be undone: addresses the user kept apart are never joined to each other
-//! by them again.
-//! Weaker signals, a one-word name or the same email local-part, are
-//! suggested as suspected duplicates and never merged.
-//!
-//! Bots are recognised by a `[bot]` suffix and a short list of automation
-//! accounts. They keep their own people, never joined by name, and are
-//! marked so that rankings can leave them out.
-
 use std::collections::{HashMap, HashSet};
 
 use commitscape_core::{
@@ -32,27 +6,18 @@ use commitscape_core::{
 
 use crate::mailmap::Mailmap;
 
-/// Bumped when the rules change, so every cache re-resolves its people on
-/// the next load (without re-reading history), as `CLASSIFIER_VERSION`
-/// does for file classes.
 pub const RULES_VERSION: u32 = 2;
 
-/// A GitHub account, as GitHub resolved a commit's author to it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Account {
-    /// GitHub's number for the account, which survives a rename.
     pub id: u64,
     pub login: String,
 }
 
-/// Everything people are resolved from besides the Signatures themselves.
 #[derive(Debug, Clone, Default)]
 pub struct IdentityRules {
     pub mailmap: Mailmap,
-    /// GitHub accounts by lowercased email address (rule 4).
     pub accounts: HashMap<String, Account>,
-    /// Merges the user undid: each entry is the address keys of one person
-    /// as it was before the undo ([`keys_of`]).
     pub kept_apart: Vec<Vec<String>>,
 }
 
@@ -64,13 +29,10 @@ impl IdentityRules {
         }
     }
 
-    /// Whether anything beyond the mailmap is known: accounts or undos.
     pub fn has_extras(&self) -> bool {
         !self.accounts.is_empty() || !self.kept_apart.is_empty()
     }
 
-    /// A value that changes whenever the accounts or the undo list do. The
-    /// mailmap has its own fingerprint, which the source provides cheaply.
     pub fn extras_fingerprint(&self) -> u64 {
         let mut h = xxhash_rust::xxh3::Xxh3::new();
         h.update(&RULES_VERSION.to_le_bytes());
@@ -94,17 +56,6 @@ impl IdentityRules {
     }
 }
 
-/// Resolves every signature to a person and returns the finished table.
-///
-/// `used` is parallel to `signatures`: how many commits each was used for. A
-/// person is displayed under the mailmap-resolved name and email of their
-/// most-used signature, so the displayed identity does not depend on the
-/// order the walk happened to meet signatures in, and an incremental index
-/// shows the same names as a full one.
-///
-/// This is a pure function of its inputs. That is what makes a `.mailmap`
-/// edit, a new GitHub link or an undo cheap: re-run it over the stored
-/// signatures, and no history is read.
 pub fn resolve_authors(
     signatures: Vec<Signature>,
     used: Vec<u32>,
@@ -122,7 +73,6 @@ pub fn resolve_authors(
         .collect();
     let keys = address_keys(resolved.iter().map(|(_, e)| e.as_str()));
 
-    // Rules 1 to 3: one group per address key, in order of first appearance.
     let mut group_of_key: HashMap<&str, usize> = HashMap::new();
     let mut groups: Vec<Group> = Vec::new();
     for (i, key) in keys.iter().enumerate() {
@@ -134,7 +84,6 @@ pub fn resolve_authors(
             group.signatures.push(SignatureId(i as u32));
             group.bot |= is_bot(name, email);
             group.emails.insert(email.to_ascii_lowercase());
-            // GitHub links the address a commit was made under.
             if let Some(raw) = signatures.get(i) {
                 group.emails.insert(raw.email.to_ascii_lowercase());
             }
@@ -143,7 +92,6 @@ pub fn resolve_authors(
             }
         }
     }
-    // Which undo, if any, kept each group apart from the others it lists.
     let undo_of_key: HashMap<&str, usize> = rules
         .kept_apart
         .iter()
@@ -159,7 +107,6 @@ pub fn resolve_authors(
         }
     }
 
-    // Rule 4: the same GitHub account.
     let mut by_account: HashMap<u64, usize> = HashMap::new();
     for (i, g) in groups.iter().enumerate() {
         if g.bot {
@@ -183,7 +130,6 @@ pub fn resolve_authors(
             }
         }
     }
-    // Rule 5: the same full name.
     let mut by_name: HashMap<&str, usize> = HashMap::new();
     for (i, g) in groups.iter().enumerate() {
         if g.bot {
@@ -199,7 +145,6 @@ pub fn resolve_authors(
         }
     }
 
-    // One person per set, in order of each set's first signature.
     let mut person_of_root: HashMap<usize, AuthorId> = HashMap::new();
     let mut members: Vec<(Vec<SignatureId>, PersonTraits)> = Vec::new();
     for (i, g) in groups.iter().enumerate() {
@@ -231,7 +176,6 @@ pub fn resolve_authors(
     let authors: Vec<Author> = members
         .into_iter()
         .map(|(sigs, traits)| {
-            // Most commits wins; the lowest id breaks ties deterministically.
             let display = sigs
                 .iter()
                 .copied()
@@ -240,8 +184,6 @@ pub fn resolve_authors(
                     (count, std::cmp::Reverse(s.0))
                 })
                 .and_then(|s| resolved.get(s.idx()));
-            // Shown with GitHub's numeric noreply prefix dropped: rule 3 makes
-            // the plain address the canonical form of that account.
             let (name, email) = match display {
                 Some((n, e)) => (
                     n.clone(),
@@ -263,7 +205,6 @@ pub fn resolve_authors(
     AuthorTable::new(signatures, used, person_of, authors, suspects)
 }
 
-/// The address keys of a person's signatures, the units an undo keeps apart.
 pub fn keys_of(table: &AuthorTable, person: AuthorId, rules: &IdentityRules) -> Vec<String> {
     let emails: Vec<String> = (0..table.signature_count())
         .map(|i| {
@@ -286,13 +227,10 @@ pub fn keys_of(table: &AuthorTable, person: AuthorId, rules: &IdentityRules) -> 
     out
 }
 
-/// Addresses, joined by rules 1 to 3, sharing one key.
 struct Group {
     key: String,
     signatures: Vec<SignatureId>,
-    /// Lowercased addresses, for looking up GitHub accounts.
     emails: HashSet<String>,
-    /// Full names ([`full_name`]) the group committed under.
     names: HashSet<String>,
     bot: bool,
     kept: bool,
@@ -311,9 +249,6 @@ impl Group {
     }
 }
 
-/// Disjoint sets of groups, each remembering what joined it and which undos
-/// its groups came out of: two sets holding groups from one undo are never
-/// joined.
 struct Sets {
     parent: Vec<usize>,
     traits: Vec<PersonTraits>,
@@ -370,9 +305,6 @@ impl Sets {
 
 const NOREPLY: &str = "@users.noreply.github.com";
 
-/// Each address's key under rules 2 and 3: the lowercased address, or for
-/// GitHub's noreply addresses `github:<number>`, or `github:@<login>` when
-/// no signature says which number the login belongs to.
 fn address_keys<'a>(emails: impl Iterator<Item = &'a str> + Clone) -> Vec<String> {
     let mut number_of_login: HashMap<String, u64> = HashMap::new();
     for email in emails.clone() {
@@ -392,8 +324,6 @@ fn address_keys<'a>(emails: impl Iterator<Item = &'a str> + Clone) -> Vec<String
         .collect()
 }
 
-/// A GitHub noreply address's account number, if it carries one, and its
-/// lowercased login.
 fn noreply(email: &str) -> Option<(Option<u64>, String)> {
     let lower = email.to_ascii_lowercase();
     let local = lower.strip_suffix(NOREPLY)?;
@@ -411,9 +341,6 @@ fn github_id(key: &str) -> Option<u64> {
     key.strip_prefix("github:")?.parse().ok()
 }
 
-/// `12345+octocat@users.noreply.github.com` -> `octocat@users.noreply.github.com`.
-///
-/// Scoped strictly to the GitHub noreply domain and to a numeric prefix.
 fn strip_github_numeric_prefix(email: &[u8]) -> Vec<u8> {
     let at = email.len().saturating_sub(NOREPLY.len());
     let (Some(local), Some(domain)) = (email.get(..at), email.get(at..)) else {
@@ -437,8 +364,6 @@ fn strip_github_numeric_prefix(email: &[u8]) -> Vec<u8> {
     }
 }
 
-/// Words that make up placeholder names. A name made only of these, such as
-/// `Your Name` or `root user`, is no evidence of who someone is.
 const PLACEHOLDER_WORDS: &[&str] = &[
     "action",
     "actions",
@@ -478,8 +403,6 @@ const PLACEHOLDER_WORDS: &[&str] = &[
     "your",
 ];
 
-/// A name folded for comparison (lowercase, no accents, single spaces), if
-/// it is a full name: two or more words, not all of them placeholder words.
 fn full_name(name: &str) -> Option<String> {
     let folded: String = name
         .chars()
@@ -496,7 +419,6 @@ fn full_name(name: &str) -> Option<String> {
     Some(words.join(" "))
 }
 
-/// A lowercase Latin letter without its accent.
 fn unaccent(c: char) -> char {
     match c {
         'à' | 'á' | 'â' | 'ã' | 'ä' | 'å' | 'ā' | 'ă' | 'ą' => 'a',
@@ -531,18 +453,11 @@ fn is_bot(name: &str, email: &str) -> bool {
         || AUTOMATION.contains(&email.as_str())
 }
 
-/// Local-parts too generic to suggest anything.
-/// Local parts that say nothing about who someone is: `root@` on build
-/// machines, and the words people put before their own domain.
 const GENERIC_LOCAL: &[&str] = &[
     "root", "dev", "admin", "user", "git", "build", "ci", "info", "me", "hi", "hello", "hey",
     "mail", "email", "contact", "code", "github", "noreply", "no-reply", "team", "support",
 ];
 
-/// Groups of people who look like one person but were not merged: they
-/// share a name under any of their signatures, or an email local-part (a
-/// login, for GitHub's noreply addresses). Bots are left out, and so are
-/// people the user kept apart from each other.
 fn suspected_duplicates(
     authors: &[Author],
     resolved: &[(String, String)],
@@ -578,8 +493,6 @@ fn suspected_duplicates(
                 locals.insert(local);
             }
         }
-        // A one-word name is also an email name: `RyanLandDev` as a name
-        // and as a GitHub login.
         for n in &names {
             if !n.contains(' ') && !GENERIC_LOCAL.contains(&n.as_str()) {
                 locals.insert(n.clone());
@@ -593,7 +506,6 @@ fn suspected_duplicates(
         }
     }
 
-    // Which undo each person came out of, if any.
     let undo_of_key: HashMap<&str, usize> = rules
         .kept_apart
         .iter()
@@ -637,7 +549,6 @@ mod tests {
         }
     }
 
-    /// Resolves with every signature used once.
     fn resolve(sigs: &[Signature], mailmap: Mailmap) -> AuthorTable {
         resolve_authors(
             sigs.to_vec(),
@@ -678,12 +589,10 @@ mod tests {
 
     #[test]
     fn rule_3_is_scoped_to_github_and_to_numeric_prefixes() {
-        // A `+` address on any other domain is a real, distinct address.
         assert_eq!(
             strip_github_numeric_prefix(b"12345+bob@example.com"),
             b"12345+bob@example.com".to_vec()
         );
-        // A non-numeric prefix on the github domain is not the assigned form.
         assert_eq!(
             strip_github_numeric_prefix(b"team+bob@users.noreply.github.com"),
             b"team+bob@users.noreply.github.com".to_vec()
@@ -727,7 +636,6 @@ mod tests {
 
     #[test]
     fn a_shared_one_word_name_is_suspected_but_not_merged() {
-        // The dangerous case: two real people both committing as "dev".
         let t = resolve(
             &[sig("dev", "one@example.com"), sig("dev", "two@example.com")],
             Mailmap::default(),
@@ -739,7 +647,6 @@ mod tests {
 
     #[test]
     fn generic_local_parts_do_not_generate_suggestions() {
-        // root@host-a and root@host-b are not evidence of anything.
         let t = resolve(
             &[
                 sig("Someone", "root@host-a.example.com"),
@@ -753,7 +660,6 @@ mod tests {
 
     #[test]
     fn personal_domains_behind_a_common_word_suggest_nobody() {
-        // me@t3.gg and me@maxkatz.me: two people, each on their own domain.
         let t = resolve(
             &[
                 sig("Theo Browne", "me@t3.gg"),
@@ -769,8 +675,6 @@ mod tests {
 
     #[test]
     fn a_person_is_shown_under_their_most_used_signature() {
-        // Two commits as the upper-case form, five as the lower-case one. The
-        // walk met the upper-case form first; the display must not care.
         let t = resolve_authors(
             vec![
                 sig("Alice Example", "Alice@Example.COM"),

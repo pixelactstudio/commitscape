@@ -1,8 +1,3 @@
-//! `who`: who to ask about a file or a folder. People are ordered by how
-//! much and how recently they changed it, each commit counting half as much
-//! for every 180 days of age; anyone who has stopped committing is flagged,
-//! and the first who has not is named instead.
-
 use std::collections::HashMap;
 
 use commitscape_core::AuthorId;
@@ -10,46 +5,31 @@ use serde::Serialize;
 
 use crate::analysis::{counts, Analysis};
 
-/// A commit counts half as much for every this many days of age.
 const HALF_LIFE_DAYS: f64 = 180.0;
-/// Someone whose last commit anywhere is older than this has stopped.
 const STOPPED_DAYS: i64 = 90;
 const DAY: i64 = 86_400;
 
-/// Someone who has worked on the path.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Expert {
     pub author: AuthorId,
-    /// Their commits that changed it, merges and Bulk Commits left out.
     pub commits: u32,
-    /// Their latest commit that changed it.
     pub last_here: i64,
-    /// Their latest commit anywhere in the repository.
     pub last_seen: i64,
-    /// Whether they still commit: their last commit is within 90 days of
-    /// the Window's end.
     pub active: bool,
 }
 
-/// Who to ask about a path.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Who {
-    /// The file, or the folder (ending in `/`).
     pub path: String,
-    /// Most worth asking first. Bots are left out.
     pub people: Vec<Expert>,
-    /// When the first has stopped committing: the first who has not.
     pub instead: Option<AuthorId>,
 }
 
 impl Analysis<'_> {
-    /// Who has worked on `path`, a file or a folder, over the Window. `None`
-    /// when the repository never had it.
     pub fn who(&self, path: &str) -> Option<Who> {
         let index = self.index();
         let window = self.window();
         let as_file = index.paths.get(path.as_bytes());
-        // A folder's path ends in `/`; the whole repository's is empty.
         let folder = match path.trim_end_matches('/') {
             "" => String::new(),
             p => format!("{p}/"),

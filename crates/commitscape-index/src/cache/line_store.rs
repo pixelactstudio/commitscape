@@ -1,13 +1,3 @@
-//! Line counts, kept next to the cache (ADR-0012): what each change of each
-//! counted commit added and removed.
-//!
-//! Keyed by commit id. A commit's contents never change, so its counts stay
-//! true whatever else happens to the cache, a full rebuild included, and
-//! the file is only ever appended to. One record per commit: its 20-byte
-//! id, how many changes it has, and for each the lines added plus one (zero
-//! for "not counted") and, when counted, the lines removed, as LEB128
-//! numbers. A record cut short by a crash is cut off by the next read.
-
 use std::collections::HashMap;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -17,21 +7,16 @@ use commitscape_core::{LineDelta, Oid, RepoIdentity};
 use super::CacheOptions;
 
 const FILE: &str = "lines";
-/// Bumped when counts made before would not line up with the changes the
-/// index records, or were counted differently.
 const MAGIC: &[u8] = b"commitscape lines 1\n";
 
-/// One repository's line counts.
 #[derive(Debug, Clone)]
 pub struct LineStore {
     dir: PathBuf,
 }
 
-/// Each commit's changes' counts, in the order the index records them.
 pub type Counted = HashMap<Oid, Vec<Option<LineDelta>>>;
 
 impl LineStore {
-    /// The store for a repository, or `None` when caching is off.
     pub fn for_repo(options: &CacheOptions, repo: &RepoIdentity) -> Option<Self> {
         Some(LineStore {
             dir: super::repo_dir(options, repo)?,
@@ -42,8 +27,6 @@ impl LineStore {
         self.dir.join(FILE)
     }
 
-    /// Every commit counted so far. A record cut short is cut off here, so
-    /// what [`append`](Self::append) adds after it can be read.
     pub fn read(&self) -> Counted {
         let path = self.path();
         let bytes = std::fs::read(&path).unwrap_or_default();
@@ -59,7 +42,6 @@ impl LineStore {
         counted
     }
 
-    /// Adds commits just counted, after those [`read`](Self::read) found.
     pub fn append(&self, counted: &[(Oid, Vec<Option<LineDelta>>)]) -> io::Result<()> {
         let mut out = Vec::new();
         for (id, deltas) in counted {
@@ -111,8 +93,6 @@ fn leb128(out: &mut Vec<u8>, mut n: u64) {
     }
 }
 
-/// The records in `bytes`, and how many bytes the whole records take,
-/// counting the header: 0 when there is no usable header.
 fn decode(bytes: &[u8]) -> (Counted, usize) {
     let mut counted = Counted::new();
     let Some(mut rest) = bytes.strip_prefix(MAGIC) else {
@@ -127,7 +107,6 @@ fn decode(bytes: &[u8]) -> (Counted, usize) {
     (counted, whole)
 }
 
-/// One record and what follows it.
 type Record<'a> = (Oid, Vec<Option<LineDelta>>, &'a [u8]);
 
 fn record(bytes: &[u8]) -> Option<Record<'_>> {

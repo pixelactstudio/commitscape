@@ -1,6 +1,3 @@
-//! Charts drawn into the frame cell by cell: columns, heat grids, bars, a
-//! treemap layout and a pixel font.
-
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
@@ -18,8 +15,6 @@ fn put(buf: &mut Buffer, x: u16, y: u16, symbol: &str, style: Style) {
     }
 }
 
-/// Sums `values` into at most `slots` buckets of equal length, the last one
-/// possibly shorter. Returns the buckets and how many values each holds.
 pub(crate) fn bucket(values: &[u32], slots: usize) -> (Vec<u64>, usize) {
     if values.is_empty() || slots == 0 {
         return (Vec::new(), 1);
@@ -34,11 +29,6 @@ pub(crate) fn bucket(values: &[u32], slots: usize) -> (Vec<u64>, usize) {
     )
 }
 
-/// Columns stacked from several series, oldest on the left: each column's
-/// parts bottom up in `colours` order, scaled so the tallest column reaches
-/// the top of `area`. A cell two parts share takes the colour of the part
-/// at its middle. `marks` are columns to mark with `▾` in the top row, which
-/// is then kept free of bars. Labels as [`columns`] draws them.
 pub(crate) fn stacked_columns(
     buf: &mut Buffer,
     area: Rect,
@@ -76,7 +66,6 @@ pub(crate) fn stacked_columns(
             continue;
         }
         let h = (total * eighths_high).div_ceil(most).max(1);
-        // Where each part ends, in eighths of a row from the bottom.
         let mut ends = Vec::with_capacity(parts.len());
         let mut sum = 0;
         for &v in parts {
@@ -118,10 +107,6 @@ pub(crate) fn stacked_columns(
     columns_labels(buf, area, n, span, label);
 }
 
-/// A column chart of `values`, oldest on the left, in `colour`, scaled so
-/// the tallest reaches the top of `area`. The bottom row carries labels
-/// from `label`, which is asked about each column and answers for the
-/// first column of a period (a month, a year).
 pub(crate) fn columns(
     buf: &mut Buffer,
     area: Rect,
@@ -138,7 +123,6 @@ pub(crate) fn columns(
     };
     let n = values.len();
     let width = usize::from(plot.width);
-    // Columns as wide as fit, with a gap once there is room for one.
     let span = (width / n).max(1);
     let bar = if span >= 3 { span - 1 } else { span };
     let most = values.iter().copied().max().unwrap_or(0);
@@ -172,8 +156,6 @@ pub(crate) fn columns(
     columns_labels(buf, area, n, span, label);
 }
 
-/// Labels for a run of days: the month's name at the first column in which
-/// a month begins, and the year when the month is January.
 pub(crate) fn month_labels(first_day: i64, per: usize) -> impl Fn(usize) -> Option<String> {
     move |i| {
         let start = first_day + (i * per) as i64;
@@ -193,8 +175,6 @@ pub(crate) fn month_labels(first_day: i64, per: usize) -> impl Fn(usize) -> Opti
     }
 }
 
-/// A horizontal bar `width` cells long at most, for `value` out of `most`,
-/// with eighth-cell precision.
 pub(crate) fn bar(value: u64, most: u64, width: u16) -> String {
     if most == 0 || width == 0 {
         return String::new();
@@ -215,9 +195,6 @@ pub(crate) fn bar(value: u64, most: u64, width: u16) -> String {
     s
 }
 
-/// A bar made of parts, each `(amount, colour)`, filling `width` cells in
-/// proportion. A part too small for a cell of its own is left out rather
-/// than drawn wider than it is.
 pub(crate) fn stacked(parts: &[(u64, Color)], width: u16) -> Line<'static> {
     let total: u64 = parts.iter().map(|p| p.0).sum();
     if total == 0 || width == 0 {
@@ -241,9 +218,6 @@ pub(crate) fn stacked(parts: &[(u64, Color)], width: u16) -> Line<'static> {
     Line::from(spans)
 }
 
-/// A grid of squares, one per value, `rows` high and filled column by
-/// column, each two cells wide. Used for the calendar (weeks by weekday)
-/// and the week (hours by weekday).
 pub(crate) fn heat_grid(buf: &mut Buffer, area: Rect, cells: &[Vec<Option<u64>>], most: u64) {
     for (col, column) in cells.iter().enumerate() {
         for (row, value) in column.iter().enumerate() {
@@ -260,7 +234,6 @@ pub(crate) fn heat_grid(buf: &mut Buffer, area: Rect, cells: &[Vec<Option<u64>>]
     }
 }
 
-/// The key to a heat grid: `less ■ ■ ■ ■ ■ more`.
 pub(crate) fn heat_key() -> Line<'static> {
     let mut spans = vec![Span::styled(" less ", Style::new().fg(MUTED))];
     spans.push(Span::styled("■ ", Style::new().fg(GRID)));
@@ -271,16 +244,11 @@ pub(crate) fn heat_key() -> Line<'static> {
     Line::from(spans)
 }
 
-/// Squarified treemap layout (Bruls, Huizing and van Wijk): rectangles for
-/// `sizes`, largest first, filling `area`, as close to square as they can
-/// be. A cell is about twice as tall as it is wide, which the layout
-/// allows for.
 pub(crate) fn treemap(sizes: &[u64], area: Rect) -> Vec<Rect> {
     let total: f64 = sizes.iter().map(|&s| s as f64).sum();
     if total <= 0.0 || area.width == 0 || area.height == 0 {
         return vec![Rect::default(); sizes.len()];
     }
-    // Work in a space where a cell is square: height counts double.
     let (w, h) = (f64::from(area.width), f64::from(area.height) * 2.0);
     let scale = w * h / total;
     let areas: Vec<f64> = sizes.iter().map(|&s| s as f64 * scale).collect();
@@ -303,7 +271,6 @@ pub(crate) fn treemap(sizes: &[u64], area: Rect) -> Vec<Rect> {
         let sum: f64 = row.iter().sum();
         let (fx, fy, fw, fh) = free;
         if fw >= fh {
-            // A column down the left side.
             let cw = if fh > 0.0 { sum / fh } else { 0.0 };
             let mut y = fy;
             for (k, a) in row.iter().enumerate() {
@@ -315,7 +282,6 @@ pub(crate) fn treemap(sizes: &[u64], area: Rect) -> Vec<Rect> {
             }
             free = (fx + cw, fy, fw - cw, fh);
         } else {
-            // A row across the top.
             let rh = if fw > 0.0 { sum / fw } else { 0.0 };
             let mut x = fx;
             for (k, a) in row.iter().enumerate() {
@@ -329,7 +295,6 @@ pub(crate) fn treemap(sizes: &[u64], area: Rect) -> Vec<Rect> {
         }
         start = end;
     }
-    // Back to cells, rounding edges rather than sizes so neighbours meet.
     out.into_iter()
         .map(|(x, y, cw, ch)| {
             let left = x.round() as u16;
@@ -346,7 +311,6 @@ pub(crate) fn treemap(sizes: &[u64], area: Rect) -> Vec<Rect> {
         .collect()
 }
 
-/// The worst aspect ratio in a row of areas laid along a side `short` long.
 fn worst(row: &[f64], short: f64) -> f64 {
     let sum: f64 = row.iter().sum();
     let (max, min) = row
@@ -360,9 +324,6 @@ fn worst(row: &[f64], short: f64) -> f64 {
     (s2 * max / sum2).max(sum2 / (s2 * min))
 }
 
-/// Three rows of block text in a 3-by-5 pixel font, each letter three cells
-/// wide with a cell between: the repository's name at the top of the
-/// Overview. `None` for text with characters the font lacks.
 pub(crate) fn big_text(text: &str) -> Option<[String; 3]> {
     let mut rows = [String::new(), String::new(), String::new()];
     for (n, c) in text.chars().enumerate() {
@@ -436,7 +397,6 @@ fn glyph(c: char) -> Option<[&'static str; 5]> {
     })
 }
 
-/// A colour between `from` and `to`, `t` of the way along.
 pub(crate) fn blend(from: Color, to: Color, t: f64) -> Color {
     match (from, to) {
         (Color::Rgb(r1, g1, b1), Color::Rgb(r2, g2, b2)) => {
@@ -448,7 +408,6 @@ pub(crate) fn blend(from: Color, to: Color, t: f64) -> Color {
     }
 }
 
-/// The labels under a chart of `n` columns, each `span` wide.
 fn columns_labels(
     buf: &mut Buffer,
     area: Rect,
@@ -456,9 +415,6 @@ fn columns_labels(
     span: usize,
     label: impl Fn(usize) -> Option<String>,
 ) {
-    // Labels, left to right, never overlapping. One that would run past
-    // the right edge ends there instead, if that keeps it clear of the one
-    // before.
     let y = area.y + area.height - 1;
     let mut free_from = area.x;
     for i in 0..n {

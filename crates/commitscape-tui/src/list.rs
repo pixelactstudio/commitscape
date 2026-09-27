@@ -1,9 +1,5 @@
-//! A selection in a list that may be taller than the screen.
-
 use std::ops::Range;
 
-/// Which row of a list is selected, and how far the list is scrolled to
-/// show it.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Cursor {
     selected: usize,
@@ -15,7 +11,6 @@ impl Cursor {
         self.selected
     }
 
-    /// Moves the selection by `delta` rows, staying within `len` rows.
     pub fn step(&mut self, delta: isize, len: usize) {
         self.selected = self
             .selected
@@ -23,8 +18,6 @@ impl Cursor {
             .min(len.saturating_sub(1));
     }
 
-    /// The rows of a `len`-row list that fit in `height` rows, scrolled as
-    /// little as possible to keep the selection in view.
     pub fn visible(&mut self, len: usize, height: usize) -> Range<usize> {
         if len == 0 || height == 0 {
             return 0..0;

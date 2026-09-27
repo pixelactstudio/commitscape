@@ -1,12 +1,7 @@
-/**
- * Keyboard shortcuts, as npmx.dev has them: single keys that act at once,
- * off while typing in a field, and shown on screen next to what they do.
- */
 import { useEffect, useLayoutEffect, useRef } from "react";
 
 export type Shortcuts = Record<string, (e: KeyboardEvent) => void>;
 
-/** Whether a key press belongs to a field someone is typing in. */
 export function typing(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
   if (!el) return false;
@@ -17,10 +12,6 @@ export function typing(target: EventTarget | null): boolean {
   return !["checkbox", "radio", "button", "submit", "reset", "range", "color"].includes(type);
 }
 
-/**
- * Runs `shortcuts[key]` for a key pressed anywhere but in a field. `mod+k`
- * is ⌘K on a Mac and Ctrl+K elsewhere, and works in fields too.
- */
 export function useShortcuts(shortcuts: Shortcuts) {
   const current = useRef(shortcuts);
   useLayoutEffect(() => {
@@ -49,7 +40,6 @@ export function useShortcuts(shortcuts: Shortcuts) {
   }, []);
 }
 
-/** Every shortcut, in words, for the list `?` shows. */
 export const SHORTCUT_WORDS: [string, string][] = [
   ["1–6", "Choose a screen"],
   ["mod+k", "Jump to a screen, a person, a folder or a file"],

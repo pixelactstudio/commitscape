@@ -1,43 +1,33 @@
-# Rust build output
 /target
 **/*.rs.bk
 *.pdb
 
-# Generated test fixtures, rebuilt by `cargo xtask fixtures`
 /fixtures/
 
-# Benchmark output
 /bench-results/
 
-# Local scratch
 /.scratch/
 
-# What commitscape writes when run from this folder: cards, reports, Wrapped
 /*-card.svg
-/*-report.html
-/wrapped-*.html
+/*-report.json.gz
 
-# The TypeScript workspace: dependencies, builds (apps/local/dist is what
-# cargo embeds), Turborepo's cache, test output
 node_modules/
 dist/
+.output/
+.nitro/
+.tanstack/
 .turbo/
-# Wrangler's local state and the built Site's config redirect
-.wrangler/
 test-results/
 playwright-report/
 
-# Nix: `nix build` links its output here; direnv keeps its cache here
 /result
 /result-*
 /.direnv/
 
-# Secrets
 .env
 .env.*
-.dev.vars
+!.env.example
 
-# Editors and operating systems
 /.idea/
 /.vscode/
 *.swp
@@ -45,5 +35,4 @@ playwright-report/
 .DS_Store
 Thumbs.db
 
-# Logs
 *.log

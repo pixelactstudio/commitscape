@@ -1,5 +1,4 @@
 /// <reference lib="webworker" />
-// The commit search off the page's thread, for long lists (ADR-0019).
 import { prepare, search, type Prepared, type Query } from "./search";
 
 let prepared: Prepared | null = null;

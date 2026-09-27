@@ -1,7 +1,3 @@
-/**
- * Commits by hour of the day, a column an hour, with the night (22:00 to
- * 05:00) shaded and labelled.
- */
 import { grouped } from "../format";
 import { TableView, YAxis } from "./common";
 import { ticks, useWidth } from "./scale";

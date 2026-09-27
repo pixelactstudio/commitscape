@@ -8,17 +8,18 @@ import { Name, Path } from "../components/Name";
 import { Explain } from "../explain";
 import { compact, grouped, many, WINDOW_WORDS } from "../format";
 import { openers, type ScreenProps } from "./props";
+import { ScreenSkeleton } from "../components/Loading";
 
 const HEIGHT = 340;
 const LEFT = 58;
 const BOTTOM = 34;
 const TOP = 12;
 
-export function Risk({ meta, params, go }: ScreenProps) {
-  const { data: r, error, stale } = useData<Data>("/api/risk", params, meta.generation);
+export function Risk({ params, go }: ScreenProps) {
+  const { data: r, error, stale } = useData<Data>("/api/risk", params);
   const open = openers(go);
   if (error) return <p className="error">{error}</p>;
-  if (!r) return <p className="waiting">Reading…</p>;
+  if (!r) return <ScreenSkeleton />;
   const span = WINDOW_WORDS[r.window] ?? r.window;
   return (
     <div className={stale ? "screen stale" : "screen"}>
@@ -132,15 +133,12 @@ function Scatter({ r, onFile }: { r: Data; onFile: (path: string) => void }) {
   const tip = useTip();
   const maxC = Math.max(1, ...r.files.map((f) => f.churn));
   const maxN = Math.max(1, ...r.files.map((f) => f.nesting));
-  // How often, on a square-root scale: a few files change far more than
-  // the rest, and a straight scale would crowd everyone else at zero.
   const cTicks = ticks(maxC, 4);
   const nTicks = ticks(maxN, 4);
   const cTop = cTicks.at(-1) ?? maxC;
   const nTop = nTicks.at(-1) ?? maxN;
   const x = (c: number) => LEFT + Math.sqrt(c / cTop) * (width - LEFT - 12);
   const y = (n: number) => TOP + (1 - n / nTop) * (HEIGHT - TOP - BOTTOM);
-  // The danger corner: the top quarter of both, by rank.
   const sortedC = r.files.map((f) => f.churn).sort((a, b) => a - b);
   const sortedN = r.files.map((f) => f.nesting).sort((a, b) => a - b);
   const q = (list: number[]) => list[Math.floor(list.length * 0.75)] ?? 0;

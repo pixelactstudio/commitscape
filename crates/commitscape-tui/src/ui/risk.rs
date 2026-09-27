@@ -1,7 +1,3 @@
-//! Risk: where a change is most likely to hurt. Hotspots, the files that
-//! change together, and the folders only one person knows, as one list in
-//! three sections.
-
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
@@ -40,7 +36,6 @@ pub(super) fn draw(app: &App, frame: &mut Frame, area: Rect, cursor: &mut Cursor
         return;
     }
 
-    // Every line, headings among them, and which line each row is on.
     let width = usize::from(inner.width);
     let mut lines: Vec<Line> = Vec::new();
     let mut at_line = Vec::with_capacity(rows.len());
@@ -58,7 +53,6 @@ pub(super) fn draw(app: &App, frame: &mut Frame, area: Rect, cursor: &mut Cursor
         lines.push(super::fit_line(line(app, f, *row, width), width));
     }
 
-    // Scrolled to keep the selection in view.
     let height = usize::from(inner.height);
     let selected = at_line.get(cursor.selected()).copied().unwrap_or(0);
     let start = (selected + 1).saturating_sub(height);
@@ -189,8 +183,6 @@ fn line(app: &App, f: &Findings, row: RiskRow, width: usize) -> Line<'static> {
     }
 }
 
-/// The longest file name among the Hotspots listed, so their columns line
-/// up.
 fn longest_hotspot(app: &App, f: &Findings) -> usize {
     f.hotspots
         .iter()

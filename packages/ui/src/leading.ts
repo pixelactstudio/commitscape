@@ -1,11 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 
-/**
- * Calls `fn` at once for the first call, then at most every `ms` with the
- * latest value while calls keep coming: the first keystroke searches
- * straight away, a burst of them once more at the end (npmx.dev's
- * leading-edge debounce).
- */
 export function useLeading<T>(fn: (value: T) => void, ms: number): (value: T) => void {
   const latest = useRef(fn);
   useLayoutEffect(() => {

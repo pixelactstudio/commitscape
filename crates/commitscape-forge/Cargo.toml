@@ -9,8 +9,6 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
-# Knows nothing of git or of the index: it turns a remote URL into numbers
-# from the host. The binary decides whether and when to ask (ADR-0009).
 [dependencies]
 commitscape-core = { path = "../commitscape-core" }
 serde = { version = "1.0.229", features = ["derive"] }

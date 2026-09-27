@@ -1,7 +1,3 @@
-//! The paths a change touches, for `check`: what is staged, what a branch
-//! changed since it left another, and what one commit changed. Read from
-//! trees and the index file only, never blob contents.
-
 use std::collections::HashMap;
 
 use gix::ObjectId;
@@ -10,8 +6,6 @@ use super::tree_diff::{Changed, TreeDiffer};
 use super::{GixError, GixRepo};
 
 impl GixRepo {
-    /// The paths whose staged content differs from HEAD's: added, changed
-    /// or removed in the index. Every path is staged when there is no HEAD.
     pub fn staged(&self) -> Result<Vec<String>, GixError> {
         let index = git_ctx!(self.repo.open_index(), "reading the staging area")?;
         let mut head: HashMap<Vec<u8>, ObjectId> = HashMap::new();
@@ -23,8 +17,6 @@ impl GixRepo {
         }
         let mut out = Vec::new();
         for entry in index.entries() {
-            // A submodule is another repository, and a sparse entry a folder
-            // left out of the checkout: neither is a file staged here.
             if entry.mode.is_submodule() || entry.mode.is_sparse() {
                 continue;
             }
@@ -34,7 +26,6 @@ impl GixRepo {
                 _ => out.push(String::from_utf8_lossy(&path).into_owned()),
             }
         }
-        // What HEAD has and the index does not was removed.
         out.extend(
             head.into_keys()
                 .map(|p| String::from_utf8_lossy(&p).into_owned()),
@@ -44,8 +35,6 @@ impl GixRepo {
         Ok(out)
     }
 
-    /// The paths changed between where HEAD left `base` (their merge base)
-    /// and HEAD: what a branch changed.
     pub fn changed_since(&self, base: &str) -> Result<Vec<String>, GixError> {
         let base = git_ctx!(
             self.repo.rev_parse_single(base),
@@ -64,8 +53,6 @@ impl GixRepo {
         Ok(paths(self.diff(tree, Some(old_tree))?))
     }
 
-    /// The paths one commit changed against its first parent, and its
-    /// commit time.
     pub fn commit_changes(&self, rev: &str) -> Result<(Vec<String>, i64), GixError> {
         let id = git_ctx!(self.repo.rev_parse_single(rev), "finding the commit")?;
         let commit = git_ctx!(self.repo.find_commit(id.detach()), "reading the commit")?;

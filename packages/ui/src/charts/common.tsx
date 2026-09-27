@@ -1,4 +1,3 @@
-/** What every chart shares: its width, its axes, its legend and its table. */
 import type { ReactNode } from "react";
 import { Card } from "@astryxdesign/core/Card";
 import { Heading } from "@astryxdesign/core/Heading";
@@ -6,7 +5,6 @@ import { compact, grouped } from "../format";
 
 export type Swatch = { label: string; colour: string; mark?: "line" | "dash" | "block" };
 
-/** The key to two or more series: always there, never colour alone. */
 export function Legend({ items }: { items: Swatch[] }) {
   if (items.length < 2) return null;
   return (
@@ -35,7 +33,6 @@ export function Legend({ items }: { items: Swatch[] }) {
   );
 }
 
-/** The chart's numbers as a table, for reading them exactly. */
 export function TableView({
   head,
   rows,
@@ -74,7 +71,6 @@ export function TableView({
   );
 }
 
-/** A y axis's gridlines and labels, recessive, on the left. */
 export function YAxis({
   values,
   y,
@@ -100,7 +96,6 @@ export function YAxis({
   );
 }
 
-/** A chart's frame: its title, what it shows, and the chart itself. */
 export function Figure({
   title,
   note,

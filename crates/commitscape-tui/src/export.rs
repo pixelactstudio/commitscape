@@ -1,11 +1,3 @@
-//! A drawn frame as an SVG image: what `commitscape card` writes, and how the
-//! interface is looked at while it is designed.
-//!
-//! Every cell is placed exactly, so the picture keeps its shape whatever
-//! font the viewer has. Blocks, box lines, braille dots and heatmap squares
-//! are drawn as shapes rather than as characters: fonts disagree about them,
-//! and a picture meant for sharing must look the same everywhere.
-
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
@@ -14,15 +6,12 @@ use ratatui::style::{Color, Modifier};
 
 use crate::theme::{SURFACE, TEXT};
 
-/// One cell, in SVG units. The width is 0.6 of the font size, the advance of
-/// a typical monospace face.
 const CELL_W: f64 = 9.0;
 const CELL_H: f64 = 19.0;
 const FONT_SIZE: f64 = 15.0;
 const FONTS: &str = "ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', \
                      'Liberation Mono', monospace";
 
-/// The frame in `buffer` as a standalone SVG document.
 pub fn svg(buffer: &Buffer) -> String {
     let area = buffer.area;
     let (cols, rows) = (area.width, area.height);
@@ -34,7 +23,6 @@ pub fn svg(buffer: &Buffer) -> String {
         hex(SURFACE, SURFACE)
     );
 
-    // Backgrounds, one rectangle per run of cells sharing a colour.
     for y in 0..rows {
         let mut x = 0;
         while x < cols {
@@ -56,15 +44,9 @@ pub fn svg(buffer: &Buffer) -> String {
         }
     }
 
-    // Glyphs: runs of text in one style as one element, each character
-    // placed at its own cell, so the words can be searched and copied;
-    // shapes on their own. Straight box lines are gathered and drawn after,
-    // joined where they touch.
     let mut strokes = Strokes::default();
     for y in 0..rows {
         let mut run = Run::default();
-        // Full blocks side by side in one colour are one rectangle: a bar
-        // is a few shapes rather than one a cell.
         let mut blocks: Option<(f64, f64, String)> = None;
         let top = f64::from(y) * CELL_H;
         let flush = |blocks: &mut Option<(f64, f64, String)>, out: &mut String| {
@@ -155,7 +137,6 @@ pub fn svg(buffer: &Buffer) -> String {
     out
 }
 
-/// How a run of text is drawn.
 #[derive(PartialEq)]
 struct Style {
     colour: String,
@@ -163,13 +144,11 @@ struct Style {
     dim: bool,
 }
 
-/// Characters in one style along a row, each with its own position.
 #[derive(Default)]
 struct Run {
     style: Option<Style>,
     xs: Vec<f64>,
     text: String,
-    /// Spaces seen since the last character, kept only if one follows.
     gap: Vec<f64>,
 }
 
@@ -192,7 +171,6 @@ impl Run {
         }
     }
 
-    /// Writes the run, if it holds anything, and starts another.
     fn write(&mut self, out: &mut String, top: f64) {
         if let Some(style) = self.style.take().filter(|_| !self.text.is_empty()) {
             let xs: Vec<String> = self.xs.iter().map(f64::to_string).collect();
@@ -230,7 +208,6 @@ fn background(buffer: &Buffer, x: u16, y: u16) -> Color {
     }
 }
 
-/// A character drawn as shapes, or `None` for one drawn as text.
 fn shape(c: char, x: f64, y: f64, colour: &str) -> Option<String> {
     let (w, h) = (CELL_W, CELL_H);
     let rect = |fx: f64, fy: f64, fw: f64, fh: f64| {
@@ -249,12 +226,10 @@ fn shape(c: char, x: f64, y: f64, colour: &str) -> Option<String> {
         '▔' => rect(0.0, 0.0, 1.0, 0.125),
         '▐' => rect(0.5, 0.0, 0.5, 1.0),
         '▕' => rect(0.875, 0.0, 0.125, 1.0),
-        // Lower eighths, ▁ to ▇.
         '\u{2581}'..='\u{2587}' => {
             let f = f64::from(code - 0x2580) / 8.0;
             rect(0.0, 1.0 - f, 1.0, f)
         }
-        // Left eighths, ▉ (seven) down to ▏ (one); ▌ is four.
         '\u{2589}'..='\u{258f}' => rect(0.0, 0.0, f64::from(0x2590 - code) / 8.0, 1.0),
         '░' | '▒' | '▓' => {
             let opacity = match c {
@@ -267,7 +242,6 @@ fn shape(c: char, x: f64, y: f64, colour: &str) -> Option<String> {
             )
         }
         '\u{2596}'..='\u{259f}' => {
-            // Quadrants: upper left, upper right, lower left, lower right.
             let [ul, ur, ll, lr] = match c {
                 '▖' => [false, false, true, false],
                 '▗' => [false, false, false, true],
@@ -302,8 +276,6 @@ fn shape(c: char, x: f64, y: f64, colour: &str) -> Option<String> {
             w * 0.38
         ),
         '\u{2800}'..='\u{28ff}' => {
-            // Braille: dots 1 to 3 and 7 down the left, 4 to 6 and 8 down
-            // the right.
             const DOTS: [(u32, f64, f64); 8] = [
                 (0x01, 0.0, 0.0),
                 (0x02, 0.0, 1.0),
@@ -332,20 +304,14 @@ fn shape(c: char, x: f64, y: f64, colour: &str) -> Option<String> {
     })
 }
 
-/// Box-drawing characters as strokes from the cell's centre to its edges.
-/// A straight segment in hundredths of a unit: the row or column it runs
-/// along, and where it starts and ends on it.
 type Segment = (i64, i64, i64);
 
-/// Straight box lines by colour and width in tenths: horizontal segments,
-/// then vertical ones.
 #[derive(Default)]
 struct Strokes {
     styles: BTreeMap<(String, u32), (Vec<Segment>, Vec<Segment>)>,
 }
 
 impl Strokes {
-    /// A cell's arms, from its middle to the edges it reaches.
     fn add(
         &mut self,
         colour: &str,
@@ -375,8 +341,6 @@ impl Strokes {
         }
     }
 
-    /// One path for each colour and width, each run of touching segments
-    /// one line in it.
     fn write(self, out: &mut String) {
         let unit = |v: i64| v as f64 / 100.0;
         for ((colour, tenths), (mut across, mut down)) in self.styles {
@@ -408,8 +372,6 @@ impl Strokes {
     }
 }
 
-/// A box-drawing character's arms (left, right, up, down), its stroke
-/// width, and whether its corner is rounded.
 fn arms(c: char) -> Option<([bool; 4], f64, bool)> {
     Some(match c {
         '─' => ([true, true, false, false], 1.0, false),
@@ -443,7 +405,6 @@ fn lines(c: char, x: f64, y: f64, colour: &str) -> Option<String> {
     let [left, right, up, down] = arms;
     let mut path = String::new();
     if rounded {
-        // One arm across, one arm up or down, joined by a curve.
         let (hx, vy) = (
             if left { x } else { x + CELL_W },
             if up { y } else { y + CELL_H },

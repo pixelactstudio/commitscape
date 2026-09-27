@@ -1,20 +1,8 @@
-//! The benchmark harness.
-//!
-//! ADR-0002 states budgets as acceptance criteria, so they need a number to
-//! regress against from the first day rather than the day someone suspects a
-//! problem. This harness exists before the thing it measures, deliberately.
-//!
-//! It refuses to run against a debug build. A debug-profile number would be
-//! meaningless and, worse, would look like evidence.
-
 use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-/// Where the large benchmark repositories live. These are real clones, not
-/// fixtures: the product thesis is performance at scale, and a number from a
-/// small repository is not evidence about a large one.
 fn bench_repo_root() -> PathBuf {
     std::env::var_os("COMMITSCAPE_BENCH_REPOS")
         .map(PathBuf::from)
@@ -27,18 +15,12 @@ fn bench_repo_root() -> PathBuf {
 }
 
 pub struct BenchContext {
-    /// Path to the release binary under test.
     pub binary: PathBuf,
-    /// Root containing the large benchmark clones.
     pub repos: PathBuf,
-    /// The workspace root, for scratch space under `target/`.
     pub workspace: PathBuf,
 }
 
 impl BenchContext {
-    /// Path to a named benchmark repository, if it has been cloned. A missing
-    /// clone makes its benchmarks report SKIPPED instead of silently
-    /// measuring nothing.
     pub fn repo(&self, name: &str) -> Option<PathBuf> {
         let p = self.repos.join(name);
         p.join(".git").is_dir().then_some(p)
@@ -52,12 +34,6 @@ struct Benchmark {
     run: fn(&BenchContext) -> Result<Option<Duration>>,
 }
 
-/// The benchmark registry.
-///
-/// A benchmark returns `Ok(None)` when its inputs are not present (an uncloned
-/// repository, a cache that has not been built yet). That is reported as
-/// SKIPPED rather than as a pass, because a benchmark that silently measures
-/// nothing is worse than one that fails.
 const BENCHMARKS: &[Benchmark] = &[
     Benchmark {
         name: "startup",
@@ -109,12 +85,10 @@ const BENCHMARKS: &[Benchmark] = &[
     },
 ];
 
-/// Cache directory for benchmark runs, kept apart from the user's own.
 fn bench_cache(ctx: &BenchContext, name: &str) -> PathBuf {
     ctx.workspace.join("target").join("bench-cache").join(name)
 }
 
-/// Runs the binary on a repository and returns how long it took.
 fn time_binary(ctx: &BenchContext, repo: &Path, cache: &Path) -> Result<Duration> {
     let start = Instant::now();
     let out = Command::new(&ctx.binary)
@@ -133,8 +107,6 @@ fn time_binary(ctx: &BenchContext, repo: &Path, cache: &Path) -> Result<Duration
     Ok(elapsed)
 }
 
-/// One warm start: an untimed run makes sure the cache is warm (after the
-/// first sample this is itself a warm start), then a timed one.
 fn warm_start(ctx: &BenchContext, name: &str) -> Result<Option<Duration>> {
     let Some(repo) = ctx.repo(name) else {
         return Ok(None);
@@ -152,12 +124,6 @@ fn bench_warm_start_linux(ctx: &BenchContext) -> Result<Option<Duration>> {
     warm_start(ctx, "linux")
 }
 
-/// One first paint: an untimed run makes sure the cache is warm, then a
-/// timed one draws the interface's first frame and exits.
-///
-/// The interface only opens on a terminal, so the binary runs under
-/// util-linux `script`, which gives it a pseudo-terminal. The time includes
-/// `script`'s own start-up (about 15ms here), so it is an upper bound.
 fn first_paint(ctx: &BenchContext, name: &str) -> Result<Option<Duration>> {
     let Some(repo) = ctx.repo(name) else {
         return Ok(None);
@@ -193,7 +159,6 @@ fn first_paint(ctx: &BenchContext, name: &str) -> Result<Option<Duration>> {
     Ok(Some(elapsed))
 }
 
-/// A path as one word for `sh`.
 fn quoted(path: &Path) -> String {
     format!("'{}'", path.display().to_string().replace('\'', "'\\''"))
 }
@@ -219,16 +184,8 @@ fn bench_cold_index_linux(ctx: &BenchContext) -> Result<Option<Duration>> {
     Ok(Some(elapsed))
 }
 
-/// First-parent steps `main` is rewound by to make "a few hundred" commits
-/// new. The exact number of commits is printed with each run.
 const UPDATE_REWIND: u32 = 40;
 
-/// A warm start that has to absorb a few hundred new commits.
-///
-/// Runs against a `--shared` clone of the benchmark repository in `target/`,
-/// never against the clone itself: `main` is rewound, the cache is built and
-/// saved aside, then each sample restores that cache, moves `main` back to
-/// its real tip, and times the run that brings the cache up to date.
 fn bench_warm_update_rust(ctx: &BenchContext) -> Result<Option<Duration>> {
     let Some(source) = ctx.repo("rust") else {
         return Ok(None);
@@ -268,8 +225,6 @@ fn bench_warm_update_rust(ctx: &BenchContext) -> Result<Option<Duration>> {
         if !status.success() {
             bail!("could not make a shared clone of {}", source.display());
         }
-        // Remember the real tip, then keep only `main` and the tags:
-        // remote-tracking refs would pin the new commits as already reachable.
         let tip = git(&["rev-parse", "refs/remotes/origin/main"])?;
         git(&["config", "commitscape.bench.tip", &tip])?;
         for r in git(&["for-each-ref", "--format=%(refname)", "refs/remotes"])?.lines() {
@@ -314,12 +269,6 @@ fn copy_dir(from: &Path, to: &Path) -> Result<()> {
     Ok(())
 }
 
-/// One full, uncached index of `rust-lang/rust`: every commit, then every
-/// file at HEAD.
-///
-/// The gating cold-index budget in ADR-0002. Reports the shape of the resulting
-/// index as well as the time, because a fast index that collected the wrong
-/// amount of data is not a pass.
 fn bench_cold_index_rust(ctx: &BenchContext) -> Result<Option<Duration>> {
     let Some(path) = ctx.repo("rust") else {
         return Ok(None);
@@ -368,11 +317,6 @@ fn bench_cold_index_rust(ctx: &BenchContext) -> Result<Option<Duration>> {
     Ok(Some(elapsed))
 }
 
-/// A memory figure for this process from `/proc` on Linux. A walk that is
-/// fast because it holds the whole repository in memory is not a pass.
-///
-/// Peak resident memory includes pages of the memory-mapped pack file, which
-/// the kernel can drop at will, so the anonymous figure is reported alongside.
 fn proc_status_mb(field: &str) -> String {
     std::fs::read_to_string("/proc/self/status")
         .ok()
@@ -387,11 +331,6 @@ fn proc_status_mb(field: &str) -> String {
         .unwrap_or_else(|| "unavailable on this platform".to_string())
 }
 
-/// Measures bare process startup: exec, dynamic linking, runtime init, exit.
-///
-/// This is the floor under ADR-0002's 100ms warm-start budget. Every
-/// millisecond here is one the index is not allowed to spend, and it is also
-/// the number the npm shim in ADR-0003 adds Node's own startup on top of.
 fn bench_startup(ctx: &BenchContext) -> Result<Option<Duration>> {
     let start = Instant::now();
     let status = Command::new(&ctx.binary)
@@ -441,8 +380,6 @@ pub fn run(filter: Option<&str>, iterations: Option<u32>) -> Result<()> {
     let root = crate::workspace_root();
     let binary = root.join("target/release/commitscape");
 
-    // Always rebuild: a stale binary would benchmark code that no longer
-    // exists. Cargo makes this a no-op when nothing changed.
     let status = Command::new(env!("CARGO"))
         .args(["build", "--release", "--package", "commitscape"])
         .current_dir(&root)

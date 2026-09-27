@@ -8,9 +8,12 @@
     "lint": "turbo run lint",
     "test": "turbo run test",
     "check": "turbo run typecheck lint test build",
-    "e2e": "pnpm --filter @commitscape/local e2e",
-    "dev:site": "node apps/site/scripts/dev.ts",
-    "dev:site:seed": "node --env-file=target/site-dev/builder.env apps/builder/dist/builder.mjs seed"
+    "e2e": "pnpm --filter @commitscape/site e2e",
+    "services": "docker compose -f compose.dev.yaml up -d --wait",
+    "dev:site": "pnpm --filter @commitscape/site dev",
+    "dev:builder": "pnpm --filter @commitscape/builder dev",
+    "db:generate": "pnpm --filter @commitscape/server db:generate",
+    "db:custom": "pnpm --filter @commitscape/server db:custom"
   },
   "devDependencies": {
     "turbo": "2.11.4"

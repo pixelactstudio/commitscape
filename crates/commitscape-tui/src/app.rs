@@ -1,6 +1,3 @@
-//! The interface as a state machine: events in, commands out, and a frame
-//! drawn from the state alone.
-
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -25,7 +22,6 @@ use crate::{
     Session,
 };
 
-/// The Panels, in tab order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Panel {
     Overview,
@@ -58,40 +54,29 @@ impl Panel {
         Panel::EVERY.iter().position(|p| *p == self).unwrap_or(0)
     }
 
-    /// Panels whose rows a search narrows.
     pub(crate) fn searchable(self) -> bool {
         matches!(self, Panel::People | Panel::Risk)
     }
 }
 
-/// A row of the Risk screen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RiskRow {
-    /// By place among the Hotspots.
     Hotspot(usize),
-    /// By place among the Change Groups.
     Group(usize),
-    /// By place among the silos.
     Silo(usize),
 }
 
-/// The most rows each section of the Risk screen lists.
 pub(crate) const RISK_ROWS: usize = 12;
 
-/// One finding the Overview leads with. Each can be entered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Headline {
-    /// A directory one person holds, by its place in the Ownership ranking.
     Directory(usize),
     Hotspot,
-    /// The first pair across directories, by its place in the Coupling
-    /// ranking.
     Pair(usize),
     Stale,
     People,
 }
 
-/// Directories one person holds that the Overview lists.
 pub(crate) const HELD_DIRECTORIES: usize = 2;
 
 pub(crate) fn headlines(f: &Findings) -> Vec<Headline> {
@@ -117,16 +102,13 @@ pub(crate) fn headlines(f: &Findings) -> Vec<Headline> {
     out
 }
 
-/// What a place on the last frame does when clicked.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Click {
     Panel(Panel),
     Window(Span),
-    /// A row of the list in view: a detail's, the Map's or the Panel's.
     Row(usize),
 }
 
-/// Something that happened: a key, or work finishing off the main thread.
 pub struct Event(Happened);
 
 enum Happened {
@@ -146,7 +128,6 @@ enum Happened {
         map: Option<CodeMap>,
         work: Vec<commitscape_metrics::WorkCount>,
     },
-    /// Everyone re-resolved, after an undo or GitHub's accounts.
     People(Option<Box<AuthorTable>>),
     Lines(Option<Box<LinePass>>),
     Releases(Vec<(String, i64)>),
@@ -157,7 +138,6 @@ impl Event {
         Event(Happened::Key(key))
     }
 
-    /// A mouse event, if it is a left click or a turn of the wheel.
     pub fn mouse(m: MouseEvent) -> Option<Event> {
         matches!(
             m.kind,
@@ -168,7 +148,6 @@ impl Event {
         .then_some(Event(Happened::Mouse(m)))
     }
 
-    /// A terminal event, if it is one the interface reacts to.
     pub fn from_terminal(event: TerminalEvent) -> Option<Event> {
         match event {
             TerminalEvent::Key(key) => Some(Event::key(key)),
@@ -179,7 +158,6 @@ impl Event {
     }
 }
 
-/// Work for another thread. Running it gives the Event to feed back.
 pub struct Command(Job);
 
 enum Job {
@@ -195,7 +173,6 @@ enum Job {
         load: LoadOlder,
     },
     GitHub(LoadGitHub),
-    /// The Map of a Window whose other findings are known.
     Map {
         index: Arc<Index>,
         span: Span,
@@ -266,42 +243,30 @@ impl Command {
     }
 }
 
-/// Where the line pass is (ADR-0012).
 pub(crate) enum Lines {
-    /// Waiting for all of history to be loaded.
     Waiting(CountLines),
     Counting,
     Counted,
-    /// Lines are not counted: no cache to keep them in, or they could not
-    /// be read.
     Off,
 }
 
-/// The history older than the index holds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Older {
-    /// The index holds all of it.
     Complete,
     Loading,
     Unavailable,
 }
 
-/// What GitHub has said about the repository.
 pub(crate) enum GitHubState {
     Asking,
     Ready(Box<GitHub>),
-    /// Why there is nothing to show.
     Unavailable(String),
 }
 
-/// How the Map colours its rectangles.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MapColour {
-    /// The Window's commits: where the work is.
     Heat,
-    /// Time since last touched.
     Age,
-    /// Who made most of the Window's commits there.
     Owner,
 }
 
@@ -315,23 +280,18 @@ impl MapColour {
     }
 }
 
-/// Where the Map is zoomed to, and what is selected there.
 pub(crate) struct MapView {
-    /// The node whose children fill the Map.
     pub at: usize,
     pub cursor: Cursor,
     pub colour: MapColour,
 }
 
-/// A search narrowing a Panel's rows.
 #[derive(Default)]
 pub(crate) struct Search {
     pub query: String,
-    /// Keys go to the query rather than to the interface.
     pub typing: bool,
 }
 
-/// What Enter does from a Panel.
 enum Entry {
     Open(Target),
     Show(Panel),
@@ -345,52 +305,31 @@ pub struct App {
     pub(crate) options: Options,
     pub(crate) span: Span,
     pub(crate) panel: Panel,
-    /// By position in [`Span::EVERY`].
     findings: [Option<Box<Findings>>; 4],
     computing: [bool; 4],
     pub(crate) older: Older,
-    /// By position in [`Panel::EVERY`].
     pub(crate) cursors: [Cursor; 5],
-    /// Details entered, innermost last.
     pub(crate) opened: Vec<Opened>,
-    /// Details to open again once the new Window's findings arrive, after
-    /// the Window changed with them open.
     reopen: Vec<Target>,
     pub(crate) github: GitHubState,
-    /// The help window, when open, and how far it is scrolled.
     pub(crate) help: Option<usize>,
     pub(crate) search: Search,
     pub(crate) map: MapView,
-    /// Each person's colour, fixed by how much they have committed over all
-    /// of history so that it never changes with the Window.
     pub(crate) colours: HashMap<AuthorId, Color>,
-    /// Names two or more people share, so they are told apart when shown.
     shared_names: std::collections::HashSet<String>,
-    /// Names and email handles two or more people share, told apart by
-    /// their email's domain instead.
     shared_handles: std::collections::HashSet<(String, String)>,
-    /// Rows a page key moves: what the last frame could show.
     pub(crate) page: usize,
-    /// How to undo a merge of identities, if it can be kept.
     people: Option<ChangePeople>,
-    /// How to link commits to GitHub accounts, until it is asked.
     link: Option<LinkAccounts>,
     pub(crate) lines: Lines,
-    /// Releases, by name and time, oldest first; none until read.
     pub(crate) releases: Vec<(String, i64)>,
     pub(crate) theme: theme::Theme,
-    /// Bumped whenever people are re-resolved, so that findings computed
-    /// for the people before are not kept.
     generation: u32,
-    /// What the last frame drew where, for the mouse: the last drawn wins.
     pub(crate) hits: std::cell::RefCell<Vec<(Rect, Click)>>,
     done: bool,
 }
 
 impl App {
-    /// The interface, ready to draw a first frame with findings in it: the
-    /// first Window is computed here, not on another thread. The commands
-    /// returned are work to start once that frame is drawn.
     pub fn new(session: Session) -> (App, Vec<Command>) {
         let Session {
             name,
@@ -482,7 +421,6 @@ impl App {
         (app, commands)
     }
 
-    /// Whether the user has asked to leave.
     pub fn done(&self) -> bool {
         self.done
     }
@@ -509,15 +447,10 @@ impl App {
                         self.reopen_pending();
                         Vec::new()
                     }
-                    // Computed from an index that did not reach back far
-                    // enough. If the rest of history has arrived since, this
-                    // computes it again.
                     None => self.ensure(span),
                 }
             }
             Happened::Older(Some(mut index)) => {
-                // Read with the people as they were at the start; keep any
-                // change made since.
                 if index.authors != self.index.authors {
                     Arc::make_mut(&mut index).authors = self.index.authors.clone();
                 }
@@ -562,7 +495,6 @@ impl App {
         }
     }
 
-    /// Asks GitHub for accounts, once, now that all of history is here.
     fn link_accounts(&mut self) -> Option<Command> {
         let link = self.link.take()?;
         Some(Command(Job::Link {
@@ -571,7 +503,6 @@ impl App {
         }))
     }
 
-    /// Undoes or redoes the merge behind the person whose profile is open.
     fn change_people(&self) -> Option<Command> {
         let change = self.people.clone()?;
         let Detail::Person(d) = &self.opened.last()?.detail else {
@@ -594,9 +525,6 @@ impl App {
         }))
     }
 
-    /// Puts re-resolved people in place: every finding is computed again,
-    /// and whatever was open opens again, a person as whoever now holds
-    /// their first signature.
     fn repeople(&mut self, table: AuthorTable) -> Vec<Command> {
         if table == self.index.authors {
             return Vec::new();
@@ -626,13 +554,9 @@ impl App {
         self.recompute()
     }
 
-    /// Fills in the lines the line pass counted, and computes every finding
-    /// again with them, keeping what is open.
     fn with_lines(&mut self, pass: LinePass) -> Vec<Command> {
         self.lines = Lines::Counted;
         pass.apply(Arc::make_mut(&mut self.index));
-        // Lines change no one's identity, so what is on screen stays until
-        // the findings with lines replace it, rather than blanking.
         let span = self.span;
         let current = self.findings.get_mut(slot(span)).and_then(Option::take);
         let commands = self.recompute();
@@ -642,9 +566,6 @@ impl App {
         commands
     }
 
-    /// Forgets every Window's findings, computed before the index changed,
-    /// and starts computing the current one again. What was open opens again
-    /// when it arrives.
     fn recompute(&mut self) -> Vec<Command> {
         self.findings = Default::default();
         self.computing = [false; 4];
@@ -652,7 +573,6 @@ impl App {
         self.ensure(self.span)
     }
 
-    /// Counts lines, once, now that all of history is here.
     fn count_lines(&mut self) -> Option<Command> {
         if !matches!(self.lines, Lines::Waiting(_)) {
             return None;
@@ -671,16 +591,12 @@ impl App {
         theme::apply(frame.buffer_mut(), self.theme);
     }
 
-    /// The findings for the current Window, once computed.
     pub(crate) fn current(&self) -> Option<&Findings> {
         self.findings
             .get(slot(self.span))
             .and_then(|f| f.as_deref())
     }
 
-    /// A person's name as the interface shows it. Two people who share a
-    /// name are told apart by the start of their email, `Dev Talan
-    /// (devchaudhary24k)`, or by its domain when that is shared too.
     pub(crate) fn display_name(&self, author: AuthorId) -> String {
         self.index
             .authors
@@ -689,7 +605,6 @@ impl App {
             .unwrap_or_default()
     }
 
-    /// [`display_name`](Self::display_name) for a name and email.
     pub(crate) fn label_for(&self, name: &str, email: &str) -> String {
         if !self.shared_names.contains(name) {
             return name.to_string();
@@ -705,8 +620,6 @@ impl App {
         format!("{name} ({handle})")
     }
 
-    /// A person's colour: one of the eight categorical colours for the eight
-    /// who committed most, grey for everyone else.
     pub(crate) fn colour_of(&self, author: AuthorId) -> Color {
         self.colours.get(&author).copied().unwrap_or(theme::MUTED)
     }
@@ -771,8 +684,6 @@ impl App {
         Vec::new()
     }
 
-    /// Records a place on the frame being drawn that does something when
-    /// clicked.
     pub(crate) fn clickable(&self, area: Rect, click: Click) {
         self.hits.borrow_mut().push((area, click));
     }
@@ -843,7 +754,6 @@ impl App {
         }
     }
 
-    /// Esc: out of a detail, then out of a zoomed Map, then clear a search.
     fn back(&mut self) {
         if !self.reopen.is_empty() {
             self.reopen.pop();
@@ -860,7 +770,6 @@ impl App {
                 .unwrap_or(0);
             let from = self.map.at;
             self.map.at = parent;
-            // Select the directory just left, so Esc then Enter returns.
             let position = self
                 .current()
                 .and_then(|f| f.nodes().get(parent))
@@ -873,8 +782,6 @@ impl App {
         self.search = Search::default();
     }
 
-    /// Changes the Window, keeping whatever is open: it opens again over
-    /// the new Window as soon as that Window's findings are known.
     fn switch(&mut self, span: Span) -> Vec<Command> {
         self.span = span;
         if self.reopen.is_empty() {
@@ -886,9 +793,6 @@ impl App {
         commands
     }
 
-    /// Opens the details a Window change left waiting, if the findings they
-    /// need are known. The stack stops at the first that the new Window
-    /// does not have.
     fn reopen_pending(&mut self) {
         let Some(findings) = self.current() else {
             return;
@@ -909,8 +813,6 @@ impl App {
         self.opened = opened;
     }
 
-    /// Starts computing a Window's findings, unless they are known, being
-    /// computed, or waiting for older history.
     fn ensure(&mut self, span: Span) -> Vec<Command> {
         let window = span.window(self.anchor);
         let known = self
@@ -957,7 +859,6 @@ impl App {
         Panel::EVERY.get(next).copied().unwrap_or(self.panel)
     }
 
-    /// Moves the selection, or scrolls a detail that is text.
     fn step(&mut self, delta: isize) {
         let len = self.panel_len();
         match self.opened.last_mut() {
@@ -987,8 +888,6 @@ impl App {
         }
     }
 
-    /// The rows of a searchable Panel that match the search, as positions
-    /// in its full list.
     pub(crate) fn rows(&self, f: &Findings) -> Vec<usize> {
         let query = self.search.query.to_lowercase();
         let matches = |text: &str| query.is_empty() || text.to_lowercase().contains(&query);
@@ -1012,8 +911,6 @@ impl App {
         }
     }
 
-    /// The Risk screen's rows that match the search, in order: Hotspots,
-    /// Change Groups, silos, each at most [`RISK_ROWS`].
     pub(crate) fn risk_rows(&self, f: &Findings) -> Vec<RiskRow> {
         let query = self.search.query.to_lowercase();
         let matches = |text: &str| query.is_empty() || text.to_lowercase().contains(&query);
@@ -1129,7 +1026,6 @@ impl App {
         }
     }
 
-    /// Why the Window's findings are not on screen yet.
     pub(crate) fn waiting(&self) -> String {
         let phrase = ui::phrase(self.span);
         if self.span.window(self.anchor).is_loaded(&self.index) {
@@ -1149,10 +1045,6 @@ fn slot(span: Span) -> usize {
     Span::EVERY.iter().position(|s| *s == span).unwrap_or(0)
 }
 
-/// The eight people with the most commits over all of history get the
-/// eight categorical colours, in that order.
-/// The start of an email without a `+tag`, `dev` for `dev+git@x.org`, or
-/// the login in GitHub's `12345+login@users.noreply.github.com`.
 fn handle(email: &str) -> &str {
     let (local, domain) = email.split_once('@').unwrap_or((email, ""));
     if domain.eq_ignore_ascii_case("users.noreply.github.com") {
@@ -1162,10 +1054,6 @@ fn handle(email: &str) -> &str {
     }
 }
 
-/// Names two or more people share, and the (name, handle) pairs two or more
-/// share too. Counted over borrowed names, and handles only for shared
-/// names: Linux has tens of thousands of authors, and a String for each
-/// took 27ms of the first frame.
 fn shared(
     authors: &AuthorTable,
 ) -> (

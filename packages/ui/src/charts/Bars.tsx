@@ -1,7 +1,3 @@
-/**
- * A ranked list with a bar each, its value written beside it: one series,
- * so no legend, and the bar in one colour.
- */
 import type { ReactNode } from "react";
 import { grouped } from "../format";
 import { TableView } from "./common";
@@ -11,7 +7,6 @@ export type Bar = {
   key: string;
   label: ReactNode;
   value: number;
-  /** What the value is written as, when not a plain count. */
   shown?: string;
   colour?: string;
   tip?: ReactNode;

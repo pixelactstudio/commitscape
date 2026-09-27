@@ -1,6 +1,3 @@
-//! The plain-text summary: what the binary prints when its output is not a
-//! terminal, or with `--summary`.
-
 use std::path::Path;
 
 use commitscape_core::Index;
@@ -8,7 +5,6 @@ use commitscape_index::{Freshness, RebuildReason};
 use commitscape_metrics::{Age, Analysis, Span};
 use commitscape_tui::format::{counted, date, grouped};
 
-/// How many rows each ranking shows.
 const TOP: usize = 10;
 
 pub fn summary(repo: &Path, index: &Index, freshness: Freshness) -> String {

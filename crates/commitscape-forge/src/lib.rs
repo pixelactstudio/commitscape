@@ -1,10 +1,3 @@
-//! What a code host says about a repository: GitHub for now, asked through
-//! the `gh` CLI the user has already signed in with (ADR-0009).
-//!
-//! Nothing here touches git or the index. The binary reads the remote URL,
-//! [`Remote::parse`] names the repository, and [`GitHub::fetch`] asks one
-//! GraphQL query, off the startup path. `gh` caches the answer for an hour.
-
 pub mod accounts;
 pub mod history;
 
@@ -13,22 +6,16 @@ use std::process::Command;
 use commitscape_core::parse_iso8601;
 use serde::Deserialize;
 
-/// Runs a GraphQL query about `remote` through `gh`, which keeps the answer
-/// for `cache` (`1h`, `24h`). The query takes `$owner` and `$name`.
 pub(crate) fn gh_graphql(remote: &Remote, query: &str, cache: &str) -> Result<Vec<u8>, ForgeError> {
     gh_graphql_with(remote, query, Some(cache), &[])
 }
 
-/// [`gh_graphql`] with more string variables, and no caching when `cache`
-/// is `None`.
 pub(crate) fn gh_graphql_with(
     remote: &Remote,
     query: &str,
     cache: Option<&str>,
     vars: &[(&str, &str)],
 ) -> Result<Vec<u8>, ForgeError> {
-    // `-f` passes each value as a plain string; `-F` would read a value
-    // starting with `@` as a file and turn a numeric name into a number.
     let mut cmd = Command::new("gh");
     cmd.args(["api", "graphql"]);
     if let Some(cache) = cache {
@@ -61,8 +48,6 @@ pub(crate) fn gh_graphql_with(
     Ok(out.stdout)
 }
 
-/// The paths a pull request changes, as GitHub lists them (it lists up to
-/// 3,000), for `check --pr`. Never from `gh`'s cache: a pull request moves.
 pub fn pull_request_files(remote: &Remote, number: u64) -> Result<Vec<String>, ForgeError> {
     let query = format!(
         "query($owner: String!, $name: String!, $after: String) {{
@@ -106,13 +91,11 @@ pub fn pull_request_files(remote: &Remote, number: u64) -> Result<Vec<String>, F
     }
 }
 
-/// A code host the tool can ask. GitHub is the first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Host {
     GitHub,
 }
 
-/// A repository on a code host, as a remote URL names it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Remote {
     pub host: Host,
@@ -121,22 +104,17 @@ pub struct Remote {
 }
 
 impl Remote {
-    /// Reads `git@github.com:owner/name.git`,
-    /// `https://github.com/owner/name`, `ssh://git@github.com/owner/name.git`
-    /// and the like. A remote on any other host is `None`, for now.
     pub fn parse(url: &str) -> Option<Remote> {
         let url = url.trim();
         let schemed = ["https://", "http://", "ssh://", "git+ssh://", "git://"]
             .iter()
             .find_map(|scheme| url.strip_prefix(scheme));
         let (host, path) = match schemed {
-            // `[user@]host[:port]/owner/name`
             Some(rest) => {
                 let (authority, path) = rest.split_once('/')?;
                 let host = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
                 (host.split(':').next()?, path)
             }
-            // scp-like: `[user@]host:owner/name`
             None => {
                 let (authority, path) = url.split_once(':')?;
                 (
@@ -163,7 +141,6 @@ impl Remote {
     }
 }
 
-/// What GitHub says about a repository.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GitHub {
     pub name_with_owner: String,
@@ -185,14 +162,10 @@ pub struct GitHub {
     pub closed_prs: u64,
     pub releases: u64,
     pub latest_release: Option<Release>,
-    /// The SPDX id of its license, when GitHub recognises one.
     pub license: Option<String>,
     pub topics: Vec<String>,
-    /// Bytes of code by language, as GitHub counts them, largest first.
     pub languages: Vec<(String, u64)>,
-    /// The last hundred pull requests opened, oldest first.
     pub recent_prs: Vec<PullRequest>,
-    /// The last hundred issues opened, oldest first.
     pub recent_issues: Vec<Issue>,
 }
 
@@ -216,7 +189,6 @@ pub struct PullRequest {
     pub merged: Option<i64>,
     pub closed: Option<i64>,
     pub state: PrState,
-    /// The author's login; `ghost` for a deleted account, as GitHub shows it.
     pub author: String,
 }
 
@@ -225,12 +197,9 @@ pub struct Issue {
     pub created: i64,
     pub closed: Option<i64>,
     pub open: bool,
-    /// When someone other than its author first commented, among its first
-    /// five comments.
     pub first_answer: Option<i64>,
 }
 
-/// Why GitHub's numbers are not available.
 #[derive(Debug, thiserror::Error)]
 pub enum ForgeError {
     #[error("the GitHub CLI (gh) is not installed")]
@@ -245,10 +214,8 @@ pub enum ForgeError {
     Unreadable(String),
 }
 
-/// How many of the latest pull requests and issues [`QUERY`] asks for.
 const RECENT: usize = 100;
 
-/// One query for everything the interface shows.
 const QUERY: &str = "query($owner: String!, $name: String!) {
   repository(owner: $owner, name: $name) {
     nameWithOwner description url homepageUrl createdAt pushedAt isPrivate isFork isArchived
@@ -275,13 +242,10 @@ const QUERY: &str = "query($owner: String!, $name: String!) {
 }";
 
 impl GitHub {
-    /// Asks GitHub through `gh`. `gh` keeps the answer for an hour, so
-    /// asking again within the hour sends no request.
     pub fn fetch(remote: &Remote) -> Result<GitHub, ForgeError> {
         GitHub::from_graphql(&gh_graphql(remote, QUERY, "1h")?)
     }
 
-    /// Reads the answer to this crate's query.
     pub fn from_graphql(json: &[u8]) -> Result<GitHub, ForgeError> {
         let response: Response =
             serde_json::from_slice(json).map_err(|e| ForgeError::Unreadable(e.to_string()))?;
@@ -353,7 +317,6 @@ impl GitHub {
                         .comments
                         .nodes
                         .iter()
-                        // A bot's welcome is not the project answering.
                         .filter(|c| c.author.as_ref().is_none_or(|a| !a.is_bot()))
                         .filter(|c| c.author.as_ref().map(|a| &a.login) != author.as_ref())
                         .find_map(|c| parse_iso8601(&c.created_at));
@@ -368,7 +331,6 @@ impl GitHub {
         })
     }
 
-    /// Recent pull requests merged at or after `since`.
     pub fn prs_merged_since(&self, since: i64) -> usize {
         self.recent_prs
             .iter()
@@ -376,7 +338,6 @@ impl GitHub {
             .count()
     }
 
-    /// Recent pull requests opened at or after `since`.
     pub fn prs_opened_since(&self, since: i64) -> usize {
         self.recent_prs
             .iter()
@@ -384,8 +345,6 @@ impl GitHub {
             .count()
     }
 
-    /// The median time from opening to merging, over the recent pull
-    /// requests that were merged.
     pub fn median_hours_to_merge(&self) -> Option<f64> {
         let mut hours: Vec<f64> = self
             .recent_prs
@@ -401,7 +360,6 @@ impl GitHub {
         }
     }
 
-    /// Recent issues opened at or after `since`.
     pub fn issues_opened_since(&self, since: i64) -> usize {
         self.recent_issues
             .iter()
@@ -409,14 +367,10 @@ impl GitHub {
             .count()
     }
 
-    /// Whether the recent issues reach back to `since`, so that what they
-    /// count since then is whole. When they do not, only the last hundred
-    /// were asked for and there were more.
     pub fn issues_reach(&self, since: i64) -> bool {
         self.recent_issues.len() < RECENT || self.recent_issues.iter().any(|i| i.created < since)
     }
 
-    /// Recent issues closed at or after `since`.
     pub fn issues_closed_since(&self, since: i64) -> usize {
         self.recent_issues
             .iter()
@@ -424,7 +378,6 @@ impl GitHub {
             .count()
     }
 
-    /// Who opened the recent pull requests, most first, then by login.
     pub fn pr_authors(&self) -> Vec<(String, usize)> {
         let mut logins: Vec<&str> = self.recent_prs.iter().map(|p| p.author.as_str()).collect();
         logins.sort_unstable();
@@ -544,14 +497,11 @@ struct PrNode {
 #[derive(Deserialize)]
 struct Login {
     login: String,
-    /// `Bot` for an app's account; asked for only where it matters.
     #[serde(rename = "__typename", default)]
     kind: Option<String>,
 }
 
 impl Login {
-    /// GitHub's own Bot accounts, and user accounts named as automation
-    /// (`facebook-github-bot`, `elasticsearchmachine`), as commits' authors are.
     fn is_bot(&self) -> bool {
         self.kind.as_deref() == Some("Bot") || commitscape_core::is_bot_name(&self.login)
     }

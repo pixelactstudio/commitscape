@@ -12,12 +12,13 @@ import { Explain } from "../explain";
 import { compact, date, duration, grouped, many, share, WINDOW_WORDS } from "../format";
 import { personColour } from "../theme";
 import { openers, type ScreenProps } from "./props";
+import { ScreenSkeleton } from "../components/Loading";
 
-export function Overview({ meta, params, go }: ScreenProps) {
-  const { data: o, error, stale } = useData<Data>("/api/overview", params, meta.generation);
+export function Overview({ params, go }: ScreenProps) {
+  const { data: o, error, stale } = useData<Data>("/api/overview", params);
   const open = openers(go);
   if (error) return <p className="error">{error}</p>;
-  if (!o) return <p className="waiting">Reading…</p>;
+  if (!o) return <ScreenSkeleton />;
   const t = o.totals;
   const span = WINDOW_WORDS[o.window] ?? o.window;
   const releases = o.timeline.filter((m) => m.kind === "release");
@@ -128,7 +129,6 @@ const SHAPES: Record<string, string> = {
   language_shift: "⇄",
 };
 
-/** A moment in words, with `who` for the person in it. */
 function momentWords(m: TimelineMoment, who: ReactNode = m.person?.name ?? "someone"): ReactNode {
   switch (m.kind) {
     case "first_commit":
@@ -160,7 +160,6 @@ function Story({
 }: {
   moments: TimelineMoment[];
   onPerson: (id: number) => void;
-  /** Where the line starts and ends: the Window's first and last day. */
   from: number;
   until: number;
 }) {
@@ -172,8 +171,6 @@ function Story({
   const x = (t: number) => 12 + ((t - start) / (end - start)) * Math.max(1, width - 24);
   const releases = moments.filter((m) => m.kind === "release");
   const told = moments.filter((m) => m.kind !== "release");
-  // Releases are many in some repositories: the list names the first and
-  // the last, and how many there were, and the line shows each.
   const words = [...told];
   if (releases.length > 0) {
     words.push(releases[0] as TimelineMoment);

@@ -1,10 +1,3 @@
-//! Renders the interface's screens for a real repository to images, to look
-//! at while designing it.
-//!
-//! Each screen is drawn into ratatui's test backend, written as SVG by
-//! `commitscape_tui::svg` (the same renderer `commitscape card` will use),
-//! and screenshotted to PNG by headless Chromium when it is installed.
-
 use std::path::Path;
 use std::process::Command;
 
@@ -17,8 +10,6 @@ use ratatui::backend::TestBackend;
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 use ratatui::Terminal;
 
-/// Every screen worth looking at, and the keys that reach it from the
-/// Overview.
 const SCREENS: &[(&str, &str)] = &[
     ("1-overview", ""),
     ("1b-folder", "enter"),
@@ -44,8 +35,6 @@ pub fn run(
     let span = Span::from_label(window).context("--window takes 30d, 90d, 1y or all")?;
     let git = GixRepo::open(repo).context("opening the repository")?;
     let cache = CacheOptions {
-        // The binary's cache when COMMITSCAPE_CACHE_DIR names one, so the
-        // preview shows people as the binary resolved them.
         root: Some(
             std::env::var_os("COMMITSCAPE_CACHE_DIR")
                 .map(std::path::PathBuf::from)
@@ -81,7 +70,6 @@ pub fn run(
             Some(g) => Ok(Box::new(move || Ok(g))),
             None => Err("not asked (--offline, or no GitHub remote)".to_string()),
         },
-        // People as the cache has them, GitHub's links included.
         people: None,
         link_accounts: None,
         lines: {
@@ -110,7 +98,6 @@ pub fn run(
         if only.is_some_and(|o| !screen.contains(o)) {
             continue;
         }
-        // Back to the Overview, whatever was open.
         for key in ["esc", "esc", "esc", "esc", "1"] {
             press(&mut app, key)?;
         }
@@ -156,8 +143,6 @@ fn settle(app: &mut App, mut commands: Vec<Work>) {
     }
 }
 
-/// A PNG of the SVG by headless Chromium, or `None` when it is not
-/// installed.
 fn screenshot(svg: &Path, width: u32, height: u32) -> Result<Option<std::path::PathBuf>> {
     let png = svg.with_extension("png");
     let url = format!("file://{}", svg.canonicalize()?.display());

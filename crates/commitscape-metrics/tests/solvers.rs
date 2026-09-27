@@ -1,6 +1,3 @@
-//! The problem-solvers, `check`, `who` and `health`, as Analysis methods
-//! over hand-built histories whose answers are worked out in the comments.
-
 #![allow(clippy::expect_used)]
 
 mod support;
@@ -12,11 +9,6 @@ use support::{c, h, index, DAY, EPOCH};
 
 #[test]
 fn check_names_what_nearly_always_changes_with_the_files_changed() {
-    // `src/schema.ts` changed on days 0 to 9. Every time but day 3 a new
-    // migration came with it, `migrations/000N.sql`: 9 of its 10 commits
-    // changed a file in `migrations/`, never the same one twice. Every time
-    // but days 3 and 6, `src/types.ts` came too: 8 of 10. `README.md` came
-    // on days 1 and 2: 2 of 10, too few to say.
     let migrations: Vec<String> = (0..10).map(|d| format!("migrations/{d:04}.sql")).collect();
     let mut touched: Vec<Vec<&str>> = Vec::new();
     for (day, migration) in migrations.iter().enumerate() {
@@ -60,25 +52,19 @@ fn check_names_what_nearly_always_changes_with_the_files_changed() {
             found("src/types.ts", false, 8)
         ]
     );
-    // Changing both, only the migration is missing.
     assert_eq!(
         a.forgotten(&["src/schema.ts", "src/types.ts"]),
         vec![found("migrations/", true, 9)]
     );
-    // Adding a migration too, nothing is.
     assert_eq!(
         a.forgotten(&["src/schema.ts", "src/types.ts", "migrations/0010.sql"]),
         vec![]
     );
-    // README.md changed only twice: too little history to say anything.
     assert_eq!(a.forgotten(&["README.md"]), vec![]);
 }
 
 #[test]
 fn check_takes_no_evidence_from_commits_of_more_than_twenty_files() {
-    // `a.ts` and `b.ts` changed together five times, but each time in a
-    // commit of 22 files (a squashed pull request): nothing is said.
-    // Five more commits change `a.ts` with `c.ts` alone, which is said.
     let filler: Vec<String> = (0..20).map(|n| format!("pkg/f{n}.ts")).collect();
     let big: Vec<&str> = ["a.ts", "b.ts"]
         .into_iter()
@@ -114,16 +100,6 @@ fn person(idx: &commitscape_core::Index, email: &str) -> commitscape_core::Autho
 
 #[test]
 fn who_ranks_by_how_much_and_how_recently_and_names_someone_still_here() {
-    // Asked on day 400 about `src/api/`. Ann changed it 14 times on days 0
-    // to 13 and has not committed since. Bob changed it 4 times on days 300
-    // to 303 and still commits elsewhere (`docs/`, day 390). Cal changed it
-    // once, on day 395.
-    //
-    // Each commit counts half as much for every 180 days of age. Ann's are
-    // 387 to 400 days old, about 0.22 each, 3.0 in all; Bob's 97 to 100
-    // days, about 0.68 each, 2.7; Cal's 5 days, 0.98. So Ann, Bob, Cal. Ann
-    // was last seen 387 days ago, more than 90: ask Bob instead, the first
-    // who still commits.
     let mut commits: Vec<_> = (0..14)
         .map(|d| c(d, "ann@x.org", &["src/api/a.ts"]))
         .collect();
@@ -170,11 +146,8 @@ fn who_ranks_by_how_much_and_how_recently_and_names_someone_still_here() {
         ]
     );
     assert_eq!(who.instead, Some(person(&idx, "bob@x.org")));
-    // A file by its path; nothing for a path the repository never had.
     assert_eq!(a.who("docs/guide.md").map(|w| w.people.len()), Some(1));
     assert!(a.who("nowhere/").is_none());
-    // The whole repository: Bob's docs commit, 10 days old, adds 0.96, so
-    // he (3.7) comes before Ann (3.0), and nobody need be asked instead.
     let all = a.who("").expect("the repository is known");
     assert_eq!(all.path, "");
     assert_eq!(
@@ -186,23 +159,6 @@ fn who_ranks_by_how_much_and_how_recently_and_names_someone_still_here() {
 
 #[test]
 fn health_says_who_keeps_it_going_how_often_it_ships_and_where_it_is_heading() {
-    // Seen on day 400. Ann: 20 commits on days 100 to 119, and 10 on days
-    // 350 to 359. Bob: 2 on days 250 and 251, 4 on days 380 to 383. Cal: 2,
-    // days 390 and 391. Dan: 5, days 230 to 234.
-    //
-    // The last 90 days (after day 310): Ann 10, Bob 4, Cal 2; with 3 or
-    // more commits, Ann and Bob keep it going. The 90 before (after day
-    // 220): Bob 2 and Dan 5. So 16 commits by 3 people, from 7 by 2.
-    //
-    // The last year (after day 35): Ann 30, Bob 6, Dan 5, Cal 2, 43 in all.
-    // Over 80% is more than 34.4: Ann alone has 30, Ann and Bob 36. Bus
-    // factor 2.
-    //
-    // Releases on days 10, 100, 200, 300 and 390: four in the last year, 100,
-    // 100 and 90 days apart (typically 100), the last 10 days ago.
-    //
-    // Issues opened on days 380, 385, 390 and 395, answered after 2 hours,
-    // 10 hours, never and 4 hours: 3 of 4, typically in 4 hours.
     let mut commits = Vec::new();
     commits.extend(
         (100..120)
@@ -264,17 +220,6 @@ fn health_says_who_keeps_it_going_how_often_it_ships_and_where_it_is_heading() {
 #[test]
 fn wrapped_is_one_persons_year_across_every_repository() {
     use commitscape_metrics::{wrapped, DayCount, LanguageYear, RepoYear, StreakYear, Wrapped};
-    // 2024, for Ann, in two repositories. In `app`, at 10:00 on her clock:
-    // `a.rs` on days 10, 11 and 12, 10 lines added and 2 removed each
-    // time, and `a.py` twice on day 50, 5 lines added each. Bob commits on
-    // day 11 and Ann on the last day of 2023, none counted. In `lib`:
-    // `b.rs` on day 13 at 10:00 (3 added, 1 removed) and on day 50 at
-    // 23:00 (1 and 1).
-    //
-    // 7 commits: 5 in app, 2 in lib, on 5 days. Day 50 is the busiest,
-    // with 3. Days 10 to 13 are a streak of 4, across both. One commit of
-    // seven came at night (22:00 to 05:00), at 23:00. Lines: 30 + 10 + 3 +
-    // 1 = 44 added, 6 + 2 = 8 removed; Rust 34 of them, Python 10.
     let day = |d: i64, file: &'static [&'static str], lines: (u32, u32), hour: i64| {
         c(d, "ann@x.org", file).lines(&[lines]).local(hour, 0, 0)
     };
@@ -291,8 +236,6 @@ fn wrapped_is_one_persons_year_across_every_repository() {
             .lines(&[(7, 7)])
             .local(10, 0, 0),
     );
-    // 20:00 on 31 December 2023 in New York is 01:00 on 1 January in UTC,
-    // inside the Window, but on 2023 by Ann's clock: not counted either.
     app.push(
         c(-1, "ann@x.org", &["a.rs"])
             .lines(&[(9, 9)])
@@ -302,7 +245,6 @@ fn wrapped_is_one_persons_year_across_every_repository() {
         day(13, &["b.rs"], (3, 1), 10),
         day(50, &["b.rs"], (1, 1), 23),
     ];
-    // Wide enough for every clock's 2024.
     let year = Window {
         from: Some(EPOCH - DAY),
         to: EPOCH + 367 * DAY,

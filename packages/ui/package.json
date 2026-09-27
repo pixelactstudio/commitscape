@@ -2,7 +2,7 @@
   "name": "@commitscape/ui",
   "private": true,
   "version": "0.0.0",
-  "description": "Every screen, chart and component, shared by the local page and the Site (ADR-0013).",
+  "description": "Every screen, chart and component the Site shows a Report with.",
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
@@ -20,10 +20,12 @@
     "@stylexjs/stylex": "catalog:"
   },
   "peerDependencies": {
+    "@tanstack/react-query": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:"
   },
   "devDependencies": {
+    "@tanstack/react-query": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "oxlint": "catalog:",

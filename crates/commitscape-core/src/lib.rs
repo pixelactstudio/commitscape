@@ -1,10 +1,3 @@
-//! The data model every other `commitscape` crate is written against.
-//!
-//! This crate deliberately has no I/O, no git, and no terminal. It exists so
-//! that `commitscape-metrics` can be written against the index without
-//! acquiring a transitive dependency on `gix` — see ADR-0001. If you are about
-//! to add a dependency here, check that it does not pull in git.
-
 mod bots;
 mod ids;
 mod index;

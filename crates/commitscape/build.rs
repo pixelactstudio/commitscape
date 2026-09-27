@@ -1,7 +1,3 @@
-//! Reads the Site's origin from `packages/data/src/product.ts`, where it is
-//! kept once for the whole repository (ADR-0014), so `commitscape share`
-//! uploads where the Site is. `COMMITSCAPE_SITE` overrides it when running.
-
 use std::path::PathBuf;
 
 fn main() {
