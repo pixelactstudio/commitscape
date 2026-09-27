@@ -1,0 +1,31 @@
+{
+  "name": "@commitscape/local",
+  "private": true,
+  "version": "0.0.0",
+  "description": "The local browser interface: the static app the commitscape binary serves and embeds (ADR-0010).",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc -b",
+    "lint": "oxlint -c ../../.oxlintrc.json src e2e scripts",
+    "preview": "vite preview",
+    "e2e": "playwright test"
+  },
+  "dependencies": {
+    "@commitscape/data": "workspace:*",
+    "@commitscape/ui": "workspace:*",
+    "react": "catalog:",
+    "react-dom": "catalog:"
+  },
+  "devDependencies": {
+    "@playwright/test": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
+    "oxlint": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:"
+  }
+}

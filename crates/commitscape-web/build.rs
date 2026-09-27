@@ -1,5 +1,5 @@
-//! Embeds the built web app, `web/dist`, in the binary: one download, and no
-//! Node at run time (ADR-0010). Without a build, a page saying how to make
+//! Embeds the built web app, `apps/local/dist`, in the binary: one download,
+//! and no Node at run time (ADR-0010, ADR-0013). Without a build, a page saying how to make
 //! one is served instead, so `cargo build` alone still works.
 
 use std::fmt::Write as _;
@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 fn main() {
     let root = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap_or_default())
-        .join("../../web/dist");
+        .join("../../apps/local/dist");
     println!("cargo:rerun-if-changed={}", root.display());
     let mut files = Vec::new();
     collect(&root, &root, &mut files);

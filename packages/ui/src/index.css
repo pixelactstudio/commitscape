@@ -1,0 +1,236 @@
+/* Astryx's reset and components (ADR-0018), in their own cascade layers.
+   Everything below is ours and unlayered, so it styles only our own
+   classes: a bare element rule here would override Astryx's components. */
+@import "@astryxdesign/core/reset.css";
+@import "@astryxdesign/core/astryx.css";
+
+/* The charts' colours by role. Each mode's series and ramps were validated
+   against its own surface (STATE.md, Phase 19); `light-dark()` picks the
+   one for the mode Astryx's Theme sets on the page. Ramps run weakest
+   first: light to dark in light mode, dark to light in dark mode. The rest
+   are Astryx's tokens, so the charts match the components. */
+:root {
+  --surface: var(--color-background-surface);
+  --surface-2: var(--color-background-muted);
+  --text: var(--color-text-primary);
+  --text-2: var(--color-text-secondary);
+  --muted: var(--color-text-secondary);
+  --line: var(--color-border);
+  --radius: var(--radius-element);
+  --empty: light-dark(#e8e6e0, #2c2c2a);
+  --other: light-dark(#a3a19b, #6b6a65);
+  --danger: light-dark(rgba(227, 73, 72, 0.08), rgba(230, 103, 103, 0.1));
+  --s1: light-dark(#2a78d6, #3987e5);
+  --s2: light-dark(#eb6834, #d95926);
+  --s3: light-dark(#1baf7a, #199e70);
+  --s4: light-dark(#eda100, #c98500);
+  --s5: light-dark(#e87ba4, #d55181);
+  --s6: light-dark(#008300, #008300);
+  --s7: light-dark(#4a3aa7, #9085e9);
+  --s8: light-dark(#e34948, #e66767);
+  --blue-1: light-dark(#86b6ef, #1c5cab);
+  --blue-2: light-dark(#3987e5, #3987e5);
+  --blue-3: light-dark(#1c5cab, #86b6ef);
+  --blue-4: light-dark(#0d366b, #cfe2fa);
+  --orange-1: light-dark(#fc7856, #a42602);
+  --orange-2: light-dark(#ce4e2f, #ce4e2f);
+  --orange-3: light-dark(#a42602, #fc7856);
+  --orange-4: light-dark(#6e1a00, #ffd2c2);
+  --error: var(--color-error);
+  --mono: var(--font-family-code);
+}
+
+body { background: var(--color-background-body); color: var(--text); font-family: var(--font-family-body); }
+
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+code, .path { font-family: var(--mono); font-size: 0.88em; }
+button.link {
+  font: inherit; color: inherit; background: none; border: none; padding: 0; cursor: pointer; text-align: left;
+  text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 0.2em; word-break: break-word;
+}
+button.link:hover { text-decoration-color: var(--text-2); }
+button.link:focus-visible, .bars li:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; border-radius: 2px; }
+
+/* The shell */
+.app { max-width: 84rem; margin: 0 auto; padding: 0.75rem 1.5rem 3rem; font-size: 0.94rem; line-height: 1.45; }
+.logo { display: block; }
+.tools { display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; }
+.screen-bar { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 0.5rem 1.5rem; }
+.windows { display: flex; align-items: center; gap: 0.4rem; padding-bottom: 0.35rem; }
+.filters { display: flex; flex-wrap: wrap; gap: 0.5rem 0.9rem; align-items: flex-end; margin: 0.8rem 0 0.2rem; }
+.status { color: var(--muted); font-size: 0.88rem; margin: 0.4rem 0 0; }
+footer { margin-top: 3rem; }
+
+/* Keys: a hint beside what each one does; `?` lights them all up. */
+.key-hint { display: inline-flex; opacity: 0.7; transition: opacity var(--duration-fast), box-shadow var(--duration-fast); border-radius: var(--radius-inner); }
+.keys-on .key-hint, .help .key-hint { opacity: 1; box-shadow: 0 0 0 2px var(--color-accent); background: var(--color-accent-muted); }
+.help {
+  margin: 0.9rem 0 0; padding: 0.75rem 1rem; border-radius: var(--radius-container); background: var(--color-background-surface);
+  border: 1px solid var(--color-accent); font-size: 0.9rem;
+}
+.help p { margin: 0 0 0.5rem; }
+.shortcuts { display: grid; grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr)); gap: 0.35rem 1.5rem; margin: 0; }
+.shortcuts div { display: grid; grid-template-columns: 6.5rem 1fr; gap: 0.5rem; align-items: center; }
+.shortcuts dt { display: flex; gap: 0.25rem; align-items: center; color: var(--text-2); }
+.shortcuts dd { margin: 0; }
+
+.screen { display: flex; flex-direction: column; gap: 1.25rem; margin-top: 1rem; transition: opacity var(--duration-fast); }
+.screen.stale { opacity: 0.6; }
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(26rem, 1fr)); gap: 1.25rem; }
+.figure { min-width: 0; }
+.figure-title { margin: 0 0 0.1rem; font-size: 1.05rem; }
+.note { color: var(--muted); }
+.small { font-size: 0.82rem; }
+.figure > .note { margin: 0 0 0.6rem; font-size: 0.88rem; }
+.error { color: var(--error); }
+.waiting { padding: 2rem 1.5rem; color: var(--muted); }
+.explain {
+  font-size: 0.85rem; color: var(--text-2); border-left: 3px solid var(--color-accent); padding: 0.3rem 0.7rem;
+  margin: 0.5rem 0; background: var(--color-accent-muted); border-radius: 0 var(--radius-inner) var(--radius-inner) 0;
+}
+.explain ul { margin: 0.2rem 0; padding-left: 1.1rem; }
+
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr)); gap: 0.75rem; }
+.tile { display: flex; flex-direction: column; gap: 0.1rem; }
+.tile strong { font-size: 1.55rem; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.tile span { color: var(--text-2); }
+.tile .note { color: var(--muted); }
+
+/* Charts: ours, drawn with the theme's tokens. */
+.chart { position: relative; min-width: 0; }
+.chart svg { display: block; overflow: visible; }
+.axis line { stroke: var(--line); stroke-width: 1; }
+.axis text, .axis-label { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.hit { fill: transparent; }
+g:hover > .hit { fill: var(--text); fill-opacity: 0.05; }
+.mark line { stroke: var(--text-2); stroke-width: 1; stroke-dasharray: 3 2; }
+.mark text { fill: var(--text-2); font-size: 10.5px; }
+.crosshair { stroke: var(--muted); stroke-width: 1; }
+.empty-cell { fill: var(--empty); }
+.legend { display: flex; flex-wrap: wrap; gap: 0.25rem 0.9rem; list-style: none; padding: 0; margin: 0 0 0.4rem; font-size: 0.82rem; color: var(--text-2); }
+.legend li { display: flex; align-items: center; gap: 0.35rem; }
+.legend svg { flex: none; }
+.tip {
+  position: fixed; z-index: 1000; pointer-events: none; max-width: 270px; font-size: 0.82rem;
+  background: var(--color-background-popover); color: var(--text); border: 1px solid var(--line);
+  border-radius: var(--radius-element); padding: 0.45rem 0.6rem; box-shadow: 0 6px 20px var(--color-shadow);
+  word-break: break-word;
+}
+.tip.inline { position: absolute; top: 20px; }
+.tip .note { color: var(--muted); }
+.lines-wrap { position: relative; }
+.table-view { margin-top: 0.4rem; font-size: 0.82rem; }
+.table-view summary { color: var(--muted); cursor: pointer; }
+.scroll { overflow: auto; max-height: 32rem; }
+.table-wrap { min-width: 0; }
+.table-wrap .num { display: block; }
+.plain { border-collapse: collapse; width: 100%; font-size: 0.88rem; }
+.plain th, .plain td { text-align: left; padding: 0.3rem 0.5rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+.plain th { color: var(--text-2); font-weight: 600; position: sticky; top: 0; background: var(--surface); }
+.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.bars { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.2rem; }
+.bars li {
+  display: grid; grid-template-columns: minmax(6rem, 14rem) 1fr auto; gap: 0.6rem; align-items: center;
+  font-size: 0.88rem; padding: 0.12rem 0.3rem; border-radius: var(--radius-inner);
+}
+.bars li.clickable { cursor: pointer; }
+.bars li.clickable:hover { background: var(--color-overlay-hover); }
+.bar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-track { height: 0.7rem; }
+.bar { display: block; height: 100%; border-radius: 0 4px 4px 0; min-width: 2px; }
+.bar-value { color: var(--text-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.name { display: inline-flex; align-items: center; gap: 0.4rem; vertical-align: middle; }
+.swatch { display: inline-block; width: 0.65rem; height: 0.65rem; border-radius: 2px; flex: none; }
+.avatar { display: inline-flex; border-radius: 50%; border: 2px solid; flex: none; }
+.profile-head { display: flex; align-items: center; gap: 0.9rem; }
+.profile-name { margin: 0; }
+.facts, .worth, .suspects, .groups { padding-left: 0; list-style: none; margin: 0; display: flex; flex-direction: column; gap: 0.4rem; }
+.groups { padding-left: 1.2rem; list-style: decimal; }
+.worth li, .moments li { display: grid; grid-template-columns: 1.2rem 1fr; gap: 0.4rem; }
+.glyph { color: var(--text-2); text-align: center; }
+.actions { display: flex; gap: 0.5rem; align-items: center; margin: 0.75rem 0; flex-wrap: wrap; }
+.mailmap { background: var(--surface-2); padding: 0.6rem; border-radius: var(--radius-element); overflow: auto; font-size: 0.82rem; font-family: var(--mono); }
+
+.story svg { margin-bottom: 0.5rem; }
+.story-line { stroke: var(--line); stroke-width: 2; }
+.quiet { fill: var(--empty); }
+.moment { fill: var(--text-2); font-size: 14px; }
+.moment.release { fill: var(--muted); font-size: 9px; }
+.moments { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.9rem; }
+.moments li { grid-template-columns: 1.2rem 7rem 1fr; }
+.moments .when { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.map-bar { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; align-items: flex-end; }
+.crumbs { font-size: 0.95rem; }
+.map-and-file { display: flex; gap: 1rem; align-items: flex-start; }
+.treemap { flex: 1; min-width: 0; }
+.block { cursor: pointer; }
+.block rect { stroke: var(--surface); stroke-width: 1; }
+.block:hover rect { stroke: var(--text); stroke-width: 1.5; }
+.block.chosen rect { stroke: var(--text); stroke-width: 2.5; }
+.block-label {
+  fill: var(--text); font-size: 11px; paint-order: stroke; stroke: var(--surface); stroke-width: 3px;
+  stroke-linejoin: round; pointer-events: none;
+}
+.coupling line { stroke: var(--text); stroke-opacity: 0.75; stroke-linecap: round; }
+.coupling circle { fill: var(--text); stroke: var(--surface); stroke-width: 2; }
+.chosen-dot { fill: var(--surface); stroke: var(--text); stroke-width: 2.5; pointer-events: none; }
+.file-panel { width: 22rem; flex: none; font-size: 0.88rem; position: relative; max-height: 560px; overflow: auto; }
+.file-panel .close { position: absolute; right: 0.5rem; top: 0.5rem; }
+.file-panel h3 { margin: 0 2rem 0.5rem 0; word-break: break-all; font-size: 0.95rem; }
+.file-panel h4 { font-size: 0.85rem; margin: 1rem 0 0.25rem; color: var(--text-2); }
+.file-panel dl { display: grid; grid-template-columns: auto 1fr; gap: 0.2rem 0.8rem; margin: 0; }
+.file-panel dt { color: var(--muted); }
+.file-panel dd { margin: 0; }
+.commits li { font-size: 0.82rem; }
+
+.danger { fill: var(--danger); }
+.danger-label { fill: var(--muted); font-size: 11px; }
+.dot { cursor: pointer; }
+.dot circle:not(.hit) { fill: var(--s1); fill-opacity: 0.55; stroke: var(--surface); stroke-width: 1; }
+.dot circle.top { fill-opacity: 1; stroke: var(--surface); stroke-width: 2; }
+.dot:hover circle:not(.hit) { fill-opacity: 1; stroke: var(--text); }
+.dot-label { fill: var(--text-2); font-size: 11px; paint-order: stroke; stroke: var(--surface); stroke-width: 3px; pointer-events: none; }
+
+.night { fill: var(--surface-2); }
+.night-label { fill: var(--muted); font-size: 11px; }
+.hour-bar { fill: var(--s3); }
+.wrapped .card { max-width: 100%; border-radius: var(--radius-container); border: 1px solid var(--line); }
+.wrapped-head { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; padding-top: 1rem; }
+.wrapped-head h1 { margin: 0 auto 0 0; }
+
+@media (max-width: 760px) {
+  .map-and-file { flex-direction: column; }
+  .file-panel { width: auto; }
+  .two { grid-template-columns: 1fr; }
+  .app { padding: 0.5rem 0.75rem 2rem; }
+}
+
+/* Commits */
+.commit-tools { display: flex; gap: 0.75rem; align-items: center; margin: 0.25rem 0 0.75rem; }
+.commit-search { flex: 1; display: flex; align-items: center; gap: 0.5rem; }
+.commit-search > :first-child { flex: 1; }
+.commit-list { position: relative; overflow-y: auto; border-top: 1px solid var(--line); }
+.commit-list .empty { padding: 1rem 0; }
+.commit-row {
+  position: absolute; left: 0; right: 0; display: grid; align-items: center; gap: 0.75rem;
+  grid-template-columns: 7rem minmax(8rem, 12rem) minmax(0, 1fr) auto 9rem 5.5rem;
+  border-bottom: 1px solid var(--line); padding: 0 0.25rem; font-size: 0.88rem;
+}
+.commit-row:hover { background: var(--color-overlay-hover); }
+.commit-when { color: var(--muted); font-variant-numeric: tabular-nums; }
+.commit-who, .commit-subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.commit-tags { display: flex; gap: 0.3rem; }
+.commit-size { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.commit-size .added { color: var(--color-success); }
+.commit-size .removed { color: var(--color-error); }
+.commit-id { font-family: var(--mono); font-size: 0.82rem; color: var(--color-text-accent); text-align: right; }
+@media (max-width: 760px) {
+  .commit-row { grid-template-columns: 5.5rem minmax(0, 1fr) 4.5rem; }
+  .commit-who, .commit-tags, .commit-size { display: none; }
+}
+
+.dialog-body { padding: 0 1.25rem 1.25rem; }
+.share-link { font-family: var(--mono); font-size: 0.85rem; background: var(--color-background-muted); border-radius: var(--radius-element); padding: 0.6rem; overflow-x: auto; user-select: all; }

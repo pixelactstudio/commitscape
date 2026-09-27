@@ -44,6 +44,9 @@ struct PendingCommit {
     offset_minutes: i16,
     author_delta: i32,
     kind: CommitKind,
+    /// Where its subject line is in the builder's own arena.
+    subject_start: u32,
+    subject_len: u8,
 }
 
 fn signature_hash(name: &[u8], email: &[u8]) -> u64 {
@@ -65,6 +68,8 @@ pub struct IndexBuilder {
     signature_ids: HashIndex,
     commits: Vec<PendingCommit>,
     pending: Vec<PendingChange>,
+    /// Every added commit's subject line, one after another.
+    subjects: Vec<u8>,
     /// The index being extended, with its path and author tables moved out
     /// into the fields above.
     base: Option<Index>,
@@ -81,6 +86,7 @@ impl IndexBuilder {
             signature_ids: HashIndex::default(),
             commits: Vec::new(),
             pending: Vec::new(),
+            subjects: Vec::new(),
             base: None,
         }
     }
@@ -119,6 +125,7 @@ impl IndexBuilder {
             signature_ids,
             commits: Vec::new(),
             pending: Vec::new(),
+            subjects: Vec::new(),
             base: Some(index),
         }
     }
@@ -145,10 +152,11 @@ impl IndexBuilder {
         &mut self,
         commits: Vec<CommitMeta>,
         changes: Vec<FileChange>,
+        subjects: Vec<u8>,
         loaded_from: Option<i64>,
     ) {
         if let Some(base) = self.base.as_mut() {
-            base.prepend_history(commits, changes, loaded_from);
+            base.prepend_history(commits, changes, subjects, loaded_from);
         }
     }
 
@@ -207,6 +215,7 @@ impl IndexBuilder {
 
         let mut changes = Vec::with_capacity(self.pending.len());
         let mut commits = Vec::with_capacity(self.commits.len());
+        let mut subjects = Vec::with_capacity(self.subjects.len());
         let mut history: Vec<FileHistory> = self
             .base
             .as_mut()
@@ -256,6 +265,13 @@ impl IndexBuilder {
             if let Some(n) = self.used.get_mut(c.signature.idx()) {
                 *n += 1;
             }
+            let subject_start = subjects.len() as u32;
+            let from = c.subject_start as usize;
+            subjects.extend_from_slice(
+                self.subjects
+                    .get(from..from + c.subject_len as usize)
+                    .unwrap_or(&[]),
+            );
             commits.push(CommitMeta {
                 id: c.id,
                 time: c.time,
@@ -266,13 +282,15 @@ impl IndexBuilder {
                 offset_minutes: c.offset_minutes,
                 author_delta: c.author_delta,
                 kind: c.kind,
+                subject_start,
+                subject_len: c.subject_len,
             });
         }
 
         let added = HistorySpan::of(&commits);
         let mut index = match self.base.take() {
             Some(mut base) => {
-                merge_history(&mut base, commits, changes);
+                merge_history(&mut base, commits, changes, subjects);
                 base.span = base.span.joined(added);
                 base.history_truncated = history_truncated;
                 base
@@ -281,6 +299,7 @@ impl IndexBuilder {
                 let mut fresh = Index::empty(repo.clone());
                 fresh.commits = commits;
                 fresh.changes = changes;
+                fresh.subjects = subjects;
                 fresh.span = added;
                 fresh.history_truncated = history_truncated;
                 fresh
@@ -301,7 +320,12 @@ impl IndexBuilder {
 /// New commits are almost always newer than everything indexed, and are
 /// appended. A long-lived branch merged late can bring older ones, and then
 /// only the tail from the oldest of them onward is re-sorted.
-fn merge_history(index: &mut Index, new_commits: Vec<CommitMeta>, new_changes: Vec<FileChange>) {
+fn merge_history(
+    index: &mut Index,
+    new_commits: Vec<CommitMeta>,
+    new_changes: Vec<FileChange>,
+    new_subjects: Vec<u8>,
+) {
     let Some(first_new) = new_commits.first().copied() else {
         return;
     };
@@ -314,6 +338,11 @@ fn merge_history(index: &mut Index, new_commits: Vec<CommitMeta>, new_changes: V
         .map(|c| c.changes_start as usize)
         .unwrap_or(index.changes.len());
     let old_changes = index.changes.split_off(arena_split);
+    let subject_split = tail
+        .first()
+        .map(|c| c.subject_start as usize)
+        .unwrap_or(index.subjects.len());
+    let old_subjects = index.subjects.split_off(subject_split);
 
     // Two sorted runs, merged; each commit's changes are copied from the
     // arena it came from.
@@ -326,10 +355,16 @@ fn merge_history(index: &mut Index, new_commits: Vec<CommitMeta>, new_changes: V
             (None, Some(_)) => false,
             (None, None) => break,
         };
-        let (commit, arena, base) = if from_old {
-            (a.next(), &old_changes, arena_split)
+        let (commit, arena, base, texts, text_base) = if from_old {
+            (
+                a.next(),
+                &old_changes,
+                arena_split,
+                &old_subjects,
+                subject_split,
+            )
         } else {
-            (b.next(), &new_changes, 0)
+            (b.next(), &new_changes, 0, &new_subjects, 0)
         };
         let Some(mut commit) = commit else {
             break;
@@ -340,6 +375,12 @@ fn merge_history(index: &mut Index, new_commits: Vec<CommitMeta>, new_changes: V
             .unwrap_or(&[]);
         commit.changes_start = index.changes.len() as u32;
         index.changes.extend_from_slice(slice);
+        let from = commit.subject_start as usize - text_base;
+        let text = texts
+            .get(from..from + commit.subject_len as usize)
+            .unwrap_or(&[]);
+        commit.subject_start = index.subjects.len() as u32;
+        index.subjects.extend_from_slice(text);
         index.commits.push(commit);
     }
 }
@@ -385,7 +426,16 @@ impl CommitSink for IndexBuilder {
             author_delta: (commit.author_time - commit.time)
                 .clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32,
             kind: commit.kind,
+            subject_start: self.subjects.len() as u32,
+            subject_len: commit.subject.len().min(commitscape_core::SUBJECT_CAP) as u8,
         });
+        self.subjects.extend_from_slice(
+            commit
+                .subject
+                .as_bytes()
+                .get(..commit.subject.len().min(commitscape_core::SUBJECT_CAP))
+                .unwrap_or(&[]),
+        );
         ControlFlow::Continue(())
     }
 }

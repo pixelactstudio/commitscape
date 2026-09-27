@@ -1,0 +1,17 @@
+{
+  "full_name": "acme/ownership",
+  "private": false,
+  "visibility": "public",
+  "description": "Three people and two folders: the fixture docs/fixtures.md works out by hand.",
+  "homepage": "",
+  "stargazers_count": 1234,
+  "forks_count": 56,
+  "open_issues_count": 7,
+  "size": 12,
+  "default_branch": "main",
+  "license": { "spdx_id": "MIT" },
+  "topics": ["fixture", "git"],
+  "archived": false,
+  "created_at": "2024-01-01T00:00:00Z",
+  "pushed_at": "2024-01-21T00:00:00Z"
+}

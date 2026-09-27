@@ -1,9 +1,11 @@
 //! `commitscape` binary entry point.
 
 mod check;
+mod clone;
 mod health;
 mod json;
 mod people;
+mod share;
 mod text;
 mod web;
 mod who;
@@ -122,22 +124,47 @@ enum Command {
     /// Write the browser interface as one HTML file that needs no server:
     /// every screen for every Window, to send or keep.
     Report(ReportArgs),
+    /// Upload this repository's Report, locked with a key only the printed
+    /// link holds, so any browser can open it for a few hours. The Site
+    /// cannot read it. Exits at once.
+    Share(share::ShareArgs),
 }
 
 #[derive(Args)]
 struct ReportArgs {
-    /// Path to the repository. Defaults to the current directory.
+    /// Path to the repository, or a GitHub URL or owner/name, which is
+    /// cloned into the cache. Defaults to the current directory.
     #[arg(default_value = ".")]
-    repo: PathBuf,
+    repo: String,
 
     /// Where to write it. Defaults to <repository>-report.html in the
-    /// current directory.
+    /// current directory, or <repository>-report.json.gz with --data.
     #[arg(long, value_name = "FILE")]
     out: Option<PathBuf>,
 
     /// The Window it opens on: 30d, 90d, 1y or all.
     #[arg(long, default_value = "90d", value_parser = parse_span)]
     window: Span,
+
+    /// Write only the Report's data, as gzipped JSON, without the page:
+    /// what the Site stores and a Shared Report uploads.
+    #[arg(long)]
+    data: bool,
+
+    /// Leave out the lines each change added and removed: the Report says
+    /// they were not counted. Quicker, and needed for a partial clone.
+    #[arg(long)]
+    no_lines: bool,
+
+    /// Given a GitHub project: clone its history without old file
+    /// contents, for a large project. Implies --no-lines.
+    #[arg(long)]
+    partial: bool,
+
+    /// Leave every email address out, as a Report for the Site does
+    /// (ADR-0019): people appear by name and GitHub login only.
+    #[arg(long)]
+    no_emails: bool,
 
     #[command(flatten)]
     common: Common,
@@ -174,7 +201,7 @@ struct CardArgs {
 }
 
 /// Options every way of running it shares.
-#[derive(Args)]
+#[derive(Args, Clone)]
 pub(crate) struct Common {
     /// A commit touching more files than this is a Bulk Commit, left out of
     /// Churn, Ownership and Change Coupling.
@@ -252,6 +279,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         Some(Command::Wrapped(args)) => return wrapped::run(args),
         Some(Command::Github(args)) => return github_history(args),
         Some(Command::Report(args)) => return report(args),
+        Some(Command::Share(args)) => return share::run(args),
         None => {}
     }
     let repo = GixRepo::open(&cli.repo)?;
@@ -390,6 +418,10 @@ fn serve_web(
         releases: Some(releases(&cli.repo)),
         history: whole_history(repo, options, &identity, cli.common.offline),
         accounts: accounts(options, &identity),
+        avatars: !cli.common.offline,
+        commit_link: commit_link(repo),
+        share: (!cli.common.offline)
+            .then(|| share::hook(cli.repo.clone(), cli.common.clone(), cli.window)),
         people: change.map(|change| -> commitscape_web::ChangePeople {
             std::sync::Arc::new(move |table, id, undo| {
                 let what = if undo {
@@ -442,41 +474,26 @@ fn serve_web(
 /// Writes the browser interface as one file: all of history, its lines
 /// counted, and what was read from GitHub before.
 fn report(args: ReportArgs) -> anyhow::Result<()> {
-    let repo = GixRepo::open(&args.repo)?;
     let options = args.common.cache();
-    let mut meter = ProgressLine::new();
-    let mut loaded = load(&repo, &options, Since::All, &mut |p| meter.show(p))?;
-    meter.clear();
-    let identity = loaded.index.repo.clone();
-    let store = LineStore::for_repo(&options, &identity);
-    let mut meter = ProgressLine::new();
-    let pass = line_pass(&repo, &loaded.index, store.as_ref(), &mut |done, total| {
-        meter.lines(done, total)
-    })?;
-    meter.clear();
-    pass.apply(&mut loaded.index);
-    let name = repo_name(&loaded.index);
-    let history = github_file(&options, &identity)
-        .map(|p| commitscape_forge::history::History::load(&p))
-        .filter(|h| !h.pull_requests.is_empty() || !h.issues.is_empty());
-    if history.is_none() {
-        eprintln!("No GitHub history is saved for it; run commitscape github first to include pull requests.");
+    let path = report_source(&args, &options)?;
+    let count_lines = !(args.no_lines || args.partial);
+    let (name, report) = make_report(
+        &path,
+        &args.common,
+        args.window,
+        count_lines,
+        !args.no_emails,
+    )?;
+    if args.data {
+        let out = args
+            .out
+            .unwrap_or_else(|| PathBuf::from(format!("{name}-report.json.gz")));
+        let json = commitscape_web::report::data(report);
+        std::fs::write(&out, gzip(json.as_bytes())?)?;
+        println!("wrote {}", out.display());
+        return Ok(());
     }
-    let metrics = args.common.metrics();
-    let html = commitscape_web::report::report(commitscape_web::report::Report {
-        name: name.clone(),
-        index: loaded.index,
-        anchor: now(),
-        span: args.window,
-        options: metrics,
-        releases: repo.version_tags(),
-        lines_counted: true,
-        history,
-        accounts: accounts(&options, &identity)
-            .map(|a| a())
-            .unwrap_or_default(),
-        card: Some(draw_card(name.clone(), metrics)),
-    });
+    let html = commitscape_web::report::report(report);
     if !commitscape_web::built() {
         eprintln!("This build has no web app, so the report only says how to build one.");
     }
@@ -486,6 +503,98 @@ fn report(args: ReportArgs) -> anyhow::Result<()> {
     std::fs::write(&out, html)?;
     println!("wrote {}", out.display());
     Ok(())
+}
+
+/// Everything a Report is made from, read from a repository: all of
+/// history, its lines when `count_lines`, and GitHub's history when it was
+/// saved before. For `report` and `share`.
+pub(crate) fn make_report(
+    path: &std::path::Path,
+    common: &Common,
+    window: Span,
+    count_lines: bool,
+    emails: bool,
+) -> anyhow::Result<(String, commitscape_web::report::Report)> {
+    let options = common.cache();
+    let repo = GixRepo::open(path)?;
+    let mut meter = ProgressLine::new();
+    let mut loaded = load(&repo, &options, Since::All, &mut |p| meter.show(p))?;
+    meter.clear();
+    let identity = loaded.index.repo.clone();
+    if count_lines {
+        let store = LineStore::for_repo(&options, &identity);
+        let mut meter = ProgressLine::new();
+        let pass = line_pass(&repo, &loaded.index, store.as_ref(), &mut |done, total| {
+            meter.lines(done, total)
+        })?;
+        meter.clear();
+        pass.apply(&mut loaded.index);
+    }
+    let name = repo_name(&loaded.index);
+    let history = github_file(&options, &identity)
+        .map(|p| commitscape_forge::history::History::load(&p))
+        .filter(|h| !h.pull_requests.is_empty() || !h.issues.is_empty());
+    if history.is_none() {
+        eprintln!("No GitHub history is saved for it; run commitscape github first to include pull requests.");
+    }
+    let metrics = common.metrics();
+    let report = commitscape_web::report::Report {
+        name: name.clone(),
+        index: loaded.index,
+        anchor: now(),
+        span: window,
+        options: metrics,
+        releases: repo.version_tags(),
+        lines_counted: count_lines,
+        history,
+        accounts: accounts(&options, &identity)
+            .map(|a| a())
+            .unwrap_or_default(),
+        card: Some(draw_card(name.clone(), metrics)),
+        avatars: !common.offline,
+        commit_link: commit_link(&repo),
+        emails,
+    };
+    Ok((name, report))
+}
+
+/// Where `report` reads from: a path, or a GitHub project cloned into the
+/// cache.
+fn report_source(args: &ReportArgs, options: &CacheOptions) -> anyhow::Result<PathBuf> {
+    let local = PathBuf::from(&args.repo);
+    if local.exists() {
+        anyhow::ensure!(
+            !args.partial,
+            "--partial is for a GitHub project, not a local repository"
+        );
+        return Ok(local);
+    }
+    let remote = clone::remote(&args.repo).ok_or_else(|| {
+        anyhow::anyhow!(
+            "{} is neither a folder here nor a GitHub project",
+            args.repo
+        )
+    })?;
+    let root = options
+        .root
+        .clone()
+        .or_else(default_cache_root)
+        .ok_or_else(|| {
+            anyhow::anyhow!("there is no cache directory to clone into; pass --cache-dir")
+        })?;
+    let how = if args.partial {
+        clone::Clone::Partial
+    } else {
+        clone::Clone::Full
+    };
+    clone::clone(&remote, &root, how)
+}
+
+/// Bytes, gzipped at the best compression.
+pub(crate) fn gzip(bytes: &[u8]) -> std::io::Result<Vec<u8>> {
+    let mut out = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
+    out.write_all(bytes)?;
+    out.finish()
 }
 
 /// How the browser interface draws the card: the terminal's, as SVG, never
@@ -677,6 +786,15 @@ const DAY: i64 = 86_400;
 
 /// How the interface asks GitHub about the repository, or why it will not
 /// (ADR-0009).
+/// Where a commit's page is, its id appended: on GitHub, when the remote is.
+fn commit_link(repo: &GixRepo) -> Option<String> {
+    let remote = Remote::parse(&repo.remote_url()?)?;
+    Some(format!(
+        "https://github.com/{}/{}/commit/",
+        remote.owner, remote.name
+    ))
+}
+
 fn github(repo: &GixRepo, offline: bool) -> Result<LoadGitHub, String> {
     if offline {
         return Err("--offline was given".to_string());

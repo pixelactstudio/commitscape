@@ -4,7 +4,7 @@ Searching commits by message, person and date runs in the browser, over a Commit
 
 ## Status
 
-accepted (2026-09-25, Build Run 4 plan).
+accepted (2026-09-25, Build Run 4 plan); amended in Phase 25 (below).
 
 ## Context
 
@@ -40,3 +40,20 @@ A repository has at most about a million commits, and typically under 50,000. Sc
 
 - **Reports grow by the Commit List,** about 30 bytes per commit gzipped (estimated; measure).
 - **The Commits screen becomes a sixth Panel** in the browser interface only. The terminal UI stays frozen.
+
+## Amendment: measured in Build Run 4, Phase 25
+
+- **The worker starts at 50,000 rows, not 20,000.** On facebook/react's
+  whole list (35,275 commits on every branch, more than its main line's
+  21,708), the search itself takes 2 to 3 ms, but the round trip to a Web
+  Worker adds about 5 ms: keystroke to results was 13 ms median on the page
+  and 18 ms in the worker, in headless Chromium on this machine. Above
+  50,000 rows the worker keeps typing responsive; below, the page is
+  quicker.
+- **Sizes.** The Commit List is about 43 bytes a commit gzipped on
+  facebook/react (1.5 MB, lines not counted) and 47 on rust-lang/rust (16.2
+  MB for 345,135 commits, lines counted), against the estimate of 30.
+- **rust-lang/rust** answers a keystroke in about 50 ms, in the worker.
+- **The subject lines grow the cache** by 41% on rust-lang/rust (44 → 62 MB)
+  and 69% on Linux (128 → 217 MB). Warm starts did not move (42 and 56 ms
+  medians).

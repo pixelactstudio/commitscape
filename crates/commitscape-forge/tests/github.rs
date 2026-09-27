@@ -96,7 +96,8 @@ fn recent_pull_requests_and_issues_give_the_last_thirty_days() {
 fn an_issues_first_answer_is_the_first_comment_by_someone_else() {
     // Alice's May issue: her own comment after an hour, then Bob's after
     // five. Carol's June issue has none. The last, by a deleted account,
-    // got a bot's welcome after a minute, which is no answer, and Erin's
+    // got a bot's welcome after a minute and a triage account's label after
+    // two (a user account named as a bot), which are no answers, and Erin's
     // after two hours.
     let g = acme();
     let may_1 = JULY_1_2025 - 61 * 24 * HOUR;

@@ -81,19 +81,21 @@ jobs:
         run: cargo xtask check-layering
 
   web:
-    # The browser interface: its checks, then its screens in Chromium
-    # against a fixture, through the real binary.
+    # The TypeScript workspace (ADR-0013): its checks through Turborepo,
+    # then the local page's screens in Chromium against a fixture, through
+    # the real binary.
     name: web
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      # pnpm's version comes from package.json's packageManager.
+      - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: web/package-lock.json
+          node-version: 24
+          cache: pnpm
 
       - name: Configure git for fixture generation
         run: |
@@ -102,13 +104,9 @@ jobs:
           git config --global init.defaultBranch main
 
       - name: Typecheck, lint, test and build
-        working-directory: web
         run: |
-          npm ci
-          npm run typecheck
-          npm run lint
-          npm test
-          npm run build
+          pnpm install --frozen-lockfile
+          pnpm check
 
       - name: Build the binary, with the web app inside, and the fixtures
         run: |
@@ -116,7 +114,20 @@ jobs:
           cargo build --release -p commitscape
 
       - name: The screens, end to end
-        working-directory: web
+        working-directory: apps/local
         run: |
-          npx playwright install --with-deps chromium
-          npm run e2e
+          pnpm exec playwright install --with-deps chromium
+          pnpm e2e
+
+      - name: The Site, end to end under wrangler dev
+        # Local D1 and R2 only: nothing is deployed (ADR-0014).
+        working-directory: apps/site
+        run: pnpm e2e
+
+      - name: The Site's API handlers stay far under 10 ms of CPU
+        working-directory: apps/site
+        env:
+          REPORT_FILE: ${{ runner.temp }}/ownership.json.gz
+        run: |
+          ../../target/release/commitscape report --data --offline --no-cache --window all --out "$REPORT_FILE" ../../fixtures/ownership
+          pnpm exec vitest run --config scripts/vitest.config.ts

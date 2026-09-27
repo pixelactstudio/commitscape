@@ -369,6 +369,7 @@ impl RepoSource for ScriptedRepo {
                 author_time: c.written.unwrap_or(c.time),
                 author_offset: i32::from(c.offset_minutes) * 60,
                 kind: crate::message::kind_of(&c.message),
+                subject: &crate::message::subject_of(&c.message),
                 parent_count: c.parents.len(),
             };
             stats.commits_visited += 1;

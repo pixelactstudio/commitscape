@@ -51,10 +51,14 @@ impl Filter {
             } else {
                 c.flags
             };
+            // Every screen's filter leaves subjects out: the Commit List
+            // filters in the browser (ADR-0019).
             commits.push(CommitMeta {
                 changes_start: changes.len() as u32,
                 changes_len: kept.len() as u32,
                 flags,
+                subject_start: 0,
+                subject_len: 0,
                 ..*c
             });
             changes.extend(kept);
@@ -72,6 +76,7 @@ impl Filter {
             span: HistorySpan::of(&commits),
             commits,
             changes,
+            subjects: Vec::new(),
             paths: index.paths.clone(),
             authors: index.authors.clone(),
             head,

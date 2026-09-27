@@ -17,11 +17,15 @@
 /*-report.html
 /wrapped-*.html
 
-# The browser interface: dependencies, and the build cargo embeds
-web/node_modules/
-web/dist/
-web/test-results/
-web/playwright-report/
+# The TypeScript workspace: dependencies, builds (apps/local/dist is what
+# cargo embeds), Turborepo's cache, test output
+node_modules/
+dist/
+.turbo/
+# Wrangler's local state and the built Site's config redirect
+.wrangler/
+test-results/
+playwright-report/
 
 # Nix: `nix build` links its output here; direnv keeps its cache here
 /result
@@ -31,6 +35,7 @@ web/playwright-report/
 # Secrets
 .env
 .env.*
+.dev.vars
 
 # Editors and operating systems
 /.idea/

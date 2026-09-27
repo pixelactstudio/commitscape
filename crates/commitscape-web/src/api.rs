@@ -1,5 +1,5 @@
 //! The JSON the web app reads. These types are the API: TypeScript types
-//! are generated from them (`web/src/api/types.ts`) and a test fails when
+//! are generated from them (`packages/data/src/types.ts`) and a test fails when
 //! the two drift apart.
 //!
 //! Times are seconds since the Unix epoch; days are whole days since it.
@@ -39,6 +39,12 @@ pub struct Meta {
     pub github_history: String,
     /// Whether a merge of identities can be undone here.
     pub can_change_people: bool,
+    /// Whether the page may share the Report (ADR-0016): not with
+    /// `--offline`, nor from a Report.
+    pub can_share: bool,
+    /// Whether people's GitHub avatars may be shown: the browser fetches
+    /// them from GitHub, so never with `--offline`.
+    pub avatars: bool,
     /// Bumped whenever anything above, or the people, changes: data asked
     /// for with an older one is out of date.
     pub generation: u32,
@@ -54,6 +60,9 @@ pub struct PersonRef {
     /// One of eight categorical colours, fixed by all-time commits and the
     /// same on every screen; `null` for everyone else, drawn grey.
     pub colour: Option<u8>,
+    /// Their GitHub login, when GitHub linked one of their addresses to an
+    /// account or they commit from a GitHub noreply address.
+    pub login: Option<String>,
 }
 
 /// The repository at a glance, over one Window.
@@ -467,8 +476,14 @@ pub struct Context<'a> {
     pub releases: &'a [(String, i64)],
     pub lines_counted: bool,
     pub history: Option<&'a History>,
-    /// GitHub logins, lowercased, by person.
+    /// People by their GitHub logins, lowercased.
     pub logins: &'a HashMap<String, AuthorId>,
+    /// Each person's GitHub login, the first by name when they have
+    /// several.
+    pub login_of: &'a HashMap<AuthorId, String>,
+    /// Whether answers may carry email addresses: never on the Site
+    /// (ADR-0019).
+    pub emails: bool,
 }
 
 impl Context<'_> {
@@ -481,8 +496,22 @@ impl Context<'_> {
                 .map(|a| a.name.to_string())
                 .unwrap_or_default(),
             colour: self.colours.get(&id).copied(),
+            login: self.login_of.get(&id).cloned(),
         }
     }
+}
+
+/// Each person's GitHub login, from [`logins`]: the first by name when
+/// they have several.
+pub fn login_of(logins: &HashMap<String, AuthorId>) -> HashMap<AuthorId, String> {
+    let mut out: HashMap<AuthorId, String> = HashMap::new();
+    for (login, &id) in logins {
+        let e = out.entry(id).or_insert_with(|| login.clone());
+        if login < e {
+            e.clone_from(login);
+        }
+    }
+    out
 }
 
 /// The eight people with the most commits over all of history, bots left
@@ -1037,16 +1066,28 @@ impl Person {
         .collect();
         Some(Person {
             person: cx.person(index, id),
-            email: author.email.to_string(),
+            email: if cx.emails {
+                author.email.to_string()
+            } else {
+                String::new()
+            },
             row,
-            addresses: index
-                .authors
-                .addresses_of(id)
-                .into_iter()
-                .map(|(email, commits)| Address { email, commits })
-                .collect(),
+            addresses: if cx.emails {
+                index
+                    .authors
+                    .addresses_of(id)
+                    .into_iter()
+                    .map(|(email, commits)| Address { email, commits })
+                    .collect()
+            } else {
+                Vec::new()
+            },
             traits,
-            mailmap: index.authors.mailmap_lines(id),
+            mailmap: if cx.emails {
+                index.authors.mailmap_lines(id)
+            } else {
+                String::new()
+            },
             first_day: pulse.first_day,
             days: pulse.days,
             week: pulse.week.iter().map(|d| d.to_vec()).collect(),
@@ -1254,6 +1295,199 @@ impl File {
     }
 }
 
+/// Every commit, newest first, one short row each, for searching in the
+/// browser (ADR-0019): the Commit List. The rows are columns, one entry per
+/// commit in each, which is smaller and quicker to read than an object per
+/// row.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct CommitList {
+    /// Where a commit's page is, its full id appended: GitHub's, when the
+    /// remote is on GitHub.
+    pub link: Option<String>,
+    /// Whether lines were counted: without them `added` and `removed` are
+    /// all `null`.
+    pub lines: bool,
+    /// The Commit Kinds, as `kind` numbers them.
+    pub kinds: Vec<String>,
+    /// Everyone who made a commit in the list, as `person` numbers them.
+    pub people: Vec<CommitPerson>,
+    /// Each commit's full id.
+    pub ids: Vec<String>,
+    /// When its author made it, seconds since the epoch.
+    pub times: Vec<i64>,
+    /// Its author's time zone, minutes east of UTC.
+    pub offsets: Vec<i16>,
+    /// Who made it, a position in `people`.
+    pub person: Vec<u32>,
+    /// Its subject line.
+    pub subjects: Vec<String>,
+    /// Its Commit Kind, a position in `kinds`.
+    pub kind: Vec<u8>,
+    /// Whether it is a merge.
+    pub merge: Vec<bool>,
+    /// Files it changed.
+    pub files: Vec<u32>,
+    /// Lines it added and removed, when counted.
+    pub added: Vec<Option<u32>>,
+    pub removed: Vec<Option<u32>>,
+}
+
+/// A person in the Commit List.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct CommitPerson {
+    pub person: PersonRef,
+    /// Their addresses, so a search can match them: locally only. A hosted
+    /// Commit List carries none (ADR-0019).
+    pub emails: Vec<String>,
+}
+
+impl CommitList {
+    /// Every loaded commit. `emails` says whether addresses may be listed.
+    pub fn of(index: &Index, cx: &Context<'_>, link: Option<&str>, emails: bool) -> CommitList {
+        let mut out = CommitList {
+            link: link.map(str::to_string),
+            lines: cx.lines_counted,
+            kinds: commitscape_core::CommitKind::EVERY
+                .iter()
+                .map(|k| k.label().to_string())
+                .collect(),
+            people: Vec::new(),
+            ids: Vec::with_capacity(index.commits.len()),
+            times: Vec::with_capacity(index.commits.len()),
+            offsets: Vec::with_capacity(index.commits.len()),
+            person: Vec::with_capacity(index.commits.len()),
+            subjects: Vec::with_capacity(index.commits.len()),
+            kind: Vec::with_capacity(index.commits.len()),
+            merge: Vec::with_capacity(index.commits.len()),
+            files: Vec::with_capacity(index.commits.len()),
+            added: Vec::with_capacity(index.commits.len()),
+            removed: Vec::with_capacity(index.commits.len()),
+        };
+        let mut seen: HashMap<Option<AuthorId>, u32> = HashMap::new();
+        for c in index.commits.iter().rev() {
+            let who = index.author_of(c);
+            let next = seen.len() as u32;
+            let at = *seen.entry(who).or_insert_with(|| {
+                out.people.push(match who {
+                    Some(id) => CommitPerson {
+                        person: cx.person(index, id),
+                        emails: if emails {
+                            index
+                                .authors
+                                .addresses_of(id)
+                                .into_iter()
+                                .map(|(email, _)| email)
+                                .collect()
+                        } else {
+                            Vec::new()
+                        },
+                    },
+                    None => CommitPerson {
+                        person: PersonRef {
+                            id: u32::MAX,
+                            name: "someone unknown".to_string(),
+                            colour: None,
+                            login: None,
+                        },
+                        emails: Vec::new(),
+                    },
+                });
+                next
+            });
+            let changes = index.changes_of(c);
+            let (mut added, mut removed) = (0u32, 0u32);
+            for ch in changes {
+                if let Some(l) = ch.lines {
+                    added = added.saturating_add(l.added);
+                    removed = removed.saturating_add(l.removed);
+                }
+            }
+            out.ids.push(c.id.to_string());
+            out.times.push(c.time + i64::from(c.author_delta));
+            out.offsets.push(c.offset_minutes);
+            out.person.push(at);
+            out.subjects.push(index.subject_of(c).to_string());
+            out.kind.push(
+                commitscape_core::CommitKind::EVERY
+                    .iter()
+                    .position(|k| *k == c.kind)
+                    .unwrap_or(0) as u8,
+            );
+            out.merge.push(c.is_merge());
+            out.files.push(c.changes_len);
+            out.added.push(cx.lines_counted.then_some(added));
+            out.removed.push(cx.lines_counted.then_some(removed));
+        }
+        out
+    }
+}
+
+/// A repository in a few numbers, for the Site's Leaderboards (IDEA.md): a
+/// Report carries them, and the Builder hands them to the Site with its
+/// Build, so the Worker never reads a Report.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct Stats {
+    /// Commits that are not merges, over all of history.
+    pub commits: u64,
+    /// People who made them, bots left out.
+    pub people: u32,
+    /// The fewest people who made over 80% of the last year's commits.
+    pub bus_factor: Option<u32>,
+    /// People with 3 or more commits in the last 90 days.
+    pub maintainers: u32,
+    /// Commits and people in the last 30 days.
+    pub commits_30d: u32,
+    pub people_30d: u32,
+    /// Lines of code at HEAD, and those in files untouched for five years.
+    pub code_lines: u64,
+    pub untouched_5y: u64,
+}
+
+impl Stats {
+    pub fn of(
+        index: &Index,
+        anchor: i64,
+        options: commitscape_metrics::Options,
+        releases: &[(String, i64)],
+    ) -> Option<Stats> {
+        let all = Analysis::new(index, commitscape_metrics::Window::all(anchor), options).ok()?;
+        let totals = all.totals();
+        let health = all.health(releases, None);
+        let month = Analysis::new(
+            index,
+            commitscape_metrics::Span::Month.window(anchor),
+            options,
+        )
+        .ok()?;
+        let (commits_30d, people_30d) = month.activity();
+        let cutoff = anchor - 5 * 365 * DAY;
+        let untouched_5y = index
+            .head
+            .iter()
+            .filter(|h| h.class.is_code())
+            .filter(|h| {
+                index
+                    .history_of(h.file)
+                    .is_some_and(|f| f.last_touched < cutoff)
+            })
+            .map(|h| u64::from(h.loc))
+            .sum();
+        Some(Stats {
+            commits: totals.commits - totals.merges,
+            people: totals.people as u32,
+            bus_factor: health.bus_factor,
+            maintainers: health.maintainers.len() as u32,
+            commits_30d,
+            people_30d,
+            code_lines: totals.code_lines,
+            untouched_5y,
+        })
+    }
+}
+
 #[cfg(test)]
 mod types {
     //! The TypeScript the web app is written against, generated from the
@@ -1302,6 +1536,9 @@ mod types {
             CommitLine::decl(&cfg),
             WrappedYear::decl(&cfg),
             RepoCommits::decl(&cfg),
+            CommitList::decl(&cfg),
+            CommitPerson::decl(&cfg),
+            Stats::decl(&cfg),
         ] {
             out.push_str("\nexport ");
             out.push_str(&decl);
@@ -1312,8 +1549,8 @@ mod types {
 
     #[test]
     fn the_web_apps_types_match_the_api() {
-        let path =
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../web/src/api/types.ts");
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../packages/data/src/types.ts");
         let now = generated();
         if std::env::var_os("COMMITSCAPE_UPDATE_TYPES").is_some() {
             let _ = std::fs::create_dir_all(path.parent().unwrap_or(&path));
@@ -1323,7 +1560,7 @@ mod types {
         let written = std::fs::read_to_string(&path).unwrap_or_default();
         assert!(
             written == now,
-            "web/src/api/types.ts is out of date: run COMMITSCAPE_UPDATE_TYPES=1 cargo test -p commitscape-web"
+            "packages/data/src/types.ts is out of date: run COMMITSCAPE_UPDATE_TYPES=1 cargo test -p commitscape-web"
         );
     }
 }

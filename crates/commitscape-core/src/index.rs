@@ -12,8 +12,12 @@ use crate::{AuthorId, FileId, Oid, PathId, SignatureId};
 /// Bumped whenever the on-disk layout changes. A mismatch triggers a full
 /// reindex rather than an error. Also bumped when a stored fact is dropped,
 /// so no cache keeps it: 8 dropped a commit flag. 9 records what joined each
-/// person (ADR-0011).
-pub const SCHEMA_VERSION: u32 = 9;
+/// person (ADR-0011). 10 keeps each commit's subject line (ADR-0019).
+pub const SCHEMA_VERSION: u32 = 10;
+
+/// The most of a subject line the index keeps, in bytes, cut at a character
+/// boundary (ADR-0019).
+pub const SUBJECT_CAP: usize = 200;
 
 /// How a commit touched a file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -79,6 +83,10 @@ pub struct CommitMeta {
     pub author_delta: i32,
     /// What the commit's message says it is.
     pub kind: CommitKind,
+    /// Start of this commit's subject line in [`Index::subjects`].
+    pub subject_start: u32,
+    /// Its length in bytes, at most [`SUBJECT_CAP`].
+    pub subject_len: u8,
 }
 
 impl CommitMeta {
@@ -104,6 +112,12 @@ impl CommitMeta {
     pub fn changes(&self) -> std::ops::Range<usize> {
         let start = self.changes_start as usize;
         start..start + self.changes_len as usize
+    }
+
+    /// Where this commit's subject line is in [`Index::subjects`].
+    pub fn subject(&self) -> std::ops::Range<usize> {
+        let start = self.subject_start as usize;
+        start..start + self.subject_len as usize
     }
 
     #[inline]
@@ -817,6 +831,10 @@ pub struct Index {
     /// Flat arena of every change by every commit. Each commit owns a
     /// contiguous slice. One allocation rather than one per commit.
     pub changes: Vec<FileChange>,
+    /// Flat arena of every commit's subject line, UTF-8, each at most
+    /// [`SUBJECT_CAP`] bytes. Each commit owns a contiguous slice, as with
+    /// [`changes`](Self::changes) (ADR-0019).
+    pub subjects: Vec<u8>,
     pub paths: PathTable,
     pub authors: AuthorTable,
     /// Files present at HEAD, sorted by [`FileId`]. Sized by file count, not
@@ -885,6 +903,7 @@ impl Index {
             frontier: Vec::new(),
             commits: Vec::new(),
             changes: Vec::new(),
+            subjects: Vec::new(),
             paths: PathTable::default(),
             authors: AuthorTable::default(),
             head: Vec::new(),
@@ -908,19 +927,34 @@ impl Index {
         &mut self,
         older_commits: Vec<CommitMeta>,
         older_changes: Vec<FileChange>,
+        older_subjects: Vec<u8>,
         loaded_from: Option<i64>,
     ) {
         let shift = older_changes.len() as u32;
+        let subject_shift = older_subjects.len() as u32;
         for c in &mut self.commits {
             c.changes_start += shift;
+            c.subject_start += subject_shift;
         }
         let mut commits = older_commits;
         commits.append(&mut self.commits);
         let mut changes = older_changes;
         changes.append(&mut self.changes);
+        let mut subjects = older_subjects;
+        subjects.append(&mut self.subjects);
         self.commits = commits;
         self.changes = changes;
+        self.subjects = subjects;
         self.loaded_from = loaded_from;
+    }
+
+    /// A commit's subject line: empty when it had none, or for a commit
+    /// indexed before subjects were kept.
+    pub fn subject_of(&self, c: &CommitMeta) -> &str {
+        self.subjects
+            .get(c.subject())
+            .and_then(|b| std::str::from_utf8(b).ok())
+            .unwrap_or("")
     }
 
     /// The changes belonging to one commit.
@@ -1037,6 +1071,8 @@ mod tests {
             offset_minutes: 0,
             author_delta: 0,
             kind: CommitKind::Other,
+            subject_start: 0,
+            subject_len: 0,
         };
         idx.commits = vec![mk(10), mk(20), mk(30)];
         assert!(idx.is_time_ordered());

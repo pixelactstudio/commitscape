@@ -1,10 +1,24 @@
-//! What a commit's message says it is: its Commit Kind.
+//! What a commit's message says it is: its Commit Kind, and its subject
+//! line.
 //!
-//! Read once, as the walk reads each commit, and kept as a few bits. Keeping
-//! every message until the index is built would cost more memory than the
-//! rest of the walk: Linux's 1.5 million messages are about 700 MB.
+//! Read once, as the walk reads each commit. The kind is kept as a few bits
+//! and the subject, capped, for the Commit List (ADR-0019); the rest of the
+//! message is dropped: Linux's 1.5 million messages are about 700 MB.
 
-use commitscape_core::CommitKind;
+use commitscape_core::{CommitKind, SUBJECT_CAP};
+
+/// A message's subject line: its first line, trimmed, at most
+/// [`SUBJECT_CAP`] bytes, cut at a character boundary.
+pub fn subject_of(message: &[u8]) -> String {
+    let first = message.split(|&b| b == b'\n').next().unwrap_or_default();
+    let text = String::from_utf8_lossy(first);
+    let text = text.trim();
+    let mut end = text.len().min(SUBJECT_CAP);
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    text.get(..end).unwrap_or_default().to_string()
+}
 
 /// The Commit Kind a message's subject line declares.
 pub fn kind_of(message: &[u8]) -> CommitKind {
@@ -41,5 +55,20 @@ fn kind_of_subject(subject: &str) -> CommitKind {
         "chore" => CommitKind::Chore,
         "revert" => CommitKind::Revert,
         _ => CommitKind::Other,
+    }
+}
+
+#[cfg(test)]
+mod subject_tests {
+    use super::subject_of;
+
+    #[test]
+    fn a_subject_is_the_first_line_trimmed_and_capped_at_a_character() {
+        assert_eq!(subject_of(b"  fix: the walk  \n\nbody"), "fix: the walk");
+        assert_eq!(subject_of(b""), "");
+        // 199 ASCII bytes then a two-byte character: cutting at 200 would
+        // split it, so the subject stops before it.
+        let long = format!("{}\u{e9} and more", "a".repeat(199));
+        assert_eq!(subject_of(long.as_bytes()), "a".repeat(199));
     }
 }

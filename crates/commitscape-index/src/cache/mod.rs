@@ -134,6 +134,7 @@ pub struct Rest {
 pub struct OlderHistory {
     commits: Vec<CommitMeta>,
     changes: Vec<FileChange>,
+    subjects: Vec<u8>,
 }
 
 /// The older history could not be read: the cache was damaged, or replaced
@@ -149,6 +150,7 @@ impl Rest {
             .map(|decoded| OlderHistory {
                 commits: decoded.commits,
                 changes: decoded.changes,
+                subjects: decoded.subjects,
             })
             .map_err(|_| RestUnavailable)
     }
@@ -168,7 +170,7 @@ impl OlderHistory {
     /// Completes an index loaded with [`Since::Time`] or
     /// [`Since::BeforeNewest`].
     pub fn prepend_to(self, index: &mut Index) {
-        index.prepend_history(self.commits, self.changes, None);
+        index.prepend_history(self.commits, self.changes, self.subjects, None);
     }
 }
 
@@ -302,7 +304,7 @@ fn rebuild<S: RepoSource>(
     let _ = format::write(format::Writing {
         head,
         previous: None,
-        fresh: format::encode_blocks(&index.commits, &index.changes),
+        fresh: format::encode_blocks(&index.commits, &index.changes, &index.subjects),
         new_ids: SortedIds::run_of(index.commits.iter().map(|c| c.id)),
         dir: ctx.dir,
     });
@@ -336,18 +338,14 @@ fn first_block(blocks: &[BlockEntry], time: Option<i64>) -> (usize, Option<i64>)
 }
 
 /// An index assembled from a head and some decoded blocks.
-fn index_from(
-    head: Head,
-    commits: Vec<CommitMeta>,
-    changes: Vec<FileChange>,
-    loaded_from: Option<i64>,
-) -> Index {
+fn index_from(head: Head, decoded: format::Decoded, loaded_from: Option<i64>) -> Index {
     Index {
         schema_version: head.schema_version,
         repo: head.repo,
         frontier: head.frontier,
-        commits,
-        changes,
+        commits: decoded.commits,
+        changes: decoded.changes,
+        subjects: decoded.subjects,
         paths: head.paths,
         authors: head.authors,
         head: head.head,
@@ -384,7 +382,7 @@ fn warm(
     });
     let classify = head.classify.clone();
 
-    let mut index = index_from(head, decoded.commits, decoded.changes, loaded_from);
+    let mut index = index_from(head, decoded, loaded_from);
     if let (Some(rules), Some(previous)) = (changed_rules, previous) {
         reresolve_authors(&mut index, rules);
         // Only the author table changed, so only a new head is written; the
@@ -457,7 +455,7 @@ fn resume<S: RepoSource>(
             Ok(d) => d,
             Err(_) => return rebuild(source, ctx, RebuildReason::Unreadable, progress),
         };
-    let base = index_from(head, decoded.commits, decoded.changes, loaded_from);
+    let base = index_from(head, decoded, loaded_from);
 
     let mut builder = IndexBuilder::resume(base, ctx.rules(source)?);
     let stats = source.walk_history(
@@ -484,7 +482,7 @@ fn resume<S: RepoSource>(
                 Ok(d) => d,
                 Err(_) => return rebuild(source, ctx, RebuildReason::Unreadable, progress),
             };
-            builder.prepend_base(older.commits, older.changes, needed_from);
+            builder.prepend_base(older.commits, older.changes, older.subjects, needed_from);
             first = needed;
         }
     }
@@ -517,7 +515,11 @@ fn resume<S: RepoSource>(
         Some(month) => {
             let split = index.commits.partition_point(|c| Month::of(c.time) < month);
             (
-                format::encode_blocks(index.commits.get(split..).unwrap_or(&[]), &index.changes),
+                format::encode_blocks(
+                    index.commits.get(split..).unwrap_or(&[]),
+                    &index.changes,
+                    &index.subjects,
+                ),
                 old_blocks
                     .iter()
                     .filter(|b| b.month < month)

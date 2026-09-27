@@ -33,6 +33,8 @@ pub struct C<'a> {
     /// Author time minus commit time, for a commit rebased after it was
     /// written.
     pub author_delta: i32,
+    /// Its subject line.
+    pub subject: &'a str,
 }
 
 pub fn c<'a>(day: i64, author: &'a str, touched: &'a [&'a str]) -> C<'a> {
@@ -46,6 +48,7 @@ pub fn c<'a>(day: i64, author: &'a str, touched: &'a [&'a str]) -> C<'a> {
         kind: CommitKind::Other,
         lines: Vec::new(),
         author_delta: 0,
+        subject: "",
     }
 }
 
@@ -218,7 +221,10 @@ pub fn index_with_suspects(
             offset_minutes: commit.offset_minutes,
             author_delta: commit.author_delta,
             kind: commit.kind,
+            subject_start: idx.subjects.len() as u32,
+            subject_len: commit.subject.len() as u8,
         });
+        idx.subjects.extend_from_slice(commit.subject.as_bytes());
     }
 
     let signatures: Vec<Signature> = emails
