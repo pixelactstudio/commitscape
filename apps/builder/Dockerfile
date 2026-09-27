@@ -34,5 +34,4 @@ COPY --from=runner /repo/apps/builder/dist/builder.mjs ./builder.mjs
 COPY packages/server/drizzle ./drizzle
 ENV NODE_ENV=production MIGRATIONS_DIR=/app/drizzle WORK_DIR=/work COMMITSCAPE_BIN=commitscape
 USER node
-VOLUME /work
 CMD ["node", "builder.mjs", "work"]

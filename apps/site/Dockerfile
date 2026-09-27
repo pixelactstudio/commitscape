@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 FROM node:24-bookworm-slim AS build
 WORKDIR /repo
 RUN npm install -g pnpm@12.6.0
@@ -14,8 +15,8 @@ ARG VITE_POSTHOG_KEY
 ARG VITE_POSTHOG_HOST
 ARG SENTRY_ORG
 ARG SENTRY_PROJECT
-RUN --mount=type=secret,id=sentry_auth_token \
-  SENTRY_AUTH_TOKEN="$(cat /run/secrets/sentry_auth_token 2>/dev/null)" pnpm --filter @commitscape/site build
+RUN --mount=type=secret,id=SENTRY_AUTH_TOKEN \
+  SENTRY_AUTH_TOKEN="$(cat /run/secrets/SENTRY_AUTH_TOKEN 2>/dev/null)" pnpm --filter @commitscape/site build
 
 FROM node:24-bookworm-slim
 WORKDIR /app

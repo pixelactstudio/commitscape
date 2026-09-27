@@ -141,9 +141,9 @@ saves it as a PNG.
   Repositories only, never people.
 
 `/privacy` on the Site says exactly what it keeps, where, for how long, and
-who can read it. Anyone can run their own: [DEPLOY.md](DEPLOY.md) runs the
-Site, the Builder and Postgres with Docker on one server, with Reports in
-Cloudflare R2.
+who can read it. Anyone can run their own: [DEPLOY.md](DEPLOY.md) sets up
+the Site, the Builder and Postgres in Dokploy, with Reports in Cloudflare
+R2.
 
 ## What leaves your machine
 
