@@ -18,7 +18,7 @@ uses (Report, Build, Window, Hotspot); use them.
 ## Commands
 
 ```sh
-pnpm services                  # Postgres and MinIO in Docker
+pnpm services                  # Postgres and an S3 stand-in (s3mock) in Docker
 pnpm dev:site                  # the Site on :3100, from apps/site/.env
 pnpm dev:builder               # the Builder, from apps/builder/.env
 pnpm check                     # typecheck, lint, test and build every package

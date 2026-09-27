@@ -91,8 +91,7 @@ jobs:
 
       - name: Postgres and S3
         run: |
-          docker compose -f compose.dev.yaml up -d --wait postgres minio
-          docker compose -f compose.dev.yaml up minio-bucket
+          docker compose -f compose.dev.yaml up -d --wait
 
       - name: Typecheck, lint, test and build
         run: |

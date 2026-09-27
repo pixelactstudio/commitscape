@@ -27,7 +27,7 @@ export type S3Config = {
   forcePathStyle?: boolean;
 };
 
-/** Storage in an S3 bucket: R2 in production, MinIO in development. */
+/** Storage in an S3 bucket: R2 in production, s3mock in development and tests. */
 export function s3Storage(config: S3Config): Storage {
   const client = new S3Client({
     endpoint: config.endpoint,

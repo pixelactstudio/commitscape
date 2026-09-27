@@ -228,7 +228,7 @@ crates, and a pnpm workspace run through Turborepo for the TypeScript:
 
 ```sh
 pnpm install                         # pnpm's version is in package.json (corepack enable)
-pnpm services                        # Postgres and MinIO in Docker, for development
+pnpm services                        # Postgres and an S3 stand-in (s3mock) in Docker, for development
 pnpm dev:site                        # the Site on :3100 (copy apps/site/.env.example to .env)
 pnpm dev:builder                     # the Builder (copy apps/builder/.env.example to .env)
 cargo xtask fixtures --force         # the small repositories the tests read
