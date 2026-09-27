@@ -29,6 +29,7 @@
     "@electric-sql/pglite": "catalog:",
     "@types/node": "catalog:",
     "@types/pg": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
     "drizzle-kit": "catalog:",
     "oxlint": "catalog:",
     "typescript": "catalog:",

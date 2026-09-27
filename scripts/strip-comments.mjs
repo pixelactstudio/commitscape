@@ -11,7 +11,7 @@ const verbose = process.argv.includes("--verbose");
 const SKIP = [/^fixtures\//, /\/node_modules\//, /^target\//, /routeTree\.gen\.ts$/, /^packages\/data\/src\/types\.ts$/, /\/drizzle\//, /^scripts\/strip-comments\.mjs$/];
 const HASH_FILES = new Set([".gitignore", ".dockerignore", ".gitattributes", "Dockerfile"]);
 const HASH_EXTENSIONS = new Set([".toml", ".yml", ".yaml", ".sh", ".nix"]);
-const KEEP = [/^\/\/\/\s*<reference/, /@ts-(expect-error|ignore|nocheck)/, /eslint-disable/, /oxlint-disable/, /biome-ignore/, /@vite-ignore/, /[#@]__PURE__/, /prettier-ignore/];
+const KEEP = [/^\/\/\/\s*<reference/, /^#\s*syntax=/, /@ts-(expect-error|ignore|nocheck)/, /eslint-disable/, /oxlint-disable/, /biome-ignore/, /@vite-ignore/, /[#@]__PURE__/, /prettier-ignore/];
 
 function kindOf(path) {
   const ext = extname(path);

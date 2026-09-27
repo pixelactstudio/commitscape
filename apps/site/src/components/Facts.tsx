@@ -36,11 +36,13 @@ export function Facts({ facts }: { facts: Data }) {
           <ol className="bars">
             {facts.languages.map((l) => (
               <li key={l.name}>
-                <span className="bar-label">{l.name}</span>
-                <span className="bar-track">
-                  <span className="bar" style={{ width: `${Math.max(0.5, (l.bytes * 100) / Math.max(1, facts.languages[0]?.bytes ?? 1))}%`, background: "var(--s1)" }} />
-                </span>
-                <span className="bar-value">{Math.round((l.bytes * 100) / Math.max(1, bytes))}%</span>
+                <div className="bar-row">
+                  <span className="bar-label">{l.name}</span>
+                  <span className="bar-track">
+                    <span className="bar" style={{ width: `${Math.max(0.5, (l.bytes * 100) / Math.max(1, facts.languages[0]?.bytes ?? 1))}%`, background: "var(--s1)" }} />
+                  </span>
+                  <span className="bar-value">{Math.round((l.bytes * 100) / Math.max(1, bytes))}%</span>
+                </div>
               </li>
             ))}
           </ol>

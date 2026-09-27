@@ -9,6 +9,7 @@ import { PRODUCT } from "@commitscape/data";
 import styles from "@commitscape/ui/styles.css?url";
 import { getViewer } from "#/functions/account";
 import { Analytics } from "#/integrations/posthog";
+import { PUBLIC_GLOBAL } from "#/lib/env";
 import "#/share-key";
 import app from "#/styles/app.css?url";
 import site from "#/site.css?url";
@@ -17,7 +18,9 @@ type Viewer = Awaited<ReturnType<typeof getViewer>>;
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient } & Partial<Viewer>>()({
   beforeLoad: () => getViewer(),
-  head: () => ({
+  loader: ({ context }) => ({ public: context.public ?? {} }),
+  head: ({ loaderData }) => ({
+    scripts: [{ children: `window.${PUBLIC_GLOBAL}=${JSON.stringify(loaderData?.public ?? {}).replaceAll("<", "\\u003c")}` }],
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },

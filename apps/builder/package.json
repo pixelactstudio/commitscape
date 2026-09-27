@@ -21,6 +21,7 @@
     "@electric-sql/pglite": "catalog:",
     "@t3-oss/env-core": "catalog:",
     "@types/node": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
     "drizzle-orm": "catalog:",
     "esbuild": "0.28.2",
     "oxlint": "catalog:",

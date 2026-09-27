@@ -10,9 +10,6 @@ COPY packages/ui/package.json packages/ui/
 RUN pnpm install --frozen-lockfile --filter @commitscape/site...
 COPY packages packages
 COPY apps/site apps/site
-ARG VITE_SENTRY_DSN
-ARG VITE_POSTHOG_KEY
-ARG VITE_POSTHOG_HOST
 ARG SENTRY_ORG
 ARG SENTRY_PROJECT
 RUN --mount=type=secret,id=SENTRY_AUTH_TOKEN \
@@ -21,6 +18,7 @@ RUN --mount=type=secret,id=SENTRY_AUTH_TOKEN \
 FROM node:24-bookworm-slim
 WORKDIR /app
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
 COPY --from=build /repo/apps/site/.output ./.output
 USER node
 EXPOSE 3000

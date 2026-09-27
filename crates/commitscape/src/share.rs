@@ -37,11 +37,13 @@ pub struct ShareArgs {
     common: Common,
 }
 
+const DEFAULT_SITE: &str = "https://commitscape.invalid";
+
 pub fn site() -> String {
     std::env::var("COMMITSCAPE_SITE")
         .ok()
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| env!("COMMITSCAPE_SITE_ORIGIN").to_string())
+        .unwrap_or_else(|| DEFAULT_SITE.to_string())
         .trim_end_matches('/')
         .to_string()
 }

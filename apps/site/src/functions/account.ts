@@ -36,6 +36,7 @@ export const getViewer = createServerFn({ method: "GET" }).handler(async () => {
   const user = s?.user as (NonNullable<typeof s>["user"] & { login?: string | null }) | undefined;
   return {
     origin: new URL(env.BETTER_AUTH_URL).origin,
+    public: { PUBLIC_SENTRY_DSN: env.PUBLIC_SENTRY_DSN, PUBLIC_POSTHOG_KEY: env.PUBLIC_POSTHOG_KEY, PUBLIC_POSTHOG_HOST: env.PUBLIC_POSTHOG_HOST },
     user: user ? { login: user.login ?? user.name, image: user.image ?? null } : null,
   };
 });

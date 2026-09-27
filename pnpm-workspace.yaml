@@ -28,6 +28,8 @@ catalog:
   pg: 8.23.0
   pg-boss: 12.35.0
   zod: 4.6.5
+  "@axe-core/playwright": 4.13.0
+  "@vitest/coverage-v8": 5.0.1
   "@t3-oss/env-core": 0.13.11
 
 minimumReleaseAgeExclude:

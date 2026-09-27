@@ -58,9 +58,10 @@ against the real services. Without them those tests are skipped.
   states are skeletons: Astryx's `Skeleton`, laid out with Tailwind.
 - Where a page is lives in the address's query (`?screen=people&id=3`), so
   the server can draw it.
-- Environment variables are declared once, with T3Env: server ones in
-  `src/server/env.ts`, browser ones (`VITE_`, built into the page) in
-  `src/lib/env.ts`.
+- Environment variables are declared once, with T3Env, and read at run
+  time: every one in `src/server/env.ts`. Browser ones are named `PUBLIC_`;
+  the server writes them into the page and `src/lib/env.ts` reads them
+  there. Never build a setting into an image: one image runs anywhere.
 - Signing in is Better Auth with GitHub only (`src/server/auth.ts`).
 
 ## Styling
@@ -74,6 +75,14 @@ a shadcn component only when Astryx has nothing for the job.
 Write no comments, except a short JSDoc on the main exported functions
 saying what the function does. No comments in migrations, configuration or
 tests.
+
+## Releases
+
+Pull request titles and commits are conventional (`feat:`, `fix:`,
+`chore:` and so on): release-please builds the version and the changelog
+from them (RELEASING.md). Never edit the version or `CHANGELOG.md` by hand.
+Every setting of the Site and the Builder is read at run time, so the
+Docker images CI publishes run on any server.
 
 ## Working here
 

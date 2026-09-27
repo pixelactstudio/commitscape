@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 import pg from "pg";
 
@@ -214,3 +215,17 @@ test("the Leaderboards rank repositories from the night's seed Builds", async ({
   await expect(answers.getByText("4 h")).toBeVisible();
   for (const person of ["Alice", "Bob", "Carol"]) await expect(page.locator(".boards").getByText(person)).toHaveCount(0);
 });
+
+const PAGES = ["/", "/leaderboards", "/privacy", "/me", "/gh/acme/ownership", "/gh/acme/ownership?screen=people", "/gh/acme/ownership?screen=risk", "/gh/nobody/nothing"];
+
+for (const path of PAGES) {
+  test(`${path} has no serious accessibility problems`, async ({ page }) => {
+    await page.goto(path);
+    await page.waitForLoadState("networkidle");
+    const { violations } = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
+    const serious = violations
+      .filter((v) => v.impact === "serious" || v.impact === "critical")
+      .map((v) => `${v.id} (${v.impact}): ${v.help} — ${v.nodes.length} element(s), e.g. ${v.nodes[0]?.target.join(" ")}`);
+    expect(serious).toEqual([]);
+  });
+}

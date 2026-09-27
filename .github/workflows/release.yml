@@ -1,11 +1,28 @@
 name: Release
+
 on:
-  push:
-    tags: ["v*"]
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The tag to release, like v0.2.0
+        required: true
+
 permissions:
-  contents: read
+  contents: write
+  id-token: write
+  attestations: write
+
+env:
+  TAG: ${{ inputs.tag }}
+
 jobs:
   build:
+    name: build (${{ matrix.platform }})
     strategy:
       fail-fast: true
       matrix:
@@ -19,39 +36,110 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
       - if: contains(matrix.target, 'musl')
         run: sudo apt-get update && sudo apt-get install -y musl-tools
-      - run: cargo build --profile dist --target ${{ matrix.target }} -p commitscape
+      - run: cargo build --locked --profile dist --target ${{ matrix.target }} -p commitscape
       - name: Pack the binary
         shell: bash
         run: |
           exe=commitscape
           [ "${{ runner.os }}" = "Windows" ] && exe=commitscape.exe
-          mkdir -p out
+          mkdir -p out pack
           cp "target/${{ matrix.target }}/dist/$exe" "out/$exe"
-          tar -C out -czf "commitscape-${{ matrix.platform }}.tar.gz" "$exe"
+          cp "out/$exe" LICENSE-MIT LICENSE-APACHE README.md pack/
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            (cd pack && 7z a -tzip "../commitscape-${{ matrix.platform }}.zip" . > /dev/null)
+          else
+            tar -C pack -czf "commitscape-${{ matrix.platform }}.tar.gz" .
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.platform }}
           path: |
             out/*
-            commitscape-${{ matrix.platform }}.tar.gz
+            commitscape-${{ matrix.platform }}.*
 
-  publish:
+  linux-packages:
+    name: .deb and .rpm
     needs: build
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      id-token: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/download-artifact@v4
+        with:
+          path: built
+      - run: |
+          version="${TAG#v}"
+          for pair in linux-x64-musl:amd64 linux-arm64:arm64; do
+            platform="${pair%%:*}"
+            arch="${pair##*:}"
+            mkdir -p target/nfpm dist
+            install -m 755 "built/$platform/out/commitscape" target/nfpm/commitscape
+            for format in deb rpm; do
+              docker run --rm -u "$(id -u)" -v "$PWD":/w -w /w -e VERSION="$version" -e ARCH="$arch" \
+                goreleaser/nfpm:v2.43.1 package -f packaging/nfpm.yaml -p "$format" -t dist/
+            done
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages
+          path: dist/*
+
+  github-release:
+    name: GitHub release
+    needs: [build, linux-packages]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/download-artifact@v4
+        with:
+          path: built
+      - name: Checksums, the Homebrew formula, the Scoop manifest and the AUR PKGBUILD
+        run: |
+          mkdir -p assets
+          cp built/*/commitscape-*.tar.gz built/*/commitscape-*.zip built/linux-packages/* assets/
+          (cd assets && sha256sum -- * > SHA256SUMS)
+          version="${TAG#v}"
+          COMMITSCAPE_REPO="$GITHUB_REPOSITORY" packaging/homebrew.sh "$version" assets/SHA256SUMS > commitscape.rb
+          COMMITSCAPE_REPO="$GITHUB_REPOSITORY" packaging/scoop.sh "$version" assets/SHA256SUMS > commitscape.json
+          COMMITSCAPE_REPO="$GITHUB_REPOSITORY" packaging/aur.sh "$version" assets/SHA256SUMS > PKGBUILD
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: assets/*
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$TAG" > /dev/null 2>&1 || gh release create "$TAG" --generate-notes --verify-tag
+          gh release upload "$TAG" assets/* commitscape.rb commitscape.json --clobber
+      - uses: actions/upload-artifact@v4
+        with:
+          name: manifests
+          path: |
+            commitscape.rb
+            commitscape.json
+            PKGBUILD
+
+  npm:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           registry-url: https://registry.npmjs.org
       - uses: actions/download-artifact@v4
         with:
@@ -59,12 +147,13 @@ jobs:
       - name: The tag names the workspace's version
         run: |
           version=$(cargo pkgid -p commitscape | sed 's/.*[#@]//')
-          test "v$version" = "$GITHUB_REF_NAME"
+          test "v$version" = "$TAG"
       - name: Write the npm packages
         run: |
           args=()
           for dir in built/*/; do
             platform=$(basename "$dir")
+            [ -d "$dir/out" ] || continue
             exe=commitscape
             [ "$platform" = "win32-x64" ] && exe=commitscape.exe
             chmod +x "$dir/out/$exe"
@@ -75,15 +164,101 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then echo "::notice::NPM_TOKEN is not set: npm skipped."; exit 0; fi
           for dir in target/npm/*/; do
             [ "$(basename "$dir")" = "commitscape" ] && continue
             npm publish --access public --provenance "$dir"
           done
-          npm publish --provenance target/npm/commitscape
-      - name: Make the GitHub release, with the Homebrew formula
-        env:
-          GH_TOKEN: ${{ github.token }}
+          npm publish --access public --provenance target/npm/commitscape
+
+  crates:
+    name: crates.io
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: dtolnay/rust-toolchain@stable
+      - env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
-          (cd built && sha256sum -- */commitscape-*.tar.gz | sed 's# [^ ]*/# #' > ../SHA256SUMS)
-          COMMITSCAPE_REPO="$GITHUB_REPOSITORY" scripts/homebrew-formula.sh "${GITHUB_REF_NAME#v}" SHA256SUMS > commitscape.rb
-          gh release create "$GITHUB_REF_NAME" --generate-notes built/*/commitscape-*.tar.gz SHA256SUMS commitscape.rb
+          if [ -z "$CARGO_REGISTRY_TOKEN" ]; then echo "::notice::CARGO_REGISTRY_TOKEN is not set: crates.io skipped."; exit 0; fi
+          cargo publish --workspace --locked
+
+  homebrew:
+    needs: github-release
+    if: vars.HOMEBREW_TAP != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: manifests
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.HOMEBREW_TAP }}
+          token: ${{ secrets.PACKAGES_TOKEN }}
+          path: tap
+      - run: |
+          mkdir -p tap/Formula
+          cp commitscape.rb tap/Formula/commitscape.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/commitscape.rb
+          git diff --cached --quiet || git commit -m "commitscape ${TAG#v}"
+          git push
+
+  scoop:
+    needs: github-release
+    if: vars.SCOOP_BUCKET != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: manifests
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.SCOOP_BUCKET }}
+          token: ${{ secrets.PACKAGES_TOKEN }}
+          path: bucket
+      - run: |
+          mkdir -p bucket/bucket
+          cp commitscape.json bucket/bucket/commitscape.json
+          cd bucket
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bucket/commitscape.json
+          git diff --cached --quiet || git commit -m "commitscape ${TAG#v}"
+          git push
+
+  winget:
+    needs: github-release
+    if: vars.WINGET_IDENTIFIER != ''
+    runs-on: windows-latest
+    steps:
+      - uses: vedantmgoyal9/winget-releaser@v2
+        with:
+          identifier: ${{ vars.WINGET_IDENTIFIER }}
+          release-tag: ${{ env.TAG }}
+          installers-regex: 'win32-x64\.zip$'
+          token: ${{ secrets.PACKAGES_TOKEN }}
+
+  aur:
+    needs: github-release
+    if: vars.AUR_USERNAME != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: manifests
+      - uses: KSXGitHub/github-actions-deploy-aur@v4.1.1
+        with:
+          pkgname: commitscape-bin
+          pkgbuild: ./PKGBUILD
+          commit_username: ${{ vars.AUR_USERNAME }}
+          commit_email: ${{ vars.AUR_EMAIL }}
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_message: commitscape ${{ env.TAG }}
+          updpkgsums: false
+          test: true

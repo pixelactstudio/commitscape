@@ -5,6 +5,13 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
@@ -67,6 +74,18 @@ jobs:
       - name: Layering
         run: cargo xtask check-layering
 
+      - name: Workflows
+        uses: raven-actions/actionlint@v2
+
+  msrv:
+    name: minimum Rust version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.98
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo +1.98 check --workspace --all-targets --locked
+
   web:
     name: web
     runs-on: ubuntu-latest
@@ -98,6 +117,15 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm check
 
+      - name: Every schema change has its migration
+        run: |
+          pnpm db:generate
+          if [ -n "$(git status --porcelain packages/server/drizzle)" ]; then
+            git status --porcelain packages/server/drizzle
+            echo "::error::The schema changed without a migration: run pnpm db:generate and commit it."
+            exit 1
+          fi
+
       - name: Build the binary and the fixtures
         run: |
           cargo xtask fixtures --force
@@ -108,3 +136,80 @@ jobs:
         run: |
           pnpm exec playwright install --with-deps chromium
           pnpm e2e
+
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: apps/site/playwright-report
+          retention-days: 14
+
+  coverage:
+    name: coverage
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TEST_DATABASE_URL: postgres://commitscape:commitscape@localhost:5434/commitscape
+      TEST_S3_ENDPOINT: http://localhost:9100
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: |
+          git config --global user.name "commitscape ci"
+          git config --global user.email "ci@example.invalid"
+          git config --global init.defaultBranch main
+      - run: docker compose -f compose.dev.yaml up -d --wait
+      - name: Rust
+        env:
+          INSTA_UPDATE: "no"
+        run: |
+          cargo xtask fixtures --force
+          cargo llvm-cov --workspace --exclude xtask --lcov --output-path rust.lcov
+      - name: TypeScript
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm -r --filter "./packages/*" --filter "./apps/*" exec vitest run --coverage --coverage.reporter=lcov --coverage.reportsDirectory=coverage
+      - uses: codecov/codecov-action@v5
+        with:
+          use_oidc: true
+          files: rust.lcov,packages/data/coverage/lcov.info,packages/ui/coverage/lcov.info,packages/server/coverage/lcov.info,apps/site/coverage/lcov.info,apps/builder/coverage/lcov.info
+          fail_ci_if_error: false
+
+  packages:
+    name: packages install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: crates.io
+        run: cargo publish --workspace --dry-run --locked
+      - name: npm
+        run: |
+          cargo build --profile dist -p commitscape
+          cargo xtask npm --out target/npm --repository "https://github.com/$GITHUB_REPOSITORY" --binary "linux-x64-gnu=target/dist/commitscape"
+          mkdir -p /tmp/try && cd /tmp/try && npm init -y > /dev/null
+          for dir in "$GITHUB_WORKSPACE"/target/npm/*/; do (cd "$dir" && npm pack --pack-destination /tmp/try > /dev/null); done
+          npm install --no-audit --no-fund /tmp/try/*.tgz
+          npx commitscape --version
+      - name: .deb
+        run: |
+          mkdir -p target/nfpm dist
+          install -m 755 target/dist/commitscape target/nfpm/commitscape
+          docker run --rm -u "$(id -u)" -v "$PWD":/w -w /w -e VERSION=0.0.0 -e ARCH=amd64 goreleaser/nfpm:v2.43.1 package -f packaging/nfpm.yaml -p deb -t dist/
+          sudo dpkg -i dist/*.deb
+          commitscape --version

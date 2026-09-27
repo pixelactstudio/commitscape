@@ -1,8 +1,20 @@
 # Deploying commitscape
 
 In one Dokploy project you create a Postgres database and two
-applications from this repository. Both applications build from a
-Dockerfile.
+applications. The applications run the images CI publishes to GitHub's
+container registry, so your servers never build anything:
+
+| Image | Tags |
+|---|---|
+| `ghcr.io/pixelactstudio/commitscape-site` | `main` (every merge), `latest` and `vX.Y.Z` (every release), `sha-<commit>` |
+| `ghcr.io/pixelactstudio/commitscape-builder` | the same |
+
+Use `main` to follow every merge, or `latest` to move only on releases.
+GitHub makes a new container package private: after CI first pushes each
+image, open it under the organisation's Packages, then Package settings,
+and change its visibility to Public.
+The images take every setting from the environment, so the same image runs
+on any server.
 
 | Service | Type | What it does |
 |---|---|---|
@@ -70,11 +82,8 @@ Create an application named `builder`:
 
 | Setting | Value |
 |---|---|
-| Provider | GitHub, this repository, branch `main`, build path `/` |
-| Build Type | Dockerfile |
-| Dockerfile Path | `apps/builder/Dockerfile` |
-| Docker Context Path | `.` |
-| Watch Paths | `crates/**`, `xtask/**`, `Cargo.lock`, `apps/builder/**`, `packages/server/**`, `packages/data/**`, `pnpm-lock.yaml` |
+| Provider | Docker, image `ghcr.io/pixelactstudio/commitscape-builder:main` |
+| Registry | None: the image is public |
 
 In Advanced, Volumes, add a volume named `commitscape-builder-work` with
 mount path `/work`. It keeps clones between Builds so the next Build of a
@@ -119,11 +128,8 @@ Create an application named `site`:
 
 | Setting | Value |
 |---|---|
-| Provider | GitHub, this repository, branch `main`, build path `/` |
-| Build Type | Dockerfile |
-| Dockerfile Path | `apps/site/Dockerfile` |
-| Docker Context Path | `.` |
-| Watch Paths | `apps/site/**`, `packages/**`, `pnpm-lock.yaml` |
+| Provider | Docker, image `ghcr.io/pixelactstudio/commitscape-site:main` |
+| Registry | None: the image is public |
 
 Environment:
 
@@ -145,19 +151,14 @@ GITHUB_WEBHOOK_SECRET=...
 SENTRY_DSN=...                   # optional: the server's errors
 ```
 
-Build Time Arguments are built into the page, so change them with a
-redeploy:
+Browser settings are read at run time too, and the server writes them into
+the page:
 
 ```sh
-VITE_SENTRY_DSN=...              # optional: the browser's errors
-VITE_POSTHOG_KEY=phc_...         # optional: page views in PostHog Cloud
-VITE_POSTHOG_HOST=https://us.i.posthog.com
-SENTRY_ORG=...                   # optional, with the secret below: source maps
-SENTRY_PROJECT=...
+PUBLIC_SENTRY_DSN=...            # optional: the browser's errors
+PUBLIC_POSTHOG_KEY=phc_...       # optional: page views in PostHog Cloud
+PUBLIC_POSTHOG_HOST=https://us.i.posthog.com
 ```
-
-To upload source maps to Sentry, add a Build-time Secret named
-`SENTRY_AUTH_TOKEN`. Without it the build skips the upload.
 
 In Domains, add `example.com` with container port 3000 and HTTPS on. If
 Cloudflare proxies the domain, the Site reads the visitor's address from
@@ -169,6 +170,22 @@ downtime, add the same check in Advanced, Swarm Settings, with the update
 order "start-first".
 
 Deploy it after the Builder, so the tables exist.
+
+## Deploying every merge
+
+CI publishes new images on every merge to `main`. To have Dokploy pull them
+at once, create an API key in Dokploy (Settings, Profile, API/CLI) and, in
+this repository's settings on GitHub, add:
+
+| Kind | Name | Value |
+|---|---|---|
+| Variable | `DOKPLOY_URL` | Your Dokploy panel, like `https://dokploy.example.com` |
+| Secret | `DOKPLOY_API_KEY` | The API key |
+| Variable | `DOKPLOY_BUILDER_APP_ID` | The builder application's id, from its URL in Dokploy |
+| Variable | `DOKPLOY_SITE_APP_ID` | The site application's id |
+
+The Docker images workflow then redeploys the Builder, then the Site, after
+it pushes.
 
 ## 6. Check it
 
@@ -183,6 +200,6 @@ Deploy it after the Builder, so the tables exist.
 4. Point an MCP client at `https://example.com/mcp` and call
    `lookup_repository`.
 
-Before the next CLI release, set `SITE_ORIGIN` in
-`packages/data/src/product.ts` to the Site's address, so
+Before the next CLI release, set `DEFAULT_SITE` in
+`crates/commitscape/src/share.rs` to the Site's address, so
 `commitscape share` uploads there by default.

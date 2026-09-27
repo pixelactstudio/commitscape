@@ -31,9 +31,16 @@ There are three ways to use it:
 
 | How | Command |
 |---|---|
-| npm | `npx commitscape`, or `npm install -g commitscape` |
+| npm | `npx commitscape`, `pnpm dlx commitscape`, or `npm install -g commitscape` |
 | Homebrew | `brew install pixelactstudio/commitscape/commitscape` |
+| winget | `winget install DevTalan.Commitscape` |
+| Scoop | `scoop bucket add pixelactstudio https://github.com/pixelactstudio/scoop-bucket`, then `scoop install commitscape` |
+| Arch (AUR) | `yay -S commitscape-bin` |
+| Debian, Ubuntu | the `.deb` from the [latest release](https://github.com/pixelactstudio/commitscape/releases/latest): `sudo apt install ./commitscape_*_amd64.deb` |
+| Fedora, RHEL | the `.rpm` from the latest release: `sudo dnf install ./commitscape-*.x86_64.rpm` |
+| Cargo | `cargo install commitscape` |
 | Nix | `nix run github:pixelactstudio/commitscape`, or add the flake |
+| A binary | the archive for your platform from the latest release |
 | From source | `cargo build --release` |
 
 The npm package is a small starter and one prebuilt binary for your

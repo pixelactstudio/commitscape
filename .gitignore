@@ -36,3 +36,6 @@ playwright-report/
 Thumbs.db
 
 *.log
+
+coverage/
+*.lcov
