@@ -4,6 +4,9 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      - dependency-name: "*"
+        update-types: [version-update:semver-major]
     commit-message:
       prefix: chore
     groups:
@@ -14,6 +17,9 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      - dependency-name: "*"
+        update-types: [version-update:semver-major]
     commit-message:
       prefix: chore
     groups:
@@ -24,6 +30,9 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      - dependency-name: "*"
+        update-types: [version-update:semver-major]
     commit-message:
       prefix: ci
     groups:
@@ -33,5 +42,8 @@ updates:
     directories: [/apps/site, /apps/builder]
     schedule:
       interval: weekly
+    ignore:
+      - dependency-name: "*"
+        update-types: [version-update:semver-major]
     commit-message:
       prefix: chore
