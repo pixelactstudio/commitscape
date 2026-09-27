@@ -82,7 +82,8 @@
           "path": "Cargo.toml",
           "jsonpath": "$.workspace.dependencies['commitscape-tui'].version"
         }
-      ]
+      ],
+      "initial-version": "0.1.0"
     }
   }
 }
