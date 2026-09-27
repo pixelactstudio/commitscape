@@ -36,8 +36,9 @@ describe.skipIf(!url || !s3)("against Postgres and S3", async () => {
     const seed = await queueBuild(db, bossQueue(site), "t/seed", PRIORITY.seed);
     const person = await queueBuild(db, bossQueue(site), "t/person", PRIORITY.person);
     expect(await waitingBuilds(db)).toBeGreaterThanOrEqual(2);
-    const jobs = await boss.fetch<BuildJob>(BUILD_QUEUE, { batchSize: 2 });
-    expect(jobs.map((j) => j.data.buildId)).toEqual([person, seed]);
+    const first = await boss.fetch<BuildJob>(BUILD_QUEUE, { batchSize: 1 });
+    const second = await boss.fetch<BuildJob>(BUILD_QUEUE, { batchSize: 1 });
+    expect([...first, ...second].map((j) => j.data.buildId)).toEqual([person, seed]);
     const [row] = await db.select().from(builds).where(eq(builds.id, person));
     expect(busy(row)).toBe(true);
     await site.stop();
