@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM node:24-bookworm-slim AS build
+FROM node:26-bookworm-slim AS build
 WORKDIR /repo
 RUN npm install -g pnpm@12.6.0
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json .oxlintrc.json turbo.json ./
@@ -15,7 +15,7 @@ ARG SENTRY_PROJECT
 RUN --mount=type=secret,id=SENTRY_AUTH_TOKEN \
   SENTRY_AUTH_TOKEN="$(cat /run/secrets/SENTRY_AUTH_TOKEN 2>/dev/null)" pnpm --filter @commitscape/site build
 
-FROM node:24-bookworm-slim
+FROM node:26-bookworm-slim
 WORKDIR /app
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000
 RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
