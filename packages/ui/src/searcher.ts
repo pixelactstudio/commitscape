@@ -1,9 +1,3 @@
-/**
- * Runs the commit search where it is quickest: on the page for a short
- * list, in a Web Worker above 20,000 rows (ADR-0019), so typing never waits
- * for it. The worker is written into the page's own script, so a one-file
- * Report can start it too; where a worker cannot start, the page searches.
- */
 import type { CommitList } from "@commitscape/data";
 import { prepare, search, type Query } from "./search";
 import SearchWorker from "./search.worker.ts?worker&inline";
@@ -11,7 +5,6 @@ import SearchWorker from "./search.worker.ts?worker&inline";
 export const WORKER_ABOVE = 50_000;
 
 export type Searcher = {
-  /** The matching rows; an older question still running is answered too. */
   run(q: Query): Promise<Int32Array>;
   close(): void;
   inWorker: boolean;
@@ -42,7 +35,6 @@ export function searcher(list: CommitList): Searcher {
         close: () => worker.terminate(),
       };
     } catch {
-      // No worker here: search on the page.
     }
   }
   const prepared = prepare(list);

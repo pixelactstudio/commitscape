@@ -5,20 +5,19 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
 
 [lints]
 workspace = true
 
-# The interface reads an Index and computes with commitscape-metrics. It never
-# reaches git or the cache: older history arrives through a function the
-# caller provides (`Session::older`).
 [dependencies]
-commitscape-core = { path = "../commitscape-core" }
-commitscape-forge = { path = "../commitscape-forge" }
-commitscape-metrics = { path = "../commitscape-metrics" }
+commitscape-core.workspace = true
+commitscape-forge.workspace = true
+commitscape-metrics.workspace = true
 ratatui = { version = "0.30.2", features = ["unstable-rendered-line-info"] }
 
 [dev-dependencies]
-commitscape-index = { path = "../commitscape-index" }
+commitscape-index.workspace = true
 insta = "1.48"
 tempfile = "3.27.0"

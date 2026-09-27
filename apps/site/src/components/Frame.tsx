@@ -1,7 +1,3 @@
-/**
- * The Site's pages around their content: Astryx's shell with the product's
- * name, the Connect menu, and the theme, as the repository pages have.
- */
 import type { ReactNode } from "react";
 import { AppShell } from "@astryxdesign/core/AppShell";
 import { Button } from "@astryxdesign/core/Button";

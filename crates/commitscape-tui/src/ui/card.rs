@@ -1,6 +1,3 @@
-//! The Card: a repository's story on one image, to share. The Overview's
-//! picture of a Window, at a fixed size, framed and signed.
-
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
@@ -11,7 +8,6 @@ use super::{charts, overview, phrase};
 use crate::app::App;
 use crate::theme::{self, ACCENT, LINE, SURFACE};
 
-/// The card's size in cells: 1,080 by 684 pixels as SVG.
 pub(crate) const WIDTH: u16 = 120;
 pub(crate) const HEIGHT: u16 = 36;
 
@@ -36,7 +32,6 @@ pub(crate) fn draw(app: &App, frame: &mut Frame) {
         );
     let inner = block.inner(area);
     frame.render_widget(block, area);
-    // A margin inside the frame.
     let inner = Rect {
         x: inner.x + 2,
         y: inner.y + 1,

@@ -1,25 +1,13 @@
-//! Which GitHub account authored each of some commits: the strongest
-//! evidence that two email addresses are one person (ADR-0011, rule 4).
-//!
-//! GitHub links a commit to an account through the author's email address.
-//! One GraphQL query asks about up to a hundred commits by id; a commit
-//! that was never pushed, or whose address is on no account, has none.
-
 use crate::{ForgeError, Remote};
 
-/// The account GitHub says wrote a commit.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommitAuthor {
-    /// GitHub's number for the account, which survives a rename.
     pub id: u64,
     pub login: String,
 }
 
-/// Commits asked about in one query.
 const BATCH: usize = 100;
 
-/// Asks GitHub who authored each commit, in order. Commit ids are forty
-/// hexadecimal digits; anything else is answered with `None`.
 pub fn commit_authors(
     remote: &Remote,
     commits: &[String],
@@ -33,7 +21,6 @@ pub fn commit_authors(
     Ok(out)
 }
 
-/// The query for one batch: commit `n` is asked for as `cN`.
 pub fn query_for(commits: &[String]) -> String {
     let mut q = String::from(
         "query($owner: String!, $name: String!) {\n  repository(owner: $owner, name: $name) {\n",
@@ -49,7 +36,6 @@ pub fn query_for(commits: &[String]) -> String {
     q
 }
 
-/// Reads the answer to [`query_for`] over `n` commits.
 pub fn authors_from_graphql(
     json: &[u8],
     n: usize,

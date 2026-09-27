@@ -1,21 +1,20 @@
-/**
- * `/s/<id>#<key>`: a Shared Report (ADR-0016). The locked bytes come from
- * the Site; the key never left this browser. They are unlocked here with
- * WebCrypto and read like any Report, with when they expire and a Delete
- * button, which sends the Delete Token the key gives.
- */
 import { useEffect, useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { Skeleton } from "@astryxdesign/core/Skeleton";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { Heading } from "@astryxdesign/core/Heading";
 import { deleteToken, readReport, reportSource, unlock, type DataSource } from "@commitscape/data";
-import { App, SourceContext } from "@commitscape/ui";
-import { Connect } from "../components/Connect";
-import { Frame } from "../components/Frame";
-import { shareKey } from "../share-key";
+import { App, ScreenSkeleton, SourceContext, toRoute, toSearch, type Route as Where } from "@commitscape/ui";
+import { Connect } from "#/components/Connect";
+import { Frame } from "#/components/Frame";
+import { shareKey } from "#/share-key";
 
-export const Route = createFileRoute("/s/$id")({ component: SharedReport });
+export const Route = createFileRoute("/s/$id")({
+  validateSearch: (search: Record<string, unknown>) => toSearch(search),
+  head: () => ({ meta: [{ title: "A Shared Report · commitscape" }, { name: "robots", content: "noindex" }] }),
+  component: SharedReport,
+});
 
 type State =
   | { kind: "opening" }
@@ -32,6 +31,9 @@ function left(expiresAt: number): string {
 
 function SharedReport() {
   const { id } = Route.useParams();
+  const where = toRoute(Route.useSearch());
+  const navigate = useNavigate({ from: Route.fullPath });
+  const go = (change: Partial<Where>, replace = false) => void navigate({ search: (prev) => toSearch({ ...prev, ...change }), replace });
   const [state, setState] = useState<State>({ kind: "opening" });
   const [deleting, setDeleting] = useState<string | null>(null);
   const [, tick] = useState(0);
@@ -58,7 +60,7 @@ function SharedReport() {
           words: "This Shared Report could not be unlocked: the link's key is not its key, or what is stored was changed.",
         });
       }
-      set({ kind: "open", source: reportSource(await readReport(plain)), expiresAt });
+      set({ kind: "open", source: reportSource(await readReport(plain), `share:${id}`), expiresAt });
     })().catch((e: Error) => set({ kind: "error", words: e.message }));
     const timer = setInterval(() => tick((n) => n + 1), 30_000);
     return () => {
@@ -83,6 +85,8 @@ function SharedReport() {
     return (
       <SourceContext value={state.source}>
         <App
+          route={where}
+          go={go}
           home="/"
           nav={
             <>
@@ -99,7 +103,13 @@ function SharedReport() {
     <Frame>
       <section className="repo-waiting">
         <Heading level={1}>A Shared Report</Heading>
-        {state.kind === "opening" && <p className="note">Unlocking it in this browser…</p>}
+        {state.kind === "opening" && (
+          <div className="flex flex-col gap-4">
+            <p className="note">Unlocking it in this browser…</p>
+            <Skeleton height={28} width="30%" radius={2} />
+            <ScreenSkeleton />
+          </div>
+        )}
         {state.kind === "deleted" && <Banner status="success" title="Deleted: this link no longer opens anything." />}
         {state.kind === "error" && <Banner status="warning" title={state.words} />}
         <p className="note">

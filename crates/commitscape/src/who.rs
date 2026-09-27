@@ -1,6 +1,3 @@
-//! `commitscape who <path>`: who to ask about a file or a folder, and
-//! whether they are still around.
-
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -11,7 +8,6 @@ use commitscape_tui::format::{ago, grouped};
 
 use crate::{now, Common, ProgressLine};
 
-/// How many people are listed.
 const SHOWN: usize = 8;
 const DAY: i64 = 86_400;
 
@@ -32,8 +28,6 @@ pub struct WhoArgs {
     common: Common,
 }
 
-/// `path` made absolute and tidied without touching the disk: it may name
-/// a file that has since been deleted.
 fn absolute(path: &Path) -> PathBuf {
     let joined = if path.is_absolute() {
         path.to_path_buf()
@@ -53,20 +47,14 @@ fn absolute(path: &Path) -> PathBuf {
     out
 }
 
-/// The nearest folder at or above `path` that exists: where to look for
-/// the repository from.
 fn existing(path: &Path) -> PathBuf {
     path.ancestors()
         .find(|p| p.is_dir())
         .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
 }
 
-/// `path` as the repository at `top` names it: from its top, with `/`
-/// between. `None` when it is not in the repository.
 fn in_repo(top: &Path, path: &Path) -> Option<String> {
     let top = std::fs::canonicalize(top).unwrap_or_else(|_| top.to_path_buf());
-    // The folders above `path` may be reached through a link; resolve the
-    // part that exists and keep the rest as written.
     let base = existing(path);
     let real = std::fs::canonicalize(&base).unwrap_or_else(|_| base.clone());
     let rest = path.strip_prefix(&base).unwrap_or(Path::new(""));
@@ -81,14 +69,13 @@ fn in_repo(top: &Path, path: &Path) -> Option<String> {
     )
 }
 
+/// `commitscape who`: who to ask about a file or folder.
 pub fn run(args: WhoArgs) -> anyhow::Result<()> {
     let path = absolute(&args.path);
     let repo = match &args.repo {
         Some(dir) => GixRepo::discover(dir)?,
         None => GixRepo::discover(&existing(&path))?,
     };
-    // A relative path outside the repository is read from its top: `who
-    // src --repo ../app`.
     let path = match in_repo(repo.top(), &path) {
         Some(p) => p,
         None if args.path.is_relative() => args

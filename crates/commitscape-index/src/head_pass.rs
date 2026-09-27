@@ -1,15 +1,3 @@
-//! The HEAD pass: every file at HEAD read once, measured and classified.
-//!
-//! This is the only place blob contents are read (ADR-0004). It runs after
-//! the history walk, because a file at HEAD is identified by the File
-//! Identity the walk resolved for its path.
-//!
-//! When HEAD moves, the files that changed are found by diffing the old HEAD
-//! tree against the new one, so only they are read and nothing else is even
-//! listed. If the adapter cannot diff, or a change could alter how other files
-//! are classified (a `.gitattributes`, a lockfile or a license file), HEAD is
-//! listed in full and files with an unchanged path and blob are carried over.
-
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
@@ -21,33 +9,24 @@ use crate::hash_index::HashIndex;
 use crate::measure::measure;
 use crate::source::{HeadEntry, RawChangeKind, RepoSource};
 
-/// What a HEAD table's classes were decided from. Kept with the table so a
-/// later pass can classify changed files without listing HEAD again.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct ClassifyContext {
-    /// The classifier's rules at the time; see [`CLASSIFIER_VERSION`].
     pub version: u32,
-    /// Every `.gitattributes` file at HEAD, by path, with its blob.
     pub attribute_files: Vec<(Vec<u8>, Oid)>,
-    /// Directories that are other projects' checkouts.
     pub nested_projects: Vec<Vec<u8>>,
 }
 
-/// A HEAD table and what its classes were decided from.
 pub(crate) struct HeadTable {
-    /// Sorted by file.
     pub files: Vec<HeadFile>,
     pub context: ClassifyContext,
 }
 
-/// The table a previous pass produced, for HEAD at commit `commit`.
 pub(crate) struct Previous<'a> {
     pub files: &'a [HeadFile],
     pub context: &'a ClassifyContext,
     pub commit: Option<Oid>,
 }
 
-/// Brings a HEAD table up to date, reading as little as possible.
 pub(crate) fn head_pass<S: RepoSource>(
     source: &S,
     paths: &PathTable,
@@ -71,8 +50,6 @@ pub(crate) fn head_pass<S: RepoSource>(
     full_pass(source, paths, previous)
 }
 
-/// Lists HEAD in full, carrying over files whose path and blob are unchanged
-/// when the classification inputs are the same.
 fn full_pass<S: RepoSource>(
     source: &S,
     paths: &PathTable,
@@ -99,8 +76,6 @@ fn full_pass<S: RepoSource>(
     let mut files: Vec<HeadFile> = Vec::with_capacity(entries.len());
     let mut to_read: Vec<(PathId, &HeadEntry)> = Vec::new();
     for entry in &entries {
-        // Every file at HEAD was added by a commit the walk saw. A path it
-        // cannot place is skipped rather than invented.
         let Some(path) = path_of(entry) else {
             continue;
         };
@@ -114,8 +89,6 @@ fn full_pass<S: RepoSource>(
                 .and_then(|i| p.files.get(i))
                 .filter(|h| h.blob == entry.blob && h.path == path)
         });
-        // The .gitattributes files were read already, to build the
-        // classifier; measure them from those bytes rather than twice.
         match (carried, attribute_bytes.get(&entry.path)) {
             (Some(h), _) => files.push(*h),
             (None, Some(bytes)) => files.push(measure_file(&classifier, file, path, entry, bytes)),
@@ -129,8 +102,6 @@ fn full_pass<S: RepoSource>(
     Ok(HeadTable { files, context })
 }
 
-/// Applies a diff of HEAD to the previous table: removes what was deleted or
-/// replaced, and reads only what was added or modified.
 fn apply_changes<S: RepoSource>(
     source: &S,
     paths: &PathTable,
@@ -168,8 +139,6 @@ fn apply_changes<S: RepoSource>(
         .collect();
     let fresh = read_and_measure(source, paths, &classifier, &to_read)?;
 
-    // A file that moved keeps its identity, so its old entry, under the old
-    // path, is replaced rather than kept beside the new one.
     let refreshed: HashSet<FileId> = fresh.iter().map(|h| h.file).collect();
     files.retain(|h| !refreshed.contains(&h.file));
     files.extend(fresh);
@@ -180,7 +149,6 @@ fn apply_changes<S: RepoSource>(
     })
 }
 
-/// Reads blobs in parallel and measures each file.
 fn read_and_measure<S: RepoSource>(
     source: &S,
     paths: &PathTable,
@@ -238,7 +206,6 @@ fn measure_file(
     }
 }
 
-/// Paths that currently hold a file, by hash.
 fn live_paths(paths: &PathTable) -> HashIndex {
     let mut index = HashIndex::default();
     for (id, name) in paths.path_names() {
@@ -253,8 +220,6 @@ fn is_gitattributes(path: &[u8]) -> bool {
     path.rsplit(|&b| b == b'/').next() == Some(b".gitattributes")
 }
 
-/// The `.gitattributes` files among some entries, shallowest first so deeper
-/// ones override them.
 fn attribute_files<'e>(entries: impl Iterator<Item = &'e HeadEntry>) -> Vec<(Vec<u8>, Oid)> {
     let mut found: Vec<(Vec<u8>, Oid)> = entries
         .filter(|e| !e.symlink && is_gitattributes(&e.path))
@@ -264,11 +229,8 @@ fn attribute_files<'e>(entries: impl Iterator<Item = &'e HeadEntry>) -> Vec<(Vec
     found
 }
 
-/// The contents of `.gitattributes` files, by path.
 type AttributeBytes = HashMap<Vec<u8>, Vec<u8>>;
 
-/// Reads the `.gitattributes` files a context names and builds a classifier.
-/// Also returns their contents, by path, so they need not be read twice.
 fn classifier<S: RepoSource>(
     source: &S,
     context: &ClassifyContext,

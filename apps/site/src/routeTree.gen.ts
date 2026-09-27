@@ -11,10 +11,19 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as LeaderboardsRouteImport } from './routes/leaderboards'
+import { Route as McpRouteImport } from './routes/mcp'
 import { Route as MeRouteImport } from './routes/me'
 import { Route as PrivacyRouteImport } from './routes/privacy'
+import { Route as ApiSplatRouteImport } from './routes/api/$'
+import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as SIdRouteImport } from './routes/s.$id'
+import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as ApiGithubWebhooksRouteImport } from './routes/api/github/webhooks'
+import { Route as ApiSharesIndexRouteImport } from './routes/api/shares/index'
+import { Route as ApiSharesIdRouteImport } from './routes/api/shares/$id'
 import { Route as GhOwnerRepoRouteImport } from './routes/gh.$owner.$repo'
+import { Route as ApiCardsOwnerRepoRouteImport } from './routes/api/cards/$owner/$repo'
+import { Route as ApiReportsOwnerRepoCommitsRouteImport } from './routes/api/reports/$owner/$repo/commits'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -24,6 +33,11 @@ const IndexRoute = IndexRouteImport.update({
 const LeaderboardsRoute = LeaderboardsRouteImport.update({
   id: '/leaderboards',
   path: '/leaderboards',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const McpRoute = McpRouteImport.update({
+  id: '/mcp',
+  path: '/mcp',
   getParentRoute: () => rootRouteImport,
 } as any)
 const MeRoute = MeRouteImport.update({
@@ -36,9 +50,39 @@ const PrivacyRoute = PrivacyRouteImport.update({
   path: '/privacy',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiSplatRoute = ApiSplatRouteImport.update({
+  id: '/api/$',
+  path: '/api/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiHealthRoute = ApiHealthRouteImport.update({
+  id: '/api/health',
+  path: '/api/health',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SIdRoute = SIdRouteImport.update({
   id: '/s/$id',
   path: '/s/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
+  id: '/api/auth/$',
+  path: '/api/auth/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiGithubWebhooksRoute = ApiGithubWebhooksRouteImport.update({
+  id: '/api/github/webhooks',
+  path: '/api/github/webhooks',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiSharesIndexRoute = ApiSharesIndexRouteImport.update({
+  id: '/api/shares/',
+  path: '/api/shares/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiSharesIdRoute = ApiSharesIdRouteImport.update({
+  id: '/api/shares/$id',
+  path: '/api/shares/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
 const GhOwnerRepoRoute = GhOwnerRepoRouteImport.update({
@@ -46,55 +90,140 @@ const GhOwnerRepoRoute = GhOwnerRepoRouteImport.update({
   path: '/gh/$owner/$repo',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiCardsOwnerRepoRoute = ApiCardsOwnerRepoRouteImport.update({
+  id: '/api/cards/$owner/$repo',
+  path: '/api/cards/$owner/$repo',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiReportsOwnerRepoCommitsRoute =
+  ApiReportsOwnerRepoCommitsRouteImport.update({
+    id: '/api/reports/$owner/$repo/commits',
+    path: '/api/reports/$owner/$repo/commits',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/leaderboards': typeof LeaderboardsRoute
+  '/mcp': typeof McpRoute
   '/me': typeof MeRoute
   '/privacy': typeof PrivacyRoute
+  '/api/$': typeof ApiSplatRoute
+  '/api/health': typeof ApiHealthRoute
   '/s/$id': typeof SIdRoute
+  '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/github/webhooks': typeof ApiGithubWebhooksRoute
+  '/api/shares/$id': typeof ApiSharesIdRoute
   '/gh/$owner/$repo': typeof GhOwnerRepoRoute
+  '/api/shares/': typeof ApiSharesIndexRoute
+  '/api/cards/$owner/$repo': typeof ApiCardsOwnerRepoRoute
+  '/api/reports/$owner/$repo/commits': typeof ApiReportsOwnerRepoCommitsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/leaderboards': typeof LeaderboardsRoute
+  '/mcp': typeof McpRoute
   '/me': typeof MeRoute
   '/privacy': typeof PrivacyRoute
+  '/api/$': typeof ApiSplatRoute
+  '/api/health': typeof ApiHealthRoute
   '/s/$id': typeof SIdRoute
+  '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/github/webhooks': typeof ApiGithubWebhooksRoute
+  '/api/shares/$id': typeof ApiSharesIdRoute
   '/gh/$owner/$repo': typeof GhOwnerRepoRoute
+  '/api/shares': typeof ApiSharesIndexRoute
+  '/api/cards/$owner/$repo': typeof ApiCardsOwnerRepoRoute
+  '/api/reports/$owner/$repo/commits': typeof ApiReportsOwnerRepoCommitsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/leaderboards': typeof LeaderboardsRoute
+  '/mcp': typeof McpRoute
   '/me': typeof MeRoute
   '/privacy': typeof PrivacyRoute
+  '/api/$': typeof ApiSplatRoute
+  '/api/health': typeof ApiHealthRoute
   '/s/$id': typeof SIdRoute
+  '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/github/webhooks': typeof ApiGithubWebhooksRoute
+  '/api/shares/$id': typeof ApiSharesIdRoute
   '/gh/$owner/$repo': typeof GhOwnerRepoRoute
+  '/api/shares/': typeof ApiSharesIndexRoute
+  '/api/cards/$owner/$repo': typeof ApiCardsOwnerRepoRoute
+  '/api/reports/$owner/$repo/commits': typeof ApiReportsOwnerRepoCommitsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    '/' | '/leaderboards' | '/me' | '/privacy' | '/s/$id' | '/gh/$owner/$repo'
+    | '/'
+    | '/leaderboards'
+    | '/mcp'
+    | '/me'
+    | '/privacy'
+    | '/api/$'
+    | '/api/health'
+    | '/s/$id'
+    | '/api/auth/$'
+    | '/api/github/webhooks'
+    | '/api/shares/$id'
+    | '/gh/$owner/$repo'
+    | '/api/shares/'
+    | '/api/cards/$owner/$repo'
+    | '/api/reports/$owner/$repo/commits'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/leaderboards' | '/me' | '/privacy' | '/s/$id' | '/gh/$owner/$repo'
+  to:
+    | '/'
+    | '/leaderboards'
+    | '/mcp'
+    | '/me'
+    | '/privacy'
+    | '/api/$'
+    | '/api/health'
+    | '/s/$id'
+    | '/api/auth/$'
+    | '/api/github/webhooks'
+    | '/api/shares/$id'
+    | '/gh/$owner/$repo'
+    | '/api/shares'
+    | '/api/cards/$owner/$repo'
+    | '/api/reports/$owner/$repo/commits'
   id:
     | '__root__'
     | '/'
     | '/leaderboards'
+    | '/mcp'
     | '/me'
     | '/privacy'
+    | '/api/$'
+    | '/api/health'
     | '/s/$id'
+    | '/api/auth/$'
+    | '/api/github/webhooks'
+    | '/api/shares/$id'
     | '/gh/$owner/$repo'
+    | '/api/shares/'
+    | '/api/cards/$owner/$repo'
+    | '/api/reports/$owner/$repo/commits'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   LeaderboardsRoute: typeof LeaderboardsRoute
+  McpRoute: typeof McpRoute
   MeRoute: typeof MeRoute
   PrivacyRoute: typeof PrivacyRoute
+  ApiSplatRoute: typeof ApiSplatRoute
+  ApiHealthRoute: typeof ApiHealthRoute
   SIdRoute: typeof SIdRoute
+  ApiAuthSplatRoute: typeof ApiAuthSplatRoute
+  ApiGithubWebhooksRoute: typeof ApiGithubWebhooksRoute
+  ApiSharesIdRoute: typeof ApiSharesIdRoute
   GhOwnerRepoRoute: typeof GhOwnerRepoRoute
+  ApiSharesIndexRoute: typeof ApiSharesIndexRoute
+  ApiCardsOwnerRepoRoute: typeof ApiCardsOwnerRepoRoute
+  ApiReportsOwnerRepoCommitsRoute: typeof ApiReportsOwnerRepoCommitsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -113,6 +242,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LeaderboardsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/mcp': {
+      id: '/mcp'
+      path: '/mcp'
+      fullPath: '/mcp'
+      preLoaderRoute: typeof McpRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/me': {
       id: '/me'
       path: '/me'
@@ -127,11 +263,53 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PrivacyRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/$': {
+      id: '/api/$'
+      path: '/api/$'
+      fullPath: '/api/$'
+      preLoaderRoute: typeof ApiSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/health': {
+      id: '/api/health'
+      path: '/api/health'
+      fullPath: '/api/health'
+      preLoaderRoute: typeof ApiHealthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/s/$id': {
       id: '/s/$id'
       path: '/s/$id'
       fullPath: '/s/$id'
       preLoaderRoute: typeof SIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/auth/$': {
+      id: '/api/auth/$'
+      path: '/api/auth/$'
+      fullPath: '/api/auth/$'
+      preLoaderRoute: typeof ApiAuthSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/github/webhooks': {
+      id: '/api/github/webhooks'
+      path: '/api/github/webhooks'
+      fullPath: '/api/github/webhooks'
+      preLoaderRoute: typeof ApiGithubWebhooksRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shares/': {
+      id: '/api/shares/'
+      path: '/api/shares'
+      fullPath: '/api/shares/'
+      preLoaderRoute: typeof ApiSharesIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shares/$id': {
+      id: '/api/shares/$id'
+      path: '/api/shares/$id'
+      fullPath: '/api/shares/$id'
+      preLoaderRoute: typeof ApiSharesIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/gh/$owner/$repo': {
@@ -141,26 +319,50 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof GhOwnerRepoRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/cards/$owner/$repo': {
+      id: '/api/cards/$owner/$repo'
+      path: '/api/cards/$owner/$repo'
+      fullPath: '/api/cards/$owner/$repo'
+      preLoaderRoute: typeof ApiCardsOwnerRepoRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/reports/$owner/$repo/commits': {
+      id: '/api/reports/$owner/$repo/commits'
+      path: '/api/reports/$owner/$repo/commits'
+      fullPath: '/api/reports/$owner/$repo/commits'
+      preLoaderRoute: typeof ApiReportsOwnerRepoCommitsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   LeaderboardsRoute: LeaderboardsRoute,
+  McpRoute: McpRoute,
   MeRoute: MeRoute,
   PrivacyRoute: PrivacyRoute,
+  ApiSplatRoute: ApiSplatRoute,
+  ApiHealthRoute: ApiHealthRoute,
   SIdRoute: SIdRoute,
+  ApiAuthSplatRoute: ApiAuthSplatRoute,
+  ApiGithubWebhooksRoute: ApiGithubWebhooksRoute,
+  ApiSharesIdRoute: ApiSharesIdRoute,
   GhOwnerRepoRoute: GhOwnerRepoRoute,
+  ApiSharesIndexRoute: ApiSharesIndexRoute,
+  ApiCardsOwnerRepoRoute: ApiCardsOwnerRepoRoute,
+  ApiReportsOwnerRepoCommitsRoute: ApiReportsOwnerRepoCommitsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
 
 import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
+import type { startInstance } from './start.ts'
 declare module '@tanstack/react-start' {
   interface Register {
     ssr: true
     router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
   }
 }

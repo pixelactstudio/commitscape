@@ -1,6 +1,3 @@
-//! People: who made the Window's commits, each in the colour they keep on
-//! every screen.
-
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
@@ -85,7 +82,6 @@ pub(super) fn draw(app: &App, frame: &mut Frame, area: Rect, cursor: &mut Cursor
     let fixed = 3 + 2 + name_width + 1 + 7 + 6 + 15 + 7 + 11 + 14;
     let bar_width = inner.width.saturating_sub(fixed as u16).clamp(4, 40);
 
-    // Each heading as wide as the values under it.
     let header = Line::from(vec![faint(format!(
         "{:>3}  {:<nw$} {:<bw$}{:>7}{:>6}{:>15}{:>7}{:>11}{:>14}",
         "#",
@@ -186,8 +182,6 @@ pub(super) fn draw(app: &App, frame: &mut Frame, area: Rect, cursor: &mut Cursor
     }
 }
 
-/// Lines added and removed, as the People list shows them: `+12.3k −4.1k`,
-/// or why there is no number yet.
 fn lines_cell(app: &App, c: Option<&commitscape_metrics::Contribution>) -> Span<'static> {
     let width = 15;
     match (&app.lines, c) {

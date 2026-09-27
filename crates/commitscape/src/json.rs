@@ -1,22 +1,7 @@
-//! The `--json` document: every metric an Analysis has, for scripts, CI and
-//! dashboards.
-//!
-//! Reproducible by construction. The Window is anchored at the newest commit,
-//! not at the clock, and nothing machine-specific is included: no timings, no
-//! cache paths, no path the repository was opened from. The same repository
-//! state always produces the same bytes, which is what the golden files in
-//! `tests/golden/` rely on.
-//!
-//! Every number arrives with what it was computed from, as the metrics
-//! themselves do: a Hotspot's score with its churn and complexity and their
-//! percentiles, a coupled pair's Jaccard degree with its commit counts.
-
 use commitscape_core::{civil_from_unix, iso8601, FileId, Index};
 use commitscape_metrics::{Analysis, Span};
 use serde::Serialize;
 
-/// Bumped when a field is removed or changes meaning. Adding a field does not
-/// bump it.
 pub const SCHEMA: u32 = 2;
 
 #[derive(Serialize)]
@@ -41,43 +26,32 @@ pub struct Report {
 
 #[derive(Serialize)]
 pub struct Repository {
-    /// The commit HEAD pointed at.
     pub head: Option<String>,
     pub commits: u64,
     pub merges: u64,
     pub first_commit: Option<String>,
     pub last_commit: Option<String>,
-    /// A shallow clone: `commits` is a floor, not a total.
     pub history_truncated: bool,
     pub files_at_head: usize,
-    /// Of those, the files people wrote: code and prose.
     pub files_people_wrote: u32,
     pub code_lines: u64,
     pub prose_lines: u64,
-    /// Lockfiles, generated and vendored code, binaries.
     pub generated_files: u32,
     pub people: usize,
 }
 
-/// When the Window's commits were made, on each author's Local Time.
 #[derive(Serialize)]
 pub struct Pulse {
-    /// Commits that are not merges.
     pub commits: u32,
-    /// The date `days` starts on.
     pub first_day: String,
-    /// Commits per day, from `first_day` on.
     pub days: Vec<u32>,
-    /// Commits by weekday, Monday first, and hour.
     pub week: [[u32; 24]; 7],
     pub kinds: Vec<commitscape_metrics::KindCount>,
     pub active_days: u32,
     pub longest_streak: Option<Streak>,
     pub busiest_day: Option<Day>,
     pub busiest_hour: Option<usize>,
-    /// Commits on a Saturday or Sunday.
     pub weekend_commits: u32,
-    /// Commits between 22:00 and 04:59.
     pub night_commits: u32,
 }
 
@@ -99,23 +73,17 @@ pub struct Contributor {
     pub email: String,
     pub commits: u32,
     pub active_days: u32,
-    /// Their first and last commit in the Window, on their own clock.
     pub first: String,
     pub last: String,
-    /// Lines they added and removed (ADR-0012), `null` when lines were not
-    /// counted (`--no-lines`).
     pub lines: Option<commitscape_metrics::LinesChanged>,
-    /// Folders that depend on them alone.
     pub areas: u32,
 }
 
 #[derive(Serialize)]
 pub struct WindowReport {
     pub span: Span,
-    /// `null` for all of history.
     pub from: Option<String>,
     pub to: String,
-    /// What `to` is: always the newest commit, so the output is reproducible.
     pub anchor: &'static str,
     pub commits: u64,
     pub merges_excluded: u64,
@@ -169,18 +137,13 @@ pub struct Pair {
 
 #[derive(Serialize)]
 pub struct Ownership {
-    /// Directories with at least `options.ownership_min_commits` commits in
-    /// the Window, including those past `--top`.
     pub directories: u32,
-    /// Of those, how many one person holds.
     pub bus_factor_one: u32,
-    /// Fewest owners first, then most commits.
     pub by_directory: Vec<Directory>,
 }
 
 #[derive(Serialize)]
 pub struct Directory {
-    /// Ends in `/`; `""` is the repository root.
     pub directory: String,
     pub commits: u32,
     pub bus_factor: u32,
@@ -217,7 +180,6 @@ pub struct Stale {
 
 #[derive(Serialize)]
 pub struct Quarter {
-    /// `2024-Q1`.
     pub quarter: String,
     pub lines: u64,
     pub files: u32,
@@ -226,7 +188,6 @@ pub struct Quarter {
 #[derive(Serialize)]
 pub struct Duplicate {
     pub people: Vec<Person>,
-    /// Lines for `.mailmap` that would join them under the first person.
     pub mailmap: String,
 }
 
@@ -237,7 +198,6 @@ pub struct Person {
     pub commits: u32,
 }
 
-/// Builds the document. Each ranking holds at most `top` rows.
 pub fn report(analysis: &Analysis<'_>, span: Span, top: usize, lines: bool) -> Report {
     let index = analysis.index();
     let contributions = analysis.contributions();
@@ -447,13 +407,11 @@ fn pulse(p: &commitscape_metrics::Pulse) -> Pulse {
     }
 }
 
-/// A day, as days since the epoch, as a date: `2024-01-05`.
 fn date(day: i64) -> String {
     let (y, m, d) = civil_from_unix(day * 86_400);
     format!("{y:04}-{m:02}-{d:02}")
 }
 
-/// A time on someone's own clock, without a zone: `2024-01-05T23:40:00`.
 fn local(clock: i64) -> String {
     iso8601(clock).trim_end_matches('Z').to_string()
 }

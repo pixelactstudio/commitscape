@@ -1,15 +1,6 @@
-//! Asserts the crate layering ADR-0001 relies on.
-//!
-//! The seam between git and everything else is enforced by the dependency
-//! graph, not by review. If `commitscape-metrics` ever acquires a path to
-//! `gix` — directly or transitively — that enforcement is gone and nobody
-//! would notice from reading a diff. This turns it into a test.
-
 use anyhow::{bail, Context, Result};
 use std::process::Command;
 
-/// A crate, and the crates that must never appear anywhere in its normal
-/// dependency tree.
 struct Rule {
     package: &'static str,
     forbidden: &'static [&'static str],
@@ -17,9 +8,6 @@ struct Rule {
 }
 
 const RULES: &[Rule] = &[
-    // `gix` is the one that matters; the rest are listed because their
-    // presence would mean something has reached for I/O from a layer defined
-    // as pure.
     Rule {
         package: "commitscape-metrics",
         forbidden: &[
@@ -45,10 +33,10 @@ const RULES: &[Rule] = &[
               its caller provides. If it can see git or the cache, it can go around both.",
     },
     Rule {
-        package: "commitscape-web",
+        package: "commitscape-report",
         forbidden: &["gix", "commitscape-index", "ratatui", "crossterm"],
-        why: "The browser interface's server reads an Index, as the terminal one does, and \
-              is handed everything else by the binary (ADR-0010). It draws in no terminal.",
+        why: "The Report is computed from an Index, as the terminal interface is, and is \
+              handed everything else by the binary. It draws in no terminal.",
     },
 ];
 
@@ -84,8 +72,6 @@ fn check_rule(rule: &Rule) -> Result<()> {
 
     let tree = String::from_utf8(output.stdout).context("cargo tree output was not UTF-8")?;
 
-    // `cargo tree --prefix none` emits one `name version` per line. Match on
-    // the crate name only, so `gix-hash` is caught as well as `gix` itself.
     let mut violations = Vec::new();
     for line in tree.lines() {
         let Some(name) = line.split_whitespace().next() else {

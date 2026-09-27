@@ -1,15 +1,3 @@
-//! The history walk, with tree diffs spread across threads.
-//!
-//! Two passes. The first walks the commit graph on one thread and records each
-//! commit's tree, parents, time and author: cheap, because it decodes small
-//! commit objects and nothing else. The second diffs every commit against its
-//! parents. Each diff is independent of every other, and they are nearly all
-//! of the cost, so they run on every core. Results reach the sink in walk
-//! order regardless of which thread finished first.
-//!
-//! Memory stays bounded: the second pass hands out small batches and a bounded
-//! channel stops workers from running far ahead of the sink.
-
 use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::sync_channel;
@@ -23,41 +11,24 @@ use super::{GixError, GixRepo};
 use crate::message;
 use crate::source::{CommitSink, Indexed, RawChange, RawCommit, WalkStats};
 
-/// Commits per unit of work handed to a diff thread. Consecutive commits
-/// share most of their trees, so a batch keeps one thread's object cache warm.
 const BATCH: usize = 64;
 
-/// Upper bound on diff threads. Past this the object store, not the CPU, is
-/// the limit.
 const MAX_THREADS: usize = 16;
 
-/// Decompressed objects each diff thread keeps. Tree diffing revisits parent
-/// trees constantly, so this is the difference between re-inflating the same
-/// objects and not.
 const THREAD_OBJECT_CACHE_BYTES: usize = 16 * 1024 * 1024;
 
-/// Delta bases each diff thread keeps. Trees in a large pack are nearly all
-/// stored as deltas; without room for their bases, reading one tree means
-/// re-inflating a chain of them.
 const THREAD_DELTA_CACHE_BYTES: usize = 48 * 1024 * 1024;
 
-/// How often, in commits, the sink hears about progress.
 const PROGRESS_EVERY: u64 = 4096;
 
-/// How many batches, per thread, may be finished but not yet delivered. The
-/// sink consumes in walk order, so without a limit one slow batch would let
-/// every other result pile up behind it.
 const AHEAD_PER_THREAD: usize = 4;
 
-/// What the first pass records about one commit.
 struct Walked {
     id: ObjectId,
     time: i64,
-    /// Index into the walk's signature list.
     signature: usize,
     author_time: i64,
     author_offset: i32,
-    /// Read now: the message itself is not kept past this pass.
     kind: commitscape_core::CommitKind,
     subject: Box<str>,
     tree: ObjectId,
@@ -79,9 +50,6 @@ pub(super) fn walk(
         ..WalkStats::default()
     };
 
-    // Pass one: the graph, stopping at the first indexed commit on each path.
-    // gix applies the predicate to the tips as well, so an unchanged branch
-    // costs one lookup.
     let walk = git_ctx!(
         repo.rev_walk(tips).selected(|id| {
             Oid::from_bytes(id.as_bytes()).is_none_or(|oid| !indexed.contains(&oid))
@@ -100,7 +68,6 @@ pub(super) fn walk(
         )?;
         let author = git_ctx!(commit.author(), "reading an author")?;
         let time = git_ctx!(commit.time(), "reading a commit time")?.seconds;
-        // A malformed author date falls back to the committer's time.
         let written = author.time().unwrap_or(gix::date::Time {
             seconds: time,
             offset: 0,
@@ -129,7 +96,6 @@ pub(super) fn walk(
         });
     }
 
-    // Pass two: the diffs.
     let tree_of: HashMap<ObjectId, ObjectId> = walked.iter().map(|w| (w.id, w.tree)).collect();
     let total = walked.len() as u64;
     let batches = walked.len().div_ceil(BATCH);
@@ -256,7 +222,6 @@ pub(super) fn walk(
         if broke || outcome.is_err() {
             stop.store(true, Ordering::Relaxed);
         }
-        // Dropping the receiver unblocks any worker waiting to send.
         drop(rx);
         outcome
     })?;
@@ -264,7 +229,6 @@ pub(super) fn walk(
     Ok(stats)
 }
 
-/// Diffs one commit against all of its parents.
 fn diff_one(
     repo: &gix::Repository,
     differ: &mut TreeDiffer,
@@ -275,10 +239,6 @@ fn diff_one(
     for parent in &w.parents {
         let tree = match tree_of.get(parent) {
             Some(t) => Some(*t),
-            // Outside this walk: a frontier commit on a resume, or a parent a
-            // shallow clone does not have. Absent reads as an empty tree, so
-            // a shallow boundary's whole tree becomes additions, which is the
-            // honest answer given the history we were handed.
             None => tree_of_commit(repo, *parent)?,
         };
         parent_trees.push(tree);
@@ -293,7 +253,6 @@ fn diff_one(
     Ok(out)
 }
 
-/// The tree of a commit the walk did not visit, or `None` if it is absent.
 pub(super) fn tree_of_commit(
     repo: &gix::Repository,
     id: ObjectId,

@@ -1,5 +1,3 @@
-//! Who changes what: Ownership, Bus Factor, and the people who might be one.
-
 use std::collections::HashMap;
 
 use commitscape_core::{AuthorId, FileId};
@@ -7,35 +5,25 @@ use serde::Serialize;
 
 use crate::analysis::{counts, top, Analysis, Churn};
 
-/// The share of a directory's commits that makes a group of people its
-/// holders. Bus Factor counts how many people it takes to pass it.
 const BUS_FACTOR_LINE: f64 = 0.8;
 
 const DAY: i64 = 86_400;
 
-/// One person's commits to a directory in the Window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct Owner {
     pub author: AuthorId,
     pub commits: u32,
 }
 
-/// Ownership of one directory in the Window.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DirectoryOwnership {
-    /// The directory as a path prefix ending in `/`; empty for the root.
     pub dir: Vec<u8>,
-    /// Commits that touched a file people wrote under it.
     pub commits: u32,
-    /// Everyone who made those commits, most commits first.
     pub owners: Vec<Owner>,
-    /// The fewest people who together made more than 80% of them.
     pub bus_factor: u32,
 }
 
 impl DirectoryOwnership {
-    /// The directory for display: its path, or `(root)` for the root, whose
-    /// path is empty.
     pub fn label(&self) -> String {
         if self.dir.is_empty() {
             "(root)".to_string()
@@ -45,22 +33,14 @@ impl DirectoryOwnership {
     }
 }
 
-/// Ownership over the Window.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Ownership {
-    /// Directories with at least `ownership_min_commits` commits in the
-    /// Window: every one ranked, not only those kept.
     pub directory_count: u32,
-    /// Of those, how many one person holds.
     pub bus_factor_one: u32,
-    /// Fewest owners first, then most commits.
     pub directories: Vec<DirectoryOwnership>,
 }
 
 impl Ownership {
-    /// The folders one person holds (Bus Factor 1), leaving out any inside
-    /// a folder the same person holds: `app/marketing/` says what
-    /// `app/marketing/src/` would repeat. In ranking order.
     pub fn held_alone(&self) -> Vec<&DirectoryOwnership> {
         let held: Vec<&DirectoryOwnership> = self
             .directories
@@ -81,46 +61,29 @@ impl Ownership {
     }
 }
 
-/// A folder only one person committed to in the Window: what nobody else
-/// knows.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Silo {
     pub directory: DirectoryOwnership,
     pub holder: AuthorId,
-    /// Who else made the most commits in the nearest folder around it that
-    /// more than one person works in, and how many: who could take it over.
     pub successor: Option<(AuthorId, u32)>,
 }
 
-/// Someone who made commits in the Window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct Contributor {
     pub author: AuthorId,
-    /// Their commits in the Window that are not merges.
     pub commits: u32,
-    /// Days on their calendar on which at least one of those commits landed.
     pub active_days: u32,
-    /// When their earliest and latest commit landed, on their own clock
-    /// ([`CommitMeta::landed_clock`](commitscape_core::CommitMeta::landed_clock)).
     pub first: i64,
     pub last: i64,
 }
 
-/// People who might be one person.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SuspectedDuplicate {
-    /// Most commits first: the first is who a suggestion keeps.
     pub people: Vec<AuthorId>,
-    /// Commits by each, over all history, in the same order.
     pub commits: Vec<u32>,
 }
 
 impl Analysis<'_> {
-    /// Ownership of every directory with enough commits in the Window.
-    ///
-    /// A commit counts once for each directory holding a file it touched, at
-    /// every depth, as long as a person wrote the file and it exists at HEAD:
-    /// knowing a deleted file, or a lockfile, is not knowing the directory.
     pub fn ownership(&self) -> Ownership {
         let index = self.index();
         let options = self.options();
@@ -132,8 +95,6 @@ impl Analysis<'_> {
         }
 
         let mut dirs = DirTable::default();
-        // Each touched file's directories, resolved once: `file_dirs[f]` is a
-        // range of `dir_list`.
         let mut file_dirs: Vec<Option<(u32, u32)>> = vec![None; index.paths.len()];
         let mut dir_list: Vec<u32> = Vec::new();
         let mut last_seen: Vec<u32> = Vec::new();
@@ -232,15 +193,10 @@ impl Analysis<'_> {
         }
     }
 
-    /// Everyone who made commits in the Window, most commits first. Bots
-    /// are listed by [`bots`](Self::bots) instead.
     pub fn contributors(&self) -> Vec<Contributor> {
         self.committers(false)
     }
 
-    /// Commits that are not merges in the Window, and the people who made
-    /// them, bots left out: all of them, where [`contributors`](Self::contributors)
-    /// keeps the first [`RANKING_LIMIT`](crate::RANKING_LIMIT).
     pub fn activity(&self) -> (u32, u32) {
         let index = self.index();
         let mut people = std::collections::HashSet::new();
@@ -254,8 +210,6 @@ impl Analysis<'_> {
         (commits, people.len() as u32)
     }
 
-    /// The automation accounts that made commits in the Window, most commits
-    /// first.
     pub fn bots(&self) -> Vec<Contributor> {
         self.committers(true)
     }
@@ -299,13 +253,10 @@ impl Analysis<'_> {
         out
     }
 
-    /// The folders only one person committed to in the Window, a folder
-    /// inside another of the same person's left out, most commits first.
     pub fn silos(&self) -> Vec<Silo> {
         self.silos_in(&self.ownership())
     }
 
-    /// [`silos`](Self::silos) from Ownership already computed.
     pub fn silos_in(&self, ownership: &Ownership) -> Vec<Silo> {
         let single = |d: &DirectoryOwnership| d.owners.len() == 1;
         let mut out: Vec<Silo> = ownership
@@ -314,7 +265,6 @@ impl Analysis<'_> {
             .filter(|d| single(d))
             .filter_map(|d| {
                 let holder = d.owners.first()?.author;
-                // The nearest folder around it with more than one person.
                 let around = ownership
                     .directories
                     .iter()
@@ -343,9 +293,6 @@ impl Analysis<'_> {
         out
     }
 
-    /// The files one person changed most in the Window, counting the same
-    /// commits Churn does. Files people wrote at HEAD only, and no
-    /// dependency manifests: a version bump is not work on the code.
     pub fn work_of(&self, author: AuthorId) -> Vec<Churn> {
         let index = self.index();
         let options = self.options();
@@ -390,7 +337,6 @@ impl Analysis<'_> {
         out
     }
 
-    /// Who made the counted commits that touched one file, most first.
     pub fn owners_of(&self, file: FileId) -> Vec<Owner> {
         let mut authors: Vec<AuthorId> = self
             .commits_touching(&[file])
@@ -409,10 +355,6 @@ impl Analysis<'_> {
         owners
     }
 
-    /// People who might be one person (ADR-0006), each group with the most
-    /// active person first. Never applied: a wrong merge makes Bus Factor
-    /// confidently wrong, so the repository's owners decide, with
-    /// [`mailmap_for`](Self::mailmap_for).
     pub fn suspected_duplicates(&self) -> Vec<SuspectedDuplicate> {
         let authors = &self.index().authors;
         let used = authors.used();
@@ -439,8 +381,6 @@ impl Analysis<'_> {
             .collect()
     }
 
-    /// The `.mailmap` lines that would resolve a group into its first
-    /// person: one line for each signature of everyone else.
     pub fn mailmap_for(&self, group: &SuspectedDuplicate) -> String {
         let authors = &self.index().authors;
         let Some(keep) = group.people.first().and_then(|p| authors.get(*p)) else {
@@ -460,18 +400,13 @@ impl Analysis<'_> {
     }
 }
 
-/// Directories met so far, each identified by its parent and last name, so
-/// a lookup hashes one short component rather than a whole path.
 #[derive(Default)]
 struct DirTable {
-    /// (parent, name) -> id. The root is id 0 and has no entry.
     ids: HashMap<(u32, Vec<u8>), u32>,
-    /// id -> (parent, name).
     entries: Vec<(u32, Vec<u8>)>,
 }
 
 impl DirTable {
-    /// Appends the ids of every directory above `path`, the root first.
     fn ancestors(&mut self, path: &[u8], out: &mut Vec<u32>) {
         if self.entries.is_empty() {
             self.entries.push((0, Vec::new()));
@@ -480,7 +415,6 @@ impl DirTable {
         let mut parent = 0u32;
         let mut components = path.split(|&b| b == b'/').peekable();
         while let Some(component) = components.next() {
-            // The last component is the file itself.
             if components.peek().is_none() {
                 break;
             }
@@ -499,7 +433,6 @@ impl DirTable {
         }
     }
 
-    /// A directory's path as a prefix ending in `/`; empty for the root.
     fn path(&self, id: u32) -> Vec<u8> {
         let mut names: Vec<&[u8]> = Vec::new();
         let mut at = id;
@@ -519,7 +452,6 @@ impl DirTable {
     }
 }
 
-/// The fewest owners, most commits first, who together hold more than 80%.
 fn bus_factor(owners: &[Owner], total: u32) -> u32 {
     let mut held = 0u32;
     for (i, owner) in owners.iter().enumerate() {

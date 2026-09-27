@@ -1,9 +1,3 @@
-//! The HEAD pass: every file at HEAD read once, measured and classified.
-//!
-//! Driven through the scripted adapter, which counts blob reads, so the tests
-//! can check the ADR-0004 promise directly: a warm load reads no blobs, and
-//! when HEAD moves only the files whose contents changed are read again.
-
 #![allow(clippy::expect_used)]
 
 use std::path::Path;
@@ -42,7 +36,6 @@ fn head_file<'a>(idx: &'a Index, path: &str) -> &'a HeadFile {
         .expect("the file is at HEAD")
 }
 
-/// A small repository whose history introduced exactly the files at HEAD.
 fn project() -> ScriptedRepo {
     ScriptedRepo::new()
         .commit(

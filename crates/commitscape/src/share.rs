@@ -1,13 +1,3 @@
-//! `commitscape share` (ADR-0016): builds the Report on this machine, locks
-//! it with a key that exists only in the link it prints, uploads what the
-//! Site cannot read, and exits. `--delete` takes it down; `--list` shows
-//! the ones this machine made, kept in the cache directory.
-//!
-//! The lock is AES-256-GCM: a fresh random 256-bit key and a random 96-bit
-//! nonce, the upload being the nonce then the ciphertext and its tag. The
-//! Delete Token is derived from the key (HKDF-SHA256, info "commitscape
-//! delete"); the Site keeps only its SHA-256, so the link alone can delete.
-
 use std::io::{BufRead, IsTerminal, Write};
 use std::path::PathBuf;
 
@@ -19,7 +9,6 @@ use sha2::{Digest, Sha256};
 
 use crate::{gzip, make_report, Common};
 
-/// The largest upload the Site takes, in bytes (ADR-0016).
 pub const MAX_BYTES: usize = 25 * 1024 * 1024;
 
 #[derive(Args)]
@@ -48,20 +37,19 @@ pub struct ShareArgs {
     common: Common,
 }
 
-/// Where the Site is: `COMMITSCAPE_SITE`, or the origin this binary was
-/// built with (`packages/data/src/product.ts`).
+const DEFAULT_SITE: &str = "https://commitscape.invalid";
+
 pub fn site() -> String {
     std::env::var("COMMITSCAPE_SITE")
         .ok()
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| env!("COMMITSCAPE_SITE_ORIGIN").to_string())
+        .unwrap_or_else(|| DEFAULT_SITE.to_string())
         .trim_end_matches('/')
         .to_string()
 }
 
 const BASE64URL: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
-/// Base64url without padding, as links and the Site write ids and keys.
 pub fn base64url(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
@@ -80,7 +68,6 @@ pub fn base64url(bytes: &[u8]) -> String {
     out
 }
 
-/// Reads base64url, with or without padding.
 pub fn unbase64url(text: &str) -> Option<Vec<u8>> {
     let mut bits = 0u32;
     let mut count = 0;
@@ -98,11 +85,8 @@ pub fn unbase64url(text: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
-/// The Delete Token for a key: HKDF-SHA256, no salt, info "commitscape
-/// delete", 32 bytes, as base64url.
 pub fn delete_token(key: &[u8; 32]) -> String {
     let mut out = [0u8; 32];
-    // 32 bytes is far inside HKDF-SHA256's limit of 8,160.
     let _ = Hkdf::<Sha256>::new(None, key).expand(b"commitscape delete", &mut out);
     base64url(&out)
 }
@@ -111,7 +95,6 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// Locks bytes: the nonce, then the ciphertext and its tag.
 pub fn lock(key: &[u8; 32], nonce: &[u8; 12], plain: &[u8]) -> anyhow::Result<Vec<u8>> {
     let cipher =
         Aes256Gcm::new_from_slice(key).map_err(|_| anyhow::anyhow!("a key is 32 bytes"))?;
@@ -124,8 +107,6 @@ pub fn lock(key: &[u8; 32], nonce: &[u8; 12], plain: &[u8]) -> anyhow::Result<Ve
     Ok(out)
 }
 
-/// Unlocks what [`lock`] wrote, or fails when a byte was changed. The
-/// browser does this (WebCrypto); here for the tests.
 #[cfg(test)]
 pub fn unlock(key: &[u8; 32], locked: &[u8]) -> Option<Vec<u8>> {
     let (nonce, sealed) = locked.split_at_checked(12)?;
@@ -134,7 +115,6 @@ pub fn unlock(key: &[u8; 32], locked: &[u8]) -> Option<Vec<u8>> {
     cipher.decrypt(nonce.into(), sealed).ok()
 }
 
-/// The id and key in a Shared Report's link: `<site>/s/<id>#<key>`.
 fn parse_link(link: &str) -> Option<(String, String, [u8; 32])> {
     let (before, key) = link.split_once('#')?;
     let (origin, id) = before.rsplit_once("/s/")?;
@@ -146,7 +126,6 @@ fn parse_link(link: &str) -> Option<(String, String, [u8; 32])> {
     id_ok.then(|| (origin.to_string(), id.to_string(), key))
 }
 
-/// A Shared Report this machine made.
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 struct Made {
     link: String,
@@ -154,8 +133,6 @@ struct Made {
     expires_at: i64,
 }
 
-/// The list of Shared Reports made here, in the cache directory; none with
-/// `--no-cache`.
 fn list_file(common: &Common) -> Option<PathBuf> {
     common.cache().root.map(|root| root.join("shares.json"))
 }
@@ -176,8 +153,6 @@ fn write_list(common: &Common, list: &[Made]) {
     }
 }
 
-/// Writes a file only its owner can read, where the system allows it: the
-/// list's links each hold their key. One written before is made so too.
 fn write_private(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
     let mut open = std::fs::OpenOptions::new();
     open.write(true).create(true).truncate(true);
@@ -197,7 +172,6 @@ fn agent() -> ureq::Agent {
         .into()
 }
 
-/// What the Site said, in its words when it gave them.
 fn said(status: u16, body: &str) -> String {
     serde_json::from_str::<serde_json::Value>(body)
         .ok()
@@ -205,14 +179,12 @@ fn said(status: u16, body: &str) -> String {
         .unwrap_or_else(|| format!("the Site answered {status}"))
 }
 
-/// A Shared Report uploaded: its link and when it stops working.
 pub struct Shared {
     pub link: String,
     pub expires_at: i64,
 }
 
-/// Locks a Report's data and uploads it (ADR-0016). Used by the command
-/// and by the local page's Share button.
+/// Encrypts a Report with a new key and uploads it to the Site; the link holds the key.
 pub fn upload(name: &str, json: &str, hours: u32, common: &Common) -> anyhow::Result<Shared> {
     let plain = gzip(json.as_bytes())?;
     let mut key = [0u8; 32];
@@ -267,7 +239,6 @@ pub fn upload(name: &str, json: &str, hours: u32, common: &Common) -> anyhow::Re
     Ok(Shared { link, expires_at })
 }
 
-/// Takes a Shared Report down, with the Delete Token its link's key gives.
 pub fn delete(link: &str, common: &Common) -> anyhow::Result<()> {
     let (origin, id, key) = parse_link(link).ok_or_else(|| {
         anyhow::anyhow!("that is not a Shared Report's link: it is <site>/s/<id>#<key>")
@@ -292,7 +263,6 @@ pub fn delete(link: &str, common: &Common) -> anyhow::Result<()> {
     }
 }
 
-/// When a time is, in words: `in 3 h 20 min`.
 fn from_now(at: i64) -> String {
     let left = (at - crate::now()).max(0);
     let (h, m) = (left / 3600, (left % 3600) / 60);
@@ -303,23 +273,7 @@ fn from_now(at: i64) -> String {
     }
 }
 
-/// The local page's Share button (ADR-0016): the same as the command, with
-/// its confirmation given by the button.
-pub fn hook(
-    repo: PathBuf,
-    common: Common,
-    window: commitscape_metrics::Span,
-) -> commitscape_web::ShareReport {
-    std::sync::Arc::new(move |hours| {
-        let (name, report) =
-            make_report(&repo, &common, window, true, false).map_err(|e| format!("{e:#}"))?;
-        let json = commitscape_web::report::data(report);
-        upload(&name, &json, hours, &common)
-            .map(|s| (s.link, s.expires_at))
-            .map_err(|e| format!("{e:#}"))
-    })
-}
-
+/// `commitscape share`: shares, lists or deletes Shared Reports.
 pub fn run(args: ShareArgs) -> anyhow::Result<()> {
     if args.list {
         let list: Vec<Made> = read_list(&args.common)
@@ -356,7 +310,7 @@ pub fn run(args: ShareArgs) -> anyhow::Result<()> {
         true,
         false,
     )?;
-    let json = commitscape_web::report::data(report);
+    let json = commitscape_report::report::data(report);
     if !args.yes {
         eprintln!(
             "This uploads {name}'s Report to {site}, locked with a key only the link will hold: \
@@ -387,75 +341,5 @@ pub fn run(args: ShareArgs) -> anyhow::Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    // One vector shared with packages/data's tests, so the browser unlocks
-    // and deletes exactly as this does.
-    const KEY: [u8; 32] = [7; 32];
-    const NONCE: [u8; 12] = [9; 12];
-
-    #[test]
-    fn a_locked_report_opens_with_its_key_and_fails_when_changed() {
-        let locked = lock(&KEY, &NONCE, b"the report").expect("locked");
-        assert_eq!(
-            base64url(&locked),
-            "CQkJCQkJCQkJCQkJU-3htMyVsQ7SFiW449uUXvmxSiSw7zwauAA"
-        );
-        assert_eq!(unlock(&KEY, &locked).as_deref(), Some(&b"the report"[..]));
-        let mut tampered = locked.clone();
-        if let Some(b) = tampered.last_mut() {
-            *b ^= 1;
-        }
-        assert_eq!(unlock(&KEY, &tampered), None);
-        assert_eq!(unlock(&[8; 32], &locked), None);
-    }
-
-    #[test]
-    fn the_delete_token_comes_from_the_key() {
-        assert_eq!(
-            delete_token(&KEY),
-            "78UF_u01KXZi-HTDpVBCbJQpmn87MYkNQr9hvL4_6-g"
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn the_list_of_links_is_readable_only_by_its_owner() {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = std::env::temp_dir().join(format!("commitscape-share-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).expect("a folder");
-        let path = dir.join("shares.json");
-        std::fs::write(&path, b"[]").expect("an old list");
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644))
-            .expect("readable by all");
-        write_private(&path, b"[1]").expect("written");
-        let mode = std::fs::metadata(&path)
-            .expect("there")
-            .permissions()
-            .mode();
-        assert_eq!(mode & 0o777, 0o600);
-        assert_eq!(std::fs::read(&path).expect("read"), b"[1]");
-        let _ = std::fs::remove_dir_all(dir);
-    }
-
-    #[test]
-    fn base64url_both_ways() {
-        for bytes in [&b""[..], b"f", b"fo", b"foo", b"foob", &[255, 254, 253, 0]] {
-            assert_eq!(unbase64url(&base64url(bytes)).as_deref(), Some(bytes));
-        }
-        assert_eq!(base64url(&[251, 255]), "-_8");
-    }
-
-    #[test]
-    fn a_link_gives_its_site_id_and_key() {
-        let link = format!("https://example.com/s/abc_DEF-1#{}", base64url(&KEY));
-        let (origin, id, key) = parse_link(&link).expect("a link");
-        assert_eq!(
-            (origin.as_str(), id.as_str(), key),
-            ("https://example.com", "abc_DEF-1", KEY)
-        );
-        assert!(parse_link("https://example.com/s/abc").is_none());
-        assert!(parse_link("https://example.com/s/a/b#xyz").is_none());
-    }
-}
+#[path = "../tests/unit/share.rs"]
+mod tests;

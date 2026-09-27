@@ -1,5 +1,3 @@
-//! The Overview: the repository at a glance, then what is worth a look.
-
 use commitscape_core::civil_from_unix;
 use commitscape_metrics::QuarterAge;
 use commitscape_metrics::Span as Window;
@@ -55,8 +53,6 @@ pub(super) fn draw(app: &App, frame: &mut Frame, area: Rect, cursor: &mut Cursor
     draw_worth(app, f, frame, worth_area, cursor);
 }
 
-/// "Did you know?": the facts, in `columns` side by side, whole facts
-/// only, each wrapped under its own bullet.
 pub(super) fn draw_facts(app: &App, f: &Findings, frame: &mut Frame, area: Rect, columns: u16) {
     let inner = boxed(frame, area, "Did you know?", None);
     let areas = Layout::horizontal(vec![Constraint::Fill(1); usize::from(columns.max(1))])
@@ -215,9 +211,6 @@ pub(super) fn draw_tiles(app: &App, f: &Findings, frame: &mut Frame, area: Rect)
         .first_commit
         .map(|first| short_age((app.anchor - first) / 86_400))
         .unwrap_or_default();
-    // Over all of history the notes say what the counts do not: how many
-    // a week, how few people made most of it, and how many days there have
-    // been.
     let all = t.first_commit.filter(|_| app.span == Window::All);
     let (commits_note, people_note, days_note) = match all {
         Some(first) => {
@@ -265,8 +258,6 @@ pub(super) fn draw_tiles(app: &App, f: &Findings, frame: &mut Frame, area: Rect)
     }
 }
 
-/// The fewest people who together made more than 80% of the commits: the
-/// Bus Factor of the whole repository.
 fn most_of_it(people: &[commitscape_metrics::Contributor]) -> usize {
     let total: u64 = people.iter().map(|c| u64::from(c.commits)).sum();
     let mut made = 0u64;
@@ -279,7 +270,6 @@ fn most_of_it(people: &[commitscape_metrics::Contributor]) -> usize {
     people.len()
 }
 
-/// A rate in a few characters: `0.6`, `12`, `1,204`.
 fn pace(rate: f64) -> String {
     if rate < 10.0 {
         let one = format!("{rate:.1}");
@@ -289,7 +279,6 @@ fn pace(rate: f64) -> String {
     }
 }
 
-/// An age in a few characters: `12 days`, `8 months`, `2.4 years`.
 fn short_age(days: i64) -> String {
     match days {
         ..=44 => format!("{} days", days.max(0)),
@@ -302,8 +291,6 @@ fn short_age(days: i64) -> String {
     }
 }
 
-/// Languages take the categorical colours by their rank at HEAD; the tail
-/// shares grey.
 pub(super) fn language_colours(f: &Findings) -> Vec<(&'static str, u64, Color)> {
     let shown = 7;
     let mut parts: Vec<(&'static str, u64, Color)> = f
@@ -415,7 +402,6 @@ pub(super) fn draw_people(app: &App, f: &Findings, frame: &mut Frame, area: Rect
         .contributors
         .get(..f.contributors.len().min(usize::from(inner.height)))
         .unwrap_or_default();
-    // Names as wide as the longest, leaving the bars at least six columns.
     let name_width = shown
         .iter()
         .map(|c| app.display_name(c.author).chars().count())
@@ -453,9 +439,6 @@ pub(super) fn draw_people(app: &App, f: &Findings, frame: &mut Frame, area: Rect
     frame.render_widget(Paragraph::new(lines), inner);
 }
 
-/// What is unusual about the Window's commits, most striking first. Each
-/// fact has a bar to clear, set where most repositories fall short of it;
-/// what every repository has is not a fact worth telling.
 fn facts(app: &App, f: &Findings) -> Vec<Line<'static>> {
     let mut out = Vec::new();
     let p = &f.pulse;
@@ -464,8 +447,6 @@ fn facts(app: &App, f: &Findings) -> Vec<Line<'static>> {
     if total >= 20 {
         let night = u64::from(p.night());
         let weekend = u64::from(p.weekend());
-        // A team working office hours makes under a tenth of its commits
-        // at night and about as few at the weekend.
         if night * 4 >= total {
             out.push(Line::from(vec![
                 plain("Night owls: "),
@@ -676,8 +657,6 @@ fn draw_worth(app: &App, f: &Findings, frame: &mut Frame, area: Rect, cursor: &m
     }
 }
 
-/// When the code at HEAD was written: its lines by the quarter their file
-/// first appeared, one column a quarter.
 pub(super) fn draw_code_age(app: &App, f: &Findings, frame: &mut Frame, area: Rect) {
     let inner = boxed(frame, area, "Code age", None);
     let quarters = every_quarter(&f.code_age, app.anchor);
@@ -698,8 +677,6 @@ pub(super) fn draw_code_age(app: &App, f: &Findings, frame: &mut Frame, area: Re
         )),
         Rect { height: 1, ..inner },
     );
-    // Quarters summed in twos, fours and so on when there are more than
-    // columns to show them in.
     let per = values
         .len()
         .div_ceil(usize::from(inner.width).max(1))
@@ -722,8 +699,6 @@ pub(super) fn draw_code_age(app: &App, f: &Findings, frame: &mut Frame, area: Re
     );
 }
 
-/// Every quarter from the first with code to the one `anchor` falls in, as
-/// (year, quarter, lines), with no lines where no code appeared.
 fn every_quarter(quarters: &[QuarterAge], anchor: i64) -> Vec<(i64, u32, u64)> {
     let Some(first) = quarters.first() else {
         return Vec::new();

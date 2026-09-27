@@ -1,18 +1,3 @@
-//! The cache: ADR-0002's time-sliced read, frontier resume and rebuild rules,
-//! behind one call.
-//!
-//! [`load`] decides everything:
-//!
-//! - **Warm.** The refs fingerprint matches the cache's, so nothing moved.
-//!   Read the head in full and, from the body, only the months the requested
-//!   window needs. No commit or tree is read from the repository.
-//! - **Updated.** Refs moved. If every cached tip is still reachable, walk only
-//!   the commits the cache cannot reach, merge them in, and save. A merge that
-//!   brings in older-dated commits pulls in the months they land in first.
-//! - **Built.** No cache, a different format, damage of any kind, or history
-//!   rewritten under the cache: index from scratch and save. None of these is
-//!   an error the user sees.
-
 mod format;
 mod identity_store;
 mod line_store;
@@ -34,70 +19,44 @@ pub use identity_store::IdentityStore;
 pub use line_store::LineStore;
 pub use location::default_cache_root;
 
-/// The directory holding one repository's cache and what is kept beside
-/// it, or `None` when caching is off.
 pub fn repo_dir(options: &CacheOptions, repo: &RepoIdentity) -> Option<PathBuf> {
     Some(options.root.as_deref()?.join(repo.cache_key()))
 }
 
-/// Where to keep the cache.
 #[derive(Debug, Clone, Default)]
 pub struct CacheOptions {
-    /// Directory holding every repository's cache, one subdirectory each.
-    /// `None` disables the cache: nothing is read or written.
     pub root: Option<PathBuf>,
 }
 
-/// How much history to load before returning.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Since {
-    /// All of it.
     All,
-    /// Every commit at or after this time. Older history is left for
-    /// [`Loaded::take_rest`].
     Time(i64),
-    /// Every commit within this many seconds of the newest commit. This is
-    /// how `--json` anchors windows, so its output is reproducible.
     BeforeNewest(i64),
 }
 
-/// How a load got its index.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Freshness {
-    /// Read from the cache. Nothing had changed.
     Warm,
-    /// Read from the cache and brought up to date with this many commits.
     Updated { added: u64 },
-    /// Indexed from scratch.
     Built { reason: RebuildReason },
 }
 
-/// Why a load indexed from scratch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RebuildReason {
-    /// Caching was turned off.
     Disabled,
-    /// There was no cache for this repository yet.
     NoCache,
-    /// The cache was written by a different version of the format.
     SchemaChanged,
-    /// The cache was damaged, truncated, or half-written.
     Unreadable,
-    /// Commits the cache recorded are no longer reachable: a force-push, a
-    /// rebase of a published branch, or a deleted unmerged branch.
     HistoryRewritten,
 }
 
-/// Progress of a load that has to read the repository.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Progress {
-    /// Commits diffed so far, of the total this walk will diff.
     History { done: u64, total: u64 },
-    /// Reading and measuring the files at HEAD.
     HeadFiles,
 }
 
-/// The result of [`load`].
 pub struct Loaded {
     pub index: Index,
     pub freshness: Freshness,
@@ -113,15 +72,11 @@ impl Loaded {
         }
     }
 
-    /// The older history a time-sliced load left behind, if any. Loading it
-    /// is independent of the index, so it can happen on another thread while
-    /// the recent part is already in use.
     pub fn take_rest(&mut self) -> Option<Rest> {
         self.rest.take()
     }
 }
 
-/// Older history not yet read.
 #[derive(Debug)]
 pub struct Rest {
     dir: PathBuf,
@@ -129,7 +84,6 @@ pub struct Rest {
     blocks: Vec<BlockEntry>,
 }
 
-/// Older history, read by [`Rest::load`].
 #[derive(Debug)]
 pub struct OlderHistory {
     commits: Vec<CommitMeta>,
@@ -137,9 +91,6 @@ pub struct OlderHistory {
     subjects: Vec<u8>,
 }
 
-/// The older history could not be read: the cache was damaged, or replaced
-/// by another process in the meantime. The next load detects either and
-/// rebuilds if it has to.
 #[derive(Debug, thiserror::Error)]
 #[error("older history could not be read from the cache")]
 pub struct RestUnavailable;
@@ -155,9 +106,6 @@ impl Rest {
             .map_err(|_| RestUnavailable)
     }
 
-    /// Reads the older history and returns a copy of `recent` completed with
-    /// it, leaving `recent` as it was: an interface showing `recent` keeps
-    /// using it while this runs on another thread.
     pub fn complete(self, recent: &Index) -> Result<Index, RestUnavailable> {
         let older = self.load()?;
         let mut full = recent.clone();
@@ -167,14 +115,12 @@ impl Rest {
 }
 
 impl OlderHistory {
-    /// Completes an index loaded with [`Since::Time`] or
-    /// [`Since::BeforeNewest`].
     pub fn prepend_to(self, index: &mut Index) {
         index.prepend_history(self.commits, self.changes, self.subjects, None);
     }
 }
 
-/// Loads a repository's index, from the cache where it can.
+/// Loads a repository's Index from the cache, reading only the history that is new.
 pub fn load<S: RepoSource>(
     source: &S,
     options: &CacheOptions,
@@ -193,11 +139,7 @@ pub fn load<S: RepoSource>(
         ));
     };
     let dir = root.join(identity.cache_key());
-    // Before any walk: if refs move during it, the next run sees a
-    // different fingerprint and resumes rather than trusting this one.
     let fingerprint = source.refs_fingerprint()?;
-    // People are resolved from the mailmap and the identity store together,
-    // so a change to either re-resolves them.
     let store = IdentityStore::in_dir(&dir);
     let stored = store.rules(crate::mailmap::Mailmap::default());
     let mailmap_fingerprint = {
@@ -225,12 +167,8 @@ pub fn load<S: RepoSource>(
         }
     };
 
-    // Rules for Generated Files improved since this cache was written: the
-    // HEAD table is classified again, and history is kept.
     let reclassify = head.classify.version != crate::classify::CLASSIFIER_VERSION;
     if head.refs_fingerprint == fingerprint && !reclassify {
-        // Only changed rules need reading; unchanged ones are already applied
-        // in the cached author table.
         let rules = if head.mailmap_fingerprint == ctx.mailmap_fingerprint {
             None
         } else {
@@ -245,20 +183,15 @@ pub fn load<S: RepoSource>(
     resume(source, ctx, head, since, reclassify, progress)
 }
 
-/// What every path through [`load`] needs.
 struct Context<'a> {
     dir: &'a Path,
     identity: RepoIdentity,
     fingerprint: u64,
-    /// The mailmap's and the identity store's, together.
     mailmap_fingerprint: u64,
-    /// The identity store's contents, with an empty mailmap.
     stored: IdentityRules,
 }
 
 impl Context<'_> {
-    /// The rules people are resolved with: the repository's mailmap and what
-    /// the identity store holds.
     fn rules<S: RepoSource>(&self, source: &S) -> Result<IdentityRules, S::Error> {
         Ok(IdentityRules {
             mailmap: source.mailmap()?,
@@ -267,8 +200,6 @@ impl Context<'_> {
     }
 }
 
-/// Indexes from scratch: every commit, then every file at HEAD. Returns the
-/// index and what its HEAD table was classified with.
 fn build<S: RepoSource>(
     source: &S,
     identity: RepoIdentity,
@@ -300,7 +231,6 @@ fn rebuild<S: RepoSource>(
 ) -> Result<Loaded, S::Error> {
     let (index, classify) = build(source, ctx.identity.clone(), ctx.rules(source)?, progress)?;
     let head = format::head_of(&index, ctx.fingerprint, ctx.mailmap_fingerprint, classify);
-    // A cache that cannot be written is a slower next run, not an error.
     let _ = format::write(format::Writing {
         head,
         previous: None,
@@ -311,7 +241,6 @@ fn rebuild<S: RepoSource>(
     Ok(Loaded::complete(index, Freshness::Built { reason }))
 }
 
-/// The time a `since` means, given the newest commit.
 fn resolve_since(since: Since, newest: Option<i64>) -> Option<i64> {
     match since {
         Since::All => None,
@@ -320,8 +249,6 @@ fn resolve_since(since: Since, newest: Option<i64>) -> Option<i64> {
     }
 }
 
-/// The first block a read starting at `time` needs, and the time from which
-/// the read is complete.
 fn first_block(blocks: &[BlockEntry], time: Option<i64>) -> (usize, Option<i64>) {
     let Some(time) = time else {
         return (0, None);
@@ -331,13 +258,10 @@ fn first_block(blocks: &[BlockEntry], time: Option<i64>) -> (usize, Option<i64>)
     if first == 0 {
         (0, None)
     } else {
-        // Loading starts at the month containing `time`, so everything from
-        // that month's first second is present.
         (first, Some(month.start()))
     }
 }
 
-/// An index assembled from a head and some decoded blocks.
 fn index_from(head: Head, decoded: format::Decoded, loaded_from: Option<i64>) -> Index {
     Index {
         schema_version: head.schema_version,
@@ -385,9 +309,6 @@ fn warm(
     let mut index = index_from(head, decoded, loaded_from);
     if let (Some(rules), Some(previous)) = (changed_rules, previous) {
         reresolve_authors(&mut index, rules);
-        // Only the author table changed, so only a new head is written; the
-        // history it points at is untouched. Failing to save only costs the
-        // next run another re-resolve.
         if let Ok(ids) = previous.ids {
             let written = format::write(format::Writing {
                 head: format::head_of(
@@ -419,7 +340,6 @@ fn warm(
     })
 }
 
-/// A write's view of the previous one, before its ids are read.
 struct PreviousParts {
     data_file: String,
     blocks: Vec<BlockEntry>,
@@ -468,9 +388,6 @@ fn resume<S: RepoSource>(
     let added = builder.commit_count() as u64;
     let changed_from = builder.oldest_pending_time().map(Month::of);
 
-    // A long-lived branch merged late can bring commits older than anything
-    // loaded. The months they land in must be loaded before merging, so the
-    // re-sort covers them.
     if let Some(month) = changed_from {
         let (needed, needed_from) = first_block(&old_blocks, Some(month.start()));
         if needed < first {
@@ -490,8 +407,6 @@ fn resume<S: RepoSource>(
     let new_ids = SortedIds::run_of(builder.added_ids().into_iter());
     let mut index = builder.finish(ctx.identity.clone(), tips, stats.history_truncated);
 
-    // HEAD usually moved with the refs. Files whose path and blob are
-    // unchanged are carried over; only the rest are read.
     let head_commit = source.head_commit()?;
     if head_commit != index.head_commit || reclassify {
         progress(Progress::HeadFiles);
@@ -509,8 +424,6 @@ fn resume<S: RepoSource>(
         classify = table.context;
     }
 
-    // Only the months the new commits landed in are re-encoded and
-    // appended; every other month stays where it is in the data file.
     let (fresh, unchanged) = match changed_from {
         Some(month) => {
             let split = index.commits.partition_point(|c| Month::of(c.time) < month);
@@ -547,7 +460,6 @@ fn resume<S: RepoSource>(
             data_file,
             blocks: blocks.get(..first).unwrap_or(&[]).to_vec(),
         },
-        // Nothing was replaced, so the previous data file still holds them.
         Err(_) => Rest {
             dir: ctx.dir.to_path_buf(),
             data_file,
@@ -562,7 +474,6 @@ fn resume<S: RepoSource>(
     })
 }
 
-/// Passes commits to the builder and progress to the caller.
 struct Reporting<'a> {
     builder: &'a mut IndexBuilder,
     progress: &'a mut dyn FnMut(Progress),
@@ -614,7 +525,6 @@ mod tests {
         load_in(&repo, dir.path());
         let read = repo.blobs_read();
 
-        // Stamp the cache as classified by an earlier version of the rules.
         let cache = dir.path().join(
             RepoIdentity {
                 git_dir: "/scripted/.git".into(),

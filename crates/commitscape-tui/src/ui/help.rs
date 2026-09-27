@@ -1,6 +1,3 @@
-//! The help window: what the open screen means, what every word means, and
-//! the keys.
-
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -11,8 +8,6 @@ use super::{bold, boxed, clear, faint, plain};
 use crate::app::{App, Panel};
 use crate::theme::{ACCENT, TEXT};
 
-/// Draws the window over everything and returns the scroll, kept within the
-/// text.
 pub(super) fn draw(app: &App, frame: &mut Frame, area: Rect, scroll: usize) -> usize {
     let width = area.width.saturating_sub(8).min(100);
     let height = area.height.saturating_sub(4);
@@ -51,7 +46,6 @@ pub(super) fn draw(app: &App, frame: &mut Frame, area: Rect, scroll: usize) -> u
         ]));
     }
 
-    // Scrolled by wrapped rows, as far as the last one.
     let rows = super::prose_height(&lines, inner.width);
     let scroll = scroll.min(usize::from(rows.saturating_sub(inner.height)));
     frame.render_widget(

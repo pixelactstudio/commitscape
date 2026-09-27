@@ -6,7 +6,6 @@ const jump = (id: string, label: string, group: string): Jump => ({ id, label, a
 test("⌘K matches every word typed, in any order, once the list arrives", async () => {
   let arrive: (list: Jump[]) => void = () => {};
   const source = jumpSource(new Promise((ok) => (arrive = ok)));
-  // Asked before the list is there: answered when it is.
   const early = source.search("example bob");
   arrive([
     jump("screen:people", "People", "Screens"),

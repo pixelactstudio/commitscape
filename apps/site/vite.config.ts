@@ -1,21 +1,34 @@
-import { cloudflare } from "@cloudflare/vite-plugin";
+import { sentryTanstackStart } from "@sentry/tanstackstart-react/vite";
+import tailwindcss from "@tailwindcss/vite";
+import { devtools } from "@tanstack/devtools-vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import react from "@vitejs/plugin-react";
+import { nitro } from "nitro/vite";
 import { defineConfig } from "vite";
 
-// Every page is a static asset (ADR-0014): the app is a single-page app
-// whose one shell, `index.html`, is served for every path without a file of
-// its own, and only `/api/*` reaches the Worker (wrangler.jsonc's
-// `run_worker_first`).
 export default defineConfig({
+  resolve: { tsconfigPaths: true },
   plugins: [
-    cloudflare({ viteEnvironment: { name: "ssr" } }),
-    tanstackStart({
-      spa: { enabled: true, prerender: { outputPath: "/index" } },
-      sitemap: { enabled: false },
-    }),
+    devtools(),
+    tailwindcss(),
+    tanstackStart(),
+    nitro(),
     react(),
+    sentryTanstackStart({
+      org: process.env.SENTRY_ORG,
+      project: process.env.SENTRY_PROJECT,
+      authToken: process.env.SENTRY_AUTH_TOKEN,
+      telemetry: false,
+      sourcemaps: { disable: !process.env.SENTRY_AUTH_TOKEN },
+    }),
   ],
-  // The screens are one script, shared with the local page.
-  build: { chunkSizeWarningLimit: 2000 },
+  build: {
+    chunkSizeWarningLimit: 2000,
+    rollupOptions: {
+      onwarn(warning, warn) {
+        if (warning.code === "MODULE_LEVEL_DIRECTIVE") return;
+        warn(warning);
+      },
+    },
+  },
 });

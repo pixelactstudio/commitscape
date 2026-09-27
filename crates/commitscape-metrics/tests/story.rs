@@ -1,7 +1,3 @@
-//! The repository's story: when and how its commits were made, who made
-//! them, and what it is written in. Hand-built indexes; every expected value
-//! is worked out in the comments.
-
 #![allow(clippy::expect_used)]
 
 mod support;
@@ -10,7 +6,6 @@ use commitscape_core::CommitKind;
 use commitscape_metrics::{Analysis, Options, Window};
 use support::{c, h, index, merge, DAY, EPOCH};
 
-/// Monday 1 January 2024, as days since the epoch: 1,704,067,200 / 86,400.
 const MONDAY: i64 = 19_723;
 
 fn options() -> Options {
@@ -21,11 +16,6 @@ fn options() -> Options {
     }
 }
 
-/// A week in Local Time. Monday 09:15 in India, Alice, a feature. Tuesday
-/// 23:40 in India, Alice, a fix. Wednesday 10:00, 10:30
-/// and 22:30 in London, Bob: docs, tests and a fix. Saturday 02:05 in
-/// California, Bob. Sunday 12:00 in London, Alice, and her merge at 13:00,
-/// which the rhythm leaves out.
 fn week() -> commitscape_core::Index {
     index(&week_commits(), &[h("a.rs", 10, 5), h("b.rs", 20, 5)])
 }
@@ -54,7 +44,6 @@ fn week_commits() -> Vec<support::C<'static>> {
 }
 
 fn analysis(idx: &commitscape_core::Index) -> Analysis<'_> {
-    // Sunday 23:00 UTC: the week, and nothing after it.
     Analysis::new(idx, Window::all(EPOCH + 6 * DAY + 23 * 3600), options())
         .expect("all of it is loaded")
 }
@@ -74,7 +63,6 @@ fn the_pulse_counts_each_day_and_hour_on_the_authors_own_clock() {
     );
     assert_eq!(pulse.busiest_day, Some((MONDAY + 2, 3)), "Wednesday");
 
-    // Weekday rows, Monday first; hours of the author's day.
     let at = |weekday: usize, hour: usize| {
         pulse
             .week
@@ -90,8 +78,6 @@ fn the_pulse_counts_each_day_and_hour_on_the_authors_own_clock() {
     assert_eq!(at(5, 2), 1, "Saturday 02:05 in California");
     assert_eq!(at(6, 12), 1);
     assert_eq!(pulse.busiest_hour(), Some(10));
-    // Weekends: Saturday and Sunday, 2 of 7. Nights, 22:00 to 04:59:
-    // Tuesday 23:40, Wednesday 22:30 and Saturday 02:05, 3 of 7.
     assert_eq!(pulse.weekend(), 2);
     assert_eq!(pulse.night(), 3);
 
@@ -115,12 +101,6 @@ fn the_pulse_counts_each_day_and_hour_on_the_authors_own_clock() {
 
 #[test]
 fn a_rebased_commit_counts_on_the_day_it_landed_and_the_hour_it_was_written() {
-    // Written on Monday at 09:00 and rebased onto the main line on Thursday
-    // at 16:00; another commit on Friday at 10:00, all in London. The
-    // Window runs from Wednesday 23:00 to Friday 23:00 and holds both, by
-    // when they landed. The days are the Window's, Wednesday to Friday,
-    // with the rebased commit on Thursday; the hours are when the work was
-    // done, so its hour is Monday's 09:00.
     let idx = index(
         &[
             c(3, "alice@x.org", &["a.rs"]).local(16, 0, 0).written(0, 9),
@@ -165,8 +145,6 @@ fn person(idx: &commitscape_core::Index, email: &str) -> commitscape_core::Autho
 
 #[test]
 fn one_persons_pulse_holds_only_their_commits() {
-    // Bob: Wednesday three times, Saturday once. Over all of history his
-    // days start at his first commit.
     let idx = week();
     let pulse = analysis(&idx).pulse(Some(person(&idx, "bob@x.org")));
     assert_eq!(pulse.commits, 4);
@@ -177,8 +155,6 @@ fn one_persons_pulse_holds_only_their_commits() {
 
 #[test]
 fn contributors_rank_by_commits_with_their_days() {
-    // Bob: 4 commits on Wednesday and Saturday. Alice: 3 on Monday, Tuesday
-    // and Sunday; her merge does not count.
     let idx = week();
     let rows: Vec<_> = analysis(&idx)
         .contributors()
@@ -219,9 +195,6 @@ fn contributors_rank_by_commits_with_their_days() {
 
 #[test]
 fn languages_count_the_lines_of_code_at_head() {
-    // TypeScript 160 + 50, Rust 120 + 80, Shell 20, Dockerfile 10. The JSON
-    // is configuration, the `.xyz` file is no language we know, the README
-    // is prose and the lockfile is generated: none of them is a language.
     let idx = index(
         &[c(0, "a@x.org", &["src/main.rs"])],
         &[
@@ -258,10 +231,6 @@ fn languages_count_the_lines_of_code_at_head() {
 
 #[test]
 fn totals_cover_all_of_history_and_what_is_at_head() {
-    // The week's 8 commits, 1 of them a merge, by 2 people. The first was
-    // Monday 09:15 in India, 03:45 UTC; the last, the merge, Sunday 13:00
-    // UTC. At HEAD: two code files of 10 and 20 lines, a 5-line README and
-    // a lockfile no person wrote.
     let idx = index(
         &week_commits(),
         &[
@@ -282,11 +251,6 @@ fn totals_cover_all_of_history_and_what_is_at_head() {
     assert_eq!(t.generated_files, 1);
 }
 
-/// At HEAD: src/a.rs 100 lines, src/b.rs 50, src/deep/c.rs 30,
-/// docs/guide.md 20 and README.md 10, and a lockfile no person wrote. Day 0,
-/// Alice: a and c. Day 1, Alice: a. Day 2, Bob: b and the guide. Day 3, Bob:
-/// the guide. Day 4, Carol: only the lockfile. Day 5, Alice: the README.
-/// Day 6, Alice merges and resolves a.rs: a touch, but not a counted commit.
 fn tree() -> commitscape_core::Index {
     index(
         &[
@@ -356,8 +320,6 @@ fn the_map_sizes_each_directory_by_its_lines_and_heats_it_by_its_commits() {
 
 #[test]
 fn a_persons_work_is_the_files_they_changed_most() {
-    // Alice: a.rs twice, then the README and c.rs once each, by path on a
-    // tie. Bob: the guide twice and b.rs once.
     let idx = tree();
     let a = analysis(&idx);
     let work = |email: &str| -> Vec<(String, u32)> {
@@ -386,14 +348,6 @@ fn a_persons_work_is_the_files_they_changed_most() {
 #[test]
 fn kinds_of_work_are_judged_from_the_files_first_then_the_message() {
     use commitscape_metrics::Work;
-    // One commit each, in order:
-    //   a test file alone, whatever the message says       -> tests
-    //   two prose files, though the message says feat       -> docs
-    //   a manifest and a lockfile                           -> dependencies
-    //   a workflow                                          -> CI
-    //   code and a test, "fix:"                             -> the message: fix
-    //   code, no convention                                 -> unclassified
-    //   code, "feat(ui):"                                   -> feature
     let idx = index(
         &[
             c(0, "a@x.org", &["tests/parse_test.rs"]),
@@ -431,8 +385,6 @@ fn kinds_of_work_are_judged_from_the_files_first_then_the_message() {
 
 #[test]
 fn commits_over_time_are_split_among_the_top_people_and_everyone_else() {
-    // Ann 3 commits (days 0, 0, 2), Ben 2 (days 1, 3), Cal 1 (day 3), and a
-    // bot 1 (day 2). With the top two: Ann, Ben, then everyone else.
     let idx = index(
         &[
             c(0, "ann@x.org", &["a.rs"]),
@@ -467,18 +419,6 @@ fn commits_over_time_are_split_among_the_top_people_and_everyone_else() {
 #[test]
 fn the_timeline_tells_the_projects_life_in_moments() {
     use commitscape_metrics::Moment;
-    // Ann writes JavaScript on days 0 to 19, one commit a day and two more
-    // on day 5, each adding 100 lines: 2,200 lines of JavaScript in the
-    // first quarter of 2024. Bob writes TypeScript on days 100 to 129, 50
-    // lines a day, 1,500 in the second quarter, and on day 120 also deletes
-    // 900 lines of old JavaScript. Cal commits once, on day 300. v1.0 is
-    // tagged on day 50. The Window runs to day 400.
-    //
-    // Ann (22 of 54 commits) and Bob (31) each made over 5%; Cal (1) did
-    // not, so only they join and leave. Both left more than 90 days before
-    // day 400: Ann's last commit is day 19, Bob's day 129. The quiet
-    // stretches of 30 days or more are 19 to 100 (81 days) and 129 to 300
-    // (171). The busiest day is day 5, with 3.
     let mut commits = Vec::new();
     for day in 0..20 {
         commits.push(c(day, "ann@x.org", &["src/app.js"]).lines(&[(100, 0)]));
@@ -551,12 +491,6 @@ fn the_timeline_tells_the_projects_life_in_moments() {
 #[test]
 fn a_window_that_starts_later_tells_no_joining_and_no_first_commit() {
     use commitscape_metrics::Moment;
-    // The history above, seen from day 110 to day 400. Bob's first commit
-    // was day 100, before the Window, so he does not join in it, and its
-    // first commit is not the project's. In it: Bob one commit a day on
-    // days 110 to 129 and two on day 120 (the busiest, the clean-up of 900
-    // lines), then Cal on day 300. Bob left after day 129; the quiet runs
-    // from 129 to 300. Only TypeScript is written, so no language shift.
     let mut commits = Vec::new();
     for day in 0..20 {
         commits.push(c(day, "ann@x.org", &["src/app.js"]).lines(&[(100, 0)]));

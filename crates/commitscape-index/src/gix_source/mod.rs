@@ -1,13 +1,3 @@
-//! The `gix` [`RepoSource`]. The only module in the workspace that names
-//! gitoxide types (ADR-0001).
-//!
-//! Tree diffs use our own structure-only walk in [`tree_diff`] rather than
-//! gix's `Tree::changes()`. That API lives behind gix's `blob-diff` feature,
-//! and enabling it would compile blob-diffing machinery into a binary whose
-//! central performance decision is that the walk never touches blob contents
-//! (ADR-0004). Our walk reads tree objects only, and it also computes the
-//! combined diff that merges need, which gix does not offer.
-
 use std::path::{Path, PathBuf};
 
 use commitscape_core::{Oid, RepoIdentity};
@@ -18,7 +8,6 @@ use crate::source::{
     BlobSink, CommitSink, HeadChange, HeadEntry, Indexed, LineSink, RepoSource, WalkStats,
 };
 
-/// Wraps any error into [`GixError::Git`] with a human-facing context.
 macro_rules! git_ctx {
     ($expr:expr, $context:literal) => {
         $expr.map_err(|e| $crate::gix_source::GixError::Git {
@@ -34,13 +23,8 @@ mod lines;
 mod tree_diff;
 mod walk;
 
-/// Decompressed objects the main thread keeps while walking the graph.
 const OBJECT_CACHE_BYTES: usize = 64 * 1024 * 1024;
 
-/// Reference namespaces that hold history. Everything else is excluded on
-/// purpose: `refs/stash` is unpublished work in progress, `refs/notes/*`
-/// point at trees of notes rather than source, and `refs/original/*` is
-/// history that `filter-branch` rewrote away.
 const HISTORY_REFS: &[&[u8]] = &[b"refs/heads/", b"refs/remotes/", b"refs/tags/"];
 
 #[derive(Debug, thiserror::Error)]
@@ -65,7 +49,6 @@ pub enum GixError {
 
 pub struct GixRepo {
     repo: gix::Repository,
-    /// A shareable handle, from which each diff thread makes its own.
     sync: gix::ThreadSafeRepository,
     path: PathBuf,
 }
@@ -85,8 +68,6 @@ impl GixRepo {
         })
     }
 
-    /// Opens the repository `path` is in: it, or the nearest folder above
-    /// it that is one.
     pub fn discover(path: &Path) -> Result<Self, GixError> {
         let mut repo = gix::discover(path).map_err(|e| GixError::NotARepository {
             path: path.display().to_string(),
@@ -104,15 +85,12 @@ impl GixRepo {
         })
     }
 
-    /// `user.email` and `user.name` as git's configuration has them for
-    /// this repository: who "you" are here.
     pub fn user(&self) -> (Option<String>, Option<String>) {
         let config = self.repo.config_snapshot();
         let get = |key: &str| config.string(key).map(|v| v.to_string());
         (get("user.email"), get("user.name"))
     }
 
-    /// The top of the working tree, or the repository itself when bare.
     pub fn top(&self) -> &Path {
         &self.path
     }
@@ -125,9 +103,6 @@ impl GixRepo {
         gix::ObjectId::try_from(id.0.as_slice()).ok()
     }
 
-    /// Tags that name a release, `v1.2.3` or `1.2`, pre-releases left out,
-    /// with the time of the commit each points at, oldest first. Read after
-    /// the first screen: peeling a tag reads its object.
     pub fn version_tags(&self) -> Vec<(String, i64)> {
         let Ok(platform) = self.repo.references() else {
             return Vec::new();
@@ -155,12 +130,9 @@ impl GixRepo {
         out
     }
 
-    /// Every history tip as `(name, commit)`, HEAD first.
     fn tips_gix(&self) -> Result<Vec<(String, gix::ObjectId)>, GixError> {
         let mut tips = Vec::new();
 
-        // A detached HEAD is named by no reference, and skipping it would
-        // index everything except where the user is actually standing.
         if let Ok(id) = self.repo.head_id() {
             tips.push(("HEAD".to_string(), id.detach()));
         }
@@ -172,8 +144,6 @@ impl GixRepo {
             if !HISTORY_REFS.iter().any(|p| name.starts_with(p)) {
                 continue;
             }
-            // Tags peel to the commit they point at; anything that does not
-            // peel to a commit is not a history tip.
             let Ok(id) = reference.peel_to_id() else {
                 continue;
             };
@@ -195,7 +165,6 @@ impl GixRepo {
         Ok(tips)
     }
 
-    /// The work tree's `.mailmap`, if there is a work tree and it has one.
     fn worktree_mailmap(&self) -> Result<Option<Vec<u8>>, GixError> {
         self.worktree_file(".mailmap")
     }
@@ -204,8 +173,6 @@ impl GixRepo {
         self.file_at_head(".mailmap")
     }
 
-    /// A file at the root of the work tree, if there is a work tree and it
-    /// has the file.
     fn worktree_file(&self, name: &str) -> Result<Option<Vec<u8>>, GixError> {
         let Some(work_dir) = self.repo.workdir() else {
             return Ok(None);
@@ -220,8 +187,6 @@ impl GixRepo {
         }
     }
 
-    /// A file at the root of HEAD's tree, for a repository with no work
-    /// tree copy.
     fn file_at_head(&self, name: &str) -> Result<Option<Vec<u8>>, GixError> {
         let Ok(commit) = self.repo.head_commit() else {
             return Ok(None);
@@ -266,10 +231,6 @@ impl RepoSource for GixRepo {
 
     fn refs_fingerprint(&self) -> Result<u64, Self::Error> {
         let mut h = xxhash_rust::xxh3::Xxh3::new();
-        // HEAD as stored: the branch it names, or the commit it holds when
-        // detached. The branch's own target is hashed with the other refs
-        // below. Nothing here reads an object, so a warm start never opens a
-        // pack.
         match git_ctx!(self.repo.head(), "reading HEAD")?.kind {
             gix::head::Kind::Symbolic(r) => {
                 h.update(b"S");
@@ -292,8 +253,6 @@ impl RepoSource for GixRepo {
             if !HISTORY_REFS.iter().any(|p| name.starts_with(p)) {
                 continue;
             }
-            // The target as stored, unpeeled: a tag's own id rather than the
-            // commit it names, so no object is read.
             let target = match reference.target() {
                 gix::refs::TargetRef::Object(id) => id.as_bytes().to_vec(),
                 gix::refs::TargetRef::Symbolic(name) => name.as_bstr().to_vec(),
@@ -318,15 +277,9 @@ impl RepoSource for GixRepo {
         if missing.is_empty() {
             return Ok(true);
         }
-        // Walk newest first from `from`, but only down to the age of the
-        // oldest missing commit: nothing older can lead to it. A branch that
-        // moved forward is found within its new commits, so this costs little
-        // in the common case, and it never paints all of history the way a
-        // hidden walk from hundreds of tags does.
         let mut cutoff = i64::MAX;
         for id in &missing {
             let Ok(commit) = self.repo.find_commit(*id) else {
-                // Gone from the object database: certainly not reachable.
                 return Ok(false);
             };
             let time = git_ctx!(commit.time(), "reading a commit time")?;
@@ -354,9 +307,6 @@ impl RepoSource for GixRepo {
     }
 
     fn mailmap(&self) -> Result<Mailmap, Self::Error> {
-        // The work tree's `.mailmap` when there is one, and the committed one
-        // otherwise. Parsed by our own parser so that no gix type crosses the
-        // seam.
         if let Some(bytes) = self.worktree_mailmap()? {
             return Ok(Mailmap::parse(&bytes));
         }
@@ -370,8 +320,6 @@ impl RepoSource for GixRepo {
         if let Some(bytes) = self.worktree_mailmap()? {
             return Ok(Mailmap::parse(&bytes).fingerprint());
         }
-        // The committed mailmap is part of HEAD's tree, so HEAD's commit
-        // stands for it without reading the tree.
         let mut h = xxhash_rust::xxh3::Xxh3::new();
         h.update(b"head");
         if let Ok(Some(r)) = self.repo.head_ref() {
@@ -422,8 +370,6 @@ impl RepoSource for GixRepo {
         )?;
         let mut files = Vec::with_capacity(recorder.records.len());
         for entry in recorder.records {
-            // Directories are implied by their files, and a submodule is a
-            // pointer to another repository rather than a file in this one.
             if !entry.mode.is_blob_or_symlink() {
                 continue;
             }
@@ -491,8 +437,6 @@ impl RepoSource for GixRepo {
     }
 }
 
-/// Whether a tag names a release: a version, `v` in front or not, and no
-/// pre-release word.
 fn is_release(name: &str) -> bool {
     let bare = name.strip_prefix(['v', 'V']).unwrap_or(name);
     let lower = bare.to_ascii_lowercase();

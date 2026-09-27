@@ -1,8 +1,3 @@
-/**
- * Commits over time as columns, stacked by person when there are several,
- * with releases marked. Days are gathered into weeks, or four-week spans,
- * when there are too many to draw one a day.
- */
 import { day, grouped } from "../format";
 import { Legend, TableView, YAxis, type Swatch } from "./common";
 import { ticks, useWidth } from "./scale";
@@ -16,7 +11,6 @@ const LEFT = 36;
 const BOTTOM = 22;
 const TOP = 18;
 
-/** How many days each column holds, so each is at least a few pixels. */
 function binDays(days: number, width: number): number {
   const room = Math.max(1, (width - LEFT) / 4);
   if (days <= room) return 1;
@@ -60,7 +54,6 @@ export function Columns({
     const from = firstDay + b * per;
     return per === 1 ? day(from) : `${day(from)} to ${day(Math.min(firstDay + days, from + per) - 1)}`;
   };
-  // Label a few releases, spread out; the rest are marks with a tooltip.
   let lastLabel = -Infinity;
   const labelled = new Set<number>();
   for (const [i, m] of marks.entries()) {

@@ -1,7 +1,3 @@
-//! The data `--max-changeset-size` is chosen from: how many files commits
-//! touch, and how large Change Coupling's pair map gets, on real
-//! repositories.
-
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -63,7 +59,6 @@ fn report(path: &Path) -> Result<()> {
             sizes.max
         );
         println!("       {}", row.join("  "));
-        // Each threshold is a histogram bound, so whole buckets sum exactly.
         for threshold in [20u32, 50, 100] {
             let over = sizes
                 .buckets

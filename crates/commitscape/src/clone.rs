@@ -1,14 +1,8 @@
-//! Cloning a project from GitHub into the cache, for `health` and for
-//! `report` given a GitHub URL. With the `git` command (Decision 30): gix is
-//! built without network clients.
-
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use commitscape_forge::Remote;
 
-/// The project a URL or `owner/name` names. Only names GitHub allows:
-/// each becomes a folder in the cache, so `..` must never pass.
 pub fn remote(url: &str) -> Option<Remote> {
     let remote = Remote::parse(url).or_else(|| {
         let (owner, name) = url.trim_matches('/').split_once('/')?;
@@ -47,25 +41,18 @@ fn git(args: &[&str], dir: Option<&Path>) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// How much of a project to clone.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Clone {
-    /// History and trees, and only the files at HEAD: quick, but old
-    /// versions of files cannot be read, so lines cannot be counted.
     Partial,
-    /// Everything, so lines can be counted.
     Full,
 }
 
-/// Clones the project into the cache, or brings the clone up to date. A
-/// partial clone and a full one are kept apart.
 pub fn clone(remote: &Remote, root: &Path, how: Clone) -> anyhow::Result<PathBuf> {
     let kind = match how {
         Clone::Partial => "health",
         Clone::Full => "clones",
     };
     let dir = root.join(kind).join(&remote.owner).join(&remote.name);
-    // COMMITSCAPE_GIT_BASE points clones elsewhere, for the Builder's tests.
     let base =
         std::env::var("COMMITSCAPE_GIT_BASE").unwrap_or_else(|_| "https://github.com".to_string());
     let url = format!(

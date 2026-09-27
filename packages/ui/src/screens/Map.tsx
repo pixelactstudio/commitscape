@@ -13,6 +13,7 @@ import { Explain } from "../explain";
 import { compact, date, day, duration, grouped, many } from "../format";
 import { personColour, ramp } from "../theme";
 import { folderOf, openers, type ScreenProps } from "./props";
+import { ScreenSkeleton, LinesSkeleton } from "../components/Loading";
 
 type Colour = "activity" | "age" | "owner";
 const COLOURS: [Colour, string][] = [
@@ -35,16 +36,15 @@ const AGES = [
 
 export function MapScreen({ meta, params, route, go }: ScreenProps) {
   const path = route.path ?? "";
-  const { data: level, error, stale } = useData<MapLevel>("/api/map", { ...params, path }, meta.generation);
-  const file = useData<FileData>(route.file ? "/api/file" : null, { ...params, path: route.file }, meta.generation);
+  const { data: level, error, stale } = useData<MapLevel>("/api/map", { ...params, path });
+  const file = useData<FileData>(route.file ? "/api/file" : null, { ...params, path: route.file });
   const [colour, setColour] = useState<Colour>("activity");
   const [ref, width] = useWidth<HTMLDivElement>();
   const tip = useTip();
   const open = openers(go);
   if (error) return <p className="error">{error}</p>;
-  if (!level) return <p className="waiting">Reading…</p>;
+  if (!level) return <ScreenSkeleton />;
 
-  // Lay out the level, and each folder's own children inside it.
   const drawn: Drawn[] = [];
   for (const r of squarify(level.children, (b) => b.lines, { x: 0, y: 0, w: width, h: HEIGHT })) {
     drawn.push({ ...r, block: r.item, depth: 0 });
@@ -70,7 +70,6 @@ export function MapScreen({ meta, params, route, go }: ScreenProps) {
   const owners = new Map<number, MapBlock["owner"]>();
   for (const d of drawn) if (d.block.owner) owners.set(d.block.owner.id, d.block.owner);
 
-  // Where each coupled file is drawn: itself, or the folder it is in.
   const centre = (p: string) => {
     let best: Drawn | undefined;
     for (const d of drawn) {
@@ -209,7 +208,6 @@ export function MapScreen({ meta, params, route, go }: ScreenProps) {
   );
 }
 
-/** A label cut to fit a width, at about 6.5 pixels a character. */
 function fit(text: string, width: number): string {
   const n = Math.floor(width / 6.5);
   return text.length <= n ? text : `${text.slice(0, Math.max(1, n - 1))}…`;
@@ -274,7 +272,7 @@ function FilePanel({
     <Card className="file-panel" padding={3} role="complementary">
       <Button label="Close" variant="ghost" size="sm" className="close" onClick={onClose} />
       {error && <p className="error">{error}</p>}
-      {!file && !error && <p className="waiting">Reading…</p>}
+      {!file && !error && <LinesSkeleton lines={6} />}
       {file && (
         <>
           <h3>

@@ -1,23 +1,12 @@
-//! What a file is for, judged from its path alone: dependency manifests and
-//! lockfiles, tests, documentation and CI configuration. Everything else is
-//! code.
-//!
-//! Paths, not contents, so a file deleted long ago still has a role, and no
-//! blob is read (ADR-0004).
-
-/// What a file is for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Role {
     Code,
-    /// A dependency manifest or lockfile: `package.json`, `Cargo.lock`.
     Dependencies,
     Test,
     Docs,
-    /// Build and CI configuration run by a service: `.github/workflows/`.
     Ci,
 }
 
-/// Dependency manifests and lockfiles, by file name.
 const DEPENDENCY_FILES: &[&str] = &[
     "package.json",
     "package-lock.json",
@@ -59,8 +48,6 @@ const DEPENDENCY_FILES: &[&str] = &[
     "flake.lock",
 ];
 
-/// The role of the file at `path`. Called for every change the Pulse
-/// counts, so it compares bytes in place rather than lowercasing a copy.
 pub fn role_of(path: &[u8]) -> Role {
     let (dirs, name) = match path.iter().rposition(|&b| b == b'/') {
         Some(i) => (
@@ -124,7 +111,6 @@ pub fn role_of(path: &[u8]) -> Role {
     Role::Code
 }
 
-/// Lockfiles, which a tool writes: every change to one is a regeneration.
 pub fn is_lockfile(path: &[u8]) -> bool {
     let path = String::from_utf8_lossy(path).to_ascii_lowercase();
     let name = path.rsplit('/').next().unwrap_or(&path);
@@ -139,10 +125,6 @@ pub fn is_lockfile(path: &[u8]) -> bool {
         )
 }
 
-/// Whether a path looks like something a tool wrote, judged from the path
-/// alone: for files no longer at HEAD, whose contents were never
-/// classified. Build output, vendored trees, minified files, source maps and
-/// files that say they are generated.
 pub fn looks_generated(path: &[u8]) -> bool {
     let path = String::from_utf8_lossy(path).to_ascii_lowercase();
     let name = path.rsplit('/').next().unwrap_or(&path);

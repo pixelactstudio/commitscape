@@ -1,7 +1,6 @@
 import { Button } from "@astryxdesign/core/Button";
 import { useToast } from "@astryxdesign/core/Toast";
 
-/** Draws a card's SVG as a PNG at twice its size. */
 async function png(svg: string): Promise<Blob> {
   const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
   try {
@@ -27,7 +26,6 @@ async function png(svg: string): Promise<Blob> {
   }
 }
 
-/** Saves a card as a PNG at twice its size, drawn from its SVG. */
 export function SaveCard({ load, file, label = "Save the card" }: { load: () => Promise<string>; file: string; label?: string }) {
   const toast = useToast();
   const save = async () => {

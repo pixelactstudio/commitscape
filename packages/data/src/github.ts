@@ -1,13 +1,8 @@
-/** A GitHub repository, as a link or `owner/name` names it. */
 export type RepoName = { owner: string; name: string };
 
 const PART = /^[A-Za-z0-9_.-]{1,100}$/;
 
-/**
- * Reads `https://github.com/owner/name`, `github.com/owner/name/tree/main`,
- * `git@github.com:owner/name.git` or plain `owner/name`. Anything else, a
- * link to another host say, is `null`.
- */
+/** A GitHub repository's owner and name from a link or `owner/name`. */
 export function parseGitHub(input: string): RepoName | null {
   let text = input.trim();
   text = text.replace(/^git@github\.com:/i, "");

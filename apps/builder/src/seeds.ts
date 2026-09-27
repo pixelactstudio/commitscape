@@ -1,44 +1,34 @@
-/**
- * The Leaderboards' seed list (IDEA.md): the most starred repositories in
- * each language, from GitHub's search, sent to the Site, which answers
- * with that night's Builds within the budget. The Builder runs them like
- * any Build, then asks the Site to write the boards.
- */
-import { SIGNATURE, sign, type BuildRequest } from "@commitscape/data";
-import type { Config } from "./config";
-import { twice } from "./site";
+import { and, desc, eq, sql } from "drizzle-orm";
+import { busy, now, PRIORITY, queueBuild, REPORT_FOR, repoId, schema, type Db, type Queue } from "@commitscape/server";
+import type { Env } from "./config";
+
+const { builds, repositories } = schema;
 
 export type SeedConfig = {
-  /** Languages, as GitHub names them. */
   languages: string[];
-  /** Repositories per language. */
   perLanguage: number;
-  /** Builds a night. */
   budget: number;
-  /** GitHub's API, and a token for its search limits (optional). */
   api: string;
   token: string | undefined;
-  /** Whether to wait out GitHub's search limit (tests do not). */
   wait?: boolean;
 };
 
-export function seedConfig(): SeedConfig {
+export function seedConfig(env: Env): SeedConfig {
   return {
-    languages: (process.env.SEED_LANGUAGES ?? "JavaScript,TypeScript,Python,Go,Rust,Java,C,C++,Ruby")
-      .split(",")
+    languages: env.SEED_LANGUAGES.split(",")
       .map((l) => l.trim())
       .filter(Boolean),
-    perLanguage: Number(process.env.SEED_PER_LANGUAGE ?? 10),
-    budget: Number(process.env.SEED_BUDGET ?? 50),
-    api: (process.env.GITHUB_API ?? "https://api.github.com").replace(/\/$/, ""),
-    token: process.env.GITHUB_TOKEN || undefined,
+    perLanguage: env.SEED_PER_LANGUAGE,
+    budget: env.SEED_BUDGET,
+    api: env.GITHUB_API.replace(/\/$/, ""),
+    token: env.GITHUB_TOKEN,
     wait: true,
   };
 }
 
 export type Seed = { owner: string; name: string; language: string; stars: number; sizeKb: number };
 
-/** The most starred, not archived, not forks, per language. */
+/** The most starred repositories per language, from GitHub's search. */
 export async function seedList(s: SeedConfig, fetcher: typeof fetch = fetch): Promise<Seed[]> {
   const out: Seed[] = [];
   for (const language of s.languages) {
@@ -47,9 +37,6 @@ export async function seedList(s: SeedConfig, fetcher: typeof fetch = fetch): Pr
       fetcher(`${s.api}/search/repositories?q=${q}&sort=stars&order=desc&per_page=${s.perLanguage}`, {
         headers: { accept: "application/vnd.github+json", "user-agent": "commitscape-builder", ...(s.token ? { authorization: `Bearer ${s.token}` } : {}) },
       });
-    // GitHub's search allows 10 requests a minute without a token, 30 with
-    // one, and refuses bursts too: keep under it, and past it wait for the
-    // time it says, up to three times.
     if (out.length > 0 && s.wait) await pause(s.token ? 2500 : 7000);
     let answer = await ask();
     for (let tries = 0; tries < 3 && (answer.status === 403 || answer.status === 429); tries++) {
@@ -72,29 +59,30 @@ function pause(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-/** Sends the list to the Site; its answer is the night's Builds. */
-export async function askForSeeds(cfg: Config, s: SeedConfig, list: Seed[], fetcher: typeof fetch = fetch): Promise<BuildRequest[]> {
-  const body = JSON.stringify({ repos: list, budget: s.budget });
-  // Tried again once on a dropped connection or a 5xx: Builds the first try
-  // queued are busy on the second, never started twice.
-  const answer = await twice(async () =>
-    fetcher(`${cfg.site}/api/seeds`, {
-      method: "POST",
-      headers: { "content-type": "application/json", [SIGNATURE]: await sign(cfg.secret, "POST", "/api/seeds", body) },
-      body,
-    }),
-  );
-  if (!answer.ok) throw new Error(`the Site answered /api/seeds with ${answer.status}: ${await answer.text()}`);
-  return ((await answer.json()) as { builds: BuildRequest[] }).builds;
-}
-
-/** Asks the Site to write the boards now. */
-export async function writeBoards(cfg: Config, fetcher: typeof fetch = fetch): Promise<void> {
-  const answer = await twice(async () =>
-    fetcher(`${cfg.site}/api/leaderboards/write`, {
-      method: "POST",
-      headers: { [SIGNATURE]: await sign(cfg.secret, "POST", "/api/leaderboards/write", "") },
-    }),
-  );
-  if (!answer.ok) throw new Error(`the Site did not write the boards: ${answer.status}`);
+/** Marks the list as Leaderboard seeds and queues tonight's Builds within the budget. */
+export async function queueSeeds(db: Db, queue: Queue, list: Seed[], budget: number): Promise<number> {
+  const valid = list.filter((r) => repoId(r.owner, r.name)).slice(0, 500);
+  for (const r of valid) {
+    const fields = { seed: true, language: r.language, stars: r.stars, sizeKb: r.sizeKb };
+    await db
+      .insert(repositories)
+      .values({ id: repoId(r.owner, r.name) ?? "", owner: r.owner, name: r.name, ...fields })
+      .onConflictDoUpdate({ target: repositories.id, set: fields });
+  }
+  const due = await db
+    .select()
+    .from(repositories)
+    .where(and(eq(repositories.seed, true), eq(repositories.isPrivate, false)))
+    .orderBy(sql`coalesce(${repositories.reportAt}, 0)`)
+    .limit(budget * 2);
+  let queued = 0;
+  for (const row of due) {
+    if (queued >= budget) break;
+    if (row.reportAt && row.reportAt > now() - REPORT_FOR) continue;
+    const [last] = await db.select().from(builds).where(eq(builds.repoId, row.id)).orderBy(desc(builds.requestedAt)).limit(1);
+    if (busy(last)) continue;
+    await queueBuild(db, queue, row.id, PRIORITY.seed);
+    queued++;
+  }
+  return queued;
 }

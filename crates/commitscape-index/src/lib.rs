@@ -1,8 +1,3 @@
-//! Turns a git repository into a [`commitscape_core::Index`], and caches it.
-//!
-//! This is the only crate in the workspace that knows git exists. Everything
-//! above it sees plain data (ADR-0001).
-
 pub mod build;
 pub mod cache;
 mod classify;
@@ -35,10 +30,7 @@ pub use source::{
 
 use commitscape_core::Index;
 
-/// Indexes a repository from scratch, history and HEAD, without a cache.
-///
-/// Generic over [`RepoSource`] so the same path is exercised by the real gix
-/// adapter and by the scripted fake.
+/// Builds an Index by walking a repository's whole history.
 pub fn index_from_scratch<S: RepoSource>(source: &S) -> Result<Index, S::Error> {
     let mut index = index_incremental(source, &Frontier::default())?;
     index.head = head_pass::head_pass(source, &index.paths, None)?.files;
@@ -46,7 +38,6 @@ pub fn index_from_scratch<S: RepoSource>(source: &S) -> Result<Index, S::Error> 
     Ok(index)
 }
 
-/// Indexes everything reachable that is not already `indexed`.
 pub fn index_incremental<S: RepoSource>(
     source: &S,
     indexed: &dyn Indexed,
@@ -58,11 +49,6 @@ pub fn index_incremental<S: RepoSource>(
     Ok(builder.finish(identity, tips, stats.history_truncated))
 }
 
-/// Re-resolves an existing index's people.
-///
-/// Commits store the signature they were made under, not a resolved person,
-/// so a `.mailmap` edit, a GitHub link or an undo changes a small table and
-/// never re-reads history.
 pub fn reresolve_authors(index: &mut Index, rules: &IdentityRules) {
     let (signatures, used) = std::mem::take(&mut index.authors).into_signatures();
     index.authors = resolve_authors(signatures, used, rules);

@@ -1,0 +1,14 @@
+.git
+**/node_modules
+**/.output
+**/dist
+**/.turbo
+**/.env
+**/test-results
+**/playwright-report
+target
+fixtures
+bench-results
+docs
+.scratch
+.idea

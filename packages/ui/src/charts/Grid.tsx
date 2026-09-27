@@ -1,15 +1,9 @@
-/**
- * Counts in a grid of cells, darker for more: the week by hour, and a
- * person's days as a calendar. Four steps of one hue, and an empty cell
- * for none, with the steps' ranges in the legend.
- */
 import { day, grouped } from "../format";
 import { ramp } from "../theme";
 import { TableView } from "./common";
 import { ranges, useWidth } from "./scale";
 import { useTip } from "./tip";
 
-/** The four steps' upper bounds: quarters of the largest count. */
 function steps(max: number): number[] {
   if (max <= 4) return [1, 2, 3, 4].map((s) => Math.min(s, max));
   return [1, 2, 3, 4].map((s) => Math.ceil((max * s) / 4));
@@ -45,7 +39,6 @@ function RampLegend({ bounds, unit }: { bounds: number[]; unit: string }) {
 
 const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
-/** Commits by weekday and hour, on each author's own clock. */
 export function WeekGrid({ week }: { week: number[][] }) {
   const tip = useTip();
   const [ref, width] = useWidth<HTMLDivElement>();
@@ -99,13 +92,11 @@ export function WeekGrid({ week }: { week: number[][] }) {
   );
 }
 
-/** A person's commits a day, a column a week, Monday at the top. */
 export function Calendar({ firstDay, days }: { firstDay: number; days: number[] }) {
   const tip = useTip();
   const [ref, width] = useWidth<HTMLDivElement>();
   const max = Math.max(0, ...days);
   const bounds = steps(max);
-  // Days since the epoch: day 0 was a Thursday, so Monday is (d + 3) % 7.
   const weekday = (d: number) => (d + 3) % 7;
   const offset = weekday(firstDay);
   const weeks = Math.ceil((days.length + offset) / 7);

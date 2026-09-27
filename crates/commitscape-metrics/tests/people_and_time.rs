@@ -1,6 +1,3 @@
-//! Staleness, Ownership, Bus Factor, Code Age and the suspected-duplicates
-//! hint, over hand-built indexes whose values are worked out in the comments.
-
 #![allow(clippy::expect_used)]
 
 mod support;
@@ -23,9 +20,6 @@ fn path(idx: &commitscape_core::Index, file: commitscape_core::FileId) -> String
 
 #[test]
 fn staleness_puts_every_file_in_an_age_bucket() {
-    // Anchored at day 400. Last touched: week.rs day 399 (1 day ago),
-    // month.rs day 380 (20), quarter.rs day 320 (80), year.rs day 100 (300),
-    // older.rs day 0 (400).
     let idx = index(
         &[
             c(0, "a@x.org", &["older.rs"]),
@@ -69,8 +63,6 @@ fn staleness_puts_every_file_in_an_age_bucket() {
 
 #[test]
 fn a_staleness_bucket_lists_its_own_files_stalest_first() {
-    // Anchored at day 400. The Year bucket holds year.rs (300 days) and
-    // later.rs (200 days); older.rs (400) and week.rs (1) are in others.
     let idx = index(
         &[
             c(0, "a@x.org", &["older.rs"]),
@@ -102,9 +94,6 @@ fn a_staleness_bucket_lists_its_own_files_stalest_first() {
 
 #[test]
 fn staleness_counts_bulk_commits_and_merge_resolutions() {
-    // Days 0 and 1 touch a.rs normally; day 5 is a bulk commit (four files at
-    // a threshold of three) and day 6 a merge resolving b.rs. A file that was
-    // touched was touched.
     let idx = index(
         &[
             c(0, "a@x.org", &["a.rs", "b.rs"]),
@@ -132,8 +121,6 @@ fn staleness_counts_bulk_commits_and_merge_resolutions() {
     assert_eq!(last("b.rs"), Some(EPOCH + 6 * DAY));
 }
 
-/// alpha/: Alice 9 commits, Bob 1. beta/: Carol 5, Bob 5.
-/// gamma/: Dave 6, Erin 3, Frank 1.
 fn team() -> commitscape_core::Index {
     let mut commits = Vec::new();
     for day in 0..9 {
@@ -153,8 +140,6 @@ fn team() -> commitscape_core::Index {
         commits.push(c(day, "erin@x.org", &["gamma/h.rs"]));
     }
     commits.push(c(29, "frank@x.org", &["gamma/h.rs"]));
-    // None of these may count: a merge, a bulk commit, and a commit that
-    // only touched a lockfile.
     commits.push(merge(30, "bot@x.org", &["alpha/f.rs"]));
     commits.push(c(
         31,
@@ -196,27 +181,20 @@ fn ownership_is_commit_weighted_per_directory_and_bus_factor_follows_the_80_perc
             .collect()
     };
 
-    // alpha/: 9 of 10 is 90%, over the line on its own.
     assert_eq!(
         shares("alpha/"),
         vec![("alice@x.org".into(), 9), ("bob@x.org".into(), 1)]
     );
     assert_eq!(dir("alpha/").commits, 10);
     assert_eq!(dir("alpha/").bus_factor, 1);
-    // beta/: 50/50. Neither alone is over 80%; together they are.
     assert_eq!(dir("beta/").bus_factor, 2);
-    // gamma/: 60/30/10. 60% alone is not over the line, 90% is.
     assert_eq!(dir("gamma/").bus_factor, 2);
-    // The root holds all 30 counted commits: Alice 9, Bob 6, Dave 6, Carol 5,
-    // Erin 3, Frank 1. 9+6+6+5 = 26 is 86.7%, the first over 80%.
     assert_eq!(dir("").commits, 30);
     assert_eq!(dir("").bus_factor, 4);
 }
 
 #[test]
 fn a_files_owners_are_who_made_its_counted_commits() {
-    // alpha/f.rs: Alice 9 and Bob 1. The bot's merge and bulk commit touched
-    // it too, and count for neither.
     let idx = team();
     let a = Analysis::new(&idx, Window::all(EPOCH + 40 * DAY), options()).expect("covered");
     let file = idx.paths.get(b"alpha/f.rs").expect("the file exists");
@@ -253,10 +231,6 @@ fn directories_with_too_few_commits_are_not_reported() {
 
 #[test]
 fn ownership_counts_every_directory_even_past_the_ranking_limit() {
-    // 1,001 directories, each with one commit by its own person: each is held
-    // by one person. The root holds all 1,001 commits, one each, so it takes
-    // 801 people to pass 80%. The ranking keeps 1,000 rows; the counts cover
-    // all 1,002 directories.
     let paths: Vec<String> = (0..1001).map(|i| format!("d{i:04}/f.rs")).collect();
     let people: Vec<String> = (0..1001).map(|i| format!("p{i}@x.org")).collect();
     let touched: Vec<[&str; 1]> = paths.iter().map(|p| [p.as_str()]).collect();
@@ -281,9 +255,6 @@ fn ownership_counts_every_directory_even_past_the_ranking_limit() {
 
 #[test]
 fn code_age_counts_each_code_files_lines_in_the_quarter_it_appeared() {
-    // 2024-01-01 is day 0: q1.rs appears in 2024 Q1, q2.rs on day 100
-    // (2024-04-10, Q2), and q2b.rs on day 120 (2024-04-30, Q2). The README is
-    // prose, not code.
     let idx = index(
         &[
             c(0, "a@x.org", &["q1.rs", "README.md"]),
@@ -305,7 +276,6 @@ fn code_age_counts_each_code_files_lines_in_the_quarter_it_appeared() {
         .collect();
     assert_eq!(age, vec![(2024, 1, 100, 1), (2024, 2, 50, 2)]);
 
-    // Behind 2024 Q2's 50 lines: q2.rs with 30 and q2b.rs with 20.
     let files: Vec<(String, u32)> = a
         .code_age_files(2024, 2)
         .iter()
@@ -317,8 +287,6 @@ fn code_age_counts_each_code_files_lines_in_the_quarter_it_appeared() {
 
 #[test]
 fn suspected_duplicates_come_with_the_mailmap_lines_that_would_join_them() {
-    // Two signatures with the same name and different emails: surfaced, not
-    // merged. The suggestion keeps the one with more commits.
     let idx = index_with_suspects(
         &[
             c(0, "Dana Dev <dana@home.example>", &["a.rs"]),
@@ -346,9 +314,6 @@ fn suspected_duplicates_come_with_the_mailmap_lines_that_would_join_them() {
 
 #[test]
 fn bots_are_left_out_of_the_people_and_listed_on_their_own() {
-    // alpha/: Alice 3 commits, dependabot 5. Without the bot Alice holds all
-    // of alpha/, so its bus factor is 1 and she is its only owner. The bot's
-    // five commits still happened: the Pulse counts all eight.
     let idx = index(
         &[
             c(1, "alice@x.org", &["alpha/a.rs"]),
@@ -394,11 +359,6 @@ fn bots_are_left_out_of_the_people_and_listed_on_their_own() {
 
 #[test]
 fn a_folder_held_by_one_person_hides_its_subfolders_held_by_the_same_person() {
-    // app/marketing/: Dev 9 of 10 commits (90%), bus factor 1; its src/
-    // subfolder, 8 of 8 (100%), also Dev's: shown once, as the top folder.
-    // app/api/: Ann 10 of 11 (91%); app/api/v2/, 1 of 1, Bob's: a
-    // different person, so both are listed. app/: Dev 9, Pat 1, Ann 10 and
-    // Bob 1 of 21, bus factor 2, so not listed at all.
     let mut commits = Vec::new();
     for day in 0..8 {
         commits.push(c(day, "dev@x.org", &["app/marketing/src/page.ts"]));
@@ -431,10 +391,6 @@ fn a_folder_held_by_one_person_hides_its_subfolders_held_by_the_same_person() {
 
 #[test]
 fn what_someone_works_on_leaves_out_manifests_and_lockfiles() {
-    // Dev touched package.json in every one of four commits, Cargo.toml and
-    // go.mod in one each: dependency bumps, not work on the code. What is
-    // left is src/app.ts, three commits, and src/lib.rs, one. (No commit
-    // passes the three-file bulk line.)
     let idx = index(
         &[
             c(0, "dev@x.org", &["package.json", "src/app.ts"]),
@@ -469,12 +425,6 @@ fn what_someone_works_on_leaves_out_manifests_and_lockfiles() {
 
 #[test]
 fn a_folder_only_one_person_touched_names_who_could_take_it_over() {
-    // Dev 12 commits in app/billing/, Ann 8 in app/api/, Bob 10 in lib/.
-    // Each of those folders has one person. app/ has Dev 12 and Ann 8, the
-    // root all three. Whoever else made the most commits in the nearest
-    // folder around a silo with more than one person could take it over:
-    // app/billing/ -> Ann (8 in app/), app/api/ -> Dev (12 in app/),
-    // lib/ -> Dev (12 in the whole project). Largest first.
     let mut commits = Vec::new();
     for day in 0..12 {
         commits.push(c(day, "dev@x.org", &["app/billing/x.ts"]));

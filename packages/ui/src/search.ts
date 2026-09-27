@@ -1,23 +1,13 @@
-/**
- * Searching the Commit List (ADR-0019): every word typed must appear, in
- * any case, in a commit's subject or in the name, login or address of the
- * person who made it; filters narrow by person, time and Commit Kind. Plain
- * loops over prepared lowercase text, so 25,000 commits take a few
- * milliseconds; above 50,000 it runs in a Web Worker (`searcher.ts`).
- */
 import type { CommitList } from "@commitscape/data";
 
 export type Query = {
   text: string;
-  /** People by their place in the list's `people`, or none for everyone. */
   person?: number;
-  /** Seconds since the epoch, inclusive. */
   from?: number;
   to?: number;
   kind?: number;
 };
 
-/** A list made ready to search: its text lowercased once. */
 export type Prepared = {
   subjects: string[];
   who: string[];
@@ -39,7 +29,6 @@ export function prepare(list: Pick<CommitList, "subjects" | "people" | "person" 
   };
 }
 
-/** The rows that match, in the list's order (newest first). */
 export function search(p: Prepared, q: Query): Int32Array {
   const words = q.text.toLowerCase().split(/\s+/).filter(Boolean);
   const out = new Int32Array(p.subjects.length);

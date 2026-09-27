@@ -1,13 +1,16 @@
 name: CI
 
-# Build and test only. Publishing is deliberately not here: ADR-0003 describes a
-# release that must publish six platform packages before the package that
-# depends on them, and that ordering is not something to bolt onto a push hook.
-
 on:
   push:
     branches: [main]
   pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -22,15 +25,14 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
+          toolchain: stable
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       - name: Configure git for fixture generation
-        # The fixture generator stamps its own authors and dates, but git
-        # refuses to commit at all without some identity configured.
         run: |
           git config --global user.name "commitscape ci"
           git config --global user.email "ci@example.invalid"
@@ -40,8 +42,6 @@ jobs:
         run: cargo xtask fixtures --force
 
       - name: Check the walk against git
-        # The walk computes its own tree diffs, including git's combined diff
-        # for merges. Every fixture commit must match `git diff-tree -c`.
         shell: bash
         run: |
           for f in linear coupling ownership renames bulk merges conflict rhythm detached shallow; do
@@ -49,9 +49,6 @@ jobs:
           done
 
       - name: Test
-        # A snapshot that differs fails the run; none is ever written here.
-        # --no-fail-fast runs every test binary, so one failure does not hide
-        # the others.
         env:
           INSTA_UPDATE: "no"
         run: cargo test --workspace --all-targets --no-fail-fast
@@ -63,11 +60,12 @@ jobs:
     name: lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
+          toolchain: stable
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       - name: Format
         run: cargo fmt --all --check
@@ -76,23 +74,36 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Layering
-        # ADR-0001's seam is only real if the metrics crate genuinely cannot
-        # reach gix. This asserts it on every push.
         run: cargo xtask check-layering
 
-  web:
-    # The TypeScript workspace (ADR-0013): its checks through Turborepo,
-    # then the local page's screens in Chromium against a fixture, through
-    # the real binary.
-    name: web
+      - name: Workflows
+        uses: raven-actions/actionlint@3d39aea434753780c3b3d4a1a31c854b4dbf49d7 # v2.2.0
+
+  msrv:
+    name: minimum Rust version
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      # pnpm's version comes from package.json's packageManager.
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@ce678459e9fc7500d337468f904b95f1b5c10b5e # 1.98
+        with:
+          toolchain: "1.98"
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - run: cargo +1.98 check --workspace --all-targets --locked
+
+  web:
+    name: web
+    runs-on: ubuntu-latest
+    env:
+      TEST_DATABASE_URL: postgres://commitscape:commitscape@localhost:5434/commitscape
+      TEST_S3_ENDPOINT: http://localhost:9100
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
           cache: pnpm
@@ -103,31 +114,113 @@ jobs:
           git config --global user.email "ci@example.invalid"
           git config --global init.defaultBranch main
 
+      - name: Postgres and S3
+        run: |
+          docker compose -f compose.dev.yaml up -d --wait
+
       - name: Typecheck, lint, test and build
         run: |
           pnpm install --frozen-lockfile
           pnpm check
 
-      - name: Build the binary, with the web app inside, and the fixtures
+      - name: Every schema change has its migration
+        run: |
+          pnpm db:generate
+          if [ -n "$(git status --porcelain packages/server/drizzle)" ]; then
+            git status --porcelain packages/server/drizzle
+            echo "::error::The schema changed without a migration: run pnpm db:generate and commit it."
+            exit 1
+          fi
+
+      - name: Build the binary and the fixtures
         run: |
           cargo xtask fixtures --force
           cargo build --release -p commitscape
 
-      - name: The screens, end to end
-        working-directory: apps/local
+      - name: The Site, end to end
+        working-directory: apps/site
         run: |
           pnpm exec playwright install --with-deps chromium
           pnpm e2e
 
-      - name: The Site, end to end under wrangler dev
-        # Local D1 and R2 only: nothing is deployed (ADR-0014).
-        working-directory: apps/site
-        run: pnpm e2e
+      - if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: playwright-report
+          path: apps/site/playwright-report
+          retention-days: 14
 
-      - name: The Site's API handlers stay far under 10 ms of CPU
-        working-directory: apps/site
+  coverage:
+    name: coverage
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TEST_DATABASE_URL: postgres://commitscape:commitscape@localhost:5434/commitscape
+      TEST_S3_ENDPOINT: http://localhost:9100
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: taiki-e/install-action@6db3a280da9eee4283c045c7431ab5116f1a0089 # cargo-llvm-cov
+        with:
+          tool: cargo-llvm-cov
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: |
+          git config --global user.name "commitscape ci"
+          git config --global user.email "ci@example.invalid"
+          git config --global init.defaultBranch main
+      - run: docker compose -f compose.dev.yaml up -d --wait
+      - name: Rust
         env:
-          REPORT_FILE: ${{ runner.temp }}/ownership.json.gz
+          INSTA_UPDATE: "no"
         run: |
-          ../../target/release/commitscape report --data --offline --no-cache --window all --out "$REPORT_FILE" ../../fixtures/ownership
-          pnpm exec vitest run --config scripts/vitest.config.ts
+          cargo xtask fixtures --force
+          cargo llvm-cov --workspace --exclude xtask --lcov --output-path rust.lcov
+      - name: TypeScript
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm -r --filter "./packages/*" --filter "./apps/*" exec vitest run --coverage --coverage.reporter=lcov --coverage.reportsDirectory=coverage
+      - uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5.5.5
+        with:
+          use_oidc: true
+          files: rust.lcov,packages/data/coverage/lcov.info,packages/ui/coverage/lcov.info,packages/server/coverage/lcov.info,apps/site/coverage/lcov.info,apps/builder/coverage/lcov.info
+          fail_ci_if_error: false
+
+  packages:
+    name: packages install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+      - name: crates.io
+        run: cargo publish --workspace --dry-run --locked
+      - name: npm
+        run: |
+          cargo build --profile dist -p commitscape
+          cargo xtask npm --out target/npm --repository "https://github.com/$GITHUB_REPOSITORY" --binary "linux-x64-gnu=target/dist/commitscape"
+          mkdir -p /tmp/try && cd /tmp/try && npm init -y > /dev/null
+          for dir in "$GITHUB_WORKSPACE"/target/npm/*/; do (cd "$dir" && npm pack --pack-destination /tmp/try > /dev/null); done
+          npm install --no-audit --no-fund /tmp/try/*.tgz
+          npx commitscape --version
+      - name: .deb
+        run: |
+          mkdir -p target/nfpm dist
+          install -m 755 target/dist/commitscape target/nfpm/commitscape
+          docker run --rm -u "$(id -u)" -v "$PWD":/w -w /w -e VERSION=0.0.0 -e ARCH=amd64 goreleaser/nfpm:v2.43.1 package -f packaging/nfpm.yaml -p deb -t dist/
+          sudo dpkg -i dist/*.deb
+          commitscape --version

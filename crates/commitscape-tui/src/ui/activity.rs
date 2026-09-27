@@ -1,5 +1,3 @@
-//! Activity: when the work happens, on each author's own clock.
-
 use commitscape_core::civil_from_unix;
 use commitscape_metrics::{Pulse, Span as Window, Work};
 use ratatui::layout::{Constraint, Layout, Rect};
@@ -21,8 +19,6 @@ pub(super) fn draw(app: &App, frame: &mut Frame, area: Rect) {
         return;
     };
     let p = &f.pulse;
-    // The grids need ten rows; the kinds of work as many as there are,
-    // and at least the five of the rhythm; the chart of commits the rest.
     let kinds = p
         .work
         .iter()
@@ -55,9 +51,6 @@ pub(super) fn draw(app: &App, frame: &mut Frame, area: Rect) {
     draw_rhythm(app, p, frame, rhythm);
 }
 
-/// Commits over time, each column split among the five who made the most
-/// and everyone else, in each person's colour, with a legend, and releases
-/// marked above.
 fn draw_by_person(app: &App, f: &crate::findings::Findings, frame: &mut Frame, area: Rect) {
     let p = &f.pulse;
     let inner = boxed(
@@ -141,8 +134,6 @@ fn draw_by_person(app: &App, f: &crate::findings::Findings, frame: &mut Frame, a
     );
 }
 
-/// What a column of commits over time stands for: `each bar is 7 days,
-/// the tallest 23 commits`.
 pub(super) fn caption(per: usize, most: u64) -> Line<'static> {
     Line::from(vec![
         faint(if per == 1 {
@@ -154,12 +145,8 @@ pub(super) fn caption(per: usize, most: u64) -> Line<'static> {
     ])
 }
 
-/// The height of a week-by-day grid in its box: a row of labels over seven
-/// days, and the borders.
 pub(super) const GRID_HEIGHT: u16 = 10;
 
-/// A section for a heat grid, its key in the bottom border and, on the
-/// left of it, `caption`.
 fn grid_section(
     frame: &mut Frame,
     area: Rect,
@@ -177,13 +164,11 @@ fn grid_section(
     inner
 }
 
-/// Weeks across, Monday to Sunday down, as GitHub draws a year.
 pub(super) fn draw_calendar(p: &Pulse, frame: &mut Frame, area: Rect) {
     let inner = grid_section(frame, area, "Calendar", "each square is a day", None);
     let n = p.days.len() as i64;
     let offset = (p.first_day + 3).rem_euclid(7);
     let weeks = ((offset + n) as usize).div_ceil(7);
-    // Most recent weeks first, if they do not all fit.
     let room = usize::from(inner.width.saturating_sub(5)) / 2;
     let skip = weeks.saturating_sub(room);
     let most = p.days.iter().copied().max().map_or(0, u64::from);
@@ -201,7 +186,6 @@ pub(super) fn draw_calendar(p: &Pulse, frame: &mut Frame, area: Rect) {
         .collect();
     let x = inner.x + 4;
     let y = inner.y + 1;
-    // Month names over the week each month starts in.
     let buf = frame.buffer_mut();
     let mut free = x;
     for (k, w) in (skip..weeks).enumerate() {
@@ -228,7 +212,6 @@ pub(super) fn draw_calendar(p: &Pulse, frame: &mut Frame, area: Rect) {
     charts::heat_grid(buf, grid, &columns, most);
 }
 
-/// Years down, months across: all of history on one screen.
 fn draw_years(p: &Pulse, frame: &mut Frame, area: Rect) {
     let inner = grid_section(frame, area, "By month", "each square is a month", None);
     let mut months: Vec<((i64, u32), u64)> = Vec::new();
@@ -295,7 +278,6 @@ fn full_weekday(day: usize) -> &'static str {
     NAMES.get(day).copied().unwrap_or("")
 }
 
-/// Weekdays down, hours across: when the team works.
 pub(super) fn draw_week(p: &Pulse, frame: &mut Frame, area: Rect) {
     let caption = match (p.busiest_weekday(), p.busiest_hour()) {
         (Some(d), Some(h)) => Some(Line::from(vec![
@@ -375,7 +357,6 @@ fn draw_kinds(p: &Pulse, frame: &mut Frame, area: Rect) {
     kinds.sort_by_key(|k| std::cmp::Reverse(k.1));
     let most = kinds.first().map_or(0, |k| k.1);
     let bar_width = inner.width.saturating_sub(26).max(4);
-    // When they do not all fit, the last row names the rest.
     let rows = usize::from(inner.height).saturating_sub(usize::from(unclassified > 0));
     let shown = if kinds.len() > rows {
         rows.saturating_sub(1)
@@ -468,7 +449,6 @@ fn draw_rhythm(app: &App, p: &Pulse, frame: &mut Frame, area: Rect) {
     frame.render_widget(Paragraph::new(lines), inner);
 }
 
-/// What GitHub says about pull requests and issues, or why it says nothing.
 fn github_lines(app: &App) -> Vec<Line<'static>> {
     let g = match &app.github {
         GitHubState::Ready(g) => g,

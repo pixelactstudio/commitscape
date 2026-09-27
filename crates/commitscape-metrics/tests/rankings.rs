@@ -1,6 +1,3 @@
-//! Churn, hotspots and largest files, over hand-built indexes whose values are
-//! worked out in the comments.
-
 #![allow(clippy::expect_used)]
 
 mod support;
@@ -19,7 +16,6 @@ fn path(analysis_index: &commitscape_core::Index, file: commitscape_core::FileId
     analysis_index.paths.path_lossy(file)
 }
 
-/// Asserts two lists of scores match to floating-point precision.
 fn assert_scores(actual: &[f64], expected: &[f64]) {
     assert_eq!(
         actual.len(),
@@ -31,8 +27,6 @@ fn assert_scores(actual: &[f64], expected: &[f64]) {
     }
 }
 
-/// Day 0: a and b. Day 1: a. Day 2: a merge that resolved a conflict in a.
-/// Day 3: a bulk commit touching a and three more files.
 fn history() -> commitscape_core::Index {
     index(
         &[
@@ -60,7 +54,6 @@ fn churn_counts_commits_but_not_merges_or_bulk_commits() {
         .iter()
         .map(|c| (path(&idx, c.file), c.commits))
         .collect();
-    // a.rs: days 0 and 1. The merge and the four-file commit are excluded.
     assert_eq!(churn, vec![("a.rs".into(), 2), ("b.rs".into(), 1)]);
 
     let counts = a.commits();
@@ -71,8 +64,6 @@ fn churn_counts_commits_but_not_merges_or_bulk_commits() {
 
 #[test]
 fn a_window_counts_only_the_commits_inside_it() {
-    // The last two days before day 3: days 1, 2 and 3, of which only day 1
-    // counts for churn.
     let idx = history();
     let a = Analysis::new(&idx, Window::last(2, EPOCH + 3 * DAY), options(3)).expect("covered");
     let churn: Vec<(String, u32)> = a
@@ -86,10 +77,6 @@ fn a_window_counts_only_the_commits_inside_it() {
 
 #[test]
 fn a_hotspot_is_churn_percentile_times_complexity_percentile() {
-    // A file's percentile is the share of files whose value is at or below
-    // its own. Complexity is a property of the file at HEAD, ranked among
-    // every rankable file there: b 10, a 40, c 80 give 1/3, 2/3 and 1.
-    // Churn belongs to the window and is ranked among files with some.
     let idx = index(
         &[
             c(0, "a@x.org", &["a.rs", "b.rs", "c.rs"]),
@@ -99,8 +86,6 @@ fn a_hotspot_is_churn_percentile_times_complexity_percentile() {
         ],
         &[h("a.rs", 100, 40), h("b.rs", 50, 10), h("c.rs", 300, 80)],
     );
-    // Days 1 to 3: churn a 3, b 1, c 0, so a ranks 2/2 and b 1/2.
-    // a = 1 * 2/3, b = 1/2 * 1/3. c.rs was only touched on day 0.
     let a = Analysis::new(&idx, Window::last(2, EPOCH + 3 * DAY), options(50)).expect("covered");
     let hot: Vec<(String, u32, u32)> = a
         .hotspots()
@@ -115,8 +100,6 @@ fn a_hotspot_is_churn_percentile_times_complexity_percentile() {
     let scores: Vec<f64> = a.hotspots().iter().map(|s| s.score).collect();
     assert_scores(&scores, &[2.0 / 3.0, 1.0 / 6.0]);
 
-    // All history: churn c 1, b 2, a 4 rank 1/3, 2/3 and 1.
-    // a = 1 * 2/3, c = 1/3 * 1, b = 2/3 * 1/3.
     let all = Analysis::new(&idx, Window::all(EPOCH + 3 * DAY), options(50)).expect("covered");
     let order: Vec<String> = all.hotspots().iter().map(|s| path(&idx, s.file)).collect();
     assert_eq!(order, vec!["a.rs", "c.rs", "b.rs"]);
@@ -126,9 +109,6 @@ fn a_hotspot_is_churn_percentile_times_complexity_percentile() {
 
 #[test]
 fn a_hotspot_says_where_it_stands_among_the_files_it_was_ranked_with() {
-    // The history above. Days 1 to 3: churn a 3 and b 1, so among the two
-    // files with churn a is 1st and b 2nd. Complexity c 80, a 40, b 10, so
-    // among all three a is 2nd and b 3rd.
     let idx = index(
         &[
             c(0, "a@x.org", &["a.rs", "b.rs", "c.rs"]),
@@ -159,8 +139,6 @@ fn a_hotspot_says_where_it_stands_among_the_files_it_was_ranked_with() {
         ]
     );
 
-    // Files that tie share the higher place: d and e both changed twice
-    // and are both indented 5 levels.
     let tied = index(
         &[
             c(0, "a@x.org", &["d.rs", "e.rs"]),
@@ -179,13 +157,6 @@ fn a_hotspot_says_where_it_stands_among_the_files_it_was_ranked_with() {
 
 #[test]
 fn one_pathological_file_does_not_flatten_every_other_score() {
-    // rust-lang/rust has a parser stress test whose Complexity Proxy is four
-    // million, over a hundred times any real source file. Dividing by the
-    // maximum made every other score round to zero and ranked that test,
-    // changed once, first. By percentile:
-    //   churn       x 1, w 5, y 80, z 250     -> 1/4, 2/4, 3/4, 1
-    //   complexity  w 100, z 5k, y 30k, x 4M  -> 1/4, 2/4, 3/4, 1
-    //   y = 3/4 * 3/4, z = 1 * 1/2, x = 1/4 * 1, w = 2/4 * 1/4
     let mut commits = vec![c(0, "a@x.org", &["x.rs", "y.rs", "z.rs", "w.rs"])];
     for day in 1..250 {
         let touched: &[&str] = match day {
@@ -242,7 +213,6 @@ fn generated_files_never_rank_and_do_not_skew_normalisation() {
         .iter()
         .map(|s| (path(&idx, s.file), s.score))
         .collect();
-    // Only a.rs ranks, and it is the maximum of both factors: 1 * 1.
     assert_eq!(hot, vec![("a.rs".into(), 1.0)]);
     let large: Vec<String> = a.largest().iter().map(|l| path(&idx, l.file)).collect();
     assert_eq!(large, vec!["a.rs".to_string()]);

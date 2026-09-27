@@ -1,28 +1,26 @@
-/**
- * The landing page (IDEA.md, "The Site"): what commitscape is in one line,
- * a box to paste a GitHub link, the three ways to use it, and how to
- * install it. npmx.dev is the model: a big search box, calm around it.
- */
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Button } from "@astryxdesign/core/Button";
 import { Card } from "@astryxdesign/core/Card";
 import { Heading } from "@astryxdesign/core/Heading";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { parseGitHub, PRODUCT } from "@commitscape/data";
-import { Frame } from "../components/Frame";
-import { useBoards } from "./leaderboards";
+import { Frame } from "#/components/Frame";
+import { boardsQuery } from "#/lib/queries";
 
-export const Route = createFileRoute("/")({ component: Landing });
+export const Route = createFileRoute("/")({
+  loader: ({ context }) => context.queryClient.prefetchQuery(boardsQuery()),
+  component: Landing,
+});
 
-// Each one the Site can build: torvalds/linux is over the Builder's size cap.
 const EXAMPLES = ["facebook/react", "BurntSushi/ripgrep", "rust-lang/rust", "vitejs/vite"];
 
 function Landing() {
   const navigate = useNavigate();
   const [text, setText] = useState("");
   const [why, setWhy] = useState<string | null>(null);
-  const boards = useBoards();
+  const { data: boards } = useQuery(boardsQuery());
   const highlights = (boards?.boards ?? []).filter((b) => ["one_person", "active_people", "oldest_code"].includes(b.id) && b.rows.length > 0);
   const go = () => {
     const repo = parseGitHub(text);
@@ -80,7 +78,7 @@ function Landing() {
       <section className="ways">
         <Card padding={4}>
           <Heading level={2}>On your machine</Heading>
-          <p>In any git repository. It opens in your browser, or the terminal where there is none. Nothing leaves your machine.</p>
+          <p>In any git repository, in your terminal. Nothing leaves your machine.</p>
           <pre className="command">npx commitscape</pre>
         </Card>
         <Card padding={4}>

@@ -1,75 +1,82 @@
-/**
- * The Builder (ADR-0015), run on the owner's server as a systemd service
- * (DEPLOY.md): `node dist/builder.mjs`, configured by its environment.
- * `node dist/builder.mjs seed`, with the same environment, asks the running
- * Builder for the Leaderboards' Builds now rather than at `SEED_HOUR`.
- */
-import { SIGNATURE, sign } from "@commitscape/data";
-import { config } from "./config";
+import { utimes } from "node:fs/promises";
+import { BUILD_QUEUE, bossQueue, cleanup, createDb, runMigrations, s3Storage, startQueue, type BuildJob } from "@commitscape/server";
+import { configOf, loadEnv } from "./config";
+import { prune } from "./disk";
+import { runJob } from "./job";
 import { run } from "./run";
-import { askForSeeds, seedConfig, seedList, writeBoards } from "./seeds";
-import { builder } from "./server";
-import { site } from "./site";
+import { queueSeeds, seedConfig, seedList } from "./seeds";
 
-const cfg = config();
+const env = loadEnv();
+const cfg = configOf(env);
+const storage = s3Storage({
+  endpoint: env.S3_ENDPOINT,
+  bucket: env.S3_BUCKET,
+  accessKeyId: env.S3_ACCESS_KEY_ID,
+  secretAccessKey: env.S3_SECRET_ACCESS_KEY,
+  region: env.S3_REGION,
+  forcePathStyle: env.S3_FORCE_PATH_STYLE,
+});
+const app = env.GITHUB_APP_ID && env.GITHUB_APP_PRIVATE_KEY ? { appId: env.GITHUB_APP_ID, privateKey: env.GITHUB_APP_PRIVATE_KEY, api: env.GITHUB_API } : null;
 
-if (process.argv[2] === "seed") {
-  const asked = await fetch(`http://${cfg.host}:${cfg.port}/seed`, {
-    method: "POST",
-    headers: { [SIGNATURE]: await sign(cfg.secret, "POST", "/seed", "") },
-  }).catch((e: Error) => ({ ok: false, status: 0, statusText: e.message }));
-  console.log(asked.ok ? "seeding: the Builder's log says how it goes" : `the Builder did not start seeding: ${asked.status} ${asked.statusText}`);
-  process.exit(asked.ok ? 0 : 1);
-}
-
-/** The card as a PNG, for social previews, when resvg is installed. */
 async function rasterizer(): Promise<(svg: string) => Uint8Array | null> {
   try {
     const { Resvg } = await import("@resvg/resvg-js");
     return (svg) => new Resvg(svg, { fitTo: { mode: "width", value: 1200 }, font: { loadSystemFonts: true } }).render().asPng();
   } catch {
-    console.log("no @resvg/resvg-js here: cards are uploaded as SVG");
+    console.log("no @resvg/resvg-js here: cards are stored as SVG");
     return () => null;
   }
 }
 
-let seeding = false;
-/** The night's seeds: GitHub's search, the Site's budget, the Builds, then the boards. */
-async function seed() {
-  if (seeding) return;
-  seeding = true;
-  const started = Date.now();
+async function work() {
+  await runMigrations(env.DATABASE_URL, env.MIGRATIONS_DIR);
+  const { db, pool } = createDb(env.DATABASE_URL, cfg.concurrency + 2);
+  const boss = await startQueue(env.DATABASE_URL, { worker: true, expireInSeconds: cfg.timeLimit + 300 });
+  const png = await rasterizer();
+  await boss.work<BuildJob>(BUILD_QUEUE, { localConcurrency: cfg.concurrency, batchSize: 1 }, async ([job]) => {
+    if (!job) return;
+    await runJob(job.data.buildId, { db, storage, cfg, app, run, png, log: console.log });
+    await utimes(cfg.work, new Date(), new Date()).catch(() => {});
+    for (const p of await prune(cfg.work, cfg.diskGb * 1024 ** 3)) console.log(`pruned ${p}`);
+  });
+  console.log(`builder working, ${cfg.concurrency} Build${cfg.concurrency > 1 ? "s" : ""} at a time; clones in ${cfg.work}`);
+  const stop = async () => {
+    console.log("builder stopping");
+    await boss.stop({ graceful: true, timeout: 30_000 });
+    await pool.end();
+    process.exit(0);
+  };
+  process.once("SIGTERM", () => void stop());
+  process.once("SIGINT", () => void stop());
+}
+
+async function once(what: string) {
+  const { db, pool } = createDb(env.DATABASE_URL, 2);
   try {
-    const s = seedConfig();
-    const list = await seedList(s);
-    const builds = await askForSeeds(cfg, s, list);
-    console.log(`seeds: ${list.length} from GitHub's search, ${builds.length} to build tonight`);
-    for (const b of builds) b1.enqueue(b);
-    await b1.idle();
-    await writeBoards(cfg);
-    console.log(`seeds: done in ${((Date.now() - started) / 1000).toFixed(0)} s; the boards are written`);
-  } catch (e) {
-    console.log(`seeds: ${(e as Error).message}`);
+    if (what === "cleanup") {
+      console.log("cleanup:", JSON.stringify(await cleanup(db, storage)));
+    } else if (what === "seed") {
+      const s = seedConfig(env);
+      const list = await seedList(s);
+      const boss = await startQueue(env.DATABASE_URL, { worker: false });
+      const queued = await queueSeeds(db, bossQueue(boss), list, s.budget);
+      await boss.stop();
+      console.log(`seeds: ${list.length} from GitHub's search, ${queued} queued`);
+    }
   } finally {
-    seeding = false;
+    await pool.end();
   }
 }
 
-const b1 = builder(cfg, { run, site: site(cfg.site, cfg.secret), png: await rasterizer() }, console.log, () => void seed());
-b1.server.listen(cfg.port, cfg.host, () => {
-  console.log(`builder listening on http://${cfg.host}:${cfg.port}, one Build at a time${cfg.concurrency > 1 ? ` (${cfg.concurrency})` : ""}; clones in ${cfg.work}`);
-});
-
-// Once a night, at SEED_HOUR (UTC; 3 unless set, "off" for never).
-const hour = process.env.SEED_HOUR ?? "3";
-if (hour !== "off") {
-  let last = "";
-  setInterval(() => {
-    const now = new Date();
-    const day = now.toISOString().slice(0, 10);
-    if (now.getUTCHours() === Number(hour) && last !== day) {
-      last = day;
-      void seed();
-    }
-  }, 60_000);
+const command = process.argv[2] ?? "work";
+if (command === "migrate") {
+  await runMigrations(env.DATABASE_URL, env.MIGRATIONS_DIR);
+  console.log("migrations applied");
+} else if (command === "cleanup" || command === "seed") {
+  await once(command);
+} else if (command === "work") {
+  await work();
+} else {
+  console.error(`unknown command ${command}: work, seed, cleanup or migrate`);
+  process.exit(2);
 }

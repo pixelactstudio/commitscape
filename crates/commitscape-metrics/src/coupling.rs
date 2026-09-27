@@ -1,6 +1,3 @@
-//! Change Coupling, and the changeset sizes the Bulk Commit threshold is
-//! chosen from.
-
 use std::collections::HashMap;
 
 use commitscape_core::FileId;
@@ -8,57 +5,34 @@ use serde::Serialize;
 
 use crate::analysis::{counts, top, Analysis};
 
-/// Two files that changed in the same commits.
-///
-/// `first` and `second` are in path order. The Jaccard degree is symmetric;
-/// the two conditional probabilities say which way the dependence runs.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct CoupledPair {
     pub first: FileId,
     pub second: FileId,
-    /// Commits in the Window that changed both.
     pub both: u32,
-    /// Commits in the Window that changed `first`.
     pub first_commits: u32,
-    /// Commits in the Window that changed `second`.
     pub second_commits: u32,
-    /// `both` over the commits that changed either.
     pub jaccard: f64,
-    /// How often `first` changed when `second` did: `both / second_commits`.
     pub first_given_second: f64,
-    /// How often `second` changed when `first` did: `both / first_commits`.
     pub second_given_first: f64,
-    /// The two live in different directories, which is where coupling is a
-    /// surprise rather than an expectation.
     pub cross_directory: bool,
 }
 
-/// Change Coupling over the Window.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Coupling {
-    /// The fewest commits a file needed in the Window to be considered.
     pub support: u32,
-    /// Files that met it.
     pub files: u32,
-    /// Distinct pairs that changed together at least once: the size of the
-    /// pair map, before any ranking.
     pub pair_count: u64,
-    /// Highest Jaccard degree first, then most shared commits.
     pub pairs: Vec<CoupledPair>,
 }
 
-/// How many commits fell in one range of changeset sizes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct SizeBucket {
-    /// Smallest changeset size in the range.
     pub from: u32,
-    /// Largest changeset size in the range; `u32::MAX` for the last.
     pub to: u32,
     pub commits: u32,
 }
 
-/// The distribution of changeset sizes over the Window's non-merge commits:
-/// what the Bulk Commit threshold is chosen from.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ChangesetSizes {
     pub commits: u32,
@@ -69,17 +43,9 @@ pub struct ChangesetSizes {
     pub max: u32,
 }
 
-/// The upper bound of each histogram range; each range starts one past the
-/// previous bound.
 const BOUNDS: [u32; 12] = [0, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, u32::MAX];
 
 impl Analysis<'_> {
-    /// Files that change together (ADR-0002's pair map).
-    ///
-    /// Files people wrote, at HEAD, with at least `coupling_support` commits in
-    /// the Window, are counted; every pair a counted commit touched is a
-    /// candidate. The support prune comes first, so a large repository's
-    /// thousands of rarely-changed files never generate pairs.
     pub fn coupling(&self) -> Coupling {
         let index = self.index();
         let options = self.options();
@@ -160,8 +126,6 @@ impl Analysis<'_> {
         }
     }
 
-    /// How many files the Window's non-merge commits touched, as a histogram
-    /// and a few percentiles.
     pub fn changeset_sizes(&self) -> ChangesetSizes {
         let mut sizes: Vec<u32> = self
             .window_commits()
@@ -179,7 +143,6 @@ impl Analysis<'_> {
             from = to.saturating_add(1);
         }
         let at = |p: f64| -> u32 {
-            // Nearest rank: the smallest size at or above a share p of commits.
             let rank = (p * sizes.len() as f64).ceil() as usize;
             sizes.get(rank.saturating_sub(1)).copied().unwrap_or(0)
         };
@@ -202,7 +165,6 @@ fn ratio(part: u32, whole: u32) -> f64 {
     }
 }
 
-/// The directory part of a path, including its final `/`.
 fn directory(path: Option<&[u8]>) -> &[u8] {
     let path = path.unwrap_or_default();
     match path.iter().rposition(|&b| b == b'/') {
@@ -211,34 +173,21 @@ fn directory(path: Option<&[u8]>) -> &[u8] {
     }
 }
 
-/// The least Jaccard degree for two files to count as moving together in a
-/// Change Group.
 const GROUP_DEGREE: f64 = 0.5;
-/// The most files a Change Group holds.
 const GROUP_MOST: usize = 8;
 
-/// Files that change together: every two of them strongly coupled.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ChangeGroup {
-    /// Most strongly coupled first.
     pub files: Vec<FileId>,
-    /// Counted commits in the Window that changed every one of them.
     pub together: u32,
-    /// They live in more than one directory.
     pub cross_directory: bool,
 }
 
 impl Analysis<'_> {
-    /// Sets of files that move together, largest and most often first. A
-    /// file joins a group only when it is strongly coupled (a Jaccard degree
-    /// of at least a half) with every file already in it, so a chain of
-    /// pairs does not become one group.
     pub fn change_groups(&self) -> Vec<ChangeGroup> {
         self.change_groups_in(&self.coupling())
     }
 
-    /// [`change_groups`](Self::change_groups) from Coupling already
-    /// computed.
     pub fn change_groups_in(&self, coupling: &Coupling) -> Vec<ChangeGroup> {
         let mut strong: Vec<&CoupledPair> = coupling
             .pairs
@@ -289,8 +238,6 @@ impl Analysis<'_> {
                 .rposition(|&b| b == b'/')
                 .map_or(&[][..], |i| path.get(..i).unwrap_or_default())
         };
-        // Every group's commits in one pass: a commit counts for a group
-        // when it touched all of the group's files.
         let options = self.options();
         let mut together = vec![0u32; groups.len()];
         let mut touched: std::collections::HashMap<usize, usize> = Default::default();

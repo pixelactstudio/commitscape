@@ -1,5 +1,3 @@
-//! What opens when a row is entered.
-
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
@@ -41,7 +39,6 @@ pub(super) fn draw(app: &App, frame: &mut Frame, area: Rect, opened: &mut Opened
     }
 }
 
-/// Lines in a section, scrolled by whole lines with ↑↓.
 fn scrolled(frame: &mut Frame, area: Rect, title: &str, lines: Vec<Line<'_>>, scroll: &mut usize) {
     let height = usize::from(area.height.saturating_sub(2));
     *scroll = (*scroll).min(lines.len().saturating_sub(height));
@@ -212,8 +209,6 @@ fn file(app: &App, frame: &mut Frame, area: Rect, d: &FileDetail, scroll: &mut u
     );
 }
 
-/// A person's colour from their email, matched against the Window's
-/// people; the `k`-th colour when they are not among the eight.
 fn owner_colour(app: &App, email: &str, k: usize) -> Color {
     app.index
         .authors
@@ -248,7 +243,6 @@ fn commit_lines(commits: &[CommitLine], more: usize) -> Vec<Line<'static>> {
 
 fn pair(app: &App, frame: &mut Frame, area: Rect, d: &PairDetail, scroll: &mut usize) {
     let p = d.pair;
-    // The box's inside, less its margins.
     let inside = area.width.saturating_sub(2);
     let (a_only, b_only) = (p.first_commits - p.both, p.second_commits - p.both);
     let either = a_only + p.both + b_only;
@@ -579,8 +573,6 @@ fn person(app: &App, frame: &mut Frame, area: Rect, d: &PersonDetail, scroll: &m
     scrolled(frame, held, &format!("About {first}"), lines, scroll);
 }
 
-/// Which addresses a person was joined from, and why, with the key that
-/// undoes it (ADR-0011).
 fn identities(lines: &mut Vec<Line<'static>>, d: &PersonDetail, room: usize) {
     let kept = d.traits.contains(PersonTraits::KEPT_APART);
     if d.addresses.len() < 2 && !kept {

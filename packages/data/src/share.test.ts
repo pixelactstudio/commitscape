@@ -1,8 +1,6 @@
 import { expect, test } from "vitest";
 import { base64url, deleteToken, keyOf, unbase64url, unlock } from "./share";
 
-// The vector crates/commitscape/src/share.rs's tests hold too: key 32 × 7,
-// nonce 12 × 9, plain "the report".
 const key = new Uint8Array(32).fill(7);
 const locked = unbase64url("CQkJCQkJCQkJCQkJU-3htMyVsQ7SFiW449uUXvmxSiSw7zwauAA") as Uint8Array;
 

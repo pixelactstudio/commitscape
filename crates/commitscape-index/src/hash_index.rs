@@ -1,17 +1,8 @@
-//! Byte strings to dense ids, keyed by a 64-bit hash of the bytes.
-
 use std::collections::HashMap;
 
-/// Byte strings to dense ids, keyed by a 64-bit hash of the bytes.
-///
-/// Resuming an index rebuilds this for every path it has ever seen. Keyed by
-/// owned copies that meant one allocation per path, a noticeable share of an
-/// update; keyed by hash it is one table of integers. Every hit is checked
-/// against the real bytes, so a hash collision costs a lookup, not a wrong id.
 #[derive(Default)]
 pub(crate) struct HashIndex {
     by_hash: HashMap<u64, u32>,
-    /// Entries whose hash was already taken. Practically always empty.
     collisions: Vec<(u64, u32)>,
 }
 

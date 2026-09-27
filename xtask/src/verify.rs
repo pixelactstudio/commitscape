@@ -1,14 +1,3 @@
-//! Cross-checks the history walk against git itself.
-//!
-//! The walk computes its own tree diffs, including git's combined diff for
-//! merges, so it needs an independent source of truth on real history, not
-//! only on fixtures shaped the way we expected. `git diff-tree -c` is that
-//! source: for a sample of commits, the set of paths and how each was touched
-//! must match exactly.
-//!
-//! This shells out to `git`, like the fixture generator, under the same
-//! declared exception to ADR-0001: test tooling, never product code.
-
 use std::collections::{BTreeSet, HashMap};
 use std::io::Write;
 use std::ops::ControlFlow;
@@ -20,7 +9,6 @@ use commitscape_core::Oid;
 use commitscape_index::source::{CommitSink, RawChange, RawChangeKind, RawCommit};
 use commitscape_index::{Frontier, GixRepo, RepoSource};
 
-/// `(status, path)` pairs, where status is `A`, `M` or `D`.
 type Changes = BTreeSet<(char, String)>;
 
 struct Sampler {
@@ -144,17 +132,6 @@ fn git(repo: &Path, args: &[&str]) -> Result<String> {
     String::from_utf8(out.stdout).context("git output was not UTF-8")
 }
 
-/// Runs one `git diff-tree` over every sampled commit and parses its output.
-///
-/// `-c` gives the combined diff for merges, `--root` makes root commits diff
-/// against the empty tree, and `--no-renames` reports renames as the delete and
-/// add the walk also reports. For a merge, git prints one status letter per
-/// parent; `A` from every parent is an addition, `D` from every parent a
-/// deletion, and anything else a modification.
-///
-/// Raw output carries modes, which is how submodule entries (mode 160000) are
-/// recognised and dropped: the walk skips them on purpose, because a gitlink
-/// points into another repository rather than at a file in this one.
 fn diff_tree(repo: &Path, ids: &[Oid]) -> Result<HashMap<Oid, Changes>> {
     let mut child = Command::new("git")
         .arg("-C")
@@ -186,8 +163,6 @@ fn diff_tree(repo: &Path, ids: &[Oid]) -> Result<HashMap<Oid, Changes>> {
         bail!("git diff-tree failed");
     }
 
-    // With -z, fields are NUL-separated: a commit id, then pairs of a raw
-    // header (`:modes... oids... STATUS`) and a path, until the next commit id.
     let mut result: HashMap<Oid, Changes> = HashMap::new();
     let mut current: Option<Oid> = None;
     let mut fields = out.stdout.split(|&b| b == 0).peekable();
@@ -213,7 +188,6 @@ fn diff_tree(repo: &Path, ids: &[Oid]) -> Result<HashMap<Oid, Changes>> {
         let Some(letters) = parts.last() else {
             continue;
         };
-        // Modes come first: one per parent, then the commit's own.
         let modes = parts.len().saturating_sub(1) / 2;
         let is_gitlink = |m: &&str| *m == "160000";
         let own_mode = parts.get(modes.saturating_sub(1));

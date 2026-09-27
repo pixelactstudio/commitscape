@@ -1,7 +1,3 @@
-//! `commitscape health <github-url>`: whether a project is alive and
-//! whether it depends on one person. It keeps a partial clone (history and
-//! trees, no old file contents) in the cache directory and reads that.
-
 use std::io::Write;
 use std::path::PathBuf;
 
@@ -31,6 +27,7 @@ pub struct HealthArgs {
     common: Common,
 }
 
+/// `commitscape health`: whether a GitHub project is alive and who it rests on.
 pub fn run(args: HealthArgs) -> anyhow::Result<()> {
     let remote = remote(&args.url).ok_or_else(|| {
         anyhow::anyhow!(
@@ -116,12 +113,10 @@ fn many(n: u32, one: &str, more: &str) -> String {
     }
 }
 
-/// The health in plain words: a verdict, then each number and what it is.
 fn words(
     remote: &Remote,
     h: &Health,
     archived: bool,
-    // Why GitHub's issues are not known, when they are not.
     github_why: Option<&str>,
     name: &dyn Fn(commitscape_core::AuthorId) -> String,
 ) -> String {

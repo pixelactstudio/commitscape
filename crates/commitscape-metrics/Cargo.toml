@@ -5,15 +5,13 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
 
 [lints]
 workspace = true
 
-# NOTE: this crate must never depend on commitscape-index, on gix, or on any
-# crate that pulls gix in transitively. ADR-0001 puts git behind a seam; this
-# dependency list is what makes that seam enforced by the compiler rather than
-# by code review. `cargo xtask check-layering` asserts it.
 [dependencies]
-commitscape-core = { path = "../commitscape-core" }
+commitscape-core.workspace = true
 serde = { version = "1.0.229", features = ["derive"] }
 thiserror = "2.0.20"

@@ -1,9 +1,3 @@
-/**
- * Squarified treemap layout (Bruls, Huizing and van Wijk): each item a
- * rectangle with area in proportion to its value, as close to square as
- * the rows allow.
- */
-
 export type Rect = { x: number; y: number; w: number; h: number };
 
 export function squarify<T>(items: T[], value: (t: T) => number, box: Rect): (Rect & { item: T })[] {

@@ -1,13 +1,3 @@
-//! Pure functions over an [`commitscape_core::Index`].
-//!
-//! No I/O, no git, no terminal. Every metric returns its inputs alongside its
-//! output so the presentation layer can explain any number it draws.
-//!
-//! Everything is computed by an [`Analysis`]: one Index, one Window, one set
-//! of [`Options`]. Changing the Window or a threshold means a new Analysis
-//! over the same Index, which is milliseconds; the Index itself never changes
-//! for a filter (ADR-0002).
-
 mod ages;
 mod analysis;
 mod check;

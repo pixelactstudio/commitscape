@@ -1,14 +1,9 @@
-/**
- * How the screens reach their Data Source (ADR-0013): through React
- * context, so the same screens read a local server, an inlined Report or a
- * fetched one, and never call `fetch` themselves.
- */
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext } from "react";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { key, type DataSource, type Params } from "@commitscape/data";
 
 export const SourceContext = createContext<DataSource | null>(null);
 
-/** The Data Source the page was opened with. */
 export function useSource(): DataSource {
   const source = useContext(SourceContext);
   if (!source) throw new Error("No Data Source: wrap the app in <SourceContext value={…}>.");
@@ -18,39 +13,22 @@ export function useSource(): DataSource {
 export type Loaded<T> = {
   data: T | null;
   error: string | null;
-  /** Whether what is shown is for an earlier question. */
   stale: boolean;
 };
 
-/**
- * Asks the Data Source, again whenever the question or the server's
- * generation changes, keeping the last answer on screen until the next
- * arrives. `path` null asks nothing.
- */
-export function useData<T>(path: string | null, params: Params, generation: number): Loaded<T> {
-  const source = useSource();
-  const asked = path === null ? null : key(path, params);
-  const [answer, setAnswer] = useState<{ asked: string; data: T | null; error: string | null }>({
-    asked: "",
-    data: null,
-    error: null,
-  });
-  useEffect(() => {
-    if (path === null || asked === null) return;
-    let current = true;
-    source
-      .get<T>(path, params)
-      .then((data) => current && setAnswer({ asked, data, error: null }))
-      .catch((e: Error) => current && setAnswer({ asked, data: null, error: e.message }));
-    return () => {
-      current = false;
-    };
-    // `asked` is the question: `params` is a new object every render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [asked, generation, source]);
+/** The TanStack Query options for one answer, shared by loaders and screens. */
+export function dataQuery<T>(source: DataSource, path: string, params: Params) {
   return {
-    data: answer.data,
-    error: answer.asked === asked ? answer.error : null,
-    stale: answer.asked !== asked,
+    queryKey: ["report", source.id, key(path, params)] as const,
+    queryFn: () => source.get<T>(path, params),
+    staleTime: Infinity,
+    retry: false,
   };
+}
+
+/** One answer from the Data Source, keeping the last one on screen while the next loads. */
+export function useData<T>(path: string | null, params: Params): Loaded<T> {
+  const source = useSource();
+  const q = useQuery({ ...dataQuery<T>(source, path ?? "", params), enabled: path !== null, placeholderData: keepPreviousData });
+  return { data: q.data ?? null, error: q.error ? q.error.message : null, stale: q.isPlaceholderData };
 }

@@ -1,9 +1,3 @@
-//! Automation accounts, recognised the same way wherever people are counted:
-//! a commit's author (`commitscape-index`) and an issue's first answer
-//! (`commitscape-forge`), so a bot's reply is never the project answering.
-
-/// Automation accounts that carry no `[bot]` suffix, by name, login or
-/// address, lowercased.
 pub const AUTOMATION: &[&str] = &[
     "action@github.com",
     "allcontributors",
@@ -22,8 +16,6 @@ pub const AUTOMATION: &[&str] = &[
     "snyk-bot",
 ];
 
-/// Whether a GitHub login or a git name is an automation account's by its
-/// shape: a `[bot]` or `-bot` suffix, or one of [`AUTOMATION`].
 pub fn is_bot_name(name: &str) -> bool {
     let name = name.trim().to_ascii_lowercase();
     name.ends_with("[bot]") || name.ends_with("-bot") || AUTOMATION.contains(&name.as_str())

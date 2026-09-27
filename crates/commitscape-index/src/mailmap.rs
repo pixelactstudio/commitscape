@@ -1,41 +1,14 @@
-//! `.mailmap` parsing.
-//!
-//! ADR-0006 puts git's own mechanism first, ahead of any heuristic, because a
-//! mailmap is declared by the repository's owners, versioned with the code, and
-//! inspectable by anyone who doubts a number.
-//!
-//! Parsed here rather than through `gix-mailmap` so that the trait in
-//! [`crate::source`] can return a plain type. A gix `Snapshot` crossing the
-//! seam would put a gix type in the index layer's public interface, which is
-//! precisely what ADR-0001 forbids.
-//!
-//! The four forms git defines:
-//!
-//! ```text
-//! Proper Name <proper@email>
-//! <proper@email> <commit@email>
-//! Proper Name <proper@email> <commit@email>
-//! Proper Name <proper@email> Commit Name <commit@email>
-//! ```
-
-/// One rewrite rule.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MailmapRule {
-    /// Replacement name, if the rule supplies one.
     pub proper_name: Option<Vec<u8>>,
     pub proper_email: Vec<u8>,
-    /// Name the commit must match, if the rule is name-qualified.
     pub match_name: Option<Vec<u8>>,
-    /// Email the commit must match. Matched case-insensitively, as git does.
     pub match_email: Vec<u8>,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Mailmap {
     rules: Vec<MailmapRule>,
-    /// Lowercased commit email -> indices of the rules matching it, in file
-    /// order. A large project's mailmap has a thousand rules and its history
-    /// tens of thousands of signatures, so resolving must not scan every rule.
     by_email: std::collections::HashMap<Vec<u8>, Vec<usize>>,
 }
 
@@ -48,8 +21,6 @@ impl Mailmap {
         self.rules.len()
     }
 
-    /// A stable hash of the rules, so the cache can tell when a mailmap
-    /// changed and people need re-resolving.
     pub fn fingerprint(&self) -> u64 {
         let mut h = xxhash_rust::xxh3::Xxh3::new();
         for rule in &self.rules {
@@ -72,8 +43,6 @@ impl Mailmap {
         h.digest()
     }
 
-    /// Parses mailmap file contents. Malformed lines are skipped, matching
-    /// git's own tolerance — a typo in a mailmap must not stop the tool.
     pub fn parse(bytes: &[u8]) -> Mailmap {
         let mut rules = Vec::new();
         for line in bytes.split(|&b| b == b'\n') {
@@ -96,11 +65,6 @@ impl Mailmap {
         Mailmap { rules, by_email }
     }
 
-    /// Applies the mailmap to a raw identity, returning the canonical one.
-    ///
-    /// Name-qualified rules are checked first: git resolves the most specific
-    /// match, so a rule naming both a name and an email must win over one
-    /// naming only an email.
     pub fn resolve<'a>(&'a self, name: &'a [u8], email: &'a [u8]) -> (&'a [u8], &'a [u8]) {
         let mut best: Option<&MailmapRule> = None;
         let candidates = self
@@ -156,7 +120,6 @@ fn trim(mut s: &[u8]) -> &[u8] {
     s
 }
 
-/// Splits a line into its `Name <email>` parts, in order.
 fn parse_line(line: &[u8]) -> Option<MailmapRule> {
     let mut parts: Vec<(Option<Vec<u8>>, Vec<u8>)> = Vec::new();
     let mut rest = line;
@@ -176,7 +139,6 @@ fn parse_line(line: &[u8]) -> Option<MailmapRule> {
     }
 
     match parts.len() {
-        // `Proper Name <proper@email>` — canonicalises the name for that email.
         1 => {
             let (name, email) = parts.into_iter().next()?;
             Some(MailmapRule {
@@ -186,7 +148,6 @@ fn parse_line(line: &[u8]) -> Option<MailmapRule> {
                 match_email: email,
             })
         }
-        // Either `<proper> <commit>` or `Name <proper> [Commit Name] <commit>`.
         2 => {
             let mut it = parts.into_iter();
             let (proper_name, proper_email) = it.next()?;
@@ -219,7 +180,6 @@ mod tests {
 
     #[test]
     fn maps_an_alternate_email_onto_the_canonical_identity() {
-        // This is the exact rule in the `ownership` fixture.
         let m = Mailmap::parse(b"Alice Example <alice@example.com> <alice@work.example.org>\n");
         assert_eq!(m.len(), 1);
         let (name, email) = m.resolve(b"A. Example", b"alice@work.example.org");
@@ -244,9 +204,6 @@ mod tests {
 
     #[test]
     fn name_qualified_rule_wins_over_email_only_rule() {
-        // Two people share one email; only the name distinguishes them. git
-        // resolves the more specific rule, and so must we, or one of them
-        // silently becomes the other.
         let m = Mailmap::parse(
             b"Generic Person <generic@example.com> <shared@example.com>\n\
               Specific Person <specific@example.com> Specific Name <shared@example.com>\n",

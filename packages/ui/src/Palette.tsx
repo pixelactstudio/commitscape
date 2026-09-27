@@ -1,12 +1,6 @@
-/**
- * ⌘K: jump to a screen, a person, a folder or a file. What it offers comes
- * through the Data Source like everything else, asked for when it opens:
- * the Window's people, the Map's first two levels of folders and files,
- * and the Hotspots.
- */
 import { useMemo } from "react";
 import { CommandPalette } from "@astryxdesign/core/CommandPalette";
-import type { DataSource, MapLevel, Meta, People, Risk } from "@commitscape/data";
+import type { DataSource, MapLevel, People, Risk } from "@commitscape/data";
 import { useSource } from "./data";
 import { jumpSource, type Jump } from "./jump";
 import { SCREENS, TITLES, type Route } from "./route";
@@ -15,22 +9,19 @@ import { folderOf } from "./screens/props";
 export function Palette({
   isOpen,
   onOpenChange,
-  meta,
   window,
   go,
 }: {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
-  meta: Meta;
   window: string;
   go: (change: Partial<Route>) => void;
 }) {
   const source = useSource();
-  // Asked for each time it opens, so it follows the Window and the server.
   const items = useMemo(
     () => (isOpen ? jumps(source, window) : Promise.resolve([])),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [isOpen, source, window, meta.generation],
+    [isOpen, source, window],
   );
   const searchSource = useMemo(() => jumpSource(items), [items]);
   const pick = (id: string) => {
@@ -40,7 +31,6 @@ export function Palette({
     });
     onOpenChange(false);
   };
-  // Enter with nothing highlighted takes the first match, as npmx.dev does.
   const onKeyDownCapture = (e: React.KeyboardEvent) => {
     const input = e.target as HTMLElement;
     if (e.key !== "Enter" || input.getAttribute("role") !== "combobox" || input.getAttribute("aria-activedescendant")) return;
@@ -65,7 +55,6 @@ export function Palette({
   );
 }
 
-/** Everywhere to jump to in a Window, from what the Data Source answers. */
 async function jumps(source: DataSource, window: string): Promise<Jump[]> {
   const soft = <T,>(p: Promise<T>) => p.catch(() => null);
   const [people, map, risk] = await Promise.all([

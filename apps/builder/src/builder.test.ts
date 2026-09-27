@@ -2,18 +2,11 @@ import { mkdir, mkdtemp, readdir, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { SIGNATURE, sign, type BuildOutcome, type BuildRequest } from "@commitscape/data";
 import type { Config } from "./config";
 import { prune } from "./disk";
-import { build, failure, type Deps, type Ran } from "./run";
-import { builder } from "./server";
+import { build, failure, type BuildTarget, type Deps, type Ran } from "./run";
 
-const secret = "s".repeat(40);
 const cfg = (work: string, over: Partial<Config> = {}): Config => ({
-  port: 0,
-  host: "127.0.0.1",
-  secret,
-  site: "http://site",
   bin: "commitscape",
   work,
   concurrency: 1,
@@ -24,21 +17,19 @@ const cfg = (work: string, over: Partial<Config> = {}): Config => ({
   gitBase: undefined,
   ...over,
 });
-const req = (over: Partial<BuildRequest> = {}): BuildRequest => ({
+const req = (over: Partial<BuildTarget> = {}): BuildTarget => ({
   id: "build-0001",
   owner: "acme",
   name: "rocket",
   sizeKb: 10 * 1024,
   private: false,
   token: null,
-  uploadToken: "u".repeat(32),
+  seed: false,
   ...over,
 });
 
-/** A command's `--out` file, if it has one (`health` has none). */
 const outOf = (args: string[]) => (args.includes("--out") ? args[args.indexOf("--out") + 1] : undefined);
 
-/** A Builder whose commands and Site are recorded, not real. */
 function fake(answer: (args: string[]) => Ran | Promise<Ran>) {
   const calls: string[][] = [];
   const said: string[] = [];
@@ -49,12 +40,8 @@ function fake(answer: (args: string[]) => Ran | Promise<Ran>) {
       if (out) await writeFile(out, args[0] === "card" ? "<svg/>" : "report");
       return answer(args);
     },
-    site: {
-      progress: async (id, step) => void said.push(`${id} ${step}`),
-      upload: async (id, what, bytes, type) => void said.push(`${id} ${what} ${type} ${bytes.length}`),
-      done: async (id, o) => void said.push(`${id} done ${JSON.stringify(o)}`),
-    },
     png: () => null,
+    progress: async (step) => void said.push(step),
   };
   return { deps, calls, said };
 }
@@ -69,10 +56,12 @@ test("git's and commitscape's failures in the Site's words", () => {
 test("a small repository is cloned whole, a big one partially, a huge one refused", async () => {
   const work = await mkdtemp(join(tmpdir(), "builder-"));
   const small = fake(() => ok);
-  expect(await build(req(), cfg(work), small.deps)).toMatchObject({ ok: true, lines: true, partial: false });
+  const done = await build(req(), cfg(work), small.deps);
+  expect(done).toMatchObject({ ok: true, lines: true, partial: false, card: { type: "image/svg+xml" } });
+  expect(done.ok && new TextDecoder().decode(done.report)).toBe("report");
   expect(small.calls[0]).not.toContain("--partial");
-  expect(small.calls[0]).toEqual(expect.arrayContaining(["report", "--data", "--no-emails", "acme/rocket"]));
-  expect(small.said).toEqual(["build-0001 reading", "build-0001 uploading", "build-0001 report application/gzip 6", "build-0001 card image/svg+xml 6"]);
+  expect(small.calls[0]).toEqual(expect.arrayContaining(["report", "--no-emails", "--", "acme/rocket"]));
+  expect(small.said).toEqual(["reading", "uploading"]);
 
   const big = fake(() => ok);
   expect(await build(req({ sizeKb: 150 * 1024 }), cfg(work), big.deps)).toMatchObject({ ok: true, lines: false, partial: true });
@@ -95,7 +84,6 @@ test("a Connected Repository's clone and index are deleted after its Build", asy
   const work = await mkdtemp(join(tmpdir(), "builder-"));
   const f = fake(() => ok);
   const real = f.deps.run;
-  // commitscape writes the clone and its index into the cache folder it is given.
   f.deps.run = async (cmd, args, env, t) => {
     const cache = args[args.indexOf("--cache-dir") + 1] ?? "";
     await mkdir(join(cache, "clones", "acme", "rocket"), { recursive: true });
@@ -105,14 +93,15 @@ test("a Connected Repository's clone and index are deleted after its Build", asy
   await build(req({ private: true }), cfg(work), f.deps);
   expect(f.calls[0]).toEqual(expect.arrayContaining(["--cache-dir", join(work, "private", "build-0001")]));
   expect(await readdir(join(work, "private"))).toEqual([]);
-  // A public repository's are kept for its next Build.
   await build(req(), cfg(work), f.deps);
   expect((await readdir(work)).sort()).toEqual(["0123456789abcdef", "clones", "out", "private"]);
 });
 
 test("commands see none of the Builder's secrets", async () => {
   const { run } = await import("./run");
-  process.env.BUILDER_SECRET = "a-secret-a-secret-a-secret-a-secret";
+  process.env.DATABASE_URL = "postgres://u:a-secret@db/x";
+  process.env.S3_SECRET_ACCESS_KEY = "s3-secret";
+  process.env.GITHUB_APP_PRIVATE_KEY = "app-secret";
   process.env.GITHUB_TOKEN = "ghp_secret";
   process.env.COMMITSCAPE_SETTING = "kept";
   try {
@@ -121,9 +110,13 @@ test("commands see none of the Builder's secrets", async () => {
     expect(ran.stdout).toContain("PATH=");
     expect(ran.stdout).toContain("COMMITSCAPE_SETTING=kept");
     expect(ran.stdout).not.toContain("a-secret");
+    expect(ran.stdout).not.toContain("s3-secret");
+    expect(ran.stdout).not.toContain("app-secret");
     expect(ran.stdout).not.toContain("ghp_secret");
   } finally {
-    delete process.env.BUILDER_SECRET;
+    delete process.env.DATABASE_URL;
+    delete process.env.S3_SECRET_ACCESS_KEY;
+    delete process.env.GITHUB_APP_PRIVATE_KEY;
     delete process.env.GITHUB_TOKEN;
     delete process.env.COMMITSCAPE_SETTING;
   }
@@ -139,7 +132,6 @@ test("the least recently built clones go first when the disk budget is passed", 
   }
   expect(await prune(work, 2500)).toEqual([join(work, "clones", "acme", "old")]);
   expect(await prune(work, 5000)).toEqual([]);
-  // commitscape's indexes count too, and go the same way.
   const index = join(work, "0123456789abcdef");
   await mkdir(index);
   await writeFile(join(index, "blocks"), Buffer.alloc(1000));
@@ -147,58 +139,12 @@ test("the least recently built clones go first when the disk budget is passed", 
   expect(await prune(work, 2500)).toEqual([index]);
 });
 
-test("only the Site can queue a Build, and Builds run one at a time", async () => {
+test("a name that could be read as a flag never reaches a command", async () => {
   const work = await mkdtemp(join(tmpdir(), "builder-"));
-  let running = 0;
-  let most = 0;
-  const done: BuildOutcome[] = [];
-  const f = fake(async () => {
-    running++;
-    most = Math.max(most, running);
-    await new Promise((r) => setTimeout(r, 30));
-    running--;
-    return ok;
-  });
-  f.deps.site.done = async (_id, o) => void done.push(o);
-  const { server, idle } = builder(cfg(work), f.deps, () => {});
-  await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
-  const port = (server.address() as { port: number }).port;
-  const post = async (body: string, signature?: string) =>
-    fetch(`http://127.0.0.1:${port}/builds`, { method: "POST", body, headers: signature ? { [SIGNATURE]: signature } : {} });
-  const one = JSON.stringify(req({ id: "build-0001" }));
-  expect((await post(one)).status).toBe(401);
-  expect((await post(one, await sign("wrong".repeat(8), "POST", "/builds", one))).status).toBe(401);
-  expect((await post(one, await sign(secret, "POST", "/builds", one))).status).toBe(202);
-  const two = JSON.stringify(req({ id: "build-0002" }));
-  expect((await post(two, await sign(secret, "POST", "/builds", two))).status).toBe(202);
-  const bad = JSON.stringify(req({ owner: "../etc" }));
-  expect((await post(bad, await sign(secret, "POST", "/builds", bad))).status).toBe(400);
-  const up = JSON.stringify(req({ id: "build-0003", name: ".." }));
-  expect((await post(up, await sign(secret, "POST", "/builds", up))).status).toBe(400);
-  // GitHub allows a name to start with a dot.
-  const dotted = JSON.stringify(req({ id: "build-0004", name: ".github" }));
-  expect((await post(dotted, await sign(secret, "POST", "/builds", dotted))).status).toBe(202);
-  await idle();
-  expect(done).toHaveLength(3);
-  expect(most).toBe(1);
-  server.close();
-});
-
-test("a person's Build goes ahead of the night's seeds", async () => {
-  const work = await mkdtemp(join(tmpdir(), "builder-"));
-  const f = fake(async () => {
-    await new Promise((r) => setTimeout(r, 5));
-    return ok;
-  });
-  const order: string[] = [];
-  f.deps.site.done = async (id) => void order.push(id);
-  const b = builder(cfg(work), f.deps, () => {});
-  for (const id of ["seed-0001", "seed-0002", "seed-0003"]) b.enqueue(req({ id, seed: true }));
-  b.enqueue(req({ id: "person-01" }));
-  b.enqueue(req({ id: "person-02" }));
-  await b.idle();
-  // The first seed had started; the people's come next, in their order.
-  expect(order).toEqual(["seed-0001", "person-01", "person-02", "seed-0002", "seed-0003"]);
+  const f = fake(() => ok);
+  expect(await build(req({ owner: "-o" }), cfg(work), f.deps)).toMatchObject({ ok: false, reason: "not_found" });
+  expect(await build(req({ name: ".." }), cfg(work), f.deps)).toMatchObject({ ok: false, reason: "not_found" });
+  expect(f.calls).toEqual([]);
 });
 
 test("a command past its time is stopped with everything it started", async () => {
@@ -240,7 +186,6 @@ test("a seed's Build carries the Report's numbers and how fast its issues are an
   const outcome = await build(req({ seed: true }), cfg(work), f.deps);
   expect(outcome).toMatchObject({ ok: true, stats: { ...stats, answered: 12, answer_hours: 3.5 } });
   expect(f.calls.map((c) => c[0])).toEqual(["report", "card", "health"]);
-  // Not a seed: no `health`, the Report's numbers only.
   const plain = fake(() => ok);
   await build(req(), cfg(work), plain.deps);
   expect(plain.calls.map((c) => c[0])).toEqual(["report", "card"]);
@@ -263,27 +208,4 @@ test("the seed list is the most starred per language, each once", async () => {
     { owner: "b", name: "two", language: "Rust", stars: 500, sizeKb: 20 },
   ]);
   expect(asked[0]).toContain('q=language:"Rust" archived:false fork:false&sort=stars&order=desc&per_page=2');
-});
-
-test("a call to the Site is tried again once when the connection drops or it answers 5xx, never on 4xx", async () => {
-  const { site } = await import("./site");
-  const answers: (Response | Error)[] = [new Error("connection lost"), new Response("{}")];
-  let calls = 0;
-  const fetcher = (async () => {
-    calls++;
-    const a = answers.shift() ?? new Response("{}");
-    if (a instanceof Error) throw a;
-    return a;
-  }) as unknown as typeof fetch;
-  const s = site("http://site", secret, fetcher, 0);
-  await s.upload("build-0001", "report", new Uint8Array(3), "application/gzip", "t");
-  expect(calls).toBe(2);
-  calls = 0;
-  answers.push(new Response("busy", { status: 503 }), new Response("busy", { status: 503 }));
-  await expect(s.done("build-0001", { ok: true, seconds: 1, lines: true, partial: false })).rejects.toThrow("503");
-  expect(calls).toBe(2);
-  calls = 0;
-  answers.push(new Response("no", { status: 403 }));
-  await expect(s.progress("build-0001", "reading")).rejects.toThrow("403");
-  expect(calls).toBe(1);
 });

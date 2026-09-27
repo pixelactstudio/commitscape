@@ -1,6 +1,3 @@
-//! The line pass (ADR-0012) through the scripted adapter: counts line up
-//! with the changes the index records, are kept, and are not counted twice.
-
 #![allow(clippy::expect_used)]
 
 use commitscape_core::{LineDelta, Oid};
@@ -18,9 +15,6 @@ fn d(added: u32, removed: u32) -> Option<LineDelta> {
     Some(LineDelta { added, removed })
 }
 
-/// Day 0: a.rs "1 2 3". Day 1: a.rs "1 two 3 4" (+2 -1) and b.rs added,
-/// with no contents known (not counted). Day 2: a.rs moved to c.rs
-/// unchanged (0 and 0) and b.rs deleted (not counted either).
 fn repo() -> ScriptedRepo {
     ScriptedRepo::new()
         .commit(0, ALICE, &[(b"a.rs", Added, blob(1))])
@@ -72,7 +66,6 @@ fn counts_line_up_with_the_changes_and_are_counted_once() {
                 .to_vec()
         })
         .collect();
-    // The move is one Renamed change, first; the deletion of b.rs second.
     assert_eq!(
         by_commit,
         vec![vec![d(3, 0)], vec![d(2, 1), None], vec![d(0, 0), None]]
@@ -99,7 +92,6 @@ fn a_store_cut_short_keeps_what_it_had() {
     let store = LineStore::for_repo(&options, &idx.repo).expect("a store");
     let first = line_pass(&repo, &idx, Some(&store), &mut |_, _| {}).expect("counting");
 
-    // A crash in the middle of the last record.
     let file = dir.path().join(idx.repo.cache_key()).join("lines");
     let bytes = std::fs::read(&file).expect("the store was written");
     let cut = bytes.get(..bytes.len() - 3).expect("a record");

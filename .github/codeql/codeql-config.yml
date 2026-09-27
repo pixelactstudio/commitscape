@@ -1,0 +1,8 @@
+name: commitscape
+paths-ignore:
+  - "**/e2e/**"
+  - "**/tests/**"
+  - "**/*.test.ts"
+  - "**/test/**"
+  - fixtures
+  - xtask

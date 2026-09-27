@@ -1,18 +1,3 @@
-//! An in-memory [`RepoSource`] built by hand.
-//!
-//! This is the second adapter that makes the seam in ADR-0001 real rather than
-//! hypothetical. It lets the whole index layer be tested with no temp
-//! directories, no `git` subprocess, and no fixture repository to keep in sync,
-//! and it means a test can construct a history that would be awkward to produce
-//! with real git at all.
-//!
-//! Histories are built with a cursor, the way a person thinks about branches:
-//! [`commit`](ScriptedRepo::commit) adds a child of the cursor and moves the
-//! cursor onto it, [`at`](ScriptedRepo::at) moves the cursor back to an earlier
-//! commit to start a branch, and [`merge`](ScriptedRepo::merge) joins the
-//! cursor with another commit. Every commit without children is a tip, as if a
-//! branch pointed at it.
-
 use std::collections::HashSet;
 use std::convert::Infallible;
 
@@ -40,25 +25,16 @@ struct ScriptedCommit {
     parents: Vec<Oid>,
     changes: Vec<ScriptedChange>,
     message: Vec<u8>,
-    /// Author time, when it differs from the commit time.
     written: Option<i64>,
     offset_minutes: i16,
 }
 
-/// A history written out by hand.
-///
-/// Commits are added oldest-first because that is how a person thinks about a
-/// history; [`walk_history`](RepoSource::walk_history) emits them newest-first
-/// because that is how a real walk behaves, and the builder must cope with it.
 #[derive(Debug, Clone, Default)]
 pub struct ScriptedRepo {
     commits: Vec<ScriptedCommit>,
     cursor: Option<Oid>,
-    /// Tips set by [`only_tips`](ScriptedRepo::only_tips); every childless
-    /// commit otherwise.
     tips: Option<Vec<Oid>>,
     head_blobs: Vec<(Vec<u8>, Vec<u8>)>,
-    /// Contents of blobs in history, for the line pass.
     blobs: Vec<(Oid, Vec<u8>)>,
     mailmap: Mailmap,
     remote: Option<String>,
@@ -66,12 +42,9 @@ pub struct ScriptedRepo {
     reads: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
-/// `(path, kind, blob)`: one change in a scripted commit.
 pub type ScriptedChangeSpec<'a> = (&'a [u8], RawChangeKind, Oid);
 
 impl ScriptedRepo {
-    /// The blob at `path` in commit `from` and its first-parent ancestors:
-    /// the latest change there, unless it was a deletion.
     fn blob_before(&self, from: Option<&Oid>, path: &[u8]) -> Option<Oid> {
         let mut at = from.copied();
         while let Some(id) = at {
@@ -93,26 +66,21 @@ impl ScriptedRepo {
         self
     }
 
-    /// Gives the repository a default remote.
     pub fn with_remote(mut self, url: &str) -> Self {
         self.remote = Some(url.to_string());
         self
     }
 
-    /// Gives a blob in history its contents, so the line pass can count its
-    /// lines. A blob without contents is not counted.
     pub fn blob(mut self, id: Oid, contents: &str) -> Self {
         self.blobs.push((id, contents.as_bytes().to_vec()));
         self
     }
 
-    /// Marks the history as shallow, so the walk reports it as truncated.
     pub fn truncated(mut self) -> Self {
         self.truncated = true;
         self
     }
 
-    /// Adds a commit whose parent is the cursor, and moves the cursor to it.
     pub fn commit(
         self,
         time: i64,
@@ -123,7 +91,6 @@ impl ScriptedRepo {
         self.push(time, author, parents, changes)
     }
 
-    /// Gives the commit added last this message.
     pub fn said(mut self, message: &str) -> Self {
         if let Some(c) = self.commits.last_mut() {
             c.message = message.as_bytes().to_vec();
@@ -131,8 +98,6 @@ impl ScriptedRepo {
         self
     }
 
-    /// Gives the commit added last an author time and time zone, in minutes
-    /// east of UTC, as a commit rebased or applied later would have.
     pub fn authored(mut self, time: i64, offset_minutes: i16) -> Self {
         if let Some(c) = self.commits.last_mut() {
             c.written = Some(time);
@@ -141,16 +106,11 @@ impl ScriptedRepo {
         self
     }
 
-    /// Moves the cursor to the nth commit added, counting from 1, so the next
-    /// commit starts a branch there.
     pub fn at(mut self, n: u32) -> Self {
         self.cursor = Some(synthetic_oid(n));
         self
     }
 
-    /// Adds a merge of the cursor with the nth commit added, counting from 1.
-    /// `changes` are what the merge itself introduced: the paths that differ
-    /// from every parent.
     pub fn merge(
         self,
         time: i64,
@@ -196,16 +156,11 @@ impl ScriptedRepo {
         self
     }
 
-    /// Makes only the listed commits tips, counting from 1, as if the refs to
-    /// every other branch did not exist yet. Commits reachable only from
-    /// hidden branches are invisible to the walk.
     pub fn only_tips(mut self, ns: &[u32]) -> Self {
         self.tips = Some(ns.iter().map(|&n| synthetic_oid(n)).collect());
         self
     }
 
-    /// Sets the contents of a file at HEAD, for the tree pass. Setting a path
-    /// again replaces its contents, as a commit would.
     pub fn head_file(mut self, path: &[u8], contents: &str) -> Self {
         self.head_blobs.retain(|(p, _)| p.as_slice() != path);
         self.head_blobs
@@ -213,19 +168,15 @@ impl ScriptedRepo {
         self
     }
 
-    /// Removes a file from HEAD.
     pub fn without_head_file(mut self, path: &[u8]) -> Self {
         self.head_blobs.retain(|(p, _)| p.as_slice() != path);
         self
     }
 
-    /// How many blobs [`read_blobs`](RepoSource::read_blobs) has read, so a
-    /// test can check that an unchanged file is not read twice.
     pub fn blobs_read(&self) -> usize {
         self.reads.load(std::sync::atomic::Ordering::Relaxed)
     }
 
-    /// The id assigned to the nth commit added, counting from 1.
     pub fn commit_id(&self, n: u32) -> Oid {
         synthetic_oid(n)
     }
@@ -234,7 +185,6 @@ impl ScriptedRepo {
         self.commits.iter().find(|c| c.id == id)
     }
 
-    /// Every commit reachable from `from`, including the starting points.
     fn reachable(&self, from: impl IntoIterator<Item = Oid>) -> HashSet<Oid> {
         let mut seen = HashSet::new();
         let mut stack: Vec<Oid> = from.into_iter().collect();
@@ -250,8 +200,6 @@ impl ScriptedRepo {
     }
 }
 
-/// A blob id for contents: the same contents always get the same id, as in
-/// git.
 fn blob_of(contents: &[u8]) -> Oid {
     let mut b = [0u8; 20];
     b[..8].copy_from_slice(&xxhash_rust::xxh3::xxh3_64(contents).to_le_bytes());
@@ -259,9 +207,6 @@ fn blob_of(contents: &[u8]) -> Oid {
     Oid(b)
 }
 
-/// Deterministic, human-readable object ids so a failing test prints something
-/// you can reason about. The number is at both ends, so an abbreviated id
-/// shows it too.
 pub fn synthetic_oid(n: u32) -> Oid {
     let mut b = [0u8; 20];
     b[..4].copy_from_slice(&n.to_be_bytes());
@@ -336,7 +281,6 @@ impl RepoSource for ScriptedRepo {
             history_truncated: self.truncated,
             ..WalkStats::default()
         };
-        // Reachable from the tips without passing through an indexed commit.
         let mut wanted = HashSet::new();
         let mut stack = self.tips()?;
         while let Some(id) = stack.pop() {
@@ -396,8 +340,6 @@ impl RepoSource for ScriptedRepo {
             .collect())
     }
 
-    /// The scripted repository keeps one set of files at HEAD, not one per
-    /// commit, so it cannot diff two of them: the caller lists HEAD instead.
     fn head_changes(&self, _since: Oid) -> Result<Option<Vec<HeadChange>>, Self::Error> {
         Ok(None)
     }

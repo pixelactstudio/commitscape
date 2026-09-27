@@ -1,8 +1,9 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "types": ["vite/client", "@cloudflare/workers-types", "./worker-configuration.d.ts"],
-    "lib": ["ES2023", "DOM", "DOM.Iterable"]
+    "types": ["vite/client", "node"],
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "paths": { "#/*": ["./src/*"] }
   },
-  "include": ["src", "e2e", "scripts/dev.ts", "vite.config.ts", "playwright.config.ts", "drizzle.config.ts"]
+  "include": ["src", "e2e", "scripts", "vite.config.ts", "playwright.config.ts", "vitest.config.ts"]
 }

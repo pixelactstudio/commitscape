@@ -1,15 +1,8 @@
-//! `cargo xtask npm`: the npm packages of ADR-0003, from built binaries. One
-//! package per platform carrying only its binary, and `commitscape`, which
-//! depends on all six at exactly its own version and starts the one npm
-//! installed. Publish the platform packages first and `commitscape` last.
-
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{bail, Context, Result};
 
-/// Every platform: its npm name, Rust target, and npm's `os`, `cpu` and
-/// `libc` for it.
 pub const PLATFORMS: &[(&str, &str, &str, &str, Option<&str>)] = &[
     (
         "linux-x64-gnu",
@@ -43,7 +36,6 @@ pub const PLATFORMS: &[(&str, &str, &str, &str, Option<&str>)] = &[
     ("win32-x64", "x86_64-pc-windows-msvc", "win32", "x64", None),
 ];
 
-/// Both licenses the workspace is offered under, into a package.
 fn licenses(root: &Path, dir: &Path) -> Result<()> {
     for file in LICENSES {
         std::fs::copy(root.join(file), dir.join(file))
@@ -58,9 +50,6 @@ fn json(value: &serde_json::Value) -> Result<String> {
     Ok(format!("{}\n", serde_json::to_string_pretty(value)?))
 }
 
-/// Writes the packages under `out` and, with `pack`, packs each with `npm
-/// pack`. `binaries` are `name=path` pairs, as `linux-x64-gnu=target/…`;
-/// platforms without one get no package.
 pub fn run(
     root: &Path,
     out: &Path,
@@ -68,9 +57,7 @@ pub fn run(
     repository: Option<&str>,
     pack: bool,
 ) -> Result<()> {
-    // xtask's version is the workspace's: every package carries exactly it.
     let version = env!("CARGO_PKG_VERSION").to_string();
-    // npm checks a published package's provenance against its repository.
     let repo =
         repository.map(|url| serde_json::json!({ "type": "git", "url": format!("git+{url}.git") }));
     std::fs::create_dir_all(out)?;
@@ -118,7 +105,6 @@ pub fn run(
         dirs.push(dir);
     }
 
-    // The package people install.
     let main = out.join("commitscape");
     let _ = std::fs::remove_dir_all(&main);
     std::fs::create_dir_all(main.join("bin"))?;

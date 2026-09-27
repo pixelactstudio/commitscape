@@ -1,19 +1,3 @@
-//! What a commit changed relative to every one of its parents.
-//!
-//! One routine covers every commit shape. With one parent it is an ordinary
-//! tree diff. With none (a root commit, or a parent a shallow clone lacks)
-//! every file is an addition. With several it is git's combined diff, `git
-//! diff-tree -c`: a path is reported only if its entry differs from its entry
-//! in *each* parent. A clean merge therefore reports nothing, and a conflict
-//! resolution reports exactly the files it resolved.
-//!
-//! The same rule makes it cheap. A subtree identical to its counterpart in any
-//! one parent cannot contain a path that differs from all of them, so it is
-//! skipped without being read. For a clean merge nearly every subtree matches
-//! one side or the other at the first level.
-//!
-//! Only tree objects are read, never blobs (ADR-0004).
-
 use std::cmp::Ordering;
 
 use gix::hash::oid;
@@ -25,17 +9,12 @@ use crate::source::RawChangeKind;
 
 pub(super) type DiffError = Box<dyn std::error::Error + Send + Sync>;
 
-/// One path a commit changed.
 #[derive(Debug, Clone)]
 pub(super) struct Changed {
     pub path: Vec<u8>,
     pub kind: RawChangeKind,
-    /// The blob after the change, or for a deletion the blob removed.
     pub blob: ObjectId,
-    /// Whether the entry after the change is a symbolic link.
     pub symlink: bool,
-    /// The blob before a modification, when the commit has one parent: what
-    /// a line count compares `blob` with.
     pub before: Option<ObjectId>,
 }
 
@@ -46,18 +25,14 @@ struct Entry<'a> {
     oid: &'a oid,
 }
 
-/// A subtree whose paths still need comparing.
 struct Descend {
     name: Vec<u8>,
     tree: Option<ObjectId>,
     parents: Vec<Option<ObjectId>>,
 }
 
-/// Reusable state for diffing many commits on one thread.
 pub(super) struct TreeDiffer {
-    /// Tree data, one buffer per tree per depth, reused across commits.
     buffers: Vec<Vec<Vec<u8>>>,
-    /// The directory currently being compared, with a trailing `/`.
     prefix: Vec<u8>,
     empty_tree: ObjectId,
 }
@@ -71,8 +46,6 @@ impl TreeDiffer {
         }
     }
 
-    /// Appends to `out` every path whose entry in `tree` differs from its
-    /// entry in each of `parents`. A `None` parent is an empty tree.
     pub fn diff(
         &mut self,
         objects: &impl Find,
@@ -142,8 +115,6 @@ impl TreeDiffer {
     }
 }
 
-/// Reads one tree's entries into `buf`. `None`, and the empty tree, which a
-/// repository need not store, read as no entries.
 fn read_entries<'b>(
     objects: &impl Find,
     id: Option<ObjectId>,
@@ -168,8 +139,6 @@ fn read_entries<'b>(
     Ok(entries)
 }
 
-/// Walks the sorted entry lists in step. `lists[0]` is the commit's tree and
-/// the rest are its parents'.
 fn compare(
     lists: &[Vec<Entry<'_>>],
     prefix: &[u8],
@@ -223,9 +192,6 @@ fn compare(
     }
 }
 
-/// Git's tree order: byte order of names, where a tree's name compares as if
-/// it ended in `/`. A file and a directory with the same name therefore sort
-/// apart, which is exactly what should happen when one replaces the other.
 fn tree_order(a: &Entry<'_>, b: &Entry<'_>) -> Ordering {
     let common = a.name.len().min(b.name.len());
     match a.name.get(..common).cmp(&b.name.get(..common)) {
@@ -241,8 +207,6 @@ fn tree_order(a: &Entry<'_>, b: &Entry<'_>) -> Ordering {
     next(a).cmp(&next(b))
 }
 
-/// Whether two entries at the same key are identical. A mode change counts as
-/// a change: making a file executable is a commit touching it.
 fn same(a: &Option<Entry<'_>>, b: &Option<Entry<'_>>) -> bool {
     match (a, b) {
         (None, None) => true,
@@ -251,9 +215,6 @@ fn same(a: &Option<Entry<'_>>, b: &Option<Entry<'_>>) -> bool {
     }
 }
 
-/// The change at a non-tree key that differs from every parent. Submodule
-/// entries are skipped: a gitlink is a pointer to another repository, not a
-/// file this one contains.
 fn file_change(
     prefix: &[u8],
     name: &[u8],
@@ -287,8 +248,6 @@ fn file_change(
             })
         }
         Some(_) => None,
-        // Absent here and present in every parent, or `same` would have
-        // matched an absent parent: a deletion.
         None => {
             let removed = parents.iter().flatten().find(is_file)?;
             Some(Changed {

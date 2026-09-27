@@ -1,0 +1,22 @@
+name: commitscape
+arch: ${ARCH}
+platform: linux
+version: ${VERSION}
+section: devel
+priority: optional
+maintainer: Dev Talan <chaudhary.dev.talan@gmail.com>
+description: Reads a git repository and shows what changes what you do next.
+vendor: Dev Talan
+homepage: https://github.com/pixelactstudio/commitscape
+license: MIT OR Apache-2.0
+recommends:
+  - git
+contents:
+  - src: target/nfpm/commitscape
+    dst: /usr/bin/commitscape
+    file_info:
+      mode: 0755
+  - src: LICENSE-MIT
+    dst: /usr/share/licenses/commitscape/LICENSE-MIT
+  - src: LICENSE-APACHE
+    dst: /usr/share/licenses/commitscape/LICENSE-APACHE

@@ -1,11 +1,3 @@
-//! The line pass (ADR-0012): each commit diffed against its parent again,
-//! and every changed file's blobs, before and after, compared line by line.
-//!
-//! Separate from the history walk, which never reads a blob (ADR-0004), and
-//! run after the first screen. Commits are handed out to one thread per core
-//! in batches, each thread with its own object and delta-base caches, as the
-//! walk's diffs are.
-
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Mutex;
 
@@ -19,7 +11,6 @@ use super::{GixError, GixRepo};
 use crate::lines::line_delta;
 use crate::source::{LineSink, RawChange, RawChangeKind};
 
-/// Commits per unit of work handed to a thread.
 const BATCH: usize = 16;
 const THREAD_OBJECT_CACHE_BYTES: usize = 16 * 1024 * 1024;
 const THREAD_DELTA_CACHE_BYTES: usize = 48 * 1024 * 1024;
@@ -78,7 +69,6 @@ pub(super) fn count(source: &GixRepo, commits: &[Oid], sink: LineSink<'_>) -> Re
     }
 }
 
-/// One thread's reusable state.
 struct Work {
     differ: TreeDiffer,
     commit: Vec<u8>,
@@ -148,9 +138,6 @@ impl Work {
                 RawChangeKind::Deleted => (Some(c.blob), None),
                 RawChangeKind::Modified => (c.before, Some(c.blob)),
             };
-            // The object's bytes are wherever the store put them in the
-            // scratch buffer, so they are copied out rather than assumed to
-            // start it.
             let mut read = |id: Option<ObjectId>, buf: &mut Vec<u8>| -> Result<(), GixError> {
                 buf.clear();
                 if let Some(id) = id {

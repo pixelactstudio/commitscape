@@ -2,10 +2,11 @@
   "name": "@commitscape/builder",
   "private": true,
   "version": "0.0.0",
-  "description": "The Builder's job runner (ADR-0015): takes one Build at a time from the Site, runs commitscape on a clone, and uploads the Report.",
+  "description": "The Builder: takes Builds from the queue, runs commitscape on a clone, and stores the Report in R2.",
   "type": "module",
   "scripts": {
-    "build": "esbuild src/main.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/builder.mjs --external:@resvg/resvg-js",
+    "build": "esbuild src/main.ts --bundle --platform=node --target=node24 --format=esm --outfile=dist/builder.mjs --external:@resvg/resvg-js --external:pg-native --banner:js=\"import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);\"",
+    "dev": "pnpm build && node --env-file-if-exists=.env dist/builder.mjs work",
     "start": "node dist/builder.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint -c ../../.oxlintrc.json src",
@@ -16,10 +17,16 @@
   },
   "devDependencies": {
     "@commitscape/data": "workspace:*",
+    "@commitscape/server": "workspace:*",
+    "@electric-sql/pglite": "catalog:",
+    "@t3-oss/env-core": "catalog:",
     "@types/node": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
+    "drizzle-orm": "catalog:",
     "esbuild": "0.28.2",
     "oxlint": "catalog:",
     "typescript": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "zod": "catalog:"
   }
 }

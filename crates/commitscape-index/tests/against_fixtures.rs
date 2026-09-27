@@ -1,12 +1,3 @@
-//! The real `gix` adapter, run against the fixture repositories.
-//!
-//! Expected values come from `docs/fixtures.md`, worked out by hand from the
-//! shape of each history. Nothing here recomputes an expectation the way the
-//! implementation does.
-
-// `allow-expect-in-tests` in clippy.toml only covers `#[test]` functions, not
-// the shared helpers below. This whole file is test code, so the working
-// agreement's "outside tests" exemption applies to all of it.
 #![allow(clippy::expect_used)]
 
 use std::collections::{HashMap, HashSet};
@@ -18,7 +9,6 @@ use commitscape_index::{
     Since,
 };
 
-/// 2024-01-01T00:00:00Z, the fixtures' day 0. See `docs/fixtures.md`.
 const EPOCH: i64 = 1_704_067_200;
 const DAY: i64 = 86_400;
 
@@ -44,7 +34,6 @@ fn index(name: &str) -> Index {
     index_from_scratch(&repo).expect("indexing fixture")
 }
 
-/// Commits touching each path, keyed by current path.
 fn churn_by_path(idx: &Index) -> HashMap<String, u32> {
     let mut counts: HashMap<FileId, u32> = HashMap::new();
     for commit in &idx.commits {
@@ -72,10 +61,6 @@ fn linear_has_the_expected_churn() {
 
 #[test]
 fn coupling_fixture_has_the_per_file_counts_the_jaccard_maths_depends_on() {
-    // These four counts are what make the documented Jaccard values exact. If
-    // the tree diff failed to recurse into newly-created directories, src/,
-    // pkg/ and other/ would each report a single directory change instead and
-    // these numbers would all be wrong.
     let idx = index("coupling");
     assert_eq!(idx.commits.len(), 12);
 
@@ -93,8 +78,6 @@ fn coupling_fixture_has_the_per_file_counts_the_jaccard_maths_depends_on() {
 
 #[test]
 fn an_exact_rename_keeps_one_identity_with_the_whole_history() {
-    // Without rename following this is two files of churn 3, and the moved file
-    // looks newly created — the failure ADR-0004 exists to prevent.
     let idx = index("renames");
     assert_eq!(idx.commits.len(), 6);
 
@@ -110,8 +93,6 @@ fn an_exact_rename_keeps_one_identity_with_the_whole_history() {
         "old/path.txt must not survive as a separate file"
     );
 
-    // The file lives at the new path now and remembers the old one. Nothing
-    // lives at the old path any more.
     let moved = idx.paths.get(b"new/path.txt").expect("the moved file");
     assert_eq!(
         idx.paths.former_paths(moved).collect::<Vec<_>>(),
@@ -140,8 +121,6 @@ fn a_clean_merge_records_no_changes_of_its_own() {
         "a clean merge introduces nothing that differs from every parent"
     );
 
-    // With the merge contributing nothing, the unfiltered counts are the branch
-    // commits' own: side 2 and side 3 for side.txt, days 0, 1, 4, 5 for main.txt.
     let churn = churn_by_path(&idx);
     assert_eq!(churn.get("side.txt"), Some(&2));
     assert_eq!(churn.get("main.txt"), Some(&4));
@@ -180,10 +159,6 @@ fn a_merge_records_exactly_what_it_resolved_or_introduced() {
 
 #[test]
 fn resuming_finds_older_commits_a_merge_made_reachable() {
-    // ADR-0002's frontier case. Pretend the last index stopped when main's tip
-    // was `main 5`, so it holds days 0, 1, 4 and 5, and the side branch had
-    // never been seen. A resume keyed on a single sha or a timestamp would
-    // miss side 2 and side 3, which are older than main 5.
     let repo = GixRepo::open(&fixture("merges")).expect("opening fixture");
     let full = index_from_scratch(&repo).expect("indexing fixture");
     let indexed: HashSet<Oid> = full
@@ -202,8 +177,6 @@ fn resuming_finds_older_commits_a_merge_made_reachable() {
 
 #[test]
 fn the_bulk_commit_is_recorded_as_a_fact_not_filtered_at_index_time() {
-    // ADR-0002: the index stores facts. "Bulk" is a threshold applied later, so
-    // all 60 changes must be present here and the filtering happens in metrics.
     let idx = index("bulk");
     assert_eq!(idx.commits.len(), 4);
 
@@ -225,8 +198,6 @@ fn the_bulk_commit_is_recorded_as_a_fact_not_filtered_at_index_time() {
 
 #[test]
 fn ownership_resolves_every_identity_form() {
-    // alpha/ is 9 Alice commits across three identity forms plus 1 Bob commit.
-    // beta/ is 5 Carol across two forms plus 5 Bob. Three people in total.
     let idx = index("ownership");
     assert_eq!(
         idx.authors.len(),
@@ -246,7 +217,6 @@ fn ownership_resolves_every_identity_form() {
         .iter()
         .filter(|c| idx.author_of(c) == Some(alice))
         .count();
-    // 9 in alpha/ plus the commit that added .mailmap.
     assert_eq!(alice_commits, 10);
 }
 
@@ -304,8 +274,6 @@ fn a_real_repository_loads_warm_the_second_time() {
 
 #[test]
 fn the_head_pass_measures_every_file_at_head() {
-    // linear's HEAD: a.txt holds "1".."5", b.txt "b" twice, c.txt "c" once.
-    // Plain text is prose: a person wrote it, but it is not code.
     let idx = index("linear");
     let loc = |path: &str| {
         let file = idx.paths.get(path.as_bytes()).expect("file at HEAD");
@@ -362,7 +330,6 @@ fn a_clone_knows_where_it_came_from() {
     use commitscape_index::RepoSource;
     let bare = GixRepo::open(&fixture("bare.git")).expect("opening fixture");
     let url = bare.remote_url().expect("a clone has an origin");
-    // A clone of a local path records that path, with `\` on Windows.
     assert!(url.replace('\\', "/").ends_with("fixtures/linear"), "{url}");
     let linear = GixRepo::open(&fixture("linear")).expect("opening fixture");
     assert_eq!(linear.remote_url(), None, "linear was never cloned");

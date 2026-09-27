@@ -1,8 +1,3 @@
-//! `health`: whether a project is alive and whether it depends on one
-//! person. Who kept it going lately, its Bus Factor over the last year, how
-//! often it ships, how fast an issue gets a first answer, and whether it is
-//! getting busier or quieter.
-
 use std::collections::HashMap;
 
 use commitscape_core::AuthorId;
@@ -11,23 +6,16 @@ use serde::Serialize;
 use crate::analysis::Analysis;
 
 const DAY: i64 = 86_400;
-/// "Lately": the last this many days, and the same before them for trend.
 const RECENT_DAYS: i64 = 90;
 const YEAR_DAYS: i64 = 365;
-/// The fewest commits lately that make someone a maintainer.
 const MAINTAINER_COMMITS: u32 = 3;
-/// Bus Factor's line: the fewest people holding more than this share.
 const BUS_SHARE: f64 = 0.8;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Health {
-    /// Who made at least 3 commits in the last 90 days, most first.
     pub maintainers: Vec<Maintainer>,
-    /// The fewest people who made over 80% of the last year's commits;
-    /// `None` when there were none.
     pub bus_factor: Option<u32>,
     pub releases: Releases,
-    /// `None` when the issues are not known.
     pub answers: Option<Answers>,
     pub trend: Trend,
 }
@@ -40,25 +28,18 @@ pub struct Maintainer {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Releases {
-    /// Releases in the last year.
     pub in_year: u32,
-    /// Days between consecutive releases in the last year, the middle one.
     pub typical_gap_days: Option<i64>,
-    /// Days since the latest release.
     pub since_last_days: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Answers {
-    /// Issues asked about.
     pub asked: u32,
-    /// Of them, those someone other than their author answered.
     pub answered: u32,
-    /// Hours to the first answer, the middle one.
     pub typical_hours: Option<f64>,
 }
 
-/// The last 90 days against the 90 before them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Trend {
     pub commits: u32,
@@ -67,7 +48,6 @@ pub struct Trend {
     pub people_before: u32,
 }
 
-/// The median of a sorted list: its middle, or halfway between its two.
 fn middle(sorted: &[f64]) -> Option<f64> {
     let n = sorted.len();
     match (sorted.get(n / 2), n % 2) {
@@ -78,9 +58,6 @@ fn middle(sorted: &[f64]) -> Option<f64> {
 }
 
 impl Analysis<'_> {
-    /// The project's health at the Window's end, from all loaded history,
-    /// its releases (name, time) and, when known, its issues (opened,
-    /// first answered).
     pub fn health(
         &self,
         releases: &[(String, i64)],

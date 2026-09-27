@@ -1,0 +1,152 @@
+name: Docker images
+
+on:
+  pull_request:
+    paths:
+      - apps/**
+      - packages/**
+      - crates/**
+      - xtask/**
+      - Cargo.toml
+      - Cargo.lock
+      - pnpm-lock.yaml
+      - .dockerignore
+      - .github/workflows/docker.yml
+  push:
+    branches: [main]
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+  attestations: write
+  security-events: write
+
+concurrency:
+  group: docker-${{ github.ref }}-${{ inputs.version || 'main' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  image:
+    name: image (${{ matrix.app }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [site, builder]
+    env:
+      IMAGE: ghcr.io/${{ github.repository_owner }}/${{ vars.IMAGE_PREFIX || 'commitscape' }}-${{ matrix.app }}
+      PUBLISH: ${{ github.event_name != 'pull_request' }}
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - if: env.PUBLISH == 'true'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=ref,event=pr
+            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' && !inputs.version }}
+            type=sha,prefix=sha-,enable=${{ !inputs.version }}
+            type=raw,value=v${{ inputs.version }},enable=${{ inputs.version != '' }}
+            type=raw,value=latest,enable=${{ inputs.version != '' }}
+          labels: |
+            org.opencontainers.image.title=${{ vars.IMAGE_PREFIX || 'commitscape' }}-${{ matrix.app }}
+            org.opencontainers.image.licenses=MIT OR Apache-2.0
+      - name: Build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          file: apps/${{ matrix.app }}/Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: local/${{ matrix.app }}:scan
+          cache-from: type=gha,scope=${{ matrix.app }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.app }}
+          secrets: |
+            SENTRY_AUTH_TOKEN=${{ secrets.SENTRY_AUTH_TOKEN }}
+          build-args: |
+            SENTRY_ORG=${{ vars.SENTRY_ORG }}
+            SENTRY_PROJECT=${{ vars.SENTRY_PROJECT }}
+      - name: Scan for vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: local/${{ matrix.app }}:scan
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table
+      - name: Report every finding to code scanning
+        if: always() && env.PUBLISH == 'true'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: local/${{ matrix.app }}:scan
+          severity: CRITICAL,HIGH,MEDIUM
+          format: sarif
+          output: trivy-${{ matrix.app }}.sarif
+          skip-setup-trivy: true
+      - if: always() && env.PUBLISH == 'true'
+        uses: github/codeql-action/upload-sarif@1190a975f95ce23525efb6a3fc21ea29567c1b52 # v3.38.2
+        with:
+          sarif_file: trivy-${{ matrix.app }}.sarif
+          category: trivy-${{ matrix.app }}
+      - name: Push
+        id: push
+        if: env.PUBLISH == 'true'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          file: apps/${{ matrix.app }}/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.app }}
+          secrets: |
+            SENTRY_AUTH_TOKEN=${{ secrets.SENTRY_AUTH_TOKEN }}
+          build-args: |
+            SENTRY_ORG=${{ vars.SENTRY_ORG }}
+            SENTRY_PROJECT=${{ vars.SENTRY_PROJECT }}
+      - if: env.PUBLISH == 'true'
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+  deploy:
+    name: deploy to Dokploy
+    needs: image
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && vars.DOKPLOY_URL != ''
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          DOKPLOY_URL: ${{ vars.DOKPLOY_URL }}
+          DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
+          BUILDER: ${{ vars.DOKPLOY_BUILDER_APP_ID }}
+          SITE: ${{ vars.DOKPLOY_SITE_APP_ID }}
+        run: |
+          for app in "$BUILDER" "$SITE"; do
+            [ -z "$app" ] && continue
+            curl -fsS -X POST "${DOKPLOY_URL%/}/api/application.deploy" \
+              -H "x-api-key: $DOKPLOY_API_KEY" -H "content-type: application/json" \
+              -d "{\"applicationId\":\"$app\"}" > /dev/null
+            echo "Deploying $app"
+          done
