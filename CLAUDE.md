@@ -74,7 +74,8 @@ a shadcn component only when Astryx has nothing for the job.
 
 Write no comments, except a short JSDoc on the main exported functions
 saying what the function does. No comments in migrations, configuration or
-tests.
+tests. The one exception is the version after a pinned action in a
+workflow (`uses: owner/action@<sha> # v1.2.3`), which Dependabot updates.
 
 ## Releases
 

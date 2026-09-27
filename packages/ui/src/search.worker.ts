@@ -4,6 +4,7 @@ import { prepare, search, type Prepared, type Query } from "./search";
 let prepared: Prepared | null = null;
 
 self.onmessage = (e: MessageEvent<{ list?: Parameters<typeof prepare>[0]; id?: number; query?: Query }>) => {
+  if (e.origin && e.origin !== self.location.origin) return;
   const m = e.data;
   if (m.list) {
     prepared = prepare(m.list);
