@@ -171,11 +171,18 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           if [ -z "$NODE_AUTH_TOKEN" ]; then echo "::notice::NPM_TOKEN is not set: npm skipped."; exit 0; fi
+          publish() {
+            if npm view "$(jq -r '.name + "@" + .version' "$1/package.json")" version > /dev/null 2>&1; then
+              echo "$1 is already on npm"
+              return
+            fi
+            npm publish --access public --provenance "$1"
+          }
           for dir in target/npm/*/; do
             [ "$(basename "$dir")" = "commitscape" ] && continue
-            npm publish --access public --provenance "$dir"
+            publish "$dir"
           done
-          npm publish --access public --provenance target/npm/commitscape
+          publish target/npm/commitscape
 
   crates:
     name: crates.io
@@ -192,7 +199,18 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
           if [ -z "$CARGO_REGISTRY_TOKEN" ]; then echo "::notice::CARGO_REGISTRY_TOKEN is not set: crates.io skipped."; exit 0; fi
-          cargo publish --workspace --locked
+          args=()
+          left=0
+          for crate in $(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.publish != []) | "\(.name)@\(.version)"'); do
+            if curl -fsS -A "commitscape-release (https://github.com/$GITHUB_REPOSITORY)" "https://crates.io/api/v1/crates/${crate%@*}/${crate#*@}" > /dev/null 2>&1; then
+              echo "$crate is already on crates.io"
+              args+=(--exclude "${crate%@*}")
+            else
+              left=$((left + 1))
+            fi
+          done
+          [ "$left" -eq 0 ] && exit 0
+          cargo publish --workspace --locked "${args[@]}"
 
   homebrew:
     needs: github-release
