@@ -37,7 +37,7 @@ pub struct ShareArgs {
     common: Common,
 }
 
-const DEFAULT_SITE: &str = "https://commitscape.invalid";
+const DEFAULT_SITE: &str = "https://commitscape.damnlabs.com";
 
 pub fn site() -> String {
     std::env::var("COMMITSCAPE_SITE")
