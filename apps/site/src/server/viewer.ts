@@ -20,7 +20,7 @@ export function viewerOf(request: Request): Viewer {
       .catch(() => null));
   return {
     address: clientAddress(request, env.CLIENT_IP_HEADER),
-    sameOrigin: sameOrigin(request),
+    sameOrigin: sameOrigin(request, env.BETTER_AUTH_URL),
     session: who,
     token: () => (token ??= who().then((s) => (s ? githubTokenOf(s.userId, request.headers) : null))),
   };

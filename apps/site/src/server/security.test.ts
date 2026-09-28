@@ -2,7 +2,7 @@ import { createHmac } from "node:crypto";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { now, reportPrefix, schema, sha256 } from "@commitscape/server";
 import { fakeGitHub, repoFacts, testDeps, viewer } from "#/test/deps";
-import { clientAddress, SiteError } from "./http";
+import { clientAddress, sameOrigin, SiteError } from "./http";
 import { allow } from "./limits";
 import { known, LOOKUP_LIMIT, lookup, reportEntry, requestBuild, WAITING_MAX } from "./repos";
 import { createShare, deleteShare, getShare, SHARES_TOTAL, uploadShare } from "./shares";
@@ -13,6 +13,14 @@ const { builds, repositories, shares } = schema;
 afterEach(() => vi.unstubAllGlobals());
 
 describe("addresses and limits", () => {
+  test("a page is the Site's by its public address, though a proxy passes the request on over http", () => {
+    const from = (origin?: string) => sameOrigin(new Request("http://site.internal:3000/", { headers: origin ? { origin } : {} }), "https://commitscape.example");
+    expect(from("https://commitscape.example")).toBe(true);
+    expect(from()).toBe(true);
+    expect(from("http://site.internal:3000")).toBe(false);
+    expect(from("https://elsewhere.example")).toBe(false);
+  });
+
   test("an IPv6 address counts as its /64; an IPv4 one as itself", () => {
     const at = (h: Record<string, string>) => clientAddress(new Request("http://site/", { headers: h }), "x-forwarded-for");
     expect(at({ "x-forwarded-for": "2001:db8:1:2:3:4:5:6, 10.0.0.1" })).toBe("2001:db8:1:2::/64");

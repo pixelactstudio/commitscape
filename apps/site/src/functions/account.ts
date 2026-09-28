@@ -24,7 +24,7 @@ export const getMe = createServerFn({ method: "GET" }).handler(async () => {
 /** Deletes the signed-in person's data. */
 export const deleteMe = createServerFn({ method: "POST" }).handler(async () => {
   const request = getRequest();
-  if (!sameOrigin(request)) throw new SiteError(403, "Not from this Site.");
+  if (!sameOrigin(request, env.BETTER_AUTH_URL)) throw new SiteError(403, "Not from this Site.");
   const s = await auth.api.getSession({ headers: request.headers });
   if (!s) throw new SiteError(401, "Not signed in.");
   return { reports: await deleteMyData(db(), reports(), s.user.id) };
