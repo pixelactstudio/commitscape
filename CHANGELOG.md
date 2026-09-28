@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.1](https://github.com/pixelactstudio/commitscape/compare/v0.1.0...v0.1.1) (2026-09-28)
+
+
+### Fixes
+
+* **release:** download only the release's own artifacts ([#15](https://github.com/pixelactstudio/commitscape/issues/15)) ([46230f2](https://github.com/pixelactstudio/commitscape/commit/46230f221afaebe37c371b8bb087e38dc8ccf93d))
+* **release:** skip versions already on npm and crates.io ([#17](https://github.com/pixelactstudio/commitscape/issues/17)) ([4873ffe](https://github.com/pixelactstudio/commitscape/commit/4873ffe09fd8d186dbda188e2e8fd2fdae5679de))
+* **site:** respect public origin behind proxy ([#18](https://github.com/pixelactstudio/commitscape/issues/18)) ([ce22abe](https://github.com/pixelactstudio/commitscape/commit/ce22abec2768252fa93391e40d682376e5d9211f))
+
 ## 0.1.0 (2026-09-27)
 
 
