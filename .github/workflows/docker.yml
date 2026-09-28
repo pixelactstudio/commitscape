@@ -135,19 +135,19 @@ jobs:
   deploy:
     name: deploy to Dokploy
     needs: image
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && vars.DOKPLOY_URL != ''
+    if: inputs.version != ''
     runs-on: ubuntu-latest
     steps:
       - env:
-          DOKPLOY_URL: ${{ vars.DOKPLOY_URL }}
-          DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
-          BUILDER: ${{ vars.DOKPLOY_BUILDER_APP_ID }}
-          SITE: ${{ vars.DOKPLOY_SITE_APP_ID }}
+          BUILDER: ${{ secrets.DOKPLOY_BUILDER_WEBHOOK }}
+          SITE: ${{ secrets.DOKPLOY_SITE_WEBHOOK }}
         run: |
-          for app in "$BUILDER" "$SITE"; do
-            [ -z "$app" ] && continue
-            curl -fsS -X POST "${DOKPLOY_URL%/}/api/application.deploy" \
-              -H "x-api-key: $DOKPLOY_API_KEY" -H "content-type: application/json" \
-              -d "{\"applicationId\":\"$app\"}" > /dev/null
-            echo "Deploying $app"
+          for app in BUILDER SITE; do
+            hook="${!app}"
+            if [ -z "$hook" ]; then
+              echo "::notice::DOKPLOY_${app}_WEBHOOK is not set: not deployed."
+              continue
+            fi
+            curl -fsS -X POST "$hook" > /dev/null
+            echo "Deploying the ${app,,} at v${{ inputs.version }}"
           done
