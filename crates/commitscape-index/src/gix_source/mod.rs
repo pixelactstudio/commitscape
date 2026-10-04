@@ -5,7 +5,8 @@ use gix::objs::TreeRefIter;
 
 use crate::mailmap::Mailmap;
 use crate::source::{
-    BlobSink, CommitSink, HeadChange, HeadEntry, Indexed, LineSink, RepoSource, WalkStats,
+    BlameCommit, BlameSource, BlameThreads, BlobSink, CommitSink, HeadChange, HeadEntry, InParent,
+    Indexed, LineSink, Moves, RepoSource, WalkStats,
 };
 
 macro_rules! git_ctx {
@@ -17,6 +18,7 @@ macro_rules! git_ctx {
     };
 }
 
+mod blame;
 mod blobs;
 mod changes;
 mod lines;
@@ -24,6 +26,16 @@ mod tree_diff;
 mod walk;
 
 const OBJECT_CACHE_BYTES: usize = 64 * 1024 * 1024;
+
+const DELTA_CACHE_BYTES: usize = 128 * 1024 * 1024;
+
+fn with_delta_cache(repo: &mut gix::Repository) {
+    repo.objects.set_pack_cache(|| {
+        Box::new(gix::odb::pack::cache::lru::MemoryCappedHashmap::new(
+            DELTA_CACHE_BYTES,
+        ))
+    });
+}
 
 const HISTORY_REFS: &[&[u8]] = &[b"refs/heads/", b"refs/remotes/", b"refs/tags/"];
 
@@ -61,6 +73,7 @@ impl GixRepo {
         })?;
         repo.object_cache_size_if_unset(OBJECT_CACHE_BYTES);
         let sync = repo.clone().into_sync();
+        with_delta_cache(&mut repo);
         Ok(GixRepo {
             repo,
             sync,
@@ -75,6 +88,7 @@ impl GixRepo {
         })?;
         repo.object_cache_size_if_unset(OBJECT_CACHE_BYTES);
         let sync = repo.clone().into_sync();
+        with_delta_cache(&mut repo);
         let top = repo
             .workdir()
             .map_or_else(|| repo.path().to_path_buf(), Path::to_path_buf);
@@ -431,9 +445,80 @@ impl RepoSource for GixRepo {
             Some(t) => Some(t),
             None => self.file_at_head(NAME)?,
         };
-        Ok(text
-            .map(|t| crate::lines::parse_ignore_revs(&t))
-            .unwrap_or_default())
+        let Some(text) = text else {
+            return Ok(Vec::new());
+        };
+        let mut out = Vec::new();
+        for name in crate::lines::ignore_rev_names(&text) {
+            if let Some(id) = Oid::from_hex(&name) {
+                out.push(id);
+                continue;
+            }
+            let Ok(id) = self.repo.rev_parse_single(name.as_str()) else {
+                continue;
+            };
+            let Ok(object) = id.object() else {
+                continue;
+            };
+            if object.kind.is_commit() {
+                out.push(Self::to_oid(object.id.as_ref())?);
+            }
+        }
+        Ok(out)
+    }
+}
+
+pub struct GixThreads {
+    sync: gix::ThreadSafeRepository,
+    path: PathBuf,
+}
+
+impl GixRepo {
+    pub fn threads(&self) -> GixThreads {
+        GixThreads {
+            sync: self.sync.clone(),
+            path: self.path.clone(),
+        }
+    }
+}
+
+impl BlameThreads for GixThreads {
+    type Local = GixRepo;
+
+    fn local(&self) -> GixRepo {
+        let mut repo = self.sync.to_thread_local();
+        repo.object_cache_size_if_unset(OBJECT_CACHE_BYTES);
+        with_delta_cache(&mut repo);
+        GixRepo {
+            repo,
+            sync: self.sync.clone(),
+            path: self.path.clone(),
+        }
+    }
+}
+
+impl BlameSource for GixRepo {
+    type Error = GixError;
+
+    fn blame_commit(&self, id: Oid) -> Result<Option<BlameCommit>, Self::Error> {
+        blame::commit(self, id)
+    }
+
+    fn blame_compare(
+        &self,
+        commit: Oid,
+        parent: Oid,
+        paths: &[&[u8]],
+    ) -> Result<Vec<InParent>, Self::Error> {
+        blame::compare(self, commit, parent, paths)
+    }
+
+    fn blame_moves(&self, commit: Oid, parent: Oid) -> Result<Moves, Self::Error> {
+        blame::moves(self, commit, parent)
+    }
+
+    fn blame_blob(&self, blob: Oid) -> Result<Vec<u8>, Self::Error> {
+        blame::blob(self, blob)
     }
 }
 

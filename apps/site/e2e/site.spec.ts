@@ -49,11 +49,7 @@ function share(...args: string[]) {
 
 test("a pasted link shows GitHub's facts at once, then the Report once it is built", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Any repository's story, in a second.");
-  const box = page.getByRole("textbox", { name: "A GitHub repository" });
-  await box.fill("not a link");
-  await box.press("Enter");
-  await expect(page.getByText("Paste a GitHub link, or owner/name, like BurntSushi/ripgrep.").first()).toBeVisible();
+  const box = page.getByRole("textbox", { name: "A GitHub username or repository" });
   await box.fill("https://github.com/acme/ownership/tree/main");
   await box.press("Enter");
   await expect(page).toHaveURL(/\/gh\/acme\/ownership$/);
@@ -68,14 +64,14 @@ test("each screen is drawn on the server from its address, with no email address
   expect(html).not.toContain("alice@example.com");
   await page.goto("/gh/acme/ownership");
   await expect(commits(page)).toHaveText("21");
-  await press(page, "3", /screen=people/);
+  await press(page, "2", /screen=people/);
   await expect(page.locator(".people-table tbody tr")).toHaveCount(3);
   await page.locator(".people-table").getByRole("button", { name: "Alice Example" }).click();
   await expect(page.getByRole("heading", { name: "Alice Example" })).toBeVisible();
   await expect(page.getByText("alice@example.com")).toHaveCount(0);
   await page.reload();
   await expect(page.getByRole("heading", { name: "Alice Example" })).toBeVisible();
-  await press(page, "6", /screen=commits/);
+  await press(page, "5", /screen=commits/);
   await expect(page.getByRole("textbox", { name: "Search commits" })).toBeVisible();
   await page.keyboard.press("/");
   await page.keyboard.type("carol");
@@ -88,10 +84,10 @@ test("the repository's page carries its social preview, and the card is served",
   const html = await (await request.get("/gh/acme/ownership")).text();
   expect(html).toContain('<meta property="og:title" content="acme/ownership on commitscape"/>');
   expect(html).toContain("Three people and two folders");
-  expect(html).toMatch(/<meta property="og:image" content="http:\/\/127\.0\.0\.1:\d+\/api\/cards\/acme\/ownership"\/>/);
-  const card = await request.get("/api/cards/acme/ownership");
+  expect(html).toMatch(/<meta property="og:image" content="http:\/\/127\.0\.0\.1:\d+\/api\/cards\/gh\/acme\/ownership\/hall-of-fame\.png"\/>/);
+  const card = await request.get("/api/cards/gh/acme/ownership/hall-of-fame.png");
   expect(card.status()).toBe(200);
-  expect(card.headers()["content-type"]).toMatch(/^image\/(png|svg\+xml)$/);
+  expect(card.headers()["content-type"]).toBe("image/png");
 });
 
 test("each way a lookup can fail says so plainly", async ({ page }) => {
@@ -213,10 +209,9 @@ test("the Leaderboards rank repositories from the night's seed Builds", async ({
   const answers = page.locator("#answers");
   await expect(answers.getByRole("link", { name: "acme/ownership" })).toHaveAttribute("href", "/gh/acme/ownership");
   await expect(answers.getByText("4 h")).toBeVisible();
-  for (const person of ["Alice", "Bob", "Carol"]) await expect(page.locator(".boards").getByText(person)).toHaveCount(0);
 });
 
-const PAGES = ["/", "/leaderboards", "/privacy", "/me", "/gh/acme/ownership", "/gh/acme/ownership?screen=people", "/gh/acme/ownership?screen=risk", "/gh/nobody/nothing"];
+const PAGES = ["/", "/leaderboards", "/privacy", "/me", "/u/alice", "/u/alice/acme/ownership", "/gh/acme/ownership", "/gh/acme/ownership?screen=people", "/gh/nobody/nothing"];
 
 for (const path of PAGES) {
   test(`${path} has no serious accessibility problems`, async ({ page }) => {

@@ -1,8 +1,17 @@
 import { day, grouped } from "../format";
 import { ramp } from "../theme";
 import { TableView } from "./common";
-import { ranges, useWidth } from "./scale";
+import { HALF, ranges } from "./scale";
 import { useTip } from "./tip";
+
+function quantiles(values: number[]): number[] {
+  const sorted = values.filter((v) => v > 0).sort((a, b) => a - b);
+  if (sorted.length === 0) return [1, 1, 1, 1];
+  const at = (q: number) => sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))] ?? 1;
+  const out = [at(0.25), at(0.5), at(0.75), sorted.at(-1) ?? 1];
+  for (let i = 1; i < 4; i++) out[i] = Math.max(out[i] ?? 0, out[i - 1] ?? 0);
+  return out;
+}
 
 function steps(max: number): number[] {
   if (max <= 4) return [1, 2, 3, 4].map((s) => Math.min(s, max));
@@ -41,15 +50,15 @@ const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Satur
 
 export function WeekGrid({ week }: { week: number[][] }) {
   const tip = useTip();
-  const [ref, width] = useWidth<HTMLDivElement>();
+  const width = HALF;
   const max = Math.max(0, ...week.flat());
   const bounds = steps(max);
   const left = 80;
   const cell = Math.max(8, Math.min(26, (width - left) / 24));
   return (
-    <div className="chart" ref={ref}>
+    <div className="chart">
       <RampLegend bounds={bounds} unit="commits in the hour" />
-      <svg width={left + cell * 24} height={cell * 7 + 18} role="img" aria-label="Commits by weekday and hour">
+      <svg viewBox={`0 0 ${left + cell * 24} ${cell * 7 + 18}`} className="fluid" role="img" aria-label="Commits by weekday and hour">
         {week.map((hours, d) => (
           <g key={d}>
             <text className="axis-label" x={left - 8} y={d * cell + cell / 2} dy="0.32em" textAnchor="end">
@@ -92,19 +101,18 @@ export function WeekGrid({ week }: { week: number[][] }) {
   );
 }
 
-export function Calendar({ firstDay, days }: { firstDay: number; days: number[] }) {
+export function Calendar({ firstDay, days, unit = "commits", quantile = false }: { firstDay: number; days: number[]; unit?: string; quantile?: boolean }) {
   const tip = useTip();
-  const [ref, width] = useWidth<HTMLDivElement>();
   const max = Math.max(0, ...days);
-  const bounds = steps(max);
+  const bounds = quantile ? quantiles(days) : steps(max);
   const weekday = (d: number) => (d + 3) % 7;
   const offset = weekday(firstDay);
   const weeks = Math.ceil((days.length + offset) / 7);
-  const cell = Math.max(4, Math.min(14, width / Math.max(1, weeks)));
+  const cell = 14;
   return (
-    <div className="chart" ref={ref}>
-      <RampLegend bounds={bounds} unit="commits a day" />
-      <svg width={weeks * cell} height={cell * 7} role="img" aria-label="Commits a day">
+    <div className="chart">
+      <RampLegend bounds={bounds} unit={`${unit} a day`} />
+      <svg viewBox={`0 0 ${weeks * cell} ${cell * 7}`} className="fluid" style={{ maxWidth: weeks * cell }} role="img" aria-label="Commits a day">
         {days.map((n, i) => {
           const d = firstDay + i;
           const col = Math.floor((i + offset) / 7);
@@ -121,7 +129,9 @@ export function Calendar({ firstDay, days }: { firstDay: number; days: number[] 
               {...tip(
                 <>
                   <strong>{day(d)}</strong>
-                  <div>{grouped(n)} commits</div>
+                  <div>
+                    {grouped(n)} {unit}
+                  </div>
                 </>,
               )}
             />
@@ -129,7 +139,7 @@ export function Calendar({ firstDay, days }: { firstDay: number; days: number[] 
         })}
       </svg>
       <TableView
-        head={["Day", "Commits"]}
+        head={["Day", unit]}
         rows={days.flatMap((n, i) => (n > 0 ? [[day(firstDay + i), n]] : []))}
       />
     </div>

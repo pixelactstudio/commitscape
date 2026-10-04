@@ -1,5 +1,4 @@
-import { useContext, useState } from "react";
-import { Avatar } from "@astryxdesign/core/Avatar";
+import { useState } from "react";
 import { Button } from "@astryxdesign/core/Button";
 import { Heading } from "@astryxdesign/core/Heading";
 import { pixel, proportional, Table, useTableSortable, type TableColumn } from "@astryxdesign/core/Table";
@@ -8,14 +7,13 @@ import { useData } from "../data";
 import { Bars } from "../charts/Bars";
 import { Figure } from "../charts/common";
 import { Calendar, WeekGrid } from "../charts/Grid";
-import { avatarUrl } from "../components/avatar";
+import { Face } from "../components/Face";
+import { useLogin } from "../components/login";
 import { Name, Path } from "../components/Name";
 import { Tile } from "../components/Tile";
-import { AvatarsContext } from "../help";
 import { Explain } from "../explain";
 import { compact, date, githubWhy, grouped, many, WINDOW_WORDS } from "../format";
 import { openers, type ScreenProps } from "./props";
-import { ScreenSkeleton } from "../components/Loading";
 
 type Column = {
   key: string;
@@ -40,7 +38,6 @@ const COLUMNS: Column[] = [
   { key: "days", label: "Active days", value: (r) => r.active_days, shown: (r) => grouped(r.active_days), why: "Days with at least one of their commits, on their own clock." },
   { key: "added", label: "Lines added", value: (r) => r.lines_added, shown: (r) => known(r.lines_added, compact), why: "Lines their commits added, lockfiles and generated files left out. — until the line pass has counted them." },
   { key: "removed", label: "Lines removed", value: (r) => r.lines_removed, shown: (r) => known(r.lines_removed, compact), why: "Lines their commits removed, counted the same way." },
-  { key: "areas", label: "Folders held", value: (r) => r.areas, shown: (r) => grouped(r.areas), why: "Folders where they made most of the commits: those that depend on them." },
   { key: "prs", label: "PRs merged", value: (r) => r.prs_merged, shown: (r) => known(r.prs_merged), why: "Their pull requests merged in the Window. — until GitHub's history is read." },
   { key: "reviews", label: "Reviews", value: (r) => r.reviews, shown: (r) => known(r.reviews), why: "Reviews they gave on others' pull requests." },
   { key: "hours", label: "Time to merge", value: (r) => r.hours_to_merge, shown: (r) => known(r.hours_to_merge, hoursWords), why: "From opening to merging, the middle of their merged pull requests." },
@@ -56,10 +53,11 @@ type Row = PersonRow & Record<string, unknown>;
 function PeopleTable({ meta, params, go }: ScreenProps) {
   const { data, error, stale } = useData<Data>("/api/people", params);
   const [sort, setSort] = useState([{ sortKey: "commits", direction: "descending" as "ascending" | "descending" }]);
+  const [shown, setShown] = useState(50);
   const sortable = useTableSortable<Row>({ sort, onSortChange: (next) => setSort(next.length > 0 ? next : sort) });
   const open = openers(go);
-  if (error) return <p className="error">{error}</p>;
-  if (!data) return <ScreenSkeleton />;
+  if (error || !data) return <p className="error">{error}</p>;
+  const shownColumns = COLUMNS.filter((c) => data.people.some((r) => c.value(r) !== null));
   const by = sort[0] ?? { sortKey: "commits", direction: "descending" };
   const column = COLUMNS.find((c) => c.key === by.sortKey) ?? COLUMNS[0];
   const rows = [...data.people].sort((a, b) => (column?.value(b) ?? -1) - (column?.value(a) ?? -1));
@@ -76,20 +74,20 @@ function PeopleTable({ meta, params, go }: ScreenProps) {
         </>
       ),
     },
-    ...COLUMNS.map(
+    ...shownColumns.map(
       (c): TableColumn<Row> => ({
         key: c.key,
         header: <span title={c.why}>{c.label}</span>,
         align: "end",
         sortable: true,
-        width: pixel(118),
+        width: pixel(132),
         renderCell: (r) => <span className="num">{c.shown(r)}</span>,
       }),
     ),
     {
       key: "span",
       header: "First and last commit",
-      width: pixel(210),
+      width: pixel(240),
       renderCell: (r) => (
         <span className="note">
           {date(r.first)} – {date(r.last)}
@@ -106,7 +104,7 @@ function PeopleTable({ meta, params, go }: ScreenProps) {
         <div className="table-wrap">
           <Table<Row>
             className="people-table"
-            data={rows.slice(0, 300) as Row[]}
+            data={rows.slice(0, shown) as Row[]}
             columns={columns}
             idKey={(r: Row) => r.person.id}
             density="compact"
@@ -114,10 +112,12 @@ function PeopleTable({ meta, params, go }: ScreenProps) {
             plugins={{ sortable }}
           />
         </div>
-        {rows.length > 300 && <p className="note">The 300 with the most in this column are shown.</p>}
+        {rows.length > shown && (
+          <Button label={`Show ${Math.min(100, rows.length - shown)} more of ${grouped(rows.length - shown)}`} variant="secondary" size="sm" onClick={() => setShown((n) => n + 100)} />
+        )}
         <Explain>
           <ul>
-            {COLUMNS.map((c) => (
+            {shownColumns.map((c) => (
               <li key={c.key}>
                 <strong>{c.label}:</strong> {c.why}
               </li>
@@ -191,11 +191,10 @@ const TRAITS: Record<string, string> = {
 
 function Profile({ params, go, id }: ScreenProps & { id: number }) {
   const { data: p, error, stale } = useData<Person>("/api/person", { ...params, id });
-  const avatars = useContext(AvatarsContext);
   const [copied, setCopied] = useState(false);
+  const login = useLogin(p?.person);
   const open = openers(go);
-  if (error) return <p className="error">{error}</p>;
-  if (!p) return <ScreenSkeleton />;
+  if (error || !p) return <p className="error">{error}</p>;
   const r = p.row;
   const copy = () => {
     void navigator.clipboard?.writeText(p.mailmap).then(() => setCopied(true));
@@ -206,13 +205,17 @@ function Profile({ params, go, id }: ScreenProps & { id: number }) {
         <Button label="← Everyone" variant="ghost" size="sm" onClick={() => go({ id: undefined })} />
       </div>
       <div className="profile-head">
-        {avatars && p.person.login && <Avatar src={avatarUrl(p.person.login, 48)} name={p.person.name} size="lg" tooltip={false} />}
+        <Face login={login} name={p.person.name} size={48} />
         <div>
           <Heading level={2} className="profile-name">
             {p.person.name}
           </Heading>
           <p className="note">
-            {p.person.login && <>@{p.person.login} · </>}
+            {login && (
+              <>
+                <a href={`/u/${login}`}>@{login}</a> ·{" "}
+              </>
+            )}
             {p.email}
           </p>
         </div>
@@ -259,7 +262,7 @@ function Profile({ params, go, id }: ScreenProps & { id: number }) {
         </Figure>
       </div>
       {p.areas.length > 0 && (
-        <Figure title="Folders that depend on them" note="Where they made most of the commits">
+        <Figure title="Their folders" note="Where they made most of the commits">
           <ul className="facts">
             {p.areas.map((a) => (
               <li key={a.folder}>

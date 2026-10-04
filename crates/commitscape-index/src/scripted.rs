@@ -1,12 +1,12 @@
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::convert::Infallible;
 
 use commitscape_core::{Oid, RepoIdentity};
 
 use crate::mailmap::Mailmap;
 use crate::source::{
-    BlobSink, CommitSink, HeadChange, HeadEntry, Indexed, LineSink, RawChange, RawChangeKind,
-    RawCommit, RepoSource, WalkStats,
+    BlameCommit, BlameSource, BlameThreads, BlobSink, CommitSink, HeadChange, HeadEntry, InParent,
+    Indexed, LineSink, Moves, RawChange, RawChangeKind, RawCommit, RepoSource, WalkStats,
 };
 
 #[derive(Debug, Clone)]
@@ -179,6 +179,27 @@ impl ScriptedRepo {
 
     pub fn commit_id(&self, n: u32) -> Oid {
         synthetic_oid(n)
+    }
+
+    fn snapshot(&self, id: Oid) -> Option<BTreeMap<Vec<u8>, Oid>> {
+        let mut chain = Vec::new();
+        let mut at = Some(id);
+        while let Some(x) = at {
+            let c = self.find(x)?;
+            chain.push(c);
+            at = c.parents.first().copied();
+        }
+        let mut state = BTreeMap::new();
+        for c in chain.iter().rev() {
+            for ch in &c.changes {
+                if ch.kind == RawChangeKind::Deleted {
+                    state.remove(&ch.path);
+                } else {
+                    state.insert(ch.path.clone(), ch.blob);
+                }
+            }
+        }
+        Some(state)
     }
 
     fn find(&self, id: Oid) -> Option<&ScriptedCommit> {
@@ -392,12 +413,26 @@ impl RepoSource for ScriptedRepo {
     }
 
     fn blame_ignore_revs(&self) -> Result<Vec<Oid>, Self::Error> {
-        Ok(self
+        let Some((_, text)) = self
             .head_blobs
             .iter()
             .find(|(p, _)| p == b".git-blame-ignore-revs")
-            .map(|(_, t)| crate::lines::parse_ignore_revs(t))
-            .unwrap_or_default())
+        else {
+            return Ok(Vec::new());
+        };
+        Ok(crate::lines::ignore_rev_names(text)
+            .iter()
+            .filter_map(|name| {
+                let mut found = self
+                    .commits
+                    .iter()
+                    .filter(|c| c.id.to_hex().starts_with(name.as_str()));
+                match (found.next(), found.next()) {
+                    (Some(c), None) => Some(c.id),
+                    _ => None,
+                }
+            })
+            .collect())
     }
 
     fn read_blobs(&self, blobs: &[Oid], sink: BlobSink<'_>) -> Result<(), Self::Error> {
@@ -409,5 +444,74 @@ impl RepoSource for ScriptedRepo {
             }
         }
         Ok(())
+    }
+}
+
+impl BlameThreads for ScriptedRepo {
+    type Local = ScriptedRepo;
+
+    fn local(&self) -> ScriptedRepo {
+        self.clone()
+    }
+}
+
+impl BlameSource for ScriptedRepo {
+    type Error = Infallible;
+
+    fn blame_commit(&self, id: Oid) -> Result<Option<BlameCommit>, Self::Error> {
+        Ok(self.find(id).map(|c| BlameCommit {
+            time: c.time,
+            parents: c.parents.clone(),
+        }))
+    }
+
+    fn blame_compare(
+        &self,
+        commit: Oid,
+        parent: Oid,
+        paths: &[&[u8]],
+    ) -> Result<Vec<InParent>, Self::Error> {
+        let ours = self.snapshot(commit).unwrap_or_default();
+        let theirs = self.snapshot(parent).unwrap_or_default();
+        Ok(paths
+            .iter()
+            .map(|p| match (ours.get(*p), theirs.get(*p)) {
+                (_, None) => InParent::Absent,
+                (Some(a), Some(b)) if a == b => InParent::Same,
+                (_, Some(b)) => InParent::Changed(*b),
+            })
+            .collect())
+    }
+
+    fn blame_moves(&self, commit: Oid, parent: Oid) -> Result<Moves, Self::Error> {
+        let ours = self.snapshot(commit).unwrap_or_default();
+        let theirs = self.snapshot(parent).unwrap_or_default();
+        Ok(Moves {
+            deleted: theirs
+                .iter()
+                .filter(|(p, _)| !ours.contains_key(*p))
+                .map(|(p, b)| (p.clone(), *b))
+                .collect(),
+            added: ours
+                .iter()
+                .filter(|(p, _)| !theirs.contains_key(*p))
+                .map(|(p, b)| (p.clone(), *b))
+                .collect(),
+        })
+    }
+
+    fn blame_blob(&self, blob: Oid) -> Result<Vec<u8>, Self::Error> {
+        Ok(self
+            .blobs
+            .iter()
+            .find(|(b, _)| *b == blob)
+            .map(|(_, c)| c.clone())
+            .or_else(|| {
+                self.head_blobs
+                    .iter()
+                    .find(|(_, c)| blob_of(c) == blob)
+                    .map(|(_, c)| c.clone())
+            })
+            .unwrap_or_default())
     }
 }

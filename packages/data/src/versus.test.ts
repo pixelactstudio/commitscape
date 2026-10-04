@@ -1,0 +1,28 @@
+import { expect, test } from "vitest";
+import { gapsTo, versusRows, type VersusSide } from "./versus";
+
+const totals = (over: Record<string, number | null>) => ({ prsOpened: 0, prsMerged: 0, prsClosed: 0, prsOpen: 0, reviews: 0, commits: 0, issues: 0, hidden: 0, linesAdded: 0, linesRemoved: 0, hoursToMerge: null, activeDays: 0, longestStreak: 0, currentStreak: 0, contributions: 0, ...over });
+
+const ada: VersusSide = { identity: { login: "ada", name: "Ada" }, totals: totals({ prsMerged: 40, reviews: 12, commits: 900, linesAdded: 10_000, activeDays: 200, longestStreak: 14, hoursToMerge: 3 }), surviving: 5_000, thisMonth: { prsMerged: 4, contributions: 61 } };
+const bo: VersusSide = { identity: { login: "bo", name: "Bo" }, totals: totals({ prsMerged: 55, reviews: 12, commits: 400, linesAdded: null, activeDays: 230, longestStreak: 9, hoursToMerge: 1.5 }), surviving: null, thisMonth: { prsMerged: 7, contributions: 40 } };
+
+test("a winner per view, worked out by hand: the higher number, the lower time to merge, ties, and no winner when either is unknown", () => {
+  expect(versusRows(ada, bo).map((r) => [r.view, r.a, r.b, r.winner])).toEqual([
+    ["surviving", 5_000, null, null],
+    ["prsMerged", 40, 55, "b"],
+    ["reviews", 12, 12, "tie"],
+    ["commits", 900, 400, "a"],
+    ["linesAdded", 10_000, null, null],
+    ["activeDays", 200, 230, "b"],
+    ["longestStreak", 14, 9, "a"],
+    ["hoursToMerge", 3, 1.5, "b"],
+  ]);
+});
+
+test("the gap to a Rival, this month and over all time, and none where a number is unknown", () => {
+  expect(gapsTo(ada, bo).map((g) => [g.label, g.mine, g.theirs])).toEqual([
+    ["pull requests merged this month", 4, 7],
+    ["contributions this month", 61, 40],
+  ]);
+  expect(gapsTo(ada, { ...bo, surviving: 5_312 }).at(-1)).toMatchObject({ label: "lines that still run, all time", mine: 5_000, theirs: 5_312 });
+});

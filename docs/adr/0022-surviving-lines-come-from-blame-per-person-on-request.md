@@ -22,3 +22,12 @@ accepted (2026-10-04, Build Run 5 plan). Builds on ADR-0011 (identities) and ADR
 - The engine gains a blame pass, through gix, behind the existing `RepoSource` seam with a scripted fake for tests.
 - The Builder keeps clones of repositories that people have asked about, within a disk budget, so later requests don't clone again.
 - Code Age keeps its per-file meaning; Surviving Lines is a separate term.
+
+## As built (Phase 34)
+
+- **Our own blame over gix**, not gix-blame (it has no ignored revisions and its hunks are private), behind `BlameSource` and `BlameThreads` beside `RepoSource`, with scripted fakes. One walk per person over all their files, newest commit first, sharded by folder over up to 8 threads; a one-parent commit the Index shows did not touch a pending path is passed over without reading git.
+- **Renames** follow git's similarity scoring and its choice of source; a person's files widen along those renames. Against `git blame`, 0.36% of ripgrep's lines and 0.92% of react's go to a different commit, all from where git's diff is not minimal.
+- **Pass-through** (Bulk Commits and `.git-blame-ignore-revs`, full or abbreviated hashes): unchanged lines go to the parent; inside a changed hunk, lines equal once whitespace is removed go to the matching parent line; every other changed line stays with the pass-through commit, as git's "unblamable" rule does. No fuzzy similarity matching, since that is a guess, and no pass-through for merges.
+- **Counted:** head files the classifier calls code, under 1 MB. **Added** is exactly the person's Lines Changed added. Survival is shown only when it is at most 100% (a Bulk import can keep lines that Lines Changed leaves out).
+- **Kept** per head and settings on disk; a second request for anyone whose files are blamed takes milliseconds. A new head starts over.
+- **Budget** 60 s by default (`SURVIVING_BUDGET_SECONDS` on the Builder). It covers every person measured on ripgrep and facebook/react and most on rust-lang/rust; rust's 10th person needs 124 s cold, and retries restart the walk, so they never finish within 60 s. Saving a walk's progress between requests is the follow-up.

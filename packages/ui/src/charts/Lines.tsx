@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { day, grouped } from "../format";
 import { Legend, TableView, YAxis } from "./common";
-import { ticks, useWidth } from "./scale";
+import { HALF, ticks } from "./scale";
 
 export type Line = { label: string; colour: string; values: number[]; dashed?: boolean };
 
@@ -11,7 +11,7 @@ const TOP = 10;
 const BOTTOM = 22;
 
 export function Lines({ firstWeek, lines, unit }: { firstWeek: number; lines: Line[]; unit: string }) {
-  const [ref, width] = useWidth<HTMLDivElement>();
+  const width = HALF;
   const [at, setAt] = useState<number | null>(null);
   const weeks = Math.max(0, ...lines.map((l) => l.values.length));
   const most = Math.max(1, ...lines.flatMap((l) => l.values));
@@ -21,20 +21,20 @@ export function Lines({ firstWeek, lines, unit }: { firstWeek: number; lines: Li
   const y = (v: number) => TOP + (HEIGHT - TOP - BOTTOM) * (1 - v / top);
   const week = (i: number) => day(firstWeek + i * 7);
   return (
-    <div className="chart" ref={ref}>
+    <div className="chart">
       <Legend items={lines.map((l) => ({ label: l.label, colour: l.colour, mark: l.dashed ? "dash" : "line" }))} />
       {lines.every((l) => l.values.every((v) => v === 0)) ? (
         <p className="note">None in this window.</p>
-      ) : width > 0 && weeks > 0 && (
+      ) : weeks > 0 && (
         <div className="lines-wrap">
           <svg
-            width={width}
-            height={HEIGHT}
+            viewBox={`0 0 ${width} ${HEIGHT}`}
+            className="fluid"
             role="img"
             aria-label={`${unit} a week`}
             onMouseMove={(e) => {
               const r = e.currentTarget.getBoundingClientRect();
-              const i = Math.round(((e.clientX - r.left - LEFT) / Math.max(1, width - LEFT - 4)) * (weeks - 1));
+              const i = Math.round((((e.clientX - r.left) * (width / Math.max(1, r.width)) - LEFT) / Math.max(1, width - LEFT - 4)) * (weeks - 1));
               setAt(Math.max(0, Math.min(weeks - 1, i)));
             }}
             onMouseLeave={() => setAt(null)}
@@ -64,7 +64,7 @@ export function Lines({ firstWeek, lines, unit }: { firstWeek: number; lines: Li
             </g>
           </svg>
           {at !== null && (
-            <div className="tip inline" style={{ left: Math.min(x(at) + 10, width - 220) }}>
+            <div className="tip inline" style={{ left: `${Math.min(((x(at) + 10) / width) * 100, 55)}%` }}>
               <strong>Week of {week(at)}</strong>
               {lines.map((l) => (
                 <div key={l.label}>

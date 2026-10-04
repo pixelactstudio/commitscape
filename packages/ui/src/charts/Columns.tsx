@@ -1,39 +1,31 @@
-import { day, grouped } from "../format";
-import { Legend, TableView, YAxis, type Swatch } from "./common";
-import { ticks, useWidth } from "./scale";
+import { compact, day, grouped } from "../format";
+import { Legend, TableView, type Swatch } from "./common";
+import { ticks } from "./scale";
 import { useTip } from "./tip";
+import { binDays, thinMarks, yearsOf, type Mark } from "./marks";
 
 export type Series = { label: string; colour: string; values: number[] };
-export type Mark = { day: number; label: string };
+export type { Mark } from "./marks";
 
-const HEIGHT = 180;
-const LEFT = 36;
-const BOTTOM = 22;
-const TOP = 18;
-
-function binDays(days: number, width: number): number {
-  const room = Math.max(1, (width - LEFT) / 4);
-  if (days <= room) return 1;
-  if (days / 7 <= room) return 7;
-  return 28;
-}
+export const COLUMNS_HEIGHT = 200;
 
 export function Columns({
   firstDay,
   series,
   marks = [],
   unit = "commits",
+  height = COLUMNS_HEIGHT,
 }: {
   firstDay: number;
   series: Series[];
   marks?: Mark[];
   unit?: string;
+  height?: number;
 }) {
-  const [ref, width] = useWidth<HTMLDivElement>();
   const tip = useTip();
   const days = Math.max(0, ...series.map((s) => s.values.length));
-  const per = binDays(days, width);
-  const bins = Math.ceil(days / per);
+  const per = binDays(days);
+  const bins = Math.max(1, Math.ceil(days / per));
   const stacks = Array.from({ length: bins }, (_, b) =>
     series.map((s) => {
       let n = 0;
@@ -42,68 +34,42 @@ export function Columns({
     }),
   );
   const totals = stacks.map((s) => s.reduce((a, b) => a + b, 0));
-  const most = Math.max(1, ...totals);
-  const scale = ticks(most);
-  const top = scale.at(-1) ?? most;
-  const inner = Math.max(1, width - LEFT);
-  const bw = inner / Math.max(1, bins);
-  const gap = bw >= 4 ? 2 : bw >= 2 ? 1 : 0;
-  const y = (v: number) => TOP + (HEIGHT - TOP - BOTTOM) * (1 - v / top);
-  const xOfDay = (d: number) => LEFT + ((d - firstDay) / per) * bw;
+  const scale = ticks(Math.max(1, ...totals));
+  const top = scale.at(-1) ?? 1;
   const span = (b: number) => {
     const from = firstDay + b * per;
     return per === 1 ? day(from) : `${day(from)} to ${day(Math.min(firstDay + days, from + per) - 1)}`;
   };
-  let lastLabel = -Infinity;
-  const labelled = new Set<number>();
-  for (const [i, m] of marks.entries()) {
-    const x = xOfDay(m.day);
-    if (x - lastLabel > 70) {
-      labelled.add(i);
-      lastLabel = x;
-    }
-  }
-  const years: number[] = [];
-  const perYear = new Set<number>();
-  for (let d = firstDay; d < firstDay + days; d++) {
-    const date = new Date(d * 86_400_000);
-    const yr = date.getUTCFullYear();
-    if (!perYear.has(yr) && date.getUTCMonth() === 0 && date.getUTCDate() === 1) {
-      perYear.add(yr);
-      years.push(d);
-    }
-  }
+  const drawn = thinMarks(marks, firstDay, bins * per);
+  const years = yearsOf(firstDay, days);
   const legend: Swatch[] = series.map((s) => ({ label: s.label, colour: s.colour }));
-  if (marks.length > 0 && series.length > 1) legend.push({ label: "Release", colour: "var(--text-2)", mark: "dash" });
-  const unitWords = per === 1 ? "a column a day" : per === 7 ? "a column a week" : "a column every four weeks";
+  if (drawn.length > 0 && series.length > 1) legend.push({ label: "Release", colour: "var(--text-2)", mark: "dash" });
+  const unitWords = per === 1 ? "a column a day" : per === 7 ? "a column a week" : per === 28 ? "a column every four weeks" : "a column a quarter";
+  const hidden = marks.length - drawn.length;
   return (
-    <div className="chart" ref={ref}>
+    <div className="chart">
       <Legend items={legend} />
-      <p className="note small">{unitWords}</p>
-      {width > 0 && (
-        <svg className="columns" width={width} height={HEIGHT} role="img" aria-label={`${unit} over time, ${unitWords}`}>
-          <YAxis values={scale} y={y} width={width} left={LEFT} />
-          {marks.map((m, i) => {
-            const x = xOfDay(m.day);
-            return (
-              <g key={`${m.label}${m.day}`} className="mark" {...tip(<><strong>{m.label}</strong><div>released {day(m.day)}</div></>)}>
-                <line x1={x} x2={x} y1={TOP - 4} y2={HEIGHT - BOTTOM} />
-                <rect className="hit" x={x - 4} width={8} y={0} height={HEIGHT - BOTTOM} />
-                {labelled.has(i) && (
-                  <text x={x + 3} y={TOP - 6}>
-                    {m.label}
-                  </text>
-                )}
-              </g>
-            );
-          })}
-          {stacks.map((stack, b) => {
-            let base = 0;
-            const x = LEFT + b * bw + gap / 2;
-            const w = Math.max(0.5, bw - gap);
-            return (
-              <g
+      <p className="note small">
+        {unitWords}
+        {hidden > 0 && `; ${drawn.length} of ${grouped(marks.length)} releases drawn, where they fit`}
+      </p>
+      <div className="cols" style={{ height }} role="img" aria-label={`${unit} over time, ${unitWords}`}>
+        <div className="cols-plot">
+          {scale.map((v) => (
+            <div key={v} className="cols-grid" style={{ bottom: `${(v / top) * 100}%` }}>
+              <span>{compact(v)}</span>
+            </div>
+          ))}
+          {drawn.map(({ mark, at, labelled }) => (
+            <div key={`${mark.label}${mark.day}`} className="cols-mark" style={{ left: `${at}%` }} {...tip(<><strong>{mark.label}</strong><div>released {day(mark.day)}</div></>)}>
+              {labelled && <span>{mark.label}</span>}
+            </div>
+          ))}
+          <div className="cols-bars">
+            {stacks.map((stack, b) => (
+              <div
                 key={b}
+                className="cols-bin"
                 {...tip(
                   <>
                     <strong>{span(b)}</strong>
@@ -121,42 +87,28 @@ export function Columns({
                   </>,
                 )}
               >
-                <rect className="hit" x={LEFT + b * bw} width={bw} y={TOP} height={HEIGHT - TOP - BOTTOM} />
-                {stack.map((n, i) => {
-                  if (n === 0) return null;
-                  const y0 = y(base);
-                  base += n;
-                  const y1 = y(base);
-                  return (
-                    <rect
-                      key={i}
-                      x={x}
-                      width={w}
-                      y={y1}
-                      height={Math.max(0.5, y0 - y1)}
-                      fill={series[i]?.colour}
-                      stroke={gap > 0 && series.length > 1 ? "var(--surface)" : undefined}
-                      strokeWidth={gap > 0 && series.length > 1 ? 1 : undefined}
-                    />
-                  );
-                })}
-              </g>
-            );
-          })}
-          <g className="axis">
-            {(years.length > 0 && years.length < 16 ? years : [firstDay, firstDay + days - 1]).map((d, i, all) => (
-              <text
-                key={d}
-                x={xOfDay(d)}
-                y={HEIGHT - 6}
-                textAnchor={years.length > 0 && years.length < 16 ? "start" : i === all.length - 1 ? "end" : "start"}
-              >
-                {years.length > 0 && years.length < 16 ? new Date(d * 86_400_000).getUTCFullYear() : day(d)}
-              </text>
+                {stack.map((n, i) =>
+                  n === 0 ? null : <span key={i} style={{ height: `${(n / top) * 100}%`, background: series[i]?.colour }} />,
+                )}
+              </div>
             ))}
-          </g>
-        </svg>
-      )}
+          </div>
+        </div>
+        <div className="cols-axis">
+          {years.length > 0 ? (
+            years.map((d) => (
+              <span key={d} style={{ left: `${((d - firstDay) / Math.max(1, bins * per)) * 100}%` }}>
+                {new Date(d * 86_400_000).getUTCFullYear()}
+              </span>
+            ))
+          ) : (
+            <>
+              <span style={{ left: 0 }}>{day(firstDay)}</span>
+              <span style={{ right: 0 }}>{day(firstDay + Math.max(0, days - 1))}</span>
+            </>
+          )}
+        </div>
+      </div>
       <TableView
         head={["When", ...(series.length > 1 ? series.map((s) => s.label) : []), `All ${unit}`]}
         rows={stacks

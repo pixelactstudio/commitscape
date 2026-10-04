@@ -6,13 +6,13 @@ import type { CommitList } from "@commitscape/data";
 import { Figure } from "../charts/common";
 import { Key } from "../components/Key";
 import { Name } from "../components/Name";
-import { useData } from "../data";
+import { useLazyData } from "../data";
 import { Explain } from "../explain";
 import { compact, date, grouped, many, WINDOW_WORDS } from "../format";
 import { useLeading } from "../leading";
 import { searcher } from "../searcher";
 import type { ScreenProps } from "./props";
-import { ScreenSkeleton } from "../components/Loading";
+import { Skeleton } from "@astryxdesign/core/Skeleton";
 
 const ROW = 46;
 const SHOWN = 14;
@@ -20,7 +20,7 @@ const DAY = 86_400;
 const SPANS: Record<string, number> = { "30d": 30 * DAY, "90d": 90 * DAY, "1y": 365 * DAY };
 
 export function Commits({ meta, route, params, go }: ScreenProps) {
-  const { data: list, error } = useData<CommitList>("/api/commits", {});
+  const { data: list, error } = useLazyData<CommitList>("/api/commits", {});
   const [asked, setAsked] = useState(route.q ?? "");
   const [kind, setKind] = useState<string | null>(null);
   const found = useFound(list, {
@@ -32,7 +32,7 @@ export function Commits({ meta, route, params, go }: ScreenProps) {
   const onPerson = useCallback((id: number) => go({ screen: "people", id }), [go]);
   const [top, setTop] = useState(0);
   if (error) return <p className="error">{error}</p>;
-  if (!list) return <ScreenSkeleton />;
+  if (!list) return <CommitsLoading />;
   const span = route.from !== undefined || route.to !== undefined ? "the dates chosen" : WINDOW_WORDS[String(params.window)] ?? "all time";
   const first = Math.max(0, Math.floor(top / ROW) - 4);
   const last = Math.min(found.rows.length, first + SHOWN + 8);
@@ -63,7 +63,7 @@ export function Commits({ meta, route, params, go }: ScreenProps) {
         )}
         <div
           className="commit-list"
-          style={{ height: Math.min(found.rows.length, SHOWN) * ROW || ROW }}
+          style={{ height: SHOWN * ROW }}
           onScroll={(e) => setTop(e.currentTarget.scrollTop)}
           role="list"
           aria-label="Commits found"
@@ -188,3 +188,18 @@ const CommitRow = memo(function CommitRow({
     </div>
   );
 });
+
+function CommitsLoading() {
+  return (
+    <div className="screen" aria-busy="true" aria-label="Loading">
+      <Figure title="Commits" note={<Skeleton height={14} width="35%" radius={1} />}>
+        <div className="commit-tools">
+          <Skeleton height={40} index={1} />
+        </div>
+        <div className="commit-list" style={{ height: SHOWN * ROW }}>
+          <Skeleton height="100%" index={2} />
+        </div>
+      </Figure>
+    </div>
+  );
+}

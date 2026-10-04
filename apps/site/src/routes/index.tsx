@@ -1,54 +1,51 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Button } from "@astryxdesign/core/Button";
-import { Card } from "@astryxdesign/core/Card";
 import { Heading } from "@astryxdesign/core/Heading";
 import { TextInput } from "@astryxdesign/core/TextInput";
-import { parseGitHub, PRODUCT } from "@commitscape/data";
-import { Frame } from "#/components/Frame";
-import { boardsQuery } from "#/lib/queries";
+import { createFileRoute, useNavigate, useRouteContext } from "@tanstack/react-router";
+import { PRODUCT } from "@commitscape/data";
+import { Face } from "@commitscape/ui";
+import { signIn } from "#/lib/auth-client";
+import { goTo } from "#/lib/target";
 
 export const Route = createFileRoute("/")({
-  loader: ({ context }) => context.queryClient.prefetchQuery(boardsQuery()),
+  head: () => ({ meta: [{ title: `${PRODUCT}: what you have built, in numbers worth sharing` }] }),
   component: Landing,
 });
 
-const EXAMPLES = ["facebook/react", "BurntSushi/ripgrep", "rust-lang/rust", "vitejs/vite"];
+const EXAMPLES: [string, string][] = [
+  ["gaearon", "React, then Bluesky"],
+  ["BurntSushi", "ripgrep, regex and more"],
+  ["sindresorhus", "a thousand small packages"],
+  ["torvalds", "Linux and git"],
+];
+
+const REPOSITORIES = ["facebook/react", "BurntSushi/ripgrep", "vitejs/vite"];
 
 function Landing() {
   const navigate = useNavigate();
+  const { user } = useRouteContext({ from: "__root__" });
   const [text, setText] = useState("");
   const [why, setWhy] = useState<string | null>(null);
-  const { data: boards } = useQuery(boardsQuery());
-  const highlights = (boards?.boards ?? []).filter((b) => ["one_person", "active_people", "oldest_code"].includes(b.id) && b.rows.length > 0);
-  const go = () => {
-    const repo = parseGitHub(text);
-    if (!repo) {
-      setWhy("Paste a GitHub link, or owner/name, like BurntSushi/ripgrep.");
-      return;
-    }
-    void navigate({ to: "/gh/$owner/$repo", params: { owner: repo.owner, repo: repo.name } });
-  };
   return (
-    <Frame>
+    <>
       <section className="hero">
         <Heading level={1} className="hero-title">
-          Any repository's story, in a second.
+          What you've built, in numbers worth sharing.
         </Heading>
         <p className="hero-line">
-          {PRODUCT} reads a git repository's history and shows who built it, who knows which part, what is fragile, what
-          changes together, and what you are about to forget.
+          {PRODUCT} reads your pull requests, reviews and git history, shows how you stand next to the people you work with, and turns it into cards for your
+          README, LinkedIn and X.
         </p>
         <form
           className="lookup"
           onSubmit={(e) => {
             e.preventDefault();
-            go();
+            if (!goTo(text, navigate)) setWhy("Type a GitHub username, like gaearon, or a repository, like facebook/react.");
           }}
         >
           <TextInput
-            label="A GitHub repository"
+            label="A GitHub username or repository"
             isLabelHidden
             size="lg"
             value={text}
@@ -56,70 +53,61 @@ function Landing() {
               setText(v);
               setWhy(null);
             }}
-            placeholder="Paste a GitHub link, or owner/name"
+            placeholder="A GitHub username, or owner/repo"
             status={why ? { type: "error", message: why } : undefined}
             hasAutoFocus
             width="100%"
           />
-          <Button label="See its story" variant="primary" size="lg" type="submit" />
+          <Button label="Show me" variant="primary" size="lg" type="submit" />
         </form>
-        <p className="examples note">
-          Try{" "}
-          {EXAMPLES.map((e, i) => (
-            <span key={e}>
-              {i > 0 && ", "}
-              <a href={`/gh/${e}`}>{e}</a>
+        <div className="hero-own">
+          {user ? (
+            <Button label={`See your own Profile, ${user.login}`} variant="secondary" href={`/u/${user.login}`} />
+          ) : (
+            <Button label="See your own: sign in with GitHub" variant="secondary" onClick={() => signIn("/you")} />
+          )}
+        </div>
+      </section>
+
+      <section className="examples-grid" aria-label="Example Profiles">
+        {EXAMPLES.map(([login, words]) => (
+          <a key={login} className="example" href={`/u/${login}`}>
+            <Face login={login} name={login} size={48} />
+            <span>
+              <strong>{login}</strong>
+              <span className="note small">{words}</span>
             </span>
-          ))}
-          .
-        </p>
+          </a>
+        ))}
       </section>
 
       <section className="ways">
-        <Card padding={4}>
-          <Heading level={2}>On your machine</Heading>
-          <p>In any git repository, in your terminal. Nothing leaves your machine.</p>
-          <pre className="command">npx commitscape</pre>
-        </Card>
-        <Card padding={4}>
-          <Heading level={2}>Share from a terminal</Heading>
-          <p>On a server with no browser: it uploads a Report locked with a key only its link holds, prints the link, and exits.</p>
-          <pre className="command">npx commitscape share</pre>
-        </Card>
-        <Card padding={4}>
-          <Heading level={2}>Here, for any public repository</Heading>
-          <p>Paste its link above. GitHub's facts show at once; the full Report follows once its history is read.</p>
-          <pre className="command">/gh/owner/name</pre>
-        </Card>
+        <div className="way">
+          <Heading level={2}>Your Profile</Heading>
+          <p>Pull requests merged, reviews given, the lines of yours that still run, and where your work is. Read from GitHub at once.</p>
+        </div>
+        <div className="way">
+          <Heading level={2}>Where you stand</Heading>
+          <p>In each repository you work on, next to everyone else in it, view by view. Never one score, and you can hide.</p>
+        </div>
+        <div className="way">
+          <Heading level={2}>Cards to share</Heading>
+          <p>For your README, a self-review, a client, or a post. Light and dark, animated where GitHub allows it.</p>
+        </div>
       </section>
 
-      {highlights.length > 0 && (
-        <section className="highlights">
-          <Heading level={2}>
-            From the <a href="/leaderboards">Leaderboards</a>
-          </Heading>
-          <div className="ways">
-            {highlights.map((b) => (
-              <Card key={b.id} padding={4}>
-                <Heading level={3}>{b.title}</Heading>
-                <ol className="board-rows">
-                  {b.rows.slice(0, 3).map((r) => (
-                    <li key={`${r.owner}/${r.name}`}>
-                      <a href={`/gh/${r.owner}/${r.name}`}>
-                        {r.owner}/{r.name}
-                      </a>
-                      <span className="board-value">{r.shown}</span>
-                    </li>
-                  ))}
-                </ol>
-              </Card>
-            ))}
-          </div>
-        </section>
-      )}
-
       <section className="install">
-        <Heading level={2}>Install</Heading>
+        <Heading level={2}>Or look at a repository, or run it on your own machine</Heading>
+        <p className="note">
+          Any public repository:{" "}
+          {REPOSITORIES.map((r, i) => (
+            <span key={r}>
+              {i > 0 && ", "}
+              <a href={`/gh/${r}`}>{r}</a>
+            </span>
+          ))}
+          . Nothing leaves your machine with the command line:
+        </p>
         <table className="plain">
           <tbody>
             <tr>
@@ -140,9 +128,15 @@ function Landing() {
                 <code>nix run github:pixelactstudio/commitscape</code>
               </td>
             </tr>
+            <tr>
+              <td>Share from a server</td>
+              <td>
+                <code>npx commitscape share</code> prints a link that only its holder can open
+              </td>
+            </tr>
           </tbody>
         </table>
       </section>
-    </Frame>
+    </>
   );
 }

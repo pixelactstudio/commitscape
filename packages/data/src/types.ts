@@ -69,3 +69,9 @@ export type CommitList = { link: string | null, lines: boolean, kinds: Array<str
 export type CommitPerson = { person: PersonRef, emails: Array<string>, };
 
 export type Stats = { commits: number, people: number, bus_factor: number | null, maintainers: number, commits_30d: number, people_30d: number, code_lines: number, untouched_5y: number, };
+
+export type Surviving = { head: string, people: Array<SurvivingPerson>, };
+
+export type SurvivingPerson = { id: number, name: string | null, status: SurvivingStatus, surviving: number | null, added: number | null, files: number, oldest: number | null, seconds: number, };
+
+export type SurvivingStatus = "counted" | "over_budget" | "unknown_person";

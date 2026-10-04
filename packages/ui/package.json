@@ -6,7 +6,10 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./styles.css": "./src/index.css"
+    "./styles.css": "./src/index.css",
+    "./mode": "./src/mode.ts",
+    "./cards/render": "./src/cards/render.tsx",
+    "./cards/fonts": "./src/cards/fonts.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -17,7 +20,8 @@
     "@astryxdesign/core": "catalog:",
     "@astryxdesign/theme-neutral": "catalog:",
     "@commitscape/data": "workspace:*",
-    "@stylexjs/stylex": "catalog:"
+    "@stylexjs/stylex": "catalog:",
+    "satori": "0.35.0"
   },
   "peerDependencies": {
     "@tanstack/react-query": "catalog:",

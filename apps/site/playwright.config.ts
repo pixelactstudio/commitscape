@@ -14,6 +14,7 @@ export default defineConfig({
     baseURL: `http://127.0.0.1:${port}`,
     launchOptions: { executablePath },
     viewport: { width: 1280, height: 900 },
+    userAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36",
   },
   webServer: {
     command: "node e2e/start.ts",

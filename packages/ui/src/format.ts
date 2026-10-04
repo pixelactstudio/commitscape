@@ -19,7 +19,8 @@ export function compact(n: number): string {
 
 export function share(part: number, whole: number): string {
   if (whole === 0) return "—";
-  return `${Math.round((part * 100) / whole)}%`;
+  const p = Math.round((part * 100) / whole);
+  return p === 0 && part > 0 ? "<1%" : `${p}%`;
 }
 
 export function day(days: number): string {

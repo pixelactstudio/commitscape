@@ -41,9 +41,9 @@ export function useShortcuts(shortcuts: Shortcuts) {
 }
 
 export const SHORTCUT_WORDS: [string, string][] = [
-  ["1–6", "Choose a screen"],
+  ["1–5", "Choose a screen"],
   ["mod+k", "Jump to a screen, a person, a folder or a file"],
-  ["/", "Search: the commits on Commits, otherwise the same as ⌘K"],
+  ["/", "Search: the commits on Commits, otherwise people, folders and files"],
   ["w", "The next Window: 30 days, 90 days, a year, all time"],
   ["shift+w", "The Window before"],
   ["?", "Show or hide this help, every number's explanation, and the keys"],

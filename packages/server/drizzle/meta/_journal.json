@@ -8,6 +8,69 @@
       "when": 1790503745010,
       "tag": "0000_init",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791112396480,
+      "tag": "0001_repo_people",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791115070547,
+      "tag": "0002_profiles",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791115822954,
+      "tag": "0003_surviving",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791116392336,
+      "tag": "0004_standings",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791119390045,
+      "tag": "0005_cards",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791120980511,
+      "tag": "0006_proofs",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791121656035,
+      "tag": "0007_rivals",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791122427558,
+      "tag": "0008_oldest_line",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791123159514,
+      "tag": "0009_races_and_crews",
+      "breakpoints": true
     }
   ]
 }

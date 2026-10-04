@@ -2,6 +2,7 @@ import { createPublicKey, verify, type KeyObject } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import { join } from "node:path";
+import { commitSearch, graphqlAnswer } from "./graphql.ts";
 
 const recorded = (name: string) => JSON.parse(readFileSync(join(import.meta.dirname, "github", `${name}.json`), "utf8"));
 
@@ -60,6 +61,16 @@ export function fakeGitHub(port: number, appPublicKey: string): Promise<Server> 
       });
       return;
     }
+    if (url.pathname === "/graphql" && req.method === "POST") {
+      let text = "";
+      req.on("data", (d) => (text += d));
+      req.on("end", () => {
+        const b = JSON.parse(text) as { query: string; variables?: Record<string, unknown> };
+        send(200, graphqlAnswer(b.query, b.variables ?? {}));
+      });
+      return;
+    }
+    if (url.pathname === "/search/commits") return send(200, commitSearch(url.searchParams.get("q") ?? ""));
     const as = who(req, appKey);
     if (url.pathname === "/user") return as && as !== "app" ? send(200, recorded(`user-${as}`)) : send(401, { message: "Bad credentials" });
     if (url.pathname === "/user/installations") return send(200, as === "alice" ? recorded("installations-alice") : { total_count: 0, installations: [] });

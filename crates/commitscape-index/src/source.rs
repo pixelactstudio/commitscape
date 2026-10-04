@@ -110,3 +110,45 @@ pub trait RepoSource {
 
     fn blame_ignore_revs(&self) -> Result<Vec<Oid>, Self::Error>;
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlameCommit {
+    pub time: i64,
+    pub parents: Vec<Oid>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Moves {
+    pub deleted: Vec<(Vec<u8>, Oid)>,
+    pub added: Vec<(Vec<u8>, Oid)>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InParent {
+    Same,
+    Changed(Oid),
+    Absent,
+}
+
+pub trait BlameThreads: Sync {
+    type Local: BlameSource;
+
+    fn local(&self) -> Self::Local;
+}
+
+pub trait BlameSource {
+    type Error: std::error::Error + Send + Sync + 'static;
+
+    fn blame_commit(&self, id: Oid) -> Result<Option<BlameCommit>, Self::Error>;
+
+    fn blame_compare(
+        &self,
+        commit: Oid,
+        parent: Oid,
+        paths: &[&[u8]],
+    ) -> Result<Vec<InParent>, Self::Error>;
+
+    fn blame_moves(&self, commit: Oid, parent: Oid) -> Result<Moves, Self::Error>;
+
+    fn blame_blob(&self, blob: Oid) -> Result<Vec<u8>, Self::Error>;
+}

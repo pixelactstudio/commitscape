@@ -37,10 +37,9 @@ function fake(answer: (args: string[]) => Ran | Promise<Ran>) {
     run: async (_cmd, args) => {
       calls.push(args);
       const out = outOf(args);
-      if (out) await writeFile(out, args[0] === "card" ? "<svg/>" : "report");
+      if (out) await writeFile(out, "report");
       return answer(args);
     },
-    png: () => null,
     progress: async (step) => void said.push(step),
   };
   return { deps, calls, said };
@@ -57,7 +56,7 @@ test("a small repository is cloned whole, a big one partially, a huge one refuse
   const work = await mkdtemp(join(tmpdir(), "builder-"));
   const small = fake(() => ok);
   const done = await build(req(), cfg(work), small.deps);
-  expect(done).toMatchObject({ ok: true, lines: true, partial: false, card: { type: "image/svg+xml" } });
+  expect(done).toMatchObject({ ok: true, lines: true, partial: false });
   expect(done.ok && new TextDecoder().decode(done.report)).toBe("report");
   expect(small.calls[0]).not.toContain("--partial");
   expect(small.calls[0]).toEqual(expect.arrayContaining(["report", "--no-emails", "--", "acme/rocket"]));
@@ -185,10 +184,10 @@ test("a seed's Build carries the Report's numbers and how fast its issues are an
   };
   const outcome = await build(req({ seed: true }), cfg(work), f.deps);
   expect(outcome).toMatchObject({ ok: true, stats: { ...stats, answered: 12, answer_hours: 3.5 } });
-  expect(f.calls.map((c) => c[0])).toEqual(["report", "card", "health"]);
+  expect(f.calls.map((c) => c[0])).toEqual(["report", "health"]);
   const plain = fake(() => ok);
   await build(req(), cfg(work), plain.deps);
-  expect(plain.calls.map((c) => c[0])).toEqual(["report", "card"]);
+  expect(plain.calls.map((c) => c[0])).toEqual(["report"]);
 });
 
 test("the seed list is the most starred per language, each once", async () => {

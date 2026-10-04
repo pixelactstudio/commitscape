@@ -1,7 +1,7 @@
 import type { Params } from "@commitscape/data";
 import type { Meta } from "@commitscape/data";
 
-export const SCREENS = ["overview", "activity", "people", "map", "risk", "commits"] as const;
+export const SCREENS = ["overview", "people", "activity", "map", "commits"] as const;
 export type Screen = (typeof SCREENS)[number];
 
 export const TITLES: Record<Screen, string> = {
@@ -9,7 +9,6 @@ export const TITLES: Record<Screen, string> = {
   activity: "Activity",
   people: "People",
   map: "Map",
-  risk: "Risk",
   commits: "Commits",
 };
 
@@ -71,8 +70,6 @@ export function primaryRequest(route: Route, params: Params): [string, Params] |
       return route.id !== undefined ? ["/api/person", { ...params, id: route.id }] : ["/api/people", params];
     case "map":
       return ["/api/map", { ...params, path: route.path ?? "" }];
-    case "risk":
-      return ["/api/risk", params];
     default:
       return null;
   }

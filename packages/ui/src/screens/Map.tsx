@@ -3,9 +3,9 @@ import { Button } from "@astryxdesign/core/Button";
 import { Card } from "@astryxdesign/core/Card";
 import { Selector } from "@astryxdesign/core/Selector";
 import type { File as FileData, MapBlock, MapLevel } from "@commitscape/data";
-import { useData } from "../data";
+import { useData, useLazyData } from "../data";
 import { TableView } from "../charts/common";
-import { ranges, useWidth } from "../charts/scale";
+import { FULL, ranges } from "../charts/scale";
 import { useTip } from "../charts/tip";
 import { squarify, type Rect } from "../charts/treemap";
 import { Name } from "../components/Name";
@@ -37,9 +37,9 @@ const AGES = [
 export function MapScreen({ meta, params, route, go }: ScreenProps) {
   const path = route.path ?? "";
   const { data: level, error, stale } = useData<MapLevel>("/api/map", { ...params, path });
-  const file = useData<FileData>(route.file ? "/api/file" : null, { ...params, path: route.file });
+  const file = useLazyData<FileData>(route.file ? "/api/file" : null, { ...params, path: route.file });
   const [colour, setColour] = useState<Colour>("activity");
-  const [ref, width] = useWidth<HTMLDivElement>();
+  const width = FULL;
   const tip = useTip();
   const open = openers(go);
   if (error) return <p className="error">{error}</p>;
@@ -117,9 +117,9 @@ export function MapScreen({ meta, params, route, go }: ScreenProps) {
       </div>
       <MapLegend colour={colour} bounds={bounds} owners={[...owners.values()]} />
       <div className="map-and-file">
-        <div className="treemap" ref={ref}>
-          {width > 0 && (
-            <svg width={width} height={HEIGHT} role="img" aria-label={`The code at ${path || "the top"}, each block sized by its lines`}>
+        <div className="treemap">
+          {(
+            <svg viewBox={`0 0 ${width} ${HEIGHT}`} className="fluid" role="img" aria-label={`The code at ${path || "the top"}, each block sized by its lines`}>
               {drawn.map((d) => {
                 const b = d.block;
                 const folder = !b.file && d.depth === 0 && b.inside.length > 0;

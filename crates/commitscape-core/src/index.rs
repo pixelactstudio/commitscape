@@ -520,6 +520,12 @@ impl PathTable {
             .filter_map(|(_, path)| self.names.get(path.idx()))
     }
 
+    pub fn departures(&self) -> impl Iterator<Item = (FileId, &[u8])> {
+        self.departures
+            .iter()
+            .filter_map(|(file, path)| Some((*file, self.names.get(path.idx())?)))
+    }
+
     pub fn len(&self) -> usize {
         self.current.len()
     }

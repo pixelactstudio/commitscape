@@ -1,3 +1,4 @@
+mod blame_store;
 mod format;
 mod identity_store;
 mod line_store;
@@ -15,6 +16,7 @@ use crate::reresolve_authors;
 use crate::source::{CommitSink, RawChange, RawCommit, RepoSource};
 use format::{BlockEntry, Head, Previous, SortedIds, Unusable};
 
+pub use blame_store::{BlameStore, Known, Moved};
 pub use identity_store::IdentityStore;
 pub use line_store::LineStore;
 pub use location::default_cache_root;

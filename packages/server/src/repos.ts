@@ -9,7 +9,7 @@ export type RepoRow = typeof repositories.$inferSelect;
 export async function removeReports(db: Db, storage: Storage, rows: RepoRow[]): Promise<void> {
   for (const r of rows) {
     if (r.reportKey) await storage.deletePrefix(`${r.reportKey}/`);
-    if (r.cardKey) await storage.delete([r.cardKey]);
+    await storage.deletePrefix(`cards/gh/${r.id}/`);
   }
   for (let i = 0; i < rows.length; i += 500) {
     const ids = rows.slice(i, i + 500).map((r) => r.id);

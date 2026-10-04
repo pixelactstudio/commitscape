@@ -22,6 +22,8 @@ export function loadEnv(runtimeEnv: Record<string, string | undefined> = process
       MAX_REPOSITORY_MB: positive(3000),
       TIME_LIMIT_SECONDS: positive(900),
       DISK_BUDGET_GB: positive(20),
+      SURVIVING_BUDGET_SECONDS: positive(60),
+      PULLS_TIME_LIMIT_SECONDS: positive(1800),
       GIT_BASE: z.string().optional(),
       GITHUB_API: z.url().default("https://api.github.com"),
       GITHUB_TOKEN: z.string().optional(),

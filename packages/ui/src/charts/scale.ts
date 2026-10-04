@@ -1,20 +1,5 @@
-import { useCallback, useRef, useState } from "react";
-
-export function useWidth<T extends Element>(): [(el: T | null) => void, number] {
-  const [width, setWidth] = useState(0);
-  const observer = useRef<ResizeObserver | null>(null);
-  const ref = useCallback((el: T | null) => {
-    observer.current?.disconnect();
-    observer.current = null;
-    if (!el) return;
-    setWidth(el.getBoundingClientRect().width);
-    observer.current = new ResizeObserver(([entry]) => {
-      if (entry) setWidth(entry.contentRect.width);
-    });
-    observer.current.observe(el);
-  }, []);
-  return [ref, width];
-}
+export const HALF = 560;
+export const FULL = 1200;
 
 export function ticks(max: number, count = 3): number[] {
   if (max <= 0) return [0];

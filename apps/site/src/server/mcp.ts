@@ -4,7 +4,9 @@ import { key, PRODUCT } from "@commitscape/data";
 import { z } from "zod";
 import { leaderboards } from "./boards";
 import { SiteError } from "./http";
+import { readProfile } from "./profiles";
 import { lookup, reportEntry, reportHead, requestBuild, type Deps, type Viewer } from "./repos";
+import { standingsOf } from "./standings";
 
 const SCREENS = { overview: "/api/overview", activity: "/api/activity", people: "/api/people", risk: "/api/risk", map: "/api/map" } as const;
 const WINDOW = z.enum(["30d", "90d", "1y", "all"]).default("all").describe("The time range every number is computed over.");
@@ -21,7 +23,7 @@ async function answer(run: () => Promise<unknown>) {
   }
 }
 
-/** The MCP server AI agents use to look up and read public repositories' Reports. */
+/** The MCP server: public repositories' Reports, Profiles and Standings, for any MCP client. */
 export function mcpServer(deps: Deps, viewer: Viewer): McpServer {
   const server = new McpServer({ name: PRODUCT, version: "1.0.0" });
 
@@ -104,6 +106,34 @@ export function mcpServer(deps: Deps, viewer: Viewer): McpServer {
       inputSchema: {},
     },
     () => answer(() => leaderboards(deps.db, 600)),
+  );
+
+  const person = { ...viewer, login: async () => null };
+
+  server.registerTool(
+    "read_profile",
+    {
+      title: "Read a person's Profile",
+      description:
+        "A GitHub user's Profile: pull requests opened and merged, reviews given, commits, lines in merged pull requests, active days, streaks, the repositories their work is in, languages by year, and who they review with. Public work only; a person who chose to stay out of comparisons is refused.",
+      inputSchema: { login: z.string().describe("The GitHub login, like gaearon.") },
+    },
+    ({ login }) =>
+      answer(async () => {
+        const p = await readProfile(deps, person, login, true);
+        return { identity: p.identity, totals: p.totals, years: p.years, repositories: p.repositories.slice(0, 50), partners: p.partners, read: { at: p.fetchedAt, ...p.read } };
+      }),
+  );
+
+  server.registerTool(
+    "read_standings",
+    {
+      title: "Read a repository's Standings",
+      description:
+        "Where each person stands in a repository commitscape has read, view by view and never combined: lines of theirs still at its head (Surviving Lines), pull requests merged, pull requests reviewed, lines added, commits. People who chose to stay out are left out.",
+      inputSchema: REPO,
+    },
+    ({ owner, repo }) => answer(() => standingsOf(deps, person, owner, repo)),
   );
 
   return server;

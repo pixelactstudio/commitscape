@@ -97,7 +97,7 @@ S3_ENDPOINT=https://<account id>.r2.cloudflarestorage.com
 S3_BUCKET=commitscape-reports
 S3_ACCESS_KEY_ID=...
 S3_SECRET_ACCESS_KEY=...
-GITHUB_TOKEN=...                 # a token with no scopes: GitHub's search limits for the Leaderboards
+GITHUB_TOKEN=...                 # a token with no scopes: GitHub's search limits for the Leaderboards, people's logins, and each repository's pull requests
 GITHUB_APP_ID=...                # for private repositories
 GITHUB_APP_PRIVATE_KEY="..."
 ```
@@ -111,6 +111,8 @@ Optional limits, with their defaults:
 | `MAX_REPOSITORY_MB` | 3000 | Larger repositories are refused |
 | `TIME_LIMIT_SECONDS` | 900 | A Build stops after this long |
 | `DISK_BUDGET_GB` | 20 | Past this, the least recently built clones in `/work` are deleted |
+| `SURVIVING_BUDGET_SECONDS` | 60 | How long one count of a person's Surviving Lines may take before it says "not counted" |
+| `PULLS_TIME_LIMIT_SECONDS` | 1800 | How long one read of a repository's pull requests may take; facebook/react's first read took 24 minutes, so a busy repository's first read may need longer, once |
 | `SEED_LANGUAGES`, `SEED_PER_LANGUAGE`, `SEED_BUDGET` | 9 languages, 10, 50 | The nightly Leaderboard Builds |
 
 Deploy it. It applies the database migrations, then logs `builder working`.
@@ -141,7 +143,7 @@ S3_ACCESS_KEY_ID=...
 S3_SECRET_ACCESS_KEY=...
 BETTER_AUTH_URL=https://example.com
 BETTER_AUTH_SECRET=...           # openssl rand -hex 32
-GITHUB_TOKEN=...                 # the same token: GitHub's API limits for lookups
+GITHUB_TOKEN=...                 # the same token, required: Profiles, Proof of Work, Races and Crews read GitHub's GraphQL API, which needs a token; signed-in people use their own
 GITHUB_APP_ID=...
 GITHUB_APP_SLUG=...
 GITHUB_APP_CLIENT_ID=...

@@ -6,8 +6,6 @@ import { Button } from "@astryxdesign/core/Button";
 import { Heading } from "@astryxdesign/core/Heading";
 import { deleteToken, readReport, reportSource, unlock, type DataSource } from "@commitscape/data";
 import { App, ScreenSkeleton, SourceContext, toRoute, toSearch, type Route as Where } from "@commitscape/ui";
-import { Connect } from "#/components/Connect";
-import { Frame } from "#/components/Frame";
 import { shareKey } from "#/share-key";
 
 export const Route = createFileRoute("/s/$id")({
@@ -84,15 +82,21 @@ function SharedReport() {
   if (state.kind === "open") {
     return (
       <SourceContext value={state.source}>
+        <header className="repo-head">
+          <div className="min-w-0 flex-1">
+            <Heading level={1} className="repo-title">
+              {state.source.meta.name}
+            </Heading>
+            <p className="repo-facts note small">A Shared Report, read in this browser only</p>
+          </div>
+        </header>
         <App
           route={where}
           go={go}
-          home="/"
           nav={
             <>
               <span className="note small">shared · expires in {left(state.expiresAt)}</span>
               <Button label={deleting ?? "Delete"} variant="destructive" size="sm" onClick={() => void remove()} isDisabled={deleting === "Deleting…"} />
-              <Connect />
             </>
           }
         />
@@ -100,7 +104,7 @@ function SharedReport() {
     );
   }
   return (
-    <Frame>
+    <>
       <section className="repo-waiting">
         <Heading level={1}>A Shared Report</Heading>
         {state.kind === "opening" && (
@@ -117,6 +121,6 @@ function SharedReport() {
           cannot read.
         </p>
       </section>
-    </Frame>
+    </>
   );
 }

@@ -1,3 +1,4 @@
+pub mod blame;
 pub mod build;
 pub mod cache;
 mod classify;
@@ -10,23 +11,26 @@ pub mod mailmap;
 pub mod measure;
 mod message;
 pub mod scripted;
+pub mod similarity;
 pub mod source;
+pub mod surviving;
 
 pub use build::IndexBuilder;
 pub use cache::{
-    default_cache_root, load, repo_dir, CacheOptions, Freshness, IdentityStore, LineStore, Loaded,
-    OlderHistory, Progress, RebuildReason, Rest, RestUnavailable, Since,
+    default_cache_root, load, repo_dir, BlameStore, CacheOptions, Freshness, IdentityStore,
+    LineStore, Loaded, OlderHistory, Progress, RebuildReason, Rest, RestUnavailable, Since,
 };
 pub use commitscape_core::LinePass;
-pub use gix_source::{GixError, GixRepo};
+pub use gix_source::{GixError, GixRepo, GixThreads};
 pub use identity::{resolve_authors, IdentityRules};
 pub use lines::{line_pass, line_pass_where};
 pub use mailmap::Mailmap;
 pub use scripted::{ScriptedChangeSpec, ScriptedRepo};
 pub use source::{
-    BlobSink, CommitSink, Frontier, HeadChange, HeadEntry, Indexed, LineSink, RawChange,
-    RawChangeKind, RawCommit, RepoSource, WalkStats,
+    BlameCommit, BlameSource, BlameThreads, BlobSink, CommitSink, Frontier, HeadChange, HeadEntry,
+    InParent, Indexed, LineSink, Moves, RawChange, RawChangeKind, RawCommit, RepoSource, WalkStats,
 };
+pub use surviving::{Survival, Survived};
 
 use commitscape_core::Index;
 

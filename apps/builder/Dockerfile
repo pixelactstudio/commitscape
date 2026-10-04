@@ -27,7 +27,7 @@ RUN apt-get update \
   && apt-get update && apt-get install -y --no-install-recommends gh \
   && apt-get purge -y gnupg && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-RUN npm install --omit=dev --no-save @resvg/resvg-js@2.6.2 && mkdir -p /work && chown node:node /work \
+RUN mkdir -p /work && chown node:node /work \
   && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /root/.npm
 COPY --from=binary /src/target/dist/commitscape /usr/local/bin/commitscape
 COPY --from=runner /repo/apps/builder/dist/builder.mjs ./builder.mjs

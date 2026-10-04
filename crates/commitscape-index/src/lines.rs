@@ -114,11 +114,19 @@ fn aligned(raws: &[RawChange<'_>], deltas: &[Option<LineDelta>]) -> Vec<Option<L
 }
 
 pub fn parse_ignore_revs(text: &[u8]) -> Vec<Oid> {
+    ignore_rev_names(text)
+        .iter()
+        .filter_map(|n| Oid::from_hex(n))
+        .collect()
+}
+
+pub fn ignore_rev_names(text: &[u8]) -> Vec<String> {
     String::from_utf8_lossy(text)
         .lines()
         .filter_map(|l| {
             let l = l.split('#').next().unwrap_or("").trim();
-            Oid::from_hex(l)
+            (l.len() >= 4 && l.len() <= 40 && l.bytes().all(|b| b.is_ascii_hexdigit()))
+                .then(|| l.to_ascii_lowercase())
         })
         .collect()
 }

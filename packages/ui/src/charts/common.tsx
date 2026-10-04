@@ -112,7 +112,7 @@ export function Figure({
       <Heading level={2} className="figure-title">
         {title}
       </Heading>
-      {note && <p className="note">{note}</p>}
+      {note && <div className="note figure-note">{note}</div>}
       {children}
     </Card>
   );

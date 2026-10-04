@@ -25,7 +25,7 @@ import { askGitHub, asUser, type GitHubConfig } from "./github";
 import { SiteError } from "./http";
 import { allow } from "./limits";
 
-const { access, builds, repositories } = schema;
+const { access, builds, repoPeople, repositories } = schema;
 
 export type Deps = { db: Db; storage: Storage; github: GitHubConfig; app: GitHubApp | null; queue: () => Promise<Queue> };
 
@@ -73,7 +73,7 @@ export async function known(deps: Deps, owner: string, name: string, address?: s
   if (another && row?.reportKey) await deps.storage.deletePrefix(`${row.reportKey}/`);
   const fields = {
     githubId: asked.githubId ?? row?.githubId ?? null,
-    ...(another ? { reportKey: null, reportAt: null, reportBytes: null, reportLines: null, cardKey: null } : {}),
+    ...(another ? { reportKey: null, reportAt: null, reportBytes: null, reportLines: null } : {}),
     status: asked.status,
     isPrivate: asked.status === "private",
     facts: asked.status === "ok" ? JSON.stringify(asked.facts) : null,
@@ -209,14 +209,20 @@ async function readable(deps: Deps, viewer: Viewer, owner: string, name: string)
   return row as Row & { reportKey: string };
 }
 
-export type ReportHead = { at: number; index: ReportIndex; private: boolean };
+export type ReportHead = { at: number; index: ReportIndex; private: boolean; logins: [number, string][] };
 
-/** A readable Report's index and when it was built. */
+/** A readable Report's index, when it was built, and the GitHub login of each of its people the Builder found. */
 export async function reportHead(deps: Deps, viewer: Viewer, owner: string, name: string): Promise<ReportHead> {
   const row = await readable(deps, viewer, owner, name);
-  const index = await readIndex(deps.storage, row.reportKey);
+  const [index, people] = await Promise.all([
+    readIndex(deps.storage, row.reportKey),
+    deps.db
+      .select({ id: repoPeople.personId, login: repoPeople.login })
+      .from(repoPeople)
+      .where(and(eq(repoPeople.repoId, row.id), eq(repoPeople.reportKey, row.reportKey))),
+  ]);
   if (!index) throw new SiteError(404, NO_REPORT);
-  return { at: row.reportAt ?? 0, index, private: row.isPrivate };
+  return { at: row.reportAt ?? 0, index, private: row.isPrivate, logins: people.flatMap((p) => (p.login ? [[p.id, p.login] as [number, string]] : [])) };
 }
 
 /** One answer of a Report the viewer may read. */
@@ -239,12 +245,4 @@ export async function reportCard(deps: Deps, viewer: Viewer, owner: string, name
   const svg = await readCard(deps.storage, row.reportKey, window);
   if (!svg) throw new SiteError(404, "No card for that Window.");
   return svg;
-}
-
-/** A public repository's card image, for social previews. */
-export async function publicCard(deps: Deps, owner: string, name: string): Promise<{ body: Uint8Array; type: string } | null> {
-  const row = await rowOf(deps.db, idOf(owner, name));
-  if (!row?.cardKey || row.status !== "ok" || row.isPrivate) return null;
-  const object = await deps.storage.get(row.cardKey);
-  return object ? { body: object.body, type: object.type ?? "image/png" } : null;
 }

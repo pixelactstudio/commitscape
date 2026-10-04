@@ -187,11 +187,11 @@ Said of a Profile whose person chose to stay out of comparisons: it appears in n
 _Avoid_: private profile, opted out.
 
 **Surviving Lines**:
-The lines at a repository's head that blame attributes to a person, passing through Bulk Commits and ignored revisions, leaving out Generated Files and Prose Files (ADR-0022). Counted per person on request; "not counted" when over its time budget.
+The lines at a repository's head that blame attributes to a person, passing through Bulk Commits and ignored revisions, leaving out Generated Files, Prose Files and files over a megabyte (ADR-0022). Passing through gives a changed line to the commit before only when the two are the same once whitespace is removed; any other line a reformat changed stays with the reformat. Counted per person on request; "not counted" when over its time budget, never an estimate.
 _Avoid_: lines owned, code alive, impact.
 
 **Survival**:
-A person's Surviving Lines as a share of the lines they added in that repository. Shown only when both are known.
+A person's Surviving Lines as a share of the lines they added in that repository (their Lines Changed). Shown only when both are known and it is at most 100%: an import left out of Lines Changed as a Bulk Commit can keep more lines than were counted as added.
 _Avoid_: retention, survival rate, code quality.
 
 **Standing**:
@@ -211,11 +211,26 @@ A person someone chose to measure themselves against, whose gap shows on their o
 _Avoid_: friend, follow.
 
 **Archetype**:
-A label for how a person works, from a written rule over their numbers, such as Reviewer (more reviews than pull requests) or Janitor (removes more lines than they add). Its rule is shown with it.
+A label for how a person works, from a written rule over their numbers, shown with its rule. Nobody under 50 contributions has one. The rules are tried in this order, and the first that fits is theirs (the others show as "also"):
+- **Reviewer**: gave more reviews than they opened pull requests, and at least 20 reviews.
+- **Janitor**: removed more lines than they added in their merged pull requests, and at least 1,000 lines.
+- **Firefighter**: at least half of their merged pull requests, and 10 or more, are fixes: titled fix, hotfix or bugfix, or a conventional fix:.
+- **Night Owl**: at least 40% of their newest 100 commits, 30 or more read, were made between 22:00 and 04:59 on the commit's own clock.
+- **Polyglot**: committed in five or more languages, each at least 5% of their commits, by the main language of each repository.
+- **Weekend Warrior**: at least 40% of their active days in the last year fell on a Saturday or Sunday, with 30 or more active days.
+- **Marathoner**: a streak of 30 days or more in a row with a contribution.
+- **Builder**: merged 25 or more pull requests, adding at least twice the lines they removed.
 _Avoid_: personality, type, persona.
 
 **Achievement**:
-A milestone a person reached, from a written rule, such as a first merged pull request in a repository with 10,000 stars. Each has a Card.
+A milestone a person reached, from a written rule, shown with the day it was reached when that is known. Each has a Card. The set:
+- **Merged into a 10k-star repository**: a pull request of theirs merged into a repository with 10,000 stars or more, as it has now.
+- **100** and **1,000 pull requests merged**.
+- **100** and **1,000 reviews** of others' pull requests.
+- **Removed 10k lines in one pull request**: a merged pull request of theirs that removed 10,000 lines or more.
+- **A 30-day** and **a 100-day streak** of contributions.
+- **10,000 lines still running**: Surviving Lines at the heads of the repositories commitscape has read.
+- **A line that has survived five years**: a line of theirs still at a repository's head, from a commit authored five years ago or more.
 _Avoid_: badge, trophy.
 
 **Season**:

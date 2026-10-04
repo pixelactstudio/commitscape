@@ -1,6 +1,6 @@
 import { grouped } from "../format";
 import { TableView, YAxis } from "./common";
-import { ticks, useWidth } from "./scale";
+import { HALF, ticks } from "./scale";
 import { useTip } from "./tip";
 
 const HEIGHT = 150;
@@ -9,7 +9,7 @@ const TOP = 16;
 const BOTTOM = 22;
 
 export function Hours({ hours }: { hours: number[] }) {
-  const [ref, width] = useWidth<HTMLDivElement>();
+  const width = HALF;
   const tip = useTip();
   const scale = ticks(Math.max(1, ...hours));
   const top = scale.at(-1) ?? 1;
@@ -18,9 +18,9 @@ export function Hours({ hours }: { hours: number[] }) {
   const x = (h: number) => LEFT + h * bw;
   const label = (h: number) => `${String(h).padStart(2, "0")}:00`;
   return (
-    <div className="chart" ref={ref}>
-      {width > 0 && (
-        <svg width={width} height={HEIGHT} role="img" aria-label="Commits by hour of the day">
+    <div className="chart">
+      {(
+        <svg viewBox={`0 0 ${width} ${HEIGHT}`} className="fluid" role="img" aria-label="Commits by hour of the day">
           <rect className="night" x={x(22)} width={bw * 2} y={TOP} height={HEIGHT - TOP - BOTTOM} />
           <rect className="night" x={x(0)} width={bw * 5} y={TOP} height={HEIGHT - TOP - BOTTOM} />
           <text className="night-label" x={x(0) + 4} y={TOP - 4}>

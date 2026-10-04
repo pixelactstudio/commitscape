@@ -23,7 +23,6 @@ export type Outcome =
       partial: boolean;
       stats?: BuildStats;
       report: Uint8Array;
-      card: { bytes: Uint8Array; type: string } | null;
     }
   | { ok: false; reason: BuildFailure; detail?: string };
 
@@ -93,7 +92,6 @@ export function run(cmd: string, args: string[], env: NodeJS.ProcessEnv, timeout
 
 export type Deps = {
   run: typeof run;
-  png: (svg: string) => Uint8Array | null;
   progress: (step: BuildStep) => Promise<void>;
 };
 
@@ -111,9 +109,22 @@ export function clonePath(cfg: Config, req: BuildTarget, partial: boolean): stri
   return join(cacheRoot(cfg, req), partial ? "health" : "clones", req.owner, req.name);
 }
 
-const NAME = /^[A-Za-z0-9_.][A-Za-z0-9_.-]{0,99}$/;
+export const NAME = /^[A-Za-z0-9_.][A-Za-z0-9_.-]{0,99}$/;
 
-/** Clones and reads a repository with the commitscape binary and returns its Report and card. */
+/** The environment a commitscape command runs in: no prompts, the token as a header for private clones, the git base for tests. */
+export function gitEnv(cfg: Config, token: string | null): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { GIT_TERMINAL_PROMPT: "0" };
+  if (token) {
+    env.GH_TOKEN = token;
+    env.GIT_CONFIG_COUNT = "1";
+    env.GIT_CONFIG_KEY_0 = "http.https://github.com/.extraheader";
+    env.GIT_CONFIG_VALUE_0 = `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`;
+  }
+  if (cfg.gitBase) env.COMMITSCAPE_GIT_BASE = cfg.gitBase;
+  return env;
+}
+
+/** Clones and reads a repository with the commitscape binary and returns its Report. */
 export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<Outcome> {
   if (!NAME.test(req.owner) || !NAME.test(req.name) || req.name === "." || req.name === "..") {
     return { ok: false, reason: "not_found", detail: "not a repository name" };
@@ -125,15 +136,7 @@ export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<
   const out = join(cfg.work, "out");
   await mkdir(out, { recursive: true });
   const report = join(out, `${req.id}.json.gz`);
-  const card = join(out, `${req.id}.svg`);
-  const env: NodeJS.ProcessEnv = { GIT_TERMINAL_PROMPT: "0" };
-  if (req.token) {
-    env.GH_TOKEN = req.token;
-    env.GIT_CONFIG_COUNT = "1";
-    env.GIT_CONFIG_KEY_0 = "http.https://github.com/.extraheader";
-    env.GIT_CONFIG_VALUE_0 = `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${req.token}`).toString("base64")}`;
-  }
-  if (cfg.gitBase) env.COMMITSCAPE_GIT_BASE = cfg.gitBase;
+  const env = gitEnv(cfg, req.token);
   const left = () => Math.max(1000, cfg.timeLimit * 1000 - (Date.now() - started));
   try {
     await deps.progress("reading");
@@ -143,7 +146,6 @@ export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<
     const made = await deps.run(cfg.bin, args, env, left());
     if (made.timedOut) return { ok: false, reason: "timed_out", detail: `${cfg.timeLimit} s` };
     if (made.code !== 0) return { ok: false, reason: failure(made.stderr), detail: made.stderr.trim().split("\n").at(-1) };
-    const drew = await deps.run(cfg.bin, ["card", "--window", "all", "--offline", "--cache-dir", cacheRoot(cfg, req), "--out", card, "--", clonePath(cfg, req, partial)], env, left());
     const bytes = new Uint8Array(await readFile(report));
     if (bytes.length > REPORT_MAX) return { ok: false, reason: "too_big", detail: `a ${Math.round(bytes.length / 1024 ** 2)} MB Report` };
     let stats = statsOf(bytes);
@@ -154,12 +156,6 @@ export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<
       stats = { ...stats, answered: answers?.answered ?? null, answer_hours: answers?.typical_hours ?? null };
     }
     await deps.progress("uploading");
-    let drawn: { bytes: Uint8Array; type: string } | null = null;
-    if (drew.code === 0) {
-      const svg = await readFile(card, "utf8");
-      const png = deps.png(svg);
-      drawn = png ? { bytes: png, type: "image/png" } : { bytes: new TextEncoder().encode(svg), type: "image/svg+xml" };
-    }
     return {
       ok: true,
       seconds: Math.round((Date.now() - started) / 100) / 10,
@@ -167,13 +163,11 @@ export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<
       partial,
       ...(stats ? { stats } : {}),
       report: bytes,
-      card: drawn,
     };
   } catch (e) {
     return { ok: false, reason: "error", detail: (e as Error).message };
   } finally {
     await rm(report, { force: true });
-    await rm(card, { force: true });
     if (req.private) await rm(cacheRoot(cfg, req), { recursive: true, force: true });
   }
 }

@@ -1,21 +1,15 @@
-import { useContext } from "react";
-import { Avatar } from "@astryxdesign/core/Avatar";
 import type { PersonRef } from "@commitscape/data";
-import { AvatarsContext } from "../help";
-import { avatarUrl } from "./avatar";
-import { personColour } from "../theme";
+import { useLogin } from "./login";
+import { Face } from "./Face";
 
 export function Name({ p, onOpen }: { p: PersonRef | null | undefined; onOpen?: (id: number) => void }) {
-  const avatars = useContext(AvatarsContext);
+  const login = useLogin(p);
   if (!p) return <span className="note">someone unknown</span>;
-  const mark =
-    avatars && p.login ? (
-      <span className="avatar" style={{ borderColor: personColour(p.colour) }} aria-hidden>
-        <Avatar src={avatarUrl(p.login)} name={p.name} size="xsm" tooltip={false} />
-      </span>
-    ) : (
-      <span className="swatch" style={{ background: personColour(p.colour) }} aria-hidden />
-    );
+  const mark = (
+    <span className="face" aria-hidden>
+      <Face login={login} name={p.name} size={20} />
+    </span>
+  );
   if (!onOpen) {
     return (
       <span className="name">

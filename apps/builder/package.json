@@ -5,15 +5,12 @@
   "description": "The Builder: takes Builds from the queue, runs commitscape on a clone, and stores the Report in R2.",
   "type": "module",
   "scripts": {
-    "build": "esbuild src/main.ts --bundle --platform=node --target=node24 --format=esm --outfile=dist/builder.mjs --external:@resvg/resvg-js --external:pg-native --banner:js=\"import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);\"",
+    "build": "esbuild src/main.ts --bundle --platform=node --target=node24 --format=esm --outfile=dist/builder.mjs --external:pg-native --banner:js=\"import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);\"",
     "dev": "pnpm build && node --env-file-if-exists=.env dist/builder.mjs work",
     "start": "node dist/builder.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint -c ../../.oxlintrc.json src",
     "test": "vitest run"
-  },
-  "dependencies": {
-    "@resvg/resvg-js": "2.6.2"
   },
   "devDependencies": {
     "@commitscape/data": "workspace:*",

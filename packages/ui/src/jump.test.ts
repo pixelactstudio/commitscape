@@ -13,7 +13,7 @@ test("⌘K matches every word typed, in any order, once the list arrives", async
     jump("person:2", "Alice Example", "People"),
     jump("file:src/bob.rs", "src/bob.rs", "Files"),
   ]);
-  expect((await early).map((j) => j.id)).toEqual(["person:1"]);
-  expect((await source.search("BOB")).map((j) => j.id)).toEqual(["person:1", "file:src/bob.rs"]);
+  expect((await early).map((j) => j.id)).toEqual(["person:1", "commits:example bob"]);
+  expect((await source.search("BOB")).map((j) => j.id)).toEqual(["person:1", "file:src/bob.rs", "commits:BOB"]);
   expect((await source.bootstrap()).map((j) => j.id)).toEqual(["screen:people"]);
 });
