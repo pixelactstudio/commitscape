@@ -1,258 +1,257 @@
 # commitscape: the idea
 
-Written 2026-09-25, after Build Run 3 shipped and the repository went on
-GitHub (`pixelactstudio/commitscape`). This is the product brief for Build Run
-4. It says what commitscape becomes, what changes, and in what order.
-`STATE.md` tracks progress against it; `CONTEXT.md` is the glossary;
-`docs/adr/` holds the decisions that are hard to reverse. Build Run 3's brief
-is in git history (`git show ed40d28:IDEA.md`).
+Written 2026-10-04, after the owner used the live Site
+(`commitscape.damnlabs.com`) on their own repositories and on facebook/react
+and reviewed it. This is the product brief for Build Run 5. It says what
+commitscape becomes, what changes, and in what order. `STATE.md` tracks
+progress against it; `CONTEXT.md` is the glossary; `docs/adr/` holds the
+decisions that are hard to reverse. Build Run 4's brief is in git history
+(`git show e54e961:IDEA.md`).
 
 ---
 
 ## In one sentence
 
-Run one command on any git repository, or paste any GitHub link into the
-Site, and see its story: who built it, who knows which part, what is fragile,
-what changes together, and what you are about to forget. Every page is good
-enough to screenshot.
+commitscape shows a developer what they have built, how they stand next to
+the people they work with, and gives them something good to post about it.
+
+## Why it changes
+
+commitscape started from one question: how much work have I put into this
+project? The answer grew into a Report about a repository, and the Report
+answers questions an auditor asks (what is fragile, who holds which folder,
+what changes together), not the ones a developer arrives with. The owner's
+review of 2026-10-04 found:
+
+- **Nothing on a repository page is about the person looking at it.** They
+  look, think "neat", and leave, with nothing to come back for and nothing
+  of theirs to share.
+- **Git alone misses where the work is.** Most work is pull requests and
+  reviews, and most repositories squash-merge, so commit counts say little.
+  Kinds of work is empty wherever commits follow no convention, and the
+  People table is mostly dashes.
+- **Several panels mean nothing to a visitor:** the story so far (a list of
+  first and last commits and releases), Did you know, Worth a look, Risk.
+- **Repository analytics is already free elsewhere** (GitHub Insights, OSS
+  Insight, Repobeats, star-history), often better presented.
+- **The interface feels slow and unfinished:** pages load grey and then turn
+  blue, skeletons replace whole pages instead of the missing part, the main
+  chart draws twice, release lines bury the chart on large repositories,
+  people have no avatars, and the logo is not the favicon or used anywhere
+  on the Site.
+
+Developer tools that reach tens of thousands of people share three things:
+they are about *me*, they make something I post or embed (every embedded
+README card is an advert), and they need nothing but a link. Build Run 5
+turns commitscape around to the person.
 
 ## Who it is for
 
-- **A developer joining a codebase** who needs to know who to ask and where the
-  risk is.
-- **A developer about to push** who wants to know what they forgot to change.
-- **A maintainer or lead** who wants to see who holds which part of the code
-  before someone leaves.
-- **Anyone choosing a dependency** who wants to know whether it is alive and
-  whether it depends on one person.
-- **Anyone curious about their own work**, at the end of the year or before a
-  review.
-- **Anyone on a headless machine** who wants to see all of this in the
-  laptop's browser without setting up Tailscale or port forwarding.
+- **A developer proving their work:** a freelancer showing a client what
+  they shipped this month, anyone writing a self-review, anyone posting on
+  LinkedIn or X about what they built.
+- **A developer on a team who likes to stay ahead:** they want to see how
+  they stand among the 23 people on their project, fairly.
+- **Friends who compete:** versus pages, races and crews.
+- **Anyone with a GitHub profile README** who wants a better card on it.
+- **A maintainer** who wants to thank contributors with a hall of fame.
+- Still: **anyone curious about a repository**, through the trimmed
+  repository page, and anyone using the CLI locally.
 
 ## What it must stay
 
-- **Small.** One person maintains it. Every feature is useful, shareable, or
-  both.
-- **Local first.** The CLI and its local browser interface stay complete
-  without the Site. Nothing about a repository leaves the machine unless the
-  user runs `commitscape share` (encrypted, ADR-0016) or asks the Site about
-  a repository on GitHub.
+- **Small.** One person maintains it. Every feature is about a person and
+  makes something worth sharing, or it goes.
 - **Honest.** No number the data cannot support. "Unknown" is never 0. A
-  limitation is stated next to the number it affects ("lines not counted").
-- **Plain.** Every number in words a newcomer understands; `?` explains how
-  it was measured.
-- **Fast.** Terminal UI first screen under 100 ms warm (ADR-0002). Local
-  browser interface usable within a second warm. On the Site, a stored Report
-  shows within a second, and commit search updates within a frame.
-- **Free to run.** The Site fits Cloudflare's free Workers plan (ADR-0014). The
-  only other cost is the owner's existing VPS (ADR-0015).
-- **Open source, all of it.** The CLI, the Site and the Builder live in this
-  repository under MIT OR Apache-2.0.
-- **Built openly with AI.** That is how the project is made, not a feature of
-  the product. The product shows nothing AI-related.
-- **No scores for people.** No productivity score and no ranking of
-  developers. Leaderboards rank repositories.
+  limitation is stated next to the number it affects.
+- **Fair.** Standings rank by what is hard to inflate (Surviving Lines,
+  merged pull requests, reviews) before what is easy (commits, raw lines).
+  Bulk Commits, Generated Files and `.git-blame-ignore-revs` never count.
+- **Private by default where it matters** (ADR-0020): private work is never
+  named to someone who can't see it, and anyone can hide from comparisons.
+- **Server-rendered and streamed.** Every page is drawn on the server with
+  the data it has. Each slow part sits in its own Suspense boundary with a
+  skeleton of its final size, so nothing moves when data arrives. GitHub's
+  facts show at once; the engine's numbers stream in after.
+- **Plain.** Every number in words a newcomer understands, with what it
+  counts ("60 commits", never a bare "60").
+- **Open source, all of it,** under MIT OR Apache-2.0.
+- **Built openly with AI.** That is how the project is made, not a feature.
+  The product shows nothing AI-related.
 
 ---
 
-## What changed since Build Run 3
+## What changed since Build Run 4
 
-The owner reviewed the finished Build Run 3 on 2026-09-25 and decided to grow
-commitscape into something with a future, while keeping the local tool as the
-heart of it. The following Build Run 3 decisions are **reversed**:
-
-| Build Run 3 said | Build Run 4 says |
+| Build Run 4 said | Build Run 5 says |
 |---|---|
-| No hosted service, no accounts, no uploading | A hosted Site with GitHub sign-in; uploading only as an encrypted Shared Report or when the user asks the Site about a GitHub repository |
-| No Next.js, TanStack Start or Node server | The Site is TanStack Start on Cloudflare Workers. The local interface is still served by the binary (ADR-0010), and Rust never runs as a web server (ADR-0014) |
-| The web UI is hand-rolled CSS | The web UI is built on Astryx (ADR-0018) |
-| `web/` is the web app | A monorepo: `apps/local`, `apps/site`, `apps/builder`, `packages/ui`, `packages/data` (ADR-0013) |
-| No HTTP client or TLS in the binary (ADR-0009) | `share` uploads over HTTPS (ADR-0016); GitHub is still asked through `gh` |
+| A repository is the centre of everything | A person is the centre; the repository page is secondary (ADR-0020) |
+| No scores or rankings of people; Leaderboards rank repositories | People are compared, within a repository and with each other, by several views shown side by side, never one combined score. Anyone can hide from comparisons (ADR-0020) |
+| The Card is one composited image of a repository | Cards are a set of React components, rendered as animated SVG for READMEs and PNG for previews (ADR-0021) |
+| Code Age is per file; blame-based surviving lines are "later" | Surviving Lines per person, from blame, are a headline number (ADR-0022) |
+| Hosted Reports have no pull-request history | The Site reads pull requests and reviews from GitHub's API for profiles, and the Builder keeps each repository's pull requests (ADR-0020) |
 
-Kept: the terminal UI stays **frozen** (bug fixes only). All interface work
-goes to the browser interface, which the local page and the Site share.
-
----
-
-## Three ways to use it
-
-1. **Locally.** `commitscape` in a repository opens the browser interface
-   served by the binary, or the terminal UI where no browser can open. As
-   today, plus the Astryx interface, a Commits screen and a Share button.
-2. **Share from a terminal.** `commitscape share` builds the Report locally,
-   encrypts it, uploads it, prints a link and **exits**. The terminal is free
-   at once. The link works on any browser for 4 hours (1 to 12 with
-   `--expires`). The page has a Delete button. The Site can't read what it
-   stores (ADR-0016).
-3. **On the Site.**
-   - **Any public GitHub repository:** paste a link (or go to
-     `/gh/<owner>/<repo>`). GitHub's facts show at once; the full Report
-     follows when the Builder has read the history (seconds for most, about
-     15 s for a React-sized one the first time), and is instant for everyone
-     after.
-   - **Your repositories:** sign in with GitHub, pick repositories through
-     the GitHub App (read-only, ADR-0017), and open any of them.
-   - **Leaderboards:** repositories ranked by what commitscape measures.
-
-### How the pieces fit
-
-```
- Browser ──────────────► Site: TanStack Start on Cloudflare Workers (free plan)
-   │                       pages: static assets
-   │ decrypts Shared       /api/*: auth, Reports, Shares, Builds, webhooks
-   │ Reports; searches     D1: users, sessions, repositories, Builds, Shares
-   │ commits               R2: Reports (gzip), encrypted Shared Reports
-   │                           │ a Build (HTTPS + HMAC)
-   │                           ▼
-   │                     Builder on the owner's VPS: TypeScript job runner
-   │                       git clone → `commitscape report --data` → the Site → R2
-   │
- A user's machine: `commitscape` (local page, TUI, `share`, `check`, …)
-```
-
-Every screen, in all three ways, is the same code (`packages/ui`), reading
-through a Data Source (ADR-0013): the local server, an inlined Report, or a
-fetched Report.
+Kept: the Rust engine, identity merging (ADR-0011), the Builder and its
+queue, R2, Postgres, GitHub sign-in through the App (ADR-0017), Shared
+Reports, the CLI, `npx commitscape`, and the MCP server. The terminal UI
+stays frozen.
 
 ---
-
-## The browser interface, on Astryx
-
-- **Astryx for every component** (ADR-0018): app shell and top navigation,
-  tabs, tables for people, files and hotspots, tooltips and hover cards,
-  dialogs, toasts, avatars, a ⌘K command palette ("Jump to": a screen, a
-  person, a folder, a file, a commit). One commitscape theme in light and
-  dark, plus "system".
-- **Charts stay ours,** restyled with Astryx's tokens. Astryx's canary
-  charts replace bar or line charts only if a side-by-side screenshot shows
-  they're better; Recharts is the fallback.
-- **Keyboard first,** as npmx.dev does it: `/` focuses search, `1`–`6` pick a
-  screen, `?` shows every shortcut and highlights the keys on screen,
-  shortcuts off while typing.
-- **Avatars.** People linked to a GitHub login show their GitHub avatar.
-  Locally the browser fetches it from GitHub unless `--offline`. README's
-  "What leaves your machine" says so.
-- **Six screens:** Overview, Activity, People, Map, Risk and **Commits**
-  (ADR-0019): search every commit by message, person, date and kind,
-  instantly, with a link to GitHub. The terminal UI doesn't get it.
-- **Share button** on the local page: the same as `commitscape share`, with
-  the link to copy.
 
 ## The Site
 
-Few pages, each doing one thing well. npmx.dev is the reference for feel:
-a big search box, instant response, keyboard shortcuts, calm layout.
-
 | Page | What it is |
 |---|---|
-| `/` | Landing page: one line on what commitscape is; a box to paste a GitHub link (with suggestions); the three ways to use it, each with its command or button; a few leaderboard highlights; install commands |
-| `/gh/<owner>/<repo>` | A repository's Report: the six screens, with GitHub's instant facts first and "updating" while a newer Build runs. Private ones only for signed-in users who can see them on GitHub |
-| `/s/<id>#<key>` | A Shared Report, decrypted in the browser, with its expiry and a Delete button |
-| `/me` | Signed in: your repositories through the GitHub App, "Add repositories", "Delete my data" |
-| `/leaderboards` | Repository rankings, rebuilt daily as static pages |
-| `/privacy` | Exactly what is stored, where, for how long, and who can read it |
+| `/` | One line on what commitscape is, a box that takes a GitHub username or a repository link, "See your own" with sign-in, example profiles and cards, install commands |
+| `/u/<login>` | **The Profile.** GitHub identity and avatar; totals (pull requests opened, merged and closed, reviews given, median time to merge, commits, lines added and removed, Surviving Lines, active days, longest streak); the Archetype and Achievements; the per-project breakdown; activity over time; languages over the years; the people they work with most |
+| `/u/<login>/<owner>/<repo>` | **You in this repository.** Your numbers first, then your Standing, then the Standings of everyone in it, each with avatar, pull requests, reviews, lines and Surviving Lines, and what each person works on |
+| `/u/<login>/cards` | **The card gallery.** Every Card for this person, in light and dark, with the README Markdown to copy, a PNG to download, and share to LinkedIn and X |
+| `/u/<login>/work` | **Proof of Work.** Everything shipped in a chosen period, grouped by repository and month, with links; a link to share and Markdown and PDF to download |
+| `/vs/<a>/<b>` | **Versus.** Two Profiles side by side, a winner per view, with its own Card |
+| `/races/<id>` | **A Race.** A fixed window, two or more people who agreed to it, live Standings, a finish Card |
+| `/crews/<id>` | **A Crew.** A group that compares itself every Season |
+| `/gh/<owner>/<repo>` | **The repository page,** trimmed (below), with contributors shown as people with avatars |
+| `/leaderboards` | Repositories as before, plus people: top contributors this month, per repository, with a time filter. Only people who haven't hidden |
+| `/me` | Settings: Connected Repositories, Rivals, Crews, what is shown and hidden, "Delete my data" |
+| `/s/<id>#<key>` | A Shared Report, unchanged |
+| `/privacy` | Rewritten for Profiles, comparisons and Cards |
 
-The top navigation has the command palette and a **Connect** menu:
-"Share from your terminal" (shows the `share` command) and "Sign in with
-GitHub".
+### Two speeds
 
-**Social previews.** Every repository page has an Open Graph image: its
-Card, written as a PNG or SVG when its Report is built and served from R2.
+A Profile has two sources (ADR-0020):
+1. **GitHub's API, at once:** identity, avatar, repositories, pull requests
+   with their additions and deletions, reviews, issues, contribution
+   calendar. Read with the signed-in viewer's own token; anonymous views
+   use the Site's token and a stored copy.
+2. **The engine, streamed in:** for each repository the person works on that
+   the Site has built, their Lines Changed and Surviving Lines, under every
+   address they commit with. Each section shows "counting…" in its own
+   skeleton until its Build finishes, then fills in.
 
-## Leaderboards
+### The repository page, trimmed
 
-Repositories only, never people. Built by the Builder from a seed list of
-popular repositories per language (from GitHub search: most stars), a
-budgeted number per night, so the VPS isn't overrun. First boards:
+- **Kept:** the stat tiles; one chart of commits over time with releases
+  drawn only where they fit (the story so far merges into it); contributors
+  with avatars, pull requests and +/− lines; Languages; Commits with
+  avatars; the Map, as something fun to explore.
+- **Removed from the Site:** the story so far as a list, Did you know, Worth
+  a look, Risk. Risk stays in the CLI and the MCP server, where an agent or
+  a lead asks for it.
+- **Hidden when empty:** Kinds of work in a repository with no commit
+  convention, and any column that would be all dashes.
+- **Search** across the page: people, files, commits.
 
-- **Resting on one person:** popular projects with a Bus Factor of 1.
-- **Most maintainers active** in the last 90 days.
-- **Most active this month** by commits and by people.
-- **Fastest to answer issues** (from `health`'s numbers).
-- **Oldest code still running:** the largest share of lines untouched for five
-  years.
+## Cards
 
-Each row links to the repository's page. Boards say when they were built and
-from how many repositories.
+A Card is one React component rendered three ways (ADR-0021): on the Site
+as itself, as **SVG** for README embeds (animated: numbers count up, bars
+grow, the calendar fills), and as **PNG** for link previews and downloads.
+Every page has a dynamic preview image, like GitHub's, from a Card.
 
-## Security, in one place
+The set, each in light and dark:
+- **Totals:** pull requests, reviews, lines, Surviving Lines.
+- **Top repositories:** where the person's work is, with their Standing in
+  each.
+- **Survival:** "41k of the 120k lines I wrote still run."
+- **Calendar:** the contribution calendar, animated.
+- **Languages over the years.**
+- **Archetype** and **Achievements.**
+- **Person in a repository:** "Top 3% of facebook/react contributors."
+- **Versus**, **Race finish**, **Season recap**.
+- **Hall of fame** for maintainers: a repository's contributors with avatars
+  and their numbers.
+- **Proof of Work:** a period's summary.
 
-- **Shared Reports:** AES-256-GCM, key only in the link's fragment, removed
-  from the address bar on load; Delete Token derived from the key and stored
-  hashed; IDs of 128 random bits; 4 hours by default, 12 at most; 25 MB cap;
-  per-IP limits (ADR-0016).
-- **GitHub:** one GitHub App, read-only permissions; installation tokens live
-  an hour and are never stored; access re-checked on every view; webhooks
-  verified; uninstall and "Delete my data" delete everything (ADR-0017).
-- **Builder:** HMAC-authenticated Builds, one at a time, size and time caps,
-  clones deleted after private Builds (ADR-0015).
-- **Hosted Commit Lists carry no email addresses** (ADR-0019).
-- **The local server** keeps ADR-0010's token and `Host` checks.
+Embeds are served from a stored copy, refreshed in the background at most
+every six hours, so a popular README never reaches GitHub's API.
 
-## The name
+## The fun side
 
-`commitscape` may be renamed before the first npm release. Nothing is
-published and no domain is bought during this build run. The product name
-and the Site's origin each live in one constant in `packages/data` (ADR-0014);
-the CLI's Site origin is overridable with `COMMITSCAPE_SITE`. Code and docs
-use `commitscape` until the owner decides.
+- **Versus:** any two public Profiles, a winner per view, no overall score.
+- **Rivals:** pick a person; your Profile always shows the gap ("312
+  Surviving Lines behind this month").
+- **Archetypes:** a label from plain rules over the numbers, no AI: Builder,
+  Reviewer, Janitor (removes more than adds), Night Owl, Firefighter (mostly
+  fixes), Polyglot, and a few more, each with its rule shown.
+- **Achievements:** "First pull request merged into a 10k-star repository",
+  "100 reviews", "A line that has survived five years", "Removed 10k lines in
+  one pull request". Each has a Card.
+- **Seasons:** Standings in a Crew and on the people boards reset monthly so
+  a newcomer can win; each Season ends with a recap Card.
+- **Races:** a fixed window, two or more people who each accepted, live
+  Standings, a finish Card.
+- **Crews:** a group of friends or a team with shared Standings each Season.
+  Joining is by invitation, accepted.
+
+## Proof of Work
+
+The original problem, answered directly: pick a period, optionally a
+repository or a client's organisation, and get every merged pull request and
+commit in it, grouped by repository and month, with sizes and links. Share it
+as a link, or download Markdown or a PDF for a client or a self-review.
+Private work appears only to the signed-in person, and in what they choose
+to share.
+
+## What to watch
+
+- **Privacy** (ADR-0020). A private repository's Standings are shown only to
+  people who can see it on GitHub. A Profile shows private work as totals,
+  never by name, unless the person opts in. A signed-in person can hide
+  their Profile from Versus, Leaderboards and other people's Standings.
+  Races and Crews need each person's acceptance.
+- **Cost of Surviving Lines** (ADR-0022). Blame is expensive on huge
+  repositories, so it runs per person, only over the files they changed,
+  when someone asks, and is kept per repository head. Over a time budget it
+  says "not counted", never a guess.
+- **GitHub's rate limits** (ADR-0020). The viewer's own token where there is
+  one; stored copies everywhere else; embeds never call GitHub.
+- **Gaming.** Standings lead with Surviving Lines and merged pull requests.
+  Raw commits and raw lines are shown, never ranked first.
+- **The name.** commitscape still fits. It is not changed in this run.
 
 ---
 
-## Build Run 4: the plan
+## Build Run 5: the plan
 
-Phases continue from Build Run 3. Each phase ends with every check passing
-(Rust on Linux, macOS and Windows; the TypeScript workspace; Playwright) and
-`STATE.md` updated with its measured numbers and findings. **The agent
+Phases continue from Build Run 4. Each phase ends with every check passing
+(Rust on Linux, macOS and Windows; the TypeScript workspace; Playwright)
+and `STATE.md` updated with its measured numbers and findings. **The agent
 doing the work never commits, pushes, publishes or deploys; the owner
 commits.**
 
 | Phase | What | Gate |
 |---|---|---|
-| 23 | Monorepo (ADR-0013): pnpm + Turborepo; `web/` → `apps/local`; `packages/ui` and `packages/data`; the Data Source seam; every path that named `web/` (build.rs, assets.rs, flake, CI, release, scripts, README) | Every existing test passes from the new layout (Rust, vitest, Playwright); `cargo build` embeds the app; `nix build` builds; actionlint passes on both workflows |
-| 24 | Astryx (ADR-0018): theme, app shell, every screen's components, command palette, keyboard shortcuts, avatars; charts restyled; canary charts tried side by side | Playwright tests pass; screenshots of every screen in both themes on ripgrep in `target/preview/web/`; size of the embedded app before and after; a keyboard-only walk through every screen |
-| 25 | Commit search (ADR-0019): subjects in the index (cache version bump), `/api/commits`, the Commit List in Reports, the Commits screen | Hand-worked fixture values; goldens and the generated types updated; search time and list size measured on facebook/react and rust-lang/rust |
-| 26 | The Site's foundation (ADR-0014): `apps/site`, landing page, repository page reading a stored Report, the fetched-Report Data Source, D1 schema and migrations, rate limiting, `/privacy` | Under `wrangler dev`, Playwright passes on the landing page and on a repository page from a fixture's Report; CPU time of every API handler recorded (under 10 ms) |
-| 27 | Builder and public lookup (ADR-0015): `commitscape report --data`, clone policy and threshold, `apps/builder`, instant GitHub facts, refresh after 24 hours, Open Graph Cards | End to end on this machine (`wrangler dev` + the Builder): ripgrep and facebook/react built and shown, times recorded; not-found, private, too-big and timed-out repositories each show a plain message |
-| 28 | Sharing (ADR-0016): `commitscape share` (with `--expires`, `--delete`, `--list`, `--yes`), the Share button, the `/s/` page, expiry via Cron Trigger | End to end on this machine, CLI to browser; the key never appears in any request (checked in Playwright); a tampered ciphertext fails; expired answers 410; CI green on all three operating systems with the new crates |
-| 29 | GitHub sign-in (ADR-0017): the App's user sign-in, `/me`, installations, access checks, webhooks, retention, "Delete my data" | Tests against GitHub responses recorded by hand (as `commitscape-forge` does) and, if the owner has created a test App, against GitHub itself; webhook signatures and access checks covered |
-| 30 | Leaderboards: seed list, nightly budget, the five boards as static pages | 50 or more seed repositories built on this machine; boards rendered and screenshotted |
-| 31 | Ready to launch: README for all three ways, "What leaves your machine" rewritten, `DEPLOY.md` (Cloudflare, the VPS, the GitHub App, secrets), a security pass over every endpoint | Every CI job green; `DEPLOY.md` followed from scratch against local stand-ins; nothing is left for the owner but the steps listed under "Needs the owner" |
+| 32 | Foundation: server rendering with a Suspense boundary and sized skeleton per section; the theme applied on the server (no grey flash); the logo as favicon and in the header; the chart drawn once; releases thinned on dense charts; the repository page trimmed as above, with avatars and search | Playwright on every page; Cumulative Layout Shift under 0.05 on each, measured; screenshots in both themes; no request after hydration repeats one the server made |
+| 33 | The Profile, first speed (ADR-0020): `/u/<login>` from GitHub's API, stored copies in Postgres, the viewer's token, the per-project breakdown, the new landing page | Tests against GitHub responses written by hand; the owner's Profile and two well-known ones rendered and screenshotted; GitHub API calls per view counted and recorded |
+| 34 | The Profile, second speed (ADR-0022): Surviving Lines in the engine, per person and per repository head; the Builder computes them on request; Lines Changed per person; sections stream in | Hand-worked fixture values for Surviving Lines, Bulk Commits and ignored revisions; time measured on ripgrep, facebook/react and rust-lang/rust; over budget shows "not counted" |
+| 35 | You in this repository: `/u/<login>/<owner>/<repo>`, Standings, the Builder keeping each repository's pull requests and reviews, privacy rules and hiding, `/privacy` rewritten, MCP tools for a Profile and Standings | Access tests: a private repository's Standings refused to someone without access; a hidden person absent everywhere; pull-request fetch time on facebook/react recorded |
+| 36 | Cards (ADR-0021): the rendering pipeline, the set above, animation, light and dark, the gallery, embeds with stored copies, a preview image on every page | Every Card snapshotted as SVG and PNG; an embed shown in a real README on GitHub (owner's test repository); render time per Card under 200 ms, measured |
+| 37 | Proof of Work: `/u/<login>/work`, filters, share link, Markdown and PDF | A month of the owner's work checked against GitHub by hand; private items absent from a shared link unless chosen |
+| 38 | Versus and Rivals | Fixture Profiles give the winners worked out by hand; a hidden Profile refused |
+| 39 | Archetypes and Achievements, each rule written in `CONTEXT.md` and on the page | Every rule tested at its edges on fixtures |
+| 40 | Seasons, Races and Crews: invitations, acceptance, live Standings, recap and finish Cards | End to end with three test accounts; leaving a Crew removes the person from it at once |
+| 41 | People on the Leaderboards: top contributors this month, per repository, with a time filter and Seasons | Boards built from the seed repositories and screenshotted; hidden people absent |
+| 42 | Wrapped 2026: a person's year across GitHub, as a page and a set of Cards | The owner's Wrapped checked against GitHub by hand |
 
 ### Needs the owner
 
-These can't be done by an agent and aren't part of any gate:
-- choosing the name, buying the domain, publishing to npm and Homebrew
-- creating the Cloudflare account, D1 database, R2 bucket and secrets, and
-  deploying
-- setting up the VPS from `DEPLOY.md`
-- creating the GitHub App (a test one earlier helps Phase 29)
-- GitHub Sponsors (`.github/FUNDING.yml` once the account exists)
+- Adding the "Read user profile" permission to the GitHub App if Phase 33
+  finds it needed (it is read-only).
+- A test repository on GitHub to show an embed in a real README (Phase 36).
+- Two more GitHub accounts, or friends, to test Races and Crews (Phase 40).
+- Deploying each phase when they choose.
 
 ## Later, not in this run
 
-- A live mode for Shared Reports, if people ask for it.
-- A paid team plan: private-repository dashboards, weekly emails ("the only
-  person who knows `payments/` hasn't committed in 60 days"), `check` as a
-  bot on private pull requests. Public repositories stay free.
-- Sponsor slots on the landing page and leaderboards, once there is traffic.
-- `commitscape ssh host:path`, the replay video, GitLab, blame-based
-  surviving lines, replacing `bincode`.
-
-## Launch
-
-Unchanged in spirit: aim for early December 2026, Wrapped season. The post
-shows the owner's Wrapped, a repository card, and the Site's "paste any
-GitHub link", and says plainly that the project was built with AI agents.
+- Notifications for Rivals, Races and Crews (email, then maybe push).
+- A paid plan for agencies: Proof of Work across a team, for clients.
+- GitLab.
 
 ## Not doing
 
-- A live relay or tunnel between a user's machine and the Site (ADR-0016).
-- A Rust web server anywhere (ADR-0014).
-- Anything that needs Cloudflare's paid plan.
-- Scores or rankings of people.
-- AI attribution of any kind.
+- One combined score for a person.
+- Anything AI in the product.
 - New features in the terminal UI.
 - Email addresses on the Site.
+- Renaming the project in this run.
 - Publishing, deploying or buying anything during the build run.

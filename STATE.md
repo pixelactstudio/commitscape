@@ -3,7 +3,7 @@
 Running log for Build Run 1 (Phases 0 to 7). Written so a fresh session with
 no context can read this plus `docs/adr/` and continue without asking anything.
 
-**Current position:** Build Run 4 (Phases 23 to 31) is done, all of it uncommitted in the working tree: its brief is `IDEA.md`, with ADR-0013 to ADR-0019. Every phase's findings and the files it created, changed or deleted are below. Build Run 3 is done (Phases 13 to 22). The repository is on GitHub (`pixelactstudio/commitscape`) and CI is green on Linux, macOS and Windows for what is committed. Nothing is published or deployed: the name may still change.
+**Current position:** Build Run 5 (Phases 32 to 42) is planned and not started: its brief is `IDEA.md`, with ADR-0020 to ADR-0022, written 2026-10-04 after the owner's review of the live Site. Build Run 4 (Phases 23 to 31) is done, all of it uncommitted in the working tree: its brief is `IDEA.md`, with ADR-0013 to ADR-0019. Every phase's findings and the files it created, changed or deleted are below. Build Run 3 is done (Phases 13 to 22). The repository is on GitHub (`pixelactstudio/commitscape`) and CI is green on Linux, macOS and Windows for what is committed. Nothing is published or deployed: the name may still change.
 Build Run 1 (Phases 0 to 7) built a correct, fast tool. Build Run 2 (Phases 8
 to 12) made it fun and visual. On 2026-09-24 the owner used it on their own
 repositories and reviewed it. The review and the decisions that followed are
