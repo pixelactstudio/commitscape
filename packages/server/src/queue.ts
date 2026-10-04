@@ -4,17 +4,19 @@ export const BUILD_QUEUE = "build";
 export const SURVIVAL_QUEUE = "survival";
 export const PULLS_QUEUE = "pulls";
 
-export type BuildJob = { buildId: string };
+export type BuildJob = { buildId: string; attempt?: number };
 
-export type SurvivalJob = { repoId: string; reportKey: string; personIds: number[] };
+export type SurvivalJob = { repoId: string; reportKey: string; personIds: number[]; attempt?: number };
 
 export type PullsJob = { repoId: string };
 
 export const PRIORITY = { person: 10, seed: 0 } as const;
 
+export const LONGEST_JOB_SECONDS = 24 * 3600;
+
 export type Queue = { send(job: BuildJob, priority: number): Promise<void>; count?(job: SurvivalJob): Promise<void> };
 
-/** Starts pg-boss and creates the Build queue; a worker also runs its maintenance. */
+/** Starts pg-boss and creates the Build queue; a worker also runs its maintenance and sets how long a job may run. */
 export async function startQueue(url: string, options: { worker: boolean; expireInSeconds?: number }): Promise<PgBoss> {
   const boss = new PgBoss({
     connectionString: url,
@@ -26,7 +28,11 @@ export async function startQueue(url: string, options: { worker: boolean; expire
   await boss.start();
   await boss.createQueue(BUILD_QUEUE, { retryLimit: 0, expireInSeconds: options.expireInSeconds ?? 1200, retentionSeconds: 7 * 24 * 3600 });
   await boss.createQueue(PULLS_QUEUE, { retryLimit: 0, expireInSeconds: 3600, retentionSeconds: 24 * 3600 });
-  await boss.createQueue(SURVIVAL_QUEUE, { retryLimit: 0, expireInSeconds: options.expireInSeconds ?? 1200, retentionSeconds: 24 * 3600 });
+  await boss.createQueue(SURVIVAL_QUEUE, { retryLimit: 0, expireInSeconds: LONGEST_JOB_SECONDS, retentionSeconds: 24 * 3600 });
+  if (options.worker) {
+    if (options.expireInSeconds) await boss.updateQueue(BUILD_QUEUE, { expireInSeconds: options.expireInSeconds });
+    await boss.updateQueue(SURVIVAL_QUEUE, { expireInSeconds: LONGEST_JOB_SECONDS });
+  }
   return boss;
 }
 

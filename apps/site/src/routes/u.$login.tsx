@@ -1,16 +1,39 @@
-import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
-import { Heading } from "@astryxdesign/core/Heading";
+import { DropdownMenu } from "@astryxdesign/core/DropdownMenu";
+import { Icon } from "@astryxdesign/core/Icon";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { Briefcase, ExternalLink, Link2, MoreHorizontal, Share2, Sparkles } from "lucide-react";
 import { PRODUCT, type Identity } from "@commitscape/data";
-import { EngineRepos, Figure, Traits, LanguagesByYear, Partners, ProfileActivity, ProfileHero, ProfileTotals, PullRequestTiles, Repositories, SurvivingTile, TilesSkeleton, TipLayer, YearCalendar } from "@commitscape/ui";
+import {
+  ArchetypePill,
+  Cell,
+  CommitClock,
+  HeadlineNumbers,
+  LanguagesOverTime,
+  LastYear,
+  OverTheYears,
+  Page,
+  PanelSkeleton,
+  PeoplePanel,
+  ProfileHeader,
+  PullRequestNumbers,
+  RepositoryTable,
+  SurvivalPanel,
+  SurvivingNumber,
+  TipLayer,
+  TraitsPanel,
+} from "@commitscape/ui";
 import { engineQuery, fullProfileQuery, liveEngineQuery, traitsQuery, profileLookupQuery, profileQuery } from "#/lib/queries";
 import { Section } from "#/components/Boundary";
+import { Compare } from "#/components/Compare";
+import { Missing } from "#/components/Missing";
 import { RivalActions, RivalGaps } from "#/components/Rivals";
 import { useHydrated } from "#/lib/hydrated";
+import { useRemember } from "#/lib/recent";
+import { useToast } from "#/lib/toast";
 
 export const Route = createFileRoute("/u/$login")({
   loader: async ({ params, context }) => {
@@ -38,91 +61,153 @@ export const Route = createFileRoute("/u/$login")({
   component: ProfilePage,
 });
 
-const WRAPPED_YEAR = new Date().getUTCFullYear();
+const YEAR = new Date().getUTCFullYear();
 
 function ProfilePage() {
   const { login } = Route.useParams();
   const { data: lookup } = useSuspenseQuery(profileLookupQuery(login));
-  if (lookup.status === "not_found") return <Missing words="GitHub has no person by that name. Check its spelling." />;
-  if (lookup.status === "hidden") return <Missing words="This person has chosen to stay out of comparisons, so their Profile is hidden." />;
-  if (lookup.status === "organization" && lookup.identity) {
-    return (
-      <div className="flex flex-col gap-4">
-        <ProfileHero identity={lookup.identity} />
-        <Banner status="info" title="This is an organization, not a person. Profiles are about people; open one of its repositories instead." />
-      </div>
-    );
-  }
+  useRemember(lookup.status === "ok" ? { kind: "person", id: lookup.identity.login } : null);
+  if (lookup.status === "not_found") return <Missing title={`No one called @${login}`} words="GitHub has no person by that name. Check its spelling, or search for them." />;
+  if (lookup.status === "hidden") return <Missing title="This Profile is hidden" words="This person has chosen to stay out of comparisons, so their Profile shows nothing." />;
+  if (lookup.status === "organization" && lookup.identity) return <Organization identity={lookup.identity} />;
   if (lookup.status !== "ok") return null;
+  const id = lookup.identity;
   return (
     <TipLayer>
-      <div className="flex flex-col gap-5 pb-8">
-        <ProfileHero
-          identity={lookup.identity}
-          badges={
-            <>
-              <Section fallback={null}>
-                <ArchetypeBadge login={lookup.identity.login} />
-              </Section>
-              {lookup.self && <span className="note small">this is you</span>}
-            </>
-          }
-        >
-          <Button label="Cards" variant="primary" size="sm" href={`/u/${lookup.identity.login}/cards`} />
-          <Button label="Proof of Work" variant="secondary" size="sm" href={`/u/${lookup.identity.login}/work`} />
-          <Button label={`Wrapped ${WRAPPED_YEAR}`} variant="secondary" size="sm" href={`/u/${lookup.identity.login}/wrapped/${WRAPPED_YEAR}`} />
-          <Section fallback={null}>
-            <RivalActions login={lookup.identity.login} />
-          </Section>
-          <Button label="On GitHub" variant="ghost" size="sm" href={`https://github.com/${lookup.identity.login}`} />
-        </ProfileHero>
-        {lookup.self && lookup.hidden && <Banner status="info" title="Your Profile is hidden: everyone else sees only that it is hidden, and you are in no one's comparisons. Change it in Settings." />}
+      <ProfileHeader
+        identity={id}
+        badges={
+          <>
+            <Section fallback={null}>
+              <Archetype login={id.login} />
+            </Section>
+            {lookup.self && <span className="rounded-full border border-line px-2.5 py-0.5 text-xs text-secondary">you</span>}
+          </>
+        }
+        actions={<Actions identity={id} self={lookup.self} />}
+      />
+      <Page className="flex flex-col gap-4 pt-6 pb-16">
+        {lookup.self && lookup.hidden && <Banner status="info" title="Your Profile is hidden. Everyone else sees only that it is hidden, and you are in no one's comparisons. Change it in Settings." />}
         {lookup.self && (
           <Section fallback={null}>
             <RivalGaps />
           </Section>
         )}
-        <Section fallback={<TilesSkeleton count={7} className="profile-tiles" />}>
-          <Totals identity={lookup.identity} />
+        <Section fallback={<NumbersSkeleton />}>
+          <Numbers login={id.login} />
         </Section>
-        <div className="two">
-          <Section fallback={<Placeholder title="The last year" height={262} />}>
-            <Year login={lookup.identity.login} />
+        <Section fallback={<PanelSkeleton title="The last year" height={196} />}>
+          <Year login={id.login} />
+        </Section>
+        <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+          <Section fallback={<PanelSkeleton title="Over the years" height={276} />}>
+            <Years login={id.login} />
           </Section>
-          <Section fallback={<Placeholder title="Over the years" height={262} />}>
-            <Years login={lookup.identity.login} />
-          </Section>
-        </div>
-        <Section fallback={<Placeholder title="Archetype" height={300} />}>
-          <ProfileTraits login={lookup.identity.login} />
-        </Section>
-        <Section fallback={<Placeholder title="Where their work is" height={8 * 61 + 28} />}>
-          <Work login={lookup.identity.login} />
-        </Section>
-        <Section fallback={null}>
-          <Engine login={lookup.identity.login} />
-        </Section>
-        <div className="two">
-          <Section fallback={<Placeholder title="Languages over the years" height={262} />}>
-            <Languages login={lookup.identity.login} />
-          </Section>
-          <Section fallback={<Placeholder title="The people they work with most" height={262} />}>
-            <People login={lookup.identity.login} />
+          <Section fallback={<PanelSkeleton title="Languages over the years" height={276} />}>
+            <Languages login={id.login} />
           </Section>
         </div>
         <Section fallback={null}>
-          <Read login={lookup.identity.login} />
+          <Survival login={id.login} />
         </Section>
-      </div>
+        <Section fallback={<PanelSkeleton title="Where their work is" height={8 * 57 + 34} />}>
+          <Work login={id.login} />
+        </Section>
+        <Section fallback={<PanelSkeleton title="Achievements" height={360} />}>
+          <Traits login={id.login} />
+        </Section>
+        <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr]">
+          <Section fallback={<PanelSkeleton title="The people they work with most" height={260} />}>
+            <People login={id.login} me={lookup.self ? null : undefined} />
+          </Section>
+          <Section fallback={<PanelSkeleton title="When they commit" height={260} />}>
+            <Clock login={id.login} />
+          </Section>
+        </div>
+        <Section fallback={<Skeleton height={16} width={420} radius={1} />}>
+          <Read login={id.login} />
+        </Section>
+      </Page>
     </TipLayer>
   );
 }
 
-function Placeholder({ title, height }: { title: string; height: number }) {
+function Actions({ identity, self }: { identity: Identity; self: boolean }) {
+  const router = useRouter();
+  const toast = useToast();
+  const { origin } = Route.useLoaderData();
+  const go = (to: string) => void router.navigate({ to: to as "/" });
   return (
-    <Figure title={title} note={<Skeleton height={14} width="50%" radius={1} />}>
-      <Skeleton height={height} />
-    </Figure>
+    <>
+      <Button label={self ? "Share my Cards" : "Cards"} variant="primary" icon={<Icon icon={Share2} size="sm" />} href={`/u/${identity.login}/cards`} />
+      <Section fallback={null}>
+        <RivalActions login={identity.login} />
+      </Section>
+      <Compare login={identity.login} />
+      <DropdownMenu
+        button={{ label: "More", isIconOnly: true, icon: <Icon icon={MoreHorizontal} size="sm" />, variant: "secondary", size: "md" }}
+        hasChevron={false}
+        alignment="end"
+        menuWidth={220}
+        items={[
+          { label: "Proof of Work", icon: Briefcase, description: "Every merged pull request, by month", onClick: () => go(`/u/${identity.login}/work`) },
+          { label: `Wrapped ${YEAR}`, icon: Sparkles, description: "Their year on GitHub", onClick: () => go(`/u/${identity.login}/wrapped/${YEAR}`) },
+          { type: "divider" },
+          {
+            label: "Copy link",
+            icon: Link2,
+            onClick: () => void navigator.clipboard?.writeText(`${origin}/u/${identity.login}`).then(() => toast("Link copied")),
+          },
+          { label: "Open on GitHub", icon: ExternalLink, onClick: () => void window.open(`https://github.com/${identity.login}`, "_blank", "noopener") },
+        ]}
+      />
+    </>
+  );
+}
+
+function Organization({ identity }: { identity: Identity }) {
+  return (
+    <>
+      <ProfileHeader identity={identity} />
+      <Page className="py-10">
+        <Banner status="info" title="This is an organization, not a person. Profiles are about people: open one of its repositories, or one of its people, instead." />
+      </Page>
+    </>
+  );
+}
+
+function NumbersSkeleton() {
+  return (
+    <div className="grid overflow-hidden rounded-[var(--radius-container)] border border-line bg-surface">
+      <div className="grid grid-cols-2 lg:grid-cols-4">
+        {[0, 1, 2, 3].map((i) => (
+          <Cell key={i}>
+            <div className="flex flex-col gap-2.5">
+              <Skeleton height={36} width="55%" index={i} radius={2} />
+              <Skeleton height={14} width="70%" index={i} radius={1} />
+              <Skeleton height={12} width="50%" index={i} radius={1} />
+            </div>
+          </Cell>
+        ))}
+      </div>
+      <div className="grid grid-cols-2 border-t border-line lg:grid-cols-4">
+        {[0, 1, 2, 3].map((i) => (
+          <SmallSkeleton key={i} i={i} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SmallSkeleton({ i }: { i: number }) {
+  return (
+    <Cell small>
+      <div className="flex flex-col gap-2">
+        <Skeleton height={22} width="45%" index={i} radius={2} />
+        <Skeleton height={13} width="60%" index={i} radius={1} />
+        <Skeleton height={11} width="70%" index={i} radius={1} />
+      </div>
+    </Cell>
   );
 }
 
@@ -134,28 +219,6 @@ function useFullProfile(login: string) {
   return useSuspenseQuery(fullProfileQuery(login)).data;
 }
 
-function Totals({ identity }: { identity: Identity }) {
-  return (
-    <ProfileTotals
-      profile={useProfile(identity.login)}
-      slow={
-        <Section fallback={<TileSkeletons count={2} />}>
-          <SlowTiles login={identity.login} />
-        </Section>
-      }
-      extra={
-        <Section fallback={<TileSkeletons count={1} />}>
-          <Surviving login={identity.login} />
-        </Section>
-      }
-    />
-  );
-}
-
-function SlowTiles({ login }: { login: string }) {
-  return <PullRequestTiles profile={useFullProfile(login)} />;
-}
-
 function useEngine(login: string) {
   const { data } = useSuspenseQuery(engineQuery(login));
   const mounted = useHydrated();
@@ -163,75 +226,77 @@ function useEngine(login: string) {
   return mounted && live.data ? live.data : data;
 }
 
-function ArchetypeBadge({ login }: { login: string }) {
-  const { data } = useSuspenseQuery(traitsQuery(login));
-  const main = data.archetypes[0];
-  return main ? (
-    <span title={main.rule}>
-      <Badge label={main.title} variant="info" />
-    </span>
-  ) : null;
-}
-
-function ProfileTraits({ login }: { login: string }) {
-  const { data } = useSuspenseQuery(traitsQuery(login));
-  return <Traits archetypes={data.archetypes} achievements={data.achievements} login={login} complete={data.complete} />;
-}
-
-function Surviving({ login }: { login: string }) {
-  return <SurvivingTile engine={useEngine(login)} />;
-}
-
-function Engine({ login }: { login: string }) {
-  return <EngineRepos engine={useEngine(login)} login={login} />;
-}
-
-function TileSkeletons({ count }: { count: number }) {
+function Numbers({ login }: { login: string }) {
+  const profile = useProfile(login);
   return (
-    <>
-      {Array.from({ length: count }, (_, i) => (
-        <Skeleton key={i} height={104} index={i} />
-      ))}
-    </>
+    <HeadlineNumbers
+      profile={profile}
+      surviving={
+        <Section fallback={<Skeleton height={60} width="60%" radius={2} />}>
+          <Surviving login={login} suggest={profile.repositories.find((r) => !r.private)} />
+        </Section>
+      }
+      slow={
+        <Section fallback={[0, 1].map((i) => <SmallSkeleton key={i} i={i} />)}>
+          <PullRequestNumbers profile={useFullProfile(login)} />
+        </Section>
+      }
+    />
   );
 }
 
-function Work({ login }: { login: string }) {
-  return <Repositories profile={useFullProfile(login)} />;
+function Surviving({ login, suggest }: { login: string; suggest?: { owner: string; name: string } }) {
+  return <SurvivingNumber engine={useEngine(login)} suggest={suggest ? `${suggest.owner}/${suggest.name}` : null} />;
+}
+
+function Archetype({ login }: { login: string }) {
+  const { data } = useSuspenseQuery(traitsQuery(login));
+  const main = data.archetypes[0];
+  return main ? <ArchetypePill archetype={main} also={data.archetypes.slice(1).map((a) => a.title)} /> : null;
 }
 
 function Year({ login }: { login: string }) {
-  return <YearCalendar profile={useProfile(login)} />;
-}
-
-function Languages({ login }: { login: string }) {
-  return <LanguagesByYear profile={useProfile(login)} />;
+  return <LastYear profile={useProfile(login)} />;
 }
 
 function Years({ login }: { login: string }) {
-  return <ProfileActivity profile={useProfile(login)} />;
+  return <OverTheYears profile={useProfile(login)} />;
 }
 
-function People({ login }: { login: string }) {
-  return <Partners profile={useFullProfile(login)} />;
+function Languages({ login }: { login: string }) {
+  return <LanguagesOverTime profile={useProfile(login)} />;
+}
+
+function Survival({ login }: { login: string }) {
+  return <SurvivalPanel engine={useEngine(login)} login={login} />;
+}
+
+function Work({ login }: { login: string }) {
+  const profile = useFullProfile(login);
+  const engine = useEngine(login);
+  return <RepositoryTable profile={profile} engine={engine} />;
+}
+
+function Traits({ login }: { login: string }) {
+  const router = useRouter();
+  const { data } = useSuspenseQuery(traitsQuery(login));
+  return <TraitsPanel archetypes={data.archetypes} achievements={data.achievements} complete={data.complete} onCard={(id) => void router.navigate({ to: "/u/$login/cards", params: { login }, search: { card: `achievement-${id}` } as never })} />;
+}
+
+function People({ login }: { login: string; me?: null }) {
+  return <PeoplePanel profile={useFullProfile(login)} versus={(other) => `/vs/${login}/${other}`} />;
+}
+
+function Clock({ login }: { login: string }) {
+  return <CommitClock profile={useFullProfile(login)} />;
 }
 
 function Read({ login }: { login: string }) {
   const p = useFullProfile(login);
   const when = new Date(p.fetchedAt * 1000).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
   return (
-    <p className="note small">
-      From GitHub, read {when} UTC{p.scope === "self" ? ", with your own sign-in: private work is shown to you alone" : ""}. Pull requests: the newest {p.read.prs.toLocaleString("en-US")} of {p.read.prsTotal.toLocaleString("en-US")} read for
-      lines and partners; totals count them all.
+    <p className="m-0 pt-2 text-xs text-secondary">
+      Read from GitHub {when} UTC{p.scope === "self" ? ", with your own sign-in: private work is shown to you alone" : ""}. Lines and partners come from the newest {p.read.prs.toLocaleString("en-US")} of {p.read.prsTotal.toLocaleString("en-US")} pull requests; the totals count them all.
     </p>
-  );
-}
-
-function Missing({ words }: { words: string }) {
-  return (
-    <section className="flex flex-col items-start gap-4 py-12">
-      <Heading level={1}>No Profile here</Heading>
-      <Banner status="warning" title={words} />
-    </section>
   );
 }

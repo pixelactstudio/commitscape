@@ -89,9 +89,9 @@ describe("every Card as a PNG", () => {
         const drawn = await renderCard(spec, data[kind] as never, theme, { images: {}, site: "commitscape.example" });
         const png = new Resvg(drawn.still, { fitTo: { mode: "zoom", value: 2 } }).render().asPng();
         const ms = performance.now() - started;
-        expect(ms).toBeLessThan(200);
         writeFileSync(join(out, `${kind}-${theme}.png`), png);
         await expect(`${createHash("sha256").update(png).digest("hex")}\n`).toMatchFileSnapshot(join(out, `${kind}-${theme}.png.sha256`));
+        expect(ms).toBeLessThan(200);
       });
     }
   }

@@ -3,7 +3,7 @@ import { Resvg } from "@resvg/resvg-js";
 import { and, eq } from "drizzle-orm";
 import { monthName, type AchievementCardData, type ArchetypeCardData, type CardImages, type WindowCardData, type WrappedCardData, type CardKind, type HallOfFameData, type Profile, type ProfileCardData, type StandingCardData, type VersusCardData } from "@commitscape/data";
 import { now, schema } from "@commitscape/server";
-import { CARD_DESIGN, CARDS, placesFor, topLine, type CardSpec, type CardTheme } from "@commitscape/ui";
+import { CARD_DESIGN, CARDS, DEFAULT_STYLE, isOffered, placesFor, styleKey, topLine, type CardSpec, type CardStyle, type CardTheme } from "@commitscape/ui";
 import { renderCard, renderPending } from "@commitscape/ui/cards/render";
 import { SiteError } from "./http";
 import { survivingTotal } from "./engine";
@@ -35,7 +35,7 @@ export function avatarOf(login: string): Promise<string | null> {
   const key = login.toLowerCase();
   let found = faces.get(key);
   if (!found) {
-    found = fetch(`https://avatars.githubusercontent.com/${encodeURIComponent(login)}?s=96`)
+    found = fetch(`https://github.com/${encodeURIComponent(login)}.png?size=96`)
       .then(async (r) => (r.ok ? `data:${r.headers.get("content-type") ?? "image/png"};base64,${Buffer.from(await r.arrayBuffer()).toString("base64")}` : null))
       .catch(() => null);
     faces.set(key, found);
@@ -106,7 +106,12 @@ export async function hallOfFameData(deps: CardDeps, owner: string, repo: string
   };
 }
 
-function keyOf(kind: CardKind, subject: Subject, theme: CardTheme, format: Format): string {
+function keyOf(kind: CardKind, subject: Subject, theme: CardTheme, format: Format, style: CardStyle = DEFAULT_STYLE): string {
+  const look = styleKey(style);
+  return look ? baseKey(kind, subject, theme, format).replace(/\.(svg|png)$/, `-s-${look}.$1`) : baseKey(kind, subject, theme, format);
+}
+
+function baseKey(kind: CardKind, subject: Subject, theme: CardTheme, format: Format): string {
   if (subject.race) return `cards/races/${subject.race}/${kind}-${theme}-d${CARD_DESIGN}.${format}`;
   if (subject.crew) return `cards/crews/${subject.crew}/${kind}-${theme}-d${CARD_DESIGN}.${format}`;
   if (subject.versus) return `cards/vs/${subject.login?.toLowerCase()}/${subject.versus.toLowerCase()}/${kind}-${theme}-d${CARD_DESIGN}.${format}`;
@@ -114,7 +119,7 @@ function keyOf(kind: CardKind, subject: Subject, theme: CardTheme, format: Forma
   return `cards/${who}/${kind}${subject.achievement ? `-${subject.achievement}` : ""}${subject.year ? `-${subject.year}` : ""}-${theme}-d${CARD_DESIGN}.${format}`;
 }
 
-async function draw(deps: CardDeps, kind: CardKind, subject: Subject, theme: CardTheme): Promise<{ svg: string; png: Uint8Array; ms: number } | null> {
+async function draw(deps: CardDeps, kind: CardKind, subject: Subject, theme: CardTheme, style: CardStyle): Promise<{ svg: string; png: Uint8Array; ms: number } | null> {
   let data: ProfileCardData | StandingCardData | HallOfFameData | VersusCardData | ArchetypeCardData | AchievementCardData | WindowCardData | WrappedCardData | null;
   let logins: (string | null)[];
   if (kind === "wrapped" || kind === "wrapped-calendar") {
@@ -165,42 +170,42 @@ async function draw(deps: CardDeps, kind: CardKind, subject: Subject, theme: Car
   const spec = CARDS[kind] as CardSpec<typeof data>;
   const faces = await images(deps, logins);
   const started = performance.now();
-  const out = await renderCard(spec, data, theme, { images: faces, site: deps.site });
+  const out = await renderCard(spec, data, theme, { images: faces, site: deps.site, style });
   const png = new Resvg(out.still, { fitTo: { mode: "zoom", value: 2 } }).render().asPng();
   return { svg: out.animated, png, ms: performance.now() - started };
 }
 
 const refreshing = new Set<string>();
 
-async function store(deps: CardDeps, kind: CardKind, subject: Subject, theme: CardTheme) {
-  const drawn = await draw(deps, kind, subject, theme);
-  if (!drawn) return null;
+async function store(deps: CardDeps, kind: CardKind, subject: Subject, theme: CardTheme, style: CardStyle) {
+  const drawn = await draw(deps, kind, subject, theme, style);
+  if (!drawn || !isOffered(style)) return drawn;
   const at = String(now());
   await Promise.all([
-    deps.storage.put(keyOf(kind, subject, theme, "svg"), drawn.svg, { type: "image/svg+xml" }),
-    deps.storage.put(keyOf(kind, subject, theme, "png"), drawn.png, { type: "image/png" }),
-    deps.storage.put(`${keyOf(kind, subject, theme, "svg")}.at`, at, { type: "text/plain" }),
+    deps.storage.put(keyOf(kind, subject, theme, "svg", style), drawn.svg, { type: "image/svg+xml" }),
+    deps.storage.put(keyOf(kind, subject, theme, "png", style), drawn.png, { type: "image/png" }),
+    deps.storage.put(`${keyOf(kind, subject, theme, "svg", style)}.at`, at, { type: "text/plain" }),
   ]);
   return drawn;
 }
 
-/** A Card as an image: the stored copy while it is under six hours old, a stale one while a new one is drawn in the background, and a plain "reading" card while nothing is stored yet. */
-export async function cardImage(deps: CardDeps, kind: CardKind, subject: Subject, theme: CardTheme, format: Format): Promise<Served> {
+/** A Card as an image in a style: the stored copy while it is under six hours old, a stale one while a new one is drawn in the background, and a plain "reading" card while nothing is stored yet; colours outside the offered swatches are drawn each time and never stored. */
+export async function cardImage(deps: CardDeps, kind: CardKind, subject: Subject, theme: CardTheme, format: Format, style: CardStyle = DEFAULT_STYLE): Promise<Served> {
   for (const who of [subject.login, subject.versus]) if (who && (await isHidden(deps, who))) throw new SiteError(404, "This person has chosen to stay out, so they have no Cards.");
   const type = format === "svg" ? "image/svg+xml" : "image/png";
-  const key = keyOf(kind, subject, theme, format);
-  const [kept, at] = await Promise.all([deps.storage.get(key), deps.storage.get(`${keyOf(kind, subject, theme, "svg")}.at`)]);
+  const key = keyOf(kind, subject, theme, format, style);
+  const [kept, at] = isOffered(style) ? await Promise.all([deps.storage.get(key), deps.storage.get(`${keyOf(kind, subject, theme, "svg", style)}.at`)]) : [null, null];
   if (kept) {
     const age = now() - Number(new TextDecoder().decode(at?.body ?? new Uint8Array()) || 0);
     if (age > CARD_FOR && !refreshing.has(key)) {
       refreshing.add(key);
-      void store(deps, kind, subject, theme)
+      void store(deps, kind, subject, theme, style)
         .catch(() => null)
         .finally(() => refreshing.delete(key));
     }
     return { body: kept.body, type, maxAge: CARD_FOR, ms: null };
   }
-  const drawn = await store(deps, kind, subject, theme);
+  const drawn = await store(deps, kind, subject, theme, style);
   if (!drawn) {
     const svg = await renderPending(subject.login ?? "", theme, deps.site, kind === "preview" ? { width: 1200, height: 630 } : { width: 600, height: 236 });
     const body = format === "svg" ? new TextEncoder().encode(svg) : new Resvg(svg, { fitTo: { mode: "zoom", value: 2 } }).render().asPng();

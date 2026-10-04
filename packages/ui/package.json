@@ -21,6 +21,8 @@
     "@astryxdesign/theme-neutral": "catalog:",
     "@commitscape/data": "workspace:*",
     "@stylexjs/stylex": "catalog:",
+    "lucide-react": "1.48.0",
+    "recharts": "3.10.1",
     "satori": "0.35.0"
   },
   "peerDependencies": {

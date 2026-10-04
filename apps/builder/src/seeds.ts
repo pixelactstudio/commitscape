@@ -78,7 +78,7 @@ export async function queueSeeds(db: Db, queue: Queue, list: Seed[], budget: num
   let queued = 0;
   for (const row of due) {
     if (queued >= budget) break;
-    if (row.reportAt && row.reportAt > now() - REPORT_FOR) continue;
+    if (row.reportAt && row.reportAt > now() - REPORT_FOR && row.reportLines !== false) continue;
     const [last] = await db.select().from(builds).where(eq(builds.repoId, row.id)).orderBy(desc(builds.requestedAt)).limit(1);
     if (busy(last)) continue;
     await queueBuild(db, queue, row.id, PRIORITY.seed);

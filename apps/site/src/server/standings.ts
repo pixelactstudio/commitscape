@@ -2,7 +2,7 @@ import "@tanstack/react-start/server-only";
 import { and, count, eq, isNotNull } from "drizzle-orm";
 import { key, type Person, type StandingRow, type Standings } from "@commitscape/data";
 import { readEntry, repoId as idOfRepo, schema } from "@commitscape/server";
-import { askCounts, LOST_AFTER } from "./engine";
+import { askCounts, wantsCount } from "./engine";
 import { hiddenAmong } from "./people";
 import { SiteError } from "./http";
 import { canSee, type Deps, type Viewer } from "./repos";
@@ -103,10 +103,7 @@ export async function standingsOf(deps: Deps, viewer: StandingsViewer, owner: st
     .filter((r) => r.personId !== null)
     .sort((a, b) => (b.commits ?? 0) - (a.commits ?? 0))
     .slice(0, COUNTED_FOR);
-  const wanted = [...top, ...list.filter((r) => focus && r.login?.toLowerCase() === focus.toLowerCase() && r.personId !== null)].filter((r) => {
-    const c = counts.find((x) => x.personId === r.personId);
-    return !c || ((c.status === "queued" || c.status === "failed") && c.askedAt < Math.floor(Date.now() / 1000) - LOST_AFTER);
-  });
+  const wanted = [...top, ...list.filter((r) => focus && r.login?.toLowerCase() === focus.toLowerCase() && r.personId !== null)].filter((r) => wantsCount(counts.find((x) => x.personId === r.personId), repo.reportLines));
   const ids = [...new Set(wanted.map((r) => r.personId as number))];
   if (await askCounts(deps, viewer.address, id, repo.reportKey, ids)) for (const r of list) if (r.personId !== null && ids.includes(r.personId)) r.survivingStatus = "counting";
   for (const r of list) if (r.personId !== null && r.survivingStatus === null) r.survivingStatus = "not_asked";

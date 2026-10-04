@@ -1,93 +1,167 @@
 import { Skeleton } from "@astryxdesign/core/Skeleton";
-import { Figure } from "../charts/common";
+import { Panel } from "../kit/layout";
+import { CommitsLoading } from "../screens/Commits";
+import { NARROW, WIDE } from "../screens/Map";
+import { CONTRIBUTORS_SHOWN, FOLDERS_SHOWN } from "../screens/Overview";
+import { NumberCell, NumberStrip, ScreenFrame } from "../screens/kit";
 
-function Note() {
+function line(width: string | number, index: number, height = 14) {
+  return <Skeleton height={height} width={width} radius={1} index={index} />;
+}
+
+function Cells({ labels }: { labels: string[] }) {
   return (
-    <div className="note figure-note" aria-hidden>
-      <Skeleton height={14} width="45%" radius={1} />
-    </div>
+    <>
+      {labels.map((l, i) => (
+        <NumberCell key={l} id={l} value={<Skeleton height={26} width="55%" radius={2} index={i} />} label={l} note={<span className="flex h-[19px] items-center">{line("70%", i, 12)}</span>} />
+      ))}
+    </>
   );
 }
 
-export function TilesSkeleton({ count = 6, className }: { count?: number; className?: string }) {
+function Bars({ count }: { count: number }) {
   return (
-    <section className={className ? `tiles ${className}` : "tiles"}>
+    <div className="flex flex-col gap-0.5">
       {Array.from({ length: count }, (_, i) => (
-        <Skeleton key={i} className="tile-skeleton" height={104} index={i} />
+        <div key={i} className="flex flex-col gap-1.5 px-2 py-2">
+          <div className="flex h-5 items-center justify-between">
+            {line(`${40 + ((i * 23) % 35)}%`, i, 12)}
+            {line(70, i, 12)}
+          </div>
+          <Skeleton height={6} radius={3} index={i} />
+        </div>
       ))}
-    </section>
+    </div>
   );
 }
 
 export function OverviewSkeleton() {
   return (
-    <div className="screen" aria-busy="true" aria-label="Loading">
-      <TilesSkeleton />
-      <Figure title="Commits over time" note={<Skeleton height={14} width="30%" radius={1} />}>
-        <div className="overview-chart">
-          <Skeleton height="100%" index={6} />
-        </div>
-      </Figure>
-      <div className="two">
-        <Figure title="Contributors" note={<Skeleton height={14} width="40%" radius={1} />}>
-          <div className="contributors">
-            <Skeleton height="100%" index={7} />
+    <ScreenFrame label="Loading">
+      <NumberStrip columns={6}>
+        <Cells labels={["commits", "people", "lines of code", "files", "of history", "active days"]} />
+      </NumberStrip>
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+        <Panel padding={0} title="Who built it" description={"\u00a0"}>
+          <div>
+            {Array.from({ length: CONTRIBUTORS_SHOWN }, (_, i) => (
+              <div key={i} className="flex h-[60px] items-center gap-3 border-t border-line px-5">
+                <span className="w-4" />
+                <Skeleton height={36} width={36} radius="rounded" index={i} />
+                <span className="flex flex-1 flex-col gap-2">
+                  {line(`${30 + ((i * 17) % 30)}%`, i)}
+                  <span className="max-w-72">
+                    <Skeleton height={4} radius={2} index={i} />
+                  </span>
+                </span>
+                {line(56, i, 12)}
+              </div>
+            ))}
           </div>
-        </Figure>
-        <Figure title="Languages" note="Lines of code at HEAD">
-          <Skeleton height={160} index={8} />
-        </Figure>
+          <div className="flex h-[53px] items-center border-t border-line px-5">{line(220, 0, 11)}</div>
+        </Panel>
+        <div className="flex min-w-0 flex-col gap-4">
+          <Panel title="Where the work is" description={"\u00a0"}>
+            <Bars count={FOLDERS_SHOWN} />
+          </Panel>
+          <Panel title="Languages" description="Lines of code at HEAD">
+            <div className="flex flex-col gap-4">
+              <Skeleton height={10} radius="rounded" />
+              <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+                {Array.from({ length: 6 }, (_, i) => (
+                  <div key={i} className="flex h-5 items-center">
+                    {line("70%", i, 12)}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </Panel>
+        </div>
       </div>
-    </div>
+      <Panel title="Commits over time" description={"\u00a0"}>
+        <div className="flex flex-col gap-1">
+          <Skeleton height={240} index={3} />
+          <div className="h-5" />
+        </div>
+      </Panel>
+    </ScreenFrame>
   );
 }
 
 export function PeopleSkeleton() {
   return (
-    <div className="screen" aria-busy="true" aria-label="Loading">
-      <Figure title="People">
-        <Note />
-        <Skeleton height={560} index={1} />
-      </Figure>
-    </div>
+    <ScreenFrame label="Loading">
+      <Panel padding={0} title="Everyone" description={"\u00a0"}>
+        <div>
+          <div className="h-8" />
+          {Array.from({ length: 12 }, (_, i) => (
+            <div key={i} className="flex h-[53px] items-center gap-3 border-t border-line px-5">
+              <Skeleton height={32} width={32} radius="rounded" index={i} />
+              <span className="flex w-40 flex-col gap-2">
+                {line("80%", i)}
+                {line("50%", i, 4)}
+              </span>
+              <span className="flex flex-1 justify-end gap-8">
+                {line(48, i, 12)}
+                {line(48, i, 12)}
+                {line(64, i, 12)}
+              </span>
+            </div>
+          ))}
+        </div>
+      </Panel>
+    </ScreenFrame>
   );
 }
 
 export function ActivitySkeleton() {
   return (
-    <div className="screen" aria-busy="true" aria-label="Loading">
-      <Figure title="Commits over time, by person">
-        <Note />
-        <div className="overview-chart">
-          <Skeleton height="100%" index={1} />
+    <ScreenFrame label="Loading">
+      <Panel title="Commits over time, by person" description={"\u00a0"}>
+        <div className="flex flex-col gap-2">
+          <div className="flex h-4 gap-4">
+            {[0, 1, 2, 3, 4].map((i) => (
+              <span key={i}>{line(72, i, 10)}</span>
+            ))}
+          </div>
+          <Skeleton height={280} index={1} />
         </div>
-      </Figure>
-      <div className="two">
-        <Skeleton height={300} index={2} />
-        <Skeleton height={300} index={3} />
+      </Panel>
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+        <Panel title="When the work happens" description={"\u00a0"}>
+          <Skeleton height={200} index={2} />
+        </Panel>
+        <Panel title="Kinds of work" description={"\u00a0"}>
+          <Bars count={5} />
+        </Panel>
       </div>
-    </div>
+    </ScreenFrame>
   );
 }
 
 export function MapSkeleton() {
   return (
-    <div className="screen" aria-busy="true" aria-label="Loading">
-      <Skeleton height={40} width="50%" index={1} />
-      <Skeleton height={560} index={2} />
-    </div>
+    <ScreenFrame label="Loading">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex h-[30px] items-center">{line(140, 0, 14)}</div>
+        <Skeleton height={32} width={260} index={1} />
+      </div>
+      <div className="flex min-w-0 flex-col gap-3 rounded-[var(--radius-container)] border border-line bg-surface p-3 sm:p-4">
+        <div className="flex h-5 items-center">{line(320, 0, 12)}</div>
+        <div className="hidden md:block" style={{ aspectRatio: `${WIDE.w} / ${WIDE.h}` }}>
+          <Skeleton height="100%" index={2} />
+        </div>
+        <div className="md:hidden" style={{ aspectRatio: `${NARROW.w} / ${NARROW.h}` }}>
+          <Skeleton height="100%" index={2} />
+        </div>
+        <div className="h-4" />
+      </div>
+    </ScreenFrame>
   );
 }
 
 export function CommitsSkeleton() {
-  return (
-    <div className="screen" aria-busy="true" aria-label="Loading">
-      <Figure title="Commits">
-        <Note />
-        <Skeleton height={680} index={1} />
-      </Figure>
-    </div>
-  );
+  return <CommitsLoading />;
 }
 
 export function ScreenSkeleton() {

@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use commitscape_forge::Remote;
 
@@ -22,10 +22,14 @@ fn git(args: &[&str], dir: Option<&Path>) -> anyhow::Result<()> {
     let mut cmd = Command::new("git");
     if let Some(dir) = dir {
         cmd.arg("-C").arg(dir);
+        if let Some(parent) = dir.parent() {
+            cmd.env("GIT_CEILING_DIRECTORIES", parent);
+        }
     }
     let status = cmd
         .args(args)
         .env("GIT_TERMINAL_PROMPT", "0")
+        .stdout(Stdio::null())
         .status()
         .map_err(|e| match e.kind() {
             std::io::ErrorKind::NotFound => {
@@ -47,6 +51,7 @@ pub enum Clone {
     Full,
 }
 
+/// Clones a GitHub project into the cache, or brings an earlier clone up to date, and returns its folder.
 pub fn clone(remote: &Remote, root: &Path, how: Clone) -> anyhow::Result<PathBuf> {
     let kind = match how {
         Clone::Partial => "health",
@@ -61,34 +66,77 @@ pub fn clone(remote: &Remote, root: &Path, how: Clone) -> anyhow::Result<PathBuf
         remote.owner,
         remote.name
     );
-    if dir.join(".git").exists() {
-        eprintln!("Bringing {}/{} up to date…", remote.owner, remote.name);
-        git(
-            &["fetch", "--quiet", "--prune", "--tags", "origin"],
-            Some(&dir),
-        )?;
-        git(&["reset", "--quiet", "--hard", "origin/HEAD"], Some(&dir))?;
-    } else {
-        eprintln!(
-            "Cloning {}/{}{} into the cache…",
-            remote.owner,
-            remote.name,
-            if how == Clone::Partial {
-                " (history only)"
-            } else {
-                ""
-            }
-        );
-        if let Some(parent) = dir.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        let target = dir.to_string_lossy().into_owned();
-        let mut args = vec!["clone", "--quiet"];
-        if how == Clone::Partial {
-            args.push("--filter=blob:none");
-        }
-        args.extend([url.as_str(), target.as_str()]);
-        git(&args, None)?;
-    }
+    let name = format!("{}/{}", remote.owner, remote.name);
+    clone_into(&url, &dir, how, &name)?;
     Ok(dir)
 }
+
+fn clone_into(url: &str, dir: &Path, how: Clone, name: &str) -> anyhow::Result<()> {
+    if dir.join(".git").exists() {
+        eprintln!("Bringing {name} up to date…");
+        match update(dir) {
+            Ok(()) => return Ok(()),
+            Err(e) => eprintln!("The clone of {name} is broken ({e}); cloning it again…"),
+        }
+    }
+    eprintln!(
+        "Cloning {name}{} into the cache…",
+        if how == Clone::Partial {
+            " (history only)"
+        } else {
+            ""
+        }
+    );
+    fresh(url, dir, how)
+}
+
+fn update(dir: &Path) -> anyhow::Result<()> {
+    git(&["rev-parse", "--quiet", "--verify", "HEAD"], Some(dir))?;
+    git(
+        &["fetch", "--quiet", "--prune", "--tags", "origin"],
+        Some(dir),
+    )?;
+    git(&["reset", "--quiet", "--hard", "origin/HEAD"], Some(dir))
+}
+
+fn unfinished(dir: &Path) -> anyhow::Result<PathBuf> {
+    let parent = dir
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("{} has no parent folder", dir.display()))?;
+    let name = dir
+        .file_name()
+        .ok_or_else(|| anyhow::anyhow!("{} has no name", dir.display()))?;
+    Ok(parent.join(format!(".{}.cloning", name.to_string_lossy())))
+}
+
+fn remove(path: &Path) -> std::io::Result<()> {
+    match std::fs::remove_dir_all(path) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        other => other,
+    }
+}
+
+fn fresh(url: &str, dir: &Path, how: Clone) -> anyhow::Result<()> {
+    let temp = unfinished(dir)?;
+    if let Some(parent) = dir.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    remove(&temp)?;
+    let target = temp.to_string_lossy().into_owned();
+    let mut args = vec!["clone", "--quiet"];
+    if how == Clone::Partial {
+        args.push("--filter=blob:none");
+    }
+    args.extend([url, target.as_str()]);
+    if let Err(e) = git(&args, None) {
+        let _ = remove(&temp);
+        return Err(e);
+    }
+    remove(dir)?;
+    std::fs::rename(&temp, dir)?;
+    Ok(())
+}
+
+#[cfg(test)]
+#[path = "../tests/unit/clone.rs"]
+mod tests;

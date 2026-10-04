@@ -18,8 +18,7 @@ export function loadEnv(runtimeEnv: Record<string, string | undefined> = process
       COMMITSCAPE_BIN: z.string().default("commitscape"),
       WORK_DIR: z.string().default(`${runtimeEnv.HOME ?? "."}/builder-work`),
       CONCURRENCY: positive(1),
-      FULL_CLONE_UP_TO_MB: positive(100),
-      MAX_REPOSITORY_MB: positive(3000),
+      MAX_REPOSITORY_MB: z.coerce.number().positive().optional(),
       TIME_LIMIT_SECONDS: positive(900),
       DISK_BUDGET_GB: positive(20),
       SURVIVING_BUDGET_SECONDS: positive(60),
@@ -44,8 +43,7 @@ export type Config = {
   bin: string;
   work: string;
   concurrency: number;
-  fullUpToMb: number;
-  maxMb: number;
+  maxMb: number | undefined;
   timeLimit: number;
   diskGb: number;
   gitBase: string | undefined;
@@ -56,7 +54,6 @@ export function configOf(env: Env): Config {
     bin: env.COMMITSCAPE_BIN,
     work: env.WORK_DIR,
     concurrency: env.CONCURRENCY,
-    fullUpToMb: env.FULL_CLONE_UP_TO_MB,
     maxMb: env.MAX_REPOSITORY_MB,
     timeLimit: env.TIME_LIMIT_SECONDS,
     diskGb: env.DISK_BUDGET_GB,

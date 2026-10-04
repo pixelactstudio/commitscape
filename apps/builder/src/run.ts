@@ -13,20 +13,26 @@ export type BuildTarget = {
   private: boolean;
   token: string | null;
   seed: boolean;
+  attempt?: number;
 };
 
 export type Outcome =
   | {
       ok: true;
       seconds: number;
-      lines: boolean;
-      partial: boolean;
       stats?: BuildStats;
       report: Uint8Array;
     }
   | { ok: false; reason: BuildFailure; detail?: string };
 
 export const REPORT_MAX = 64 * 1024 * 1024;
+
+export const BUILD_ATTEMPTS = 4;
+
+/** How long one attempt at a Build may take: the time limit, doubled for each attempt after the first. */
+export function timeLimitOf(cfg: Config, attempt = 1): number {
+  return cfg.timeLimit * 2 ** (Math.min(Math.max(attempt, 1), BUILD_ATTEMPTS) - 1);
+}
 
 export type Ran = { code: number | null; stderr: string; timedOut: boolean; stdout?: string };
 
@@ -105,8 +111,8 @@ export function cacheRoot(cfg: Config, req: BuildTarget): string {
   return req.private ? join(cfg.work, "private", req.id) : cfg.work;
 }
 
-export function clonePath(cfg: Config, req: BuildTarget, partial: boolean): string {
-  return join(cacheRoot(cfg, req), partial ? "health" : "clones", req.owner, req.name);
+export function clonePath(cfg: Config, req: BuildTarget): string {
+  return join(cacheRoot(cfg, req), "clones", req.owner, req.name);
 }
 
 export const NAME = /^[A-Za-z0-9_.][A-Za-z0-9_.-]{0,99}$/;
@@ -124,27 +130,30 @@ export function gitEnv(cfg: Config, token: string | null): NodeJS.ProcessEnv {
   return env;
 }
 
-/** Clones and reads a repository with the commitscape binary and returns its Report. */
+/** Clones a repository in full and reads it, its lines included, with the commitscape binary, and returns its Report. */
 export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<Outcome> {
   if (!NAME.test(req.owner) || !NAME.test(req.name) || req.name === "." || req.name === "..") {
     return { ok: false, reason: "not_found", detail: "not a repository name" };
   }
   const started = Date.now();
   const sizeMb = req.sizeKb / 1024;
-  if (sizeMb > cfg.maxMb) return { ok: false, reason: "too_big", detail: `${Math.round(sizeMb)} MB` };
-  const partial = sizeMb > cfg.fullUpToMb;
+  if (cfg.maxMb !== undefined && sizeMb > cfg.maxMb) return { ok: false, reason: "too_big", detail: `${Math.round(sizeMb)} MB` };
+  const attempt = req.attempt ?? 1;
+  const limit = timeLimitOf(cfg, attempt);
+  let resumable = false;
   const out = join(cfg.work, "out");
   await mkdir(out, { recursive: true });
   const report = join(out, `${req.id}.json.gz`);
   const env = gitEnv(cfg, req.token);
-  const left = () => Math.max(1000, cfg.timeLimit * 1000 - (Date.now() - started));
+  const left = () => Math.max(1000, limit * 1000 - (Date.now() - started));
   try {
     await deps.progress("reading");
-    const args = ["report", "--no-emails", "--offline", "--window", "all", "--cache-dir", cacheRoot(cfg, req), "--out", report];
-    if (partial) args.push("--partial");
-    args.push("--", `${req.owner}/${req.name}`);
+    const args = ["report", "--no-emails", "--offline", "--window", "all", "--cache-dir", cacheRoot(cfg, req), "--out", report, "--", `${req.owner}/${req.name}`];
     const made = await deps.run(cfg.bin, args, env, left());
-    if (made.timedOut) return { ok: false, reason: "timed_out", detail: `${cfg.timeLimit} s` };
+    if (made.timedOut) {
+      resumable = attempt < BUILD_ATTEMPTS;
+      return { ok: false, reason: "timed_out", detail: `${limit} s` };
+    }
     if (made.code !== 0) return { ok: false, reason: failure(made.stderr), detail: made.stderr.trim().split("\n").at(-1) };
     const bytes = new Uint8Array(await readFile(report));
     if (bytes.length > REPORT_MAX) return { ok: false, reason: "too_big", detail: `a ${Math.round(bytes.length / 1024 ** 2)} MB Report` };
@@ -159,8 +168,6 @@ export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<
     return {
       ok: true,
       seconds: Math.round((Date.now() - started) / 100) / 10,
-      lines: !partial,
-      partial,
       ...(stats ? { stats } : {}),
       report: bytes,
     };
@@ -168,6 +175,6 @@ export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<
     return { ok: false, reason: "error", detail: (e as Error).message };
   } finally {
     await rm(report, { force: true });
-    if (req.private) await rm(cacheRoot(cfg, req), { recursive: true, force: true });
+    if (req.private && !resumable) await rm(cacheRoot(cfg, req), { recursive: true, force: true });
   }
 }

@@ -41,8 +41,8 @@ test.beforeAll(async ({ browser, request }) => {
   await page.goto("/gh/acme/ownership");
   await expect.poll(async () => (await request.get("/gh/acme/ownership")).text(), { timeout: 30_000 }).toContain("Alice Example");
   await page.goto("/u/alice");
-  await expect(page.locator(".engine-row:not(.repo-head-row)")).toHaveCount(1, { timeout: 30_000 });
-  await expect(page.getByText("counting…")).toHaveCount(0, { timeout: 30_000 });
+  await expect(page.getByRole("region", { name: "Code that survived" })).toContainText("acme/ownership", { timeout: 30_000 });
+  await expect(page.getByRole("group", { name: "Lines that still run", exact: true })).not.toContainText("Counting", { timeout: 30_000 });
   await page.close();
 });
 
@@ -85,9 +85,9 @@ test("the theme chosen is drawn by the server, so the page never flashes the oth
 test("the repository page has avatars, one chart, and none of the panels the Site dropped", async ({ page }) => {
   await page.goto("/gh/acme/ownership");
   for (const gone of ["The story so far", "Did you know?", "Worth a look", "Risk"]) await expect(page.getByText(gone, { exact: true })).toHaveCount(0);
-  await expect(page.locator(".cols")).toHaveCount(1);
-  await expect(page.locator(".contributors li")).toHaveCount(3);
-  await expect(page.locator(".contributors .astryx-avatar, .contributors [class*=avatar]").first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Commits over time" })).toHaveCount(1);
+  await expect(page.getByRole("list", { name: "Contributors" }).getByRole("listitem")).toHaveCount(3);
+  await expect(page.getByRole("list", { name: "Contributors" }).locator("[class*=avatar]").first()).toBeVisible();
   await page.keyboard.press("Control+k");
   await page.keyboard.type("Carol");
   await expect(page.getByRole("option", { name: "Carol", exact: true })).toBeVisible();

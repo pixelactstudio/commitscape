@@ -139,7 +139,7 @@ export async function lastBuild(db: Db, id: string) {
 
 export function lookupOf(row: Row, build: Awaited<ReturnType<typeof lastBuild>>, seen: Lookup["access"] = "public", at = now()): Lookup {
   const visible = row.status === "ok" || seen === "allowed";
-  const stale = !!row.reportAt && row.reportAt < at - REPORT_FOR;
+  const stale = (!!row.reportAt && row.reportAt < at - REPORT_FOR) || (!!row.reportKey && row.reportLines === false);
   return {
     id: row.id,
     owner: row.owner,
@@ -177,7 +177,7 @@ export async function lookup(deps: Deps, viewer: Viewer, owner: string, name: st
   return lookupOf(row, await lastBuild(deps.db, row.id), seen);
 }
 
-/** Starts a Build when the Report is missing or a day old, within the rate limits. */
+/** Starts a Build when the Report is missing, a day old or read without lines, within the rate limits. */
 export async function requestBuild(deps: Deps, viewer: Viewer, owner: string, name: string): Promise<Lookup> {
   const { row, access: seen } = await resolve(deps, viewer, owner, name);
   const state = lookupOf(row, await lastBuild(deps.db, row.id), seen);

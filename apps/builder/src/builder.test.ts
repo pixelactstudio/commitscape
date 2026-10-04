@@ -3,15 +3,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import type { Config } from "./config";
-import { prune } from "./disk";
-import { build, failure, type BuildTarget, type Deps, type Ran } from "./run";
+import { cacheKey, prune } from "./disk";
+import { build, BUILD_ATTEMPTS, failure, timeLimitOf, type BuildTarget, type Deps, type Ran } from "./run";
 
 const cfg = (work: string, over: Partial<Config> = {}): Config => ({
   bin: "commitscape",
   work,
   concurrency: 1,
-  fullUpToMb: 100,
-  maxMb: 3000,
+  maxMb: undefined,
   timeLimit: 60,
   diskGb: 20,
   gitBase: undefined,
@@ -52,31 +51,56 @@ test("git's and commitscape's failures in the Site's words", () => {
   expect(failure("disk full")).toBe("error");
 });
 
-test("a small repository is cloned whole, a big one partially, a huge one refused", async () => {
+test("every repository, however big, is cloned whole with its lines counted; a size limit refuses only when set", async () => {
   const work = await mkdtemp(join(tmpdir(), "builder-"));
   const small = fake(() => ok);
   const done = await build(req(), cfg(work), small.deps);
-  expect(done).toMatchObject({ ok: true, lines: true, partial: false });
+  expect(done).toMatchObject({ ok: true });
   expect(done.ok && new TextDecoder().decode(done.report)).toBe("report");
-  expect(small.calls[0]).not.toContain("--partial");
   expect(small.calls[0]).toEqual(expect.arrayContaining(["report", "--no-emails", "--", "acme/rocket"]));
   expect(small.said).toEqual(["reading", "uploading"]);
 
-  const big = fake(() => ok);
-  expect(await build(req({ sizeKb: 150 * 1024 }), cfg(work), big.deps)).toMatchObject({ ok: true, lines: false, partial: true });
-  expect(big.calls[0]).toContain("--partial");
-
   const huge = fake(() => ok);
-  expect(await build(req({ sizeKb: 4000 * 1024 }), cfg(work), huge.deps)).toEqual({ ok: false, reason: "too_big", detail: "4000 MB" });
-  expect(huge.calls).toEqual([]);
+  expect(await build(req({ sizeKb: 40_000 * 1024 }), cfg(work), huge.deps)).toMatchObject({ ok: true });
+  expect(huge.calls[0]).not.toContain("--partial");
+  expect(huge.calls[0]).not.toContain("--no-lines");
+
+  const limited = fake(() => ok);
+  expect(await build(req({ sizeKb: 4000 * 1024 }), cfg(work, { maxMb: 3000 }), limited.deps)).toEqual({ ok: false, reason: "too_big", detail: "4000 MB" });
+  expect(limited.calls).toEqual([]);
 });
 
-test("a Build that runs too long stops as timed out; a missing one says not found", async () => {
+test("a Build that runs too long stops as timed out, each attempt given twice the time of the one before; a missing one says not found", async () => {
   const work = await mkdtemp(join(tmpdir(), "builder-"));
+  const limits: number[] = [];
   const slow = fake(() => ({ code: null, stderr: "", timedOut: true }));
+  const real = slow.deps.run;
+  slow.deps.run = async (cmd, args, env, t) => {
+    limits.push(t);
+    return real(cmd, args, env, t);
+  };
   expect(await build(req(), cfg(work, { timeLimit: 5 }), slow.deps)).toEqual({ ok: false, reason: "timed_out", detail: "5 s" });
+  expect(await build(req({ attempt: 3 }), cfg(work, { timeLimit: 5 }), slow.deps)).toEqual({ ok: false, reason: "timed_out", detail: "20 s" });
+  expect(limits[0]).toBeLessThanOrEqual(5000);
+  expect(limits[1]).toBeGreaterThan(15_000);
+  expect([1, 2, 3, 4, 9].map((a) => timeLimitOf(cfg(work, { timeLimit: 900 }), a))).toEqual([900, 1800, 3600, 7200, 7200]);
+  expect(BUILD_ATTEMPTS).toBe(4);
   const missing = fake(() => ({ code: 128, stderr: "remote: Repository not found.", timedOut: false }));
   expect(await build(req(), cfg(work), missing.deps)).toMatchObject({ ok: false, reason: "not_found" });
+});
+
+test("a Connected Repository's clone and index are kept only while a timed-out Build will go on from them", async () => {
+  const work = await mkdtemp(join(tmpdir(), "builder-"));
+  const slow = fake(() => ({ code: null, stderr: "", timedOut: true }));
+  const real = slow.deps.run;
+  slow.deps.run = async (cmd, args, env, t) => {
+    await mkdir(join(args[args.indexOf("--cache-dir") + 1] ?? "", "clones"), { recursive: true });
+    return real(cmd, args, env, t);
+  };
+  await build(req({ private: true, attempt: 1 }), cfg(work), slow.deps);
+  expect(await readdir(join(work, "private"))).toEqual(["build-0001"]);
+  await build(req({ private: true, attempt: BUILD_ATTEMPTS }), cfg(work), slow.deps);
+  expect(await readdir(join(work, "private"))).toEqual([]);
 });
 
 test("a Connected Repository's clone and index are deleted after its Build", async () => {
@@ -135,7 +159,13 @@ test("the least recently built clones go first when the disk budget is passed", 
   await mkdir(index);
   await writeFile(join(index, "blocks"), Buffer.alloc(1000));
   await utimes(index, 500, 500);
-  expect(await prune(work, 2500)).toEqual([index]);
+  expect(await prune(work, 2500, [index])).toEqual([join(work, "clones", "acme", "mid")]);
+  expect(await prune(work, 1500)).toEqual([index]);
+});
+
+test("the cache folder's name is commitscape's hash of the clone's git directory", () => {
+  expect(cacheKey("/home/x/proj/.git")).toBe("7429609f670f7aff");
+  expect(cacheKey("/home/x/other/.git")).not.toBe(cacheKey("/home/x/proj/.git"));
 });
 
 test("a name that could be read as a flag never reaches a command", async () => {

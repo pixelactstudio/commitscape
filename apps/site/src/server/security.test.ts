@@ -89,6 +89,19 @@ describe("repositories", () => {
     expect(paused.build).toMatchObject({ state: "failed", reason: "paused" });
   });
 
+  test("a fresh Report read without lines is stale, so the next visit builds it again with them", async () => {
+    const deps = await testDeps();
+    await deps.db.insert(repositories).values([
+      { id: "acme/rocket", owner: "acme", name: "rocket", githubId: 1, reportKey: reportPrefix("acme/rocket", "b1"), reportAt: now(), reportLines: false, factsAt: now() },
+      { id: "acme/other", owner: "acme", name: "other", githubId: 3, reportKey: reportPrefix("acme/other", "b1"), reportAt: now(), reportLines: true, factsAt: now() },
+    ]);
+    expect(await lookup(deps, viewer(), "acme", "rocket")).toMatchObject({ stale: true, canBuild: true, report: { lines: false } });
+    expect(await lookup(deps, viewer(), "acme", "other")).toMatchObject({ stale: false, canBuild: false });
+    const started = await requestBuild(deps, viewer(), "acme", "rocket");
+    expect(started.build?.state).toBe("queued");
+    expect(deps.sent).toHaveLength(1);
+  });
+
   test("a Build asked for from another site is refused", async () => {
     const deps = await testDeps();
     vi.stubGlobal("fetch", fakeGitHub({ "/repos/acme/rocket": repoFacts(1) }).fetcher);

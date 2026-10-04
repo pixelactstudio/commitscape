@@ -2,18 +2,20 @@ import { eq } from "drizzle-orm";
 import {
   installationToken,
   now,
+  PRIORITY,
   reportPrefix,
   schema,
   storeReport,
   type Db,
   type GitHubApp,
+  type BuildJob,
   type Storage,
   type SurvivalJob,
 } from "@commitscape/server";
 import type { Config } from "./config";
 import type { GitHubApi } from "./github";
 import { peopleOf, resolveLogins } from "./people";
-import { build, type Deps } from "./run";
+import { build, BUILD_ATTEMPTS, type Deps } from "./run";
 
 const { builds, repoPeople, repositories, surviving } = schema;
 
@@ -30,10 +32,11 @@ export type JobContext = {
   log: (line: string) => void;
   queuePulls?: (repoId: string) => Promise<void>;
   queueCounts?: (job: SurvivalJob) => Promise<void>;
+  queueBuild?: (job: BuildJob & { attempt: number }, priority: number) => Promise<void>;
 };
 
-/** Runs one queued Build: reads the repository, stores its Report in R2 and its people in Postgres, and records how it ended. */
-export async function runJob(buildId: string, ctx: JobContext): Promise<void> {
+/** Runs one queued Build: reads the repository, stores its Report in R2 and its people in Postgres, and records how it ended; one past its time limit is queued again to go on from the lines it counted. */
+export async function runJob(buildId: string, ctx: JobContext, attempt = 1): Promise<void> {
   const { db, storage, log } = ctx;
   const [found] = await db
     .select({ build: builds, repo: repositories })
@@ -56,7 +59,7 @@ export async function runJob(buildId: string, ctx: JobContext): Promise<void> {
   await db.update(builds).set({ state: "running", step: "reading", startedAt: now() }).where(eq(builds.id, buildId));
   const started = Date.now();
   const outcome = await build(
-    { id: buildId, owner: repo.owner, name: repo.name, sizeKb: repo.sizeKb ?? 0, private: repo.isPrivate, token, seed: repo.seed },
+    { id: buildId, owner: repo.owner, name: repo.name, sizeKb: repo.sizeKb ?? 0, private: repo.isPrivate, token, seed: repo.seed, attempt },
     ctx.cfg,
     {
       run: ctx.run,
@@ -65,7 +68,19 @@ export async function runJob(buildId: string, ctx: JobContext): Promise<void> {
       },
     },
   );
-  log(`build ${buildId} ${repo.id}: ${outcome.ok ? "done" : outcome.reason} in ${((Date.now() - started) / 1000).toFixed(1)} s`);
+  log(`build ${buildId} ${repo.id}: ${outcome.ok ? "done" : outcome.reason} in ${((Date.now() - started) / 1000).toFixed(1)} s, attempt ${attempt}`);
+  if (!outcome.ok && outcome.reason === "timed_out" && attempt < BUILD_ATTEMPTS && ctx.queueBuild) {
+    await db.update(builds).set({ state: "queued", step: null, startedAt: null, requestedAt: now() }).where(eq(builds.id, buildId));
+    const queued = await ctx
+      .queueBuild({ buildId, attempt: attempt + 1 }, repo.seed ? PRIORITY.seed : PRIORITY.person)
+      .then(() => true)
+      .catch((e: unknown) => {
+        log(`build ${buildId} not queued again: ${(e as Error).message}`);
+        return false;
+      });
+    if (!queued) await fail(outcome.reason, outcome.detail);
+    return;
+  }
   if (!outcome.ok) {
     await fail(outcome.reason, outcome.detail);
     return;
@@ -80,7 +95,7 @@ export async function runJob(buildId: string, ctx: JobContext): Promise<void> {
       reportKey: prefix,
       reportAt: now(),
       reportBytes: bytes,
-      reportLines: outcome.lines,
+      reportLines: true,
       ...(stats
         ? {
             busFactor: stats.bus_factor,
@@ -102,7 +117,7 @@ export async function runJob(buildId: string, ctx: JobContext): Promise<void> {
   const people = await storePeople(ctx, repo.id, repo.owner, repo.name, prefix, outcome.report, token);
   await db
     .update(builds)
-    .set({ state: "done", step: null, finishedAt: now(), seconds: Math.round(outcome.seconds), partial: outcome.partial })
+    .set({ state: "done", step: null, finishedAt: now(), seconds: Math.round(outcome.seconds), partial: false })
     .where(eq(builds.id, buildId));
   if (repo.reportKey && repo.reportKey !== prefix) await storage.deletePrefix(`${repo.reportKey}/`);
   await ctx.queuePulls?.(repo.id).catch((e: unknown) => log(`pulls for ${repo.id} not queued: ${(e as Error).message}`));

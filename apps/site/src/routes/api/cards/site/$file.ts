@@ -11,7 +11,7 @@ export const Route = createFileRoute("/api/cards/site/$file")({
     handlers: {
       GET: async ({ params }) => {
         if (params.file !== "preview.png") return says(404, "No such Card.");
-        kept ??= new Resvg(await renderSite("light", new URL(env.BETTER_AUTH_URL).host)).render().asPng();
+        kept ??= new Resvg(await renderSite("dark", new URL(env.BETTER_AUTH_URL).host)).render().asPng();
         return new Response(kept as BodyInit, { headers: { "content-type": "image/png", "cache-control": "public, max-age=86400" } });
       },
     },

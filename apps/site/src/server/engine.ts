@@ -11,6 +11,14 @@ const { repoPeople, repositories, surviving } = schema;
 export const COUNT_LIMIT = { action: "surviving", max: 60, seconds: 3600 };
 export const LOST_AFTER = 30 * 60;
 const ASKED_AT_ONCE = 12;
+const ASKED_AGAIN = ["queued", "failed", "over_budget"];
+
+/** Whether a person's Surviving Lines in a repository should be asked for: never asked, lost or unfinished half an hour on, or left uncounted by a Report read without lines once the repository has been read with them. */
+export function wantsCount(count: { status: string; askedAt: number } | undefined, reportLines: boolean | null, at = now()): boolean {
+  if (!count) return true;
+  if (count.status === "not_counted") return reportLines !== false;
+  return ASKED_AGAIN.includes(count.status) && count.askedAt < at - LOST_AFTER;
+}
 
 /** Asks the Builder to count some people's Surviving Lines in one repository, within the address's limit; false when it could not ask. */
 export async function askCounts(deps: Deps, address: string, repoId: string, reportKey: string, personIds: number[]): Promise<boolean> {
@@ -56,14 +64,10 @@ export async function engineOf(deps: Deps, viewer: Viewer & { login: () => Promi
       ),
     );
   const countOf = (v: (typeof visible)[number]) => counts.find((c) => c.repoId === v.repo.id && c.reportKey === v.person.reportKey && c.personId === v.person.personId);
-  const wanted = visible.filter((v) => {
-    const c = countOf(v);
-    return !c || ((c.status === "queued" || c.status === "failed") && c.askedAt < now() - LOST_AFTER);
-  });
+  const wanted = visible.filter((v) => wantsCount(countOf(v), v.repo.reportLines));
   const asked = new Set<string>();
   for (const v of wanted.slice(0, ASKED_AT_ONCE)) if (await askCounts(deps, viewer.address, v.repo.id, v.person.reportKey, [v.person.personId])) asked.add(v.repo.id);
-  const repos: EngineRepo[] = visible
-    .map((v) => {
+  const repos: EngineRepo[] = visible.map((v) => {
       const c = countOf(v);
       const status: EngineRepo["surviving"]["status"] = asked.has(v.repo.id) || c?.status === "queued" ? "counting" : c ? (c.status as EngineRepo["surviving"]["status"]) : "counting";
       return {
@@ -78,8 +82,36 @@ export async function engineOf(deps: Deps, viewer: Viewer & { login: () => Promi
         last: v.person.last,
         surviving: { status, lines: status === "counted" ? (c?.lines ?? null) : null, added: status === "counted" ? (c?.added ?? null) : null },
       };
-    })
-    .sort((a, b) => (b.surviving.lines ?? -1) - (a.surviving.lines ?? -1) || b.commits - a.commits);
+    });
+  const groups = new Map<string, EngineRepo[]>();
+  for (const r of repos) groups.set(`${r.owner}/${r.name}`.toLowerCase(), [...(groups.get(`${r.owner}/${r.name}`.toLowerCase()) ?? []), r]);
+  const merged = [...groups.values()].map(mergeRepo).sort((a, b) => (b.surviving.lines ?? -1) - (a.surviving.lines ?? -1) || b.commits - a.commits);
+  return totalsOf(merged);
+}
+
+const STATUS_ORDER: EngineRepo["surviving"]["status"][] = ["counting", "stale", "over_budget", "failed", "not_counted", "counted"];
+
+/** One repository's row from the rows of every identity the person has in it: their numbers added up, counted only when every identity is. */
+export function mergeRepo(rows: EngineRepo[]): EngineRepo {
+  const [first, ...rest] = rows;
+  if (!first || rest.length === 0) return first as EngineRepo;
+  const sum = (f: (r: EngineRepo) => number | null) => (rows.every((r) => f(r) !== null) ? rows.reduce((n, r) => n + (f(r) ?? 0), 0) : null);
+  const status = STATUS_ORDER.find((s) => rows.some((r) => r.surviving.status === s)) ?? "counting";
+  const min = (f: (r: EngineRepo) => number | null) => rows.reduce<number | null>((m, r) => (f(r) === null ? m : m === null ? f(r) : Math.min(m, f(r) ?? m)), null);
+  const max = (f: (r: EngineRepo) => number | null) => rows.reduce<number | null>((m, r) => (f(r) === null ? m : m === null ? f(r) : Math.max(m, f(r) ?? m)), null);
+  return {
+    ...first,
+    builtAt: Math.max(...rows.map((r) => r.builtAt)),
+    commits: rows.reduce((n, r) => n + r.commits, 0),
+    linesAdded: sum((r) => r.linesAdded),
+    linesRemoved: sum((r) => r.linesRemoved),
+    first: min((r) => r.first),
+    last: max((r) => r.last),
+    surviving: status === "counted" ? { status, lines: sum((r) => r.surviving.lines), added: sum((r) => r.surviving.added) } : { status, lines: null, added: null },
+  };
+}
+
+function totalsOf(repos: EngineRepo[]): EngineView {
   const counted = repos.filter((r) => r.surviving.status === "counted" && r.surviving.lines !== null);
   return {
     repos,

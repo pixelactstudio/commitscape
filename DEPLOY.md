@@ -107,11 +107,10 @@ Optional limits, with their defaults:
 | Variable | Default | What |
 |---|---|---|
 | `CONCURRENCY` | 1 | Builds at a time |
-| `FULL_CLONE_UP_TO_MB` | 100 | Larger repositories are cloned without old file contents, and their lines are not counted |
-| `MAX_REPOSITORY_MB` | 3000 | Larger repositories are refused |
-| `TIME_LIMIT_SECONDS` | 900 | A Build stops after this long |
+| `MAX_REPOSITORY_MB` | none | Unset, every repository is cloned in full and its lines counted, however big; set, larger repositories are refused |
+| `TIME_LIMIT_SECONDS` | 900 | How long a Build's first attempt may take. One that runs out is queued again and goes on from the lines it counted, each attempt given twice the time, four attempts in all |
 | `DISK_BUDGET_GB` | 20 | Past this, the least recently built clones in `/work` are deleted |
-| `SURVIVING_BUDGET_SECONDS` | 60 | How long one count of a person's Surviving Lines may take before it says "not counted" |
+| `SURVIVING_BUDGET_SECONDS` | 60 | How long one count of a person's Surviving Lines may take at first. A count past it is queued again with twice the budget, up to four hours, and goes on from the files it counted; cloning and loading the repository have `TIME_LIMIT_SECONDS` of their own |
 | `PULLS_TIME_LIMIT_SECONDS` | 1800 | How long one read of a repository's pull requests may take; facebook/react's first read took 24 minutes, so a busy repository's first read may need longer, once |
 | `SEED_LANGUAGES`, `SEED_PER_LANGUAGE`, `SEED_BUDGET` | 9 languages, 10, 50 | The nightly Leaderboard Builds |
 

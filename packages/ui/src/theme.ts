@@ -3,10 +3,39 @@ import { dataTokenDefaults, defineTheme, generateThemeCSS, type DefinedTheme } f
 import { neutralTheme } from "@astryxdesign/theme-neutral";
 import type { Mode } from "./mode";
 
+const INK = "light-dark(#0c0d0f, #f4f4f5)";
+const PAPER = "light-dark(#ffffff, #0c0d0f)";
+
 const defined = defineTheme({
   name: "commitscape",
   extends: neutralTheme,
-  color: { accent: ["#2a78d6", "#3987e5"], neutralStyle: "warm" },
+  color: { accent: ["#0f7a37", "#3ccf74"], neutralStyle: "neutral" },
+  typography: {
+    scale: { base: 15, ratio: 1.25 },
+    body: { family: "Inter Variable", fallbacks: "Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif" },
+    heading: { family: "Inter Variable", fallbacks: "Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif" },
+    code: { family: "ui-monospace", fallbacks: "'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace" },
+  },
+  radius: { base: 4, multiplier: 1.25 },
+  tokens: {
+    "--color-background-body": ["#f6f6f4", "#08090b"],
+    "--color-background-surface": ["#ffffff", "#101114"],
+    "--color-background-card": ["#ffffff", "#101114"],
+    "--color-background-popover": ["#ffffff", "#16181c"],
+    "--color-background-muted": ["#0c0d0f0a", "#ffffff0d"],
+    "--color-border": ["#0c0d0f14", "#ffffff14"],
+    "--color-border-emphasized": ["#0c0d0f29", "#ffffff2b"],
+    "--color-text-primary": ["#0c0d0f", "#f4f4f5"],
+    "--color-text-secondary": ["#5d6068", "#9b9ea6"],
+    "--color-text-disabled": ["#868990", "#7d8088"],
+    "--color-skeleton": ["#0c0d0f12", "#ffffff12"],
+    "--color-track": ["#0c0d0f14", "#ffffff17"],
+  },
+  components: {
+    button: {
+      "variant:primary": { backgroundColor: INK, color: PAPER },
+    },
+  },
 });
 
 /** The theme as written into the page by the server, so Astryx never injects it after hydration. */
@@ -36,6 +65,6 @@ export function personColour(colour: number | null | undefined): string {
   return colour === null || colour === undefined ? "var(--other)" : `var(--s${colour + 1})`;
 }
 
-export function ramp(hue: "blue" | "orange", step: number): string {
+export function ramp(hue: "blue" | "orange" | "green", step: number): string {
   return `var(--${hue}-${Math.max(1, Math.min(4, step))})`;
 }

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { now, schema } from "@commitscape/server";
+import { now, schema, type SurvivalJob } from "@commitscape/server";
 import { fakeGitHub, testDeps, viewer } from "#/test/deps";
 import { engineOf } from "./engine";
 import { mcpServer } from "./mcp";
@@ -71,6 +71,20 @@ describe("Standings", () => {
     vi.stubGlobal("fetch", fakeGitHub({ "/repos/acme/secret": { id: 999, full_name: "acme/secret", private: true } }).fetcher);
     await deps.db.delete(schema.access);
     await expect(standingsOf(deps, signedIn("bob", "s-bob", "u-bob"), "acme", "secret")).rejects.toThrow("No Standings here");
+  });
+
+  test("a count over budget is asked again half an hour on", async () => {
+    const deps = await seeded();
+    const counted: SurvivalJob[] = [];
+    deps.queue = async () => ({ send: async () => {}, count: async (job) => void counted.push(job) });
+    await deps.db.update(surviving).set({ status: "over_budget", lines: null, askedAt: now() - 60 });
+    const fresh = await standingsOf(deps, anyone, "acme", "rocket");
+    expect(fresh.people.find((r) => r.key === "alice")?.survivingStatus).toBe("over_budget");
+    expect(counted.flatMap((j) => j.personIds)).toEqual([2]);
+    await deps.db.update(surviving).set({ askedAt: now() - 3600 });
+    const again = await standingsOf(deps, anyone, "acme", "rocket");
+    expect(again.people.find((r) => r.key === "alice")?.survivingStatus).toBe("counting");
+    expect(counted.at(-1)?.personIds.sort()).toEqual([0, 1, 2]);
   });
 
   test("a repository not read yet has no Standings", async () => {

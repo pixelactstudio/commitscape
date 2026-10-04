@@ -1,7 +1,8 @@
 import { describe, expect, test } from "vitest";
 import { now, schema, type SurvivalJob } from "@commitscape/server";
 import { testDeps, viewer } from "#/test/deps";
-import { engineOf } from "./engine";
+import type { EngineRepo } from "@commitscape/data";
+import { engineOf, LOST_AFTER, mergeRepo, wantsCount } from "./engine";
 
 const { repoPeople, repositories, surviving } = schema;
 
@@ -56,5 +57,57 @@ describe("the engine's numbers on a Profile", () => {
     await deps.db.insert(surviving).values({ repoId: "acme/rocket", reportKey: "r/rocket/b1", personId: 3, status: "queued", askedAt: now() - 3600 });
     await engineOf(deps, anyone, "alice");
     expect(counted).toHaveLength(1);
+  });
+
+  test("a count over budget is asked again half an hour on, and goes on from the files it counted", async () => {
+    const { deps, counted } = await seeded();
+    await deps.db.insert(surviving).values({ repoId: "acme/rocket", reportKey: "r/rocket/b1", personId: 3, status: "over_budget", askedAt: now() - 60, countedAt: now() });
+    expect((await engineOf(deps, anyone, "alice")).repos[0]?.surviving.status).toBe("over_budget");
+    expect(counted).toHaveLength(0);
+    await deps.db.update(surviving).set({ askedAt: now() - LOST_AFTER - 60 });
+    expect((await engineOf(deps, anyone, "alice")).repos[0]?.surviving.status).toBe("counting");
+    expect(counted).toEqual([{ repoId: "acme/rocket", reportKey: "r/rocket/b1", personIds: [3] }]);
+  });
+
+  test("a count left uncounted by a Report read without lines is asked again once the repository is read with them", async () => {
+    const { deps, counted } = await seeded();
+    await deps.db.update(repositories).set({ reportLines: false });
+    await deps.db.insert(surviving).values({ repoId: "acme/rocket", reportKey: "r/rocket/b1", personId: 3, status: "not_counted", askedAt: now(), countedAt: now() });
+    await engineOf(deps, anyone, "alice");
+    expect(counted).toHaveLength(0);
+    await deps.db.update(repositories).set({ reportLines: true });
+    await engineOf(deps, anyone, "alice");
+    expect(counted).toHaveLength(1);
+  });
+
+  test("which counts are asked for", () => {
+    const at = 10_000;
+    expect(wantsCount(undefined, true, at)).toBe(true);
+    expect(wantsCount({ status: "counted", askedAt: 0 }, true, at)).toBe(false);
+    expect(wantsCount({ status: "stale", askedAt: 0 }, true, at)).toBe(false);
+    for (const status of ["queued", "failed", "over_budget"]) {
+      expect(wantsCount({ status, askedAt: at - 60 }, true, at)).toBe(false);
+      expect(wantsCount({ status, askedAt: at - LOST_AFTER - 1 }, true, at)).toBe(true);
+    }
+    expect(wantsCount({ status: "not_counted", askedAt: at }, false, at)).toBe(false);
+    expect(wantsCount({ status: "not_counted", askedAt: at }, true, at)).toBe(true);
+    expect(wantsCount({ status: "not_counted", askedAt: at }, null, at)).toBe(true);
+  });
+});
+
+describe("mergeRepo", () => {
+  const row = (over: Partial<EngineRepo>): EngineRepo => ({ owner: "acme", name: "rocket", private: false, builtAt: 1, commits: 0, linesAdded: 0, linesRemoved: 0, first: null, last: null, surviving: { status: "counted", lines: 0, added: 0 }, ...over });
+
+  test("adds up one person's identities in a repository", () => {
+    const merged = mergeRepo([
+      row({ commits: 10, linesAdded: 100, linesRemoved: 5, first: 50, last: 90, surviving: { status: "counted", lines: 40, added: 100 } }),
+      row({ commits: 3, linesAdded: 20, linesRemoved: 1, first: 20, last: 60, surviving: { status: "counted", lines: 7, added: 20 } }),
+    ]);
+    expect(merged).toMatchObject({ commits: 13, linesAdded: 120, linesRemoved: 6, first: 20, last: 90, surviving: { status: "counted", lines: 47, added: 120 } });
+  });
+
+  test("is counting while any identity is", () => {
+    const merged = mergeRepo([row({ surviving: { status: "counted", lines: 4, added: 9 } }), row({ surviving: { status: "counting", lines: null, added: null } })]);
+    expect(merged.surviving).toEqual({ status: "counting", lines: null, added: null });
   });
 });

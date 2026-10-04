@@ -23,6 +23,7 @@ import { Route as RacesIndexRouteImport } from './routes/races.index'
 import { Route as RacesIdRouteImport } from './routes/races.$id'
 import { Route as SIdRouteImport } from './routes/s.$id'
 import { Route as ULoginRouteImport } from './routes/u.$login'
+import { Route as VsIndexRouteImport } from './routes/vs.index'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiGithubWebhooksRouteImport } from './routes/api/github/webhooks'
 import { Route as ApiSharesIndexRouteImport } from './routes/api/shares/index'
@@ -114,6 +115,11 @@ const SIdRoute = SIdRouteImport.update({
 const ULoginRoute = ULoginRouteImport.update({
   id: '/u/$login',
   path: '/u/$login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const VsIndexRoute = VsIndexRouteImport.update({
+  id: '/vs/',
+  path: '/vs/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
@@ -245,6 +251,7 @@ export interface FileRoutesByFullPath {
   '/u/$login': typeof ULoginRoute
   '/crews/': typeof CrewsIndexRoute
   '/races/': typeof RacesIndexRoute
+  '/vs/': typeof VsIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/github/webhooks': typeof ApiGithubWebhooksRoute
   '/api/shares/$id': typeof ApiSharesIdRoute
@@ -283,6 +290,7 @@ export interface FileRoutesByTo {
   '/u/$login': typeof ULoginRoute
   '/crews': typeof CrewsIndexRoute
   '/races': typeof RacesIndexRoute
+  '/vs': typeof VsIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/github/webhooks': typeof ApiGithubWebhooksRoute
   '/api/shares/$id': typeof ApiSharesIdRoute
@@ -322,6 +330,7 @@ export interface FileRoutesById {
   '/u/$login': typeof ULoginRoute
   '/crews/': typeof CrewsIndexRoute
   '/races/': typeof RacesIndexRoute
+  '/vs/': typeof VsIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/github/webhooks': typeof ApiGithubWebhooksRoute
   '/api/shares/$id': typeof ApiSharesIdRoute
@@ -362,6 +371,7 @@ export interface FileRouteTypes {
     | '/u/$login'
     | '/crews/'
     | '/races/'
+    | '/vs/'
     | '/api/auth/$'
     | '/api/github/webhooks'
     | '/api/shares/$id'
@@ -400,6 +410,7 @@ export interface FileRouteTypes {
     | '/u/$login'
     | '/crews'
     | '/races'
+    | '/vs'
     | '/api/auth/$'
     | '/api/github/webhooks'
     | '/api/shares/$id'
@@ -438,6 +449,7 @@ export interface FileRouteTypes {
     | '/u/$login'
     | '/crews/'
     | '/races/'
+    | '/vs/'
     | '/api/auth/$'
     | '/api/github/webhooks'
     | '/api/shares/$id'
@@ -477,6 +489,7 @@ export interface RootRouteChildren {
   ULoginRoute: typeof ULoginRoute
   CrewsIndexRoute: typeof CrewsIndexRoute
   RacesIndexRoute: typeof RacesIndexRoute
+  VsIndexRoute: typeof VsIndexRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiGithubWebhooksRoute: typeof ApiGithubWebhooksRoute
   ApiSharesIdRoute: typeof ApiSharesIdRoute
@@ -599,6 +612,13 @@ declare module '@tanstack/react-router' {
       path: '/u/$login'
       fullPath: '/u/$login'
       preLoaderRoute: typeof ULoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/vs/': {
+      id: '/vs/'
+      path: '/vs'
+      fullPath: '/vs/'
+      preLoaderRoute: typeof VsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/auth/$': {
@@ -773,6 +793,7 @@ const rootRouteChildren: RootRouteChildren = {
   ULoginRoute: ULoginRoute,
   CrewsIndexRoute: CrewsIndexRoute,
   RacesIndexRoute: RacesIndexRoute,
+  VsIndexRoute: VsIndexRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiGithubWebhooksRoute: ApiGithubWebhooksRoute,
   ApiSharesIdRoute: ApiSharesIdRoute,

@@ -4,6 +4,7 @@ import { INTER } from "./fonts";
 import { PendingCard, SiteCard } from "./Cards";
 import type { CardSpec } from "./kinds";
 import { animate, animatedPaint, still } from "./paint";
+import type { CardStyle } from "./style";
 import type { CardTheme } from "./tokens";
 
 function bytes(dataUrl: string): ArrayBuffer {
@@ -26,10 +27,10 @@ function loaded() {
 }
 
 /** Draws a Card as SVG twice from one render: animated for READMEs, and still, ready to become a PNG. */
-export async function renderCard<T>(spec: CardSpec<T>, data: T, theme: CardTheme, options: { images: CardImages; site: string }): Promise<{ animated: string; still: string; width: number; height: number }> {
+export async function renderCard<T>(spec: CardSpec<T>, data: T, theme: CardTheme, options: { images: CardImages; site: string; style?: CardStyle }): Promise<{ animated: string; still: string; width: number; height: number }> {
   const { width, height } = spec.size(data);
   const paint = animatedPaint();
-  const svg = await satori(<spec.Card data={data} theme={theme} paint={paint} images={options.images} site={options.site} />, { width, height, fonts: loaded() });
+  const svg = await satori(<spec.Card data={data} theme={theme} paint={paint} images={options.images} site={options.site} style={options.style} />, { width, height, fonts: loaded() });
   return { animated: animate(svg, paint.marks), still: still(svg, paint.marks), width, height };
 }
 

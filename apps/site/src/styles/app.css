@@ -1,5 +1,19 @@
+@import "@fontsource-variable/inter";
 @import "tailwindcss/theme.css" layer(theme);
+@import "@astryxdesign/core/tailwind-theme.css";
 @import "tailwindcss/utilities.css" layer(utilities) source(none);
 
 @source "../";
 @source "../../../../packages/ui/src";
+@source not inline("size-{16,20,24,32,36,40,48,60,64,72,96,128,144,180}");
+@source not inline("{sm,md,lg}:size-{16,20,24,32,36,40,48,60,64,72,96,128,144,180}");
+
+@theme {
+  --color-brand: var(--brand);
+  --color-brand-soft: var(--brand-soft);
+  --color-line: var(--color-border);
+  --color-added: var(--added);
+  --color-removed: var(--removed);
+  --font-sans: var(--font-family-body);
+  --font-mono: var(--font-family-code);
+}

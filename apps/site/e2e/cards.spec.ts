@@ -1,11 +1,12 @@
 import { expect, test } from "@playwright/test";
+import { sql } from "./accounts";
 
 test.beforeAll(async ({ browser }) => {
   const page = await browser.newPage();
   await page.goto("/gh/acme/ownership");
-  await expect(page.locator(".contributors li")).toHaveCount(3, { timeout: 30_000 });
+  await expect.poll(async () => (await sql("SELECT report_at FROM repositories WHERE id = 'acme/ownership'"))[0]?.report_at ?? null, { timeout: 30_000 }).not.toBeNull();
   await page.goto("/u/alice");
-  await expect(page.locator(".tile", { has: page.getByText("lines added, merged", { exact: true }) }).locator("strong")).not.toHaveText("—", { timeout: 30_000 });
+  await expect(page.getByRole("group", { name: "Lines merged", exact: true })).not.toContainText("—", { timeout: 30_000 });
   await page.close();
 });
 
@@ -28,15 +29,27 @@ test("a person's Cards are served as animated SVG and still PNG, light and dark,
   expect((await request.get("/api/cards/site/preview.png")).headers()["content-type"]).toBe("image/png");
 });
 
-test("the gallery shows each Card in both themes with its README Markdown", async ({ page }) => {
+test("the Card studio picks a Card, dresses it, and gives its README Markdown with the style in every address", async ({ page, request }) => {
   await page.goto("/u/alice/cards");
+  await page.waitForLoadState("networkidle");
   await expect(page.getByRole("heading", { level: 1 })).toContainText("Alice Example's Cards");
-  await expect(page.locator(".card-box")).toHaveCount(8);
-  const totals = page.getByRole("region", { name: "Totals" });
-  await expect(totals.locator("img")).toHaveCount(2);
-  await expect(totals.locator(".card-markdown")).toContainText('<source media="(prefers-color-scheme: dark)" srcset="');
-  await expect(totals.locator(".card-markdown")).toContainText("/api/cards/u/alice/totals.svg?theme=dark");
-  await expect(totals.getByRole("link", { name: "Post on LinkedIn" })).toHaveAttribute("href", /linkedin\.com\/sharing\/share-offsite\/\?url=.*%2Fu%2Falice/);
+  await expect(page.getByRole("button", { name: /Totals/ })).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "Grape", exact: true }).click();
+  await page.getByRole("button", { name: "Accent #f97316" }).click();
+  await page.getByRole("button", { name: "Dots", exact: true }).click();
+  await page.getByRole("button", { name: /Calendar/ }).click();
+  await expect(page).toHaveURL(/card=calendar/);
+  await expect(page).toHaveURL(/preset=grape/);
+  await expect(page).toHaveURL(/accent=f97316/);
+  await expect(page).toHaveURL(/bg=dots/);
+  await expect(page.locator("code, pre").filter({ hasText: "prefers-color-scheme: dark" }).first()).toContainText("/api/cards/u/alice/calendar.svg?theme=dark&preset=grape&accent=f97316&bg=dots");
+  await page.getByRole("tab", { name: "Post it" }).click();
+  await expect(page.getByRole("link", { name: "Share on LinkedIn" })).toHaveAttribute("href", /linkedin\.com\/sharing\/share-offsite\/\?url=.*%2Fu%2Falice/);
+  const styled = await request.get("/api/cards/u/alice/totals.svg?preset=grape&accent=f97316&bg=dots");
+  expect(styled.status()).toBe(200);
+  expect(await styled.text()).toContain("#f97316");
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Grape", exact: true })).toHaveAttribute("aria-pressed", "true");
 });
 
 test("every page carries a preview image", async ({ request }) => {

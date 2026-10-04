@@ -49,6 +49,7 @@ const builderEnv = {
   WORK_DIR: work,
   GIT_BASE: `file://${remotes}`,
   TIME_LIMIT_SECONDS: "4",
+  MAX_REPOSITORY_MB: "3000",
   SEED_LANGUAGES: "Shell",
   SEED_PER_LANGUAGE: "5",
   GITHUB_TOKEN: "ghs_builder",
