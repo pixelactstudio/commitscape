@@ -7,7 +7,6 @@ import { ChevronLeft, ChevronRight, House, X } from "lucide-react";
 import { NOT_IN_REPORT, type File as FileData, type MapBlock, type MapLevel } from "@commitscape/data";
 import { useData, useLazyData } from "../data";
 import { TableView } from "../charts/common";
-import { ranges } from "../charts/scale";
 import { useTip } from "../charts/tip";
 import { squarify, type Rect } from "../charts/treemap";
 import { LinesSkeleton } from "../components/Loading";
@@ -277,16 +276,22 @@ function MapLegend({ colour, bounds, owners }: { colour: Colour; bounds: number[
       </ul>
     );
   }
+  const most = bounds.at(-1) ?? 0;
   return (
-    <ul className={list}>
-      <li className="font-medium text-primary">Commits in the Window</li>
-      <Swatch fill="var(--empty)">none</Swatch>
-      {ranges(bounds).map((r) => (
-        <Swatch key={r.step} fill={ramp("blue", r.step)}>
-          {r.from === r.to ? grouped(r.to) : `${grouped(r.from)}–${grouped(r.to)}`}
-        </Swatch>
-      ))}
-    </ul>
+    <div className="flex min-h-5 flex-wrap items-center gap-x-4 gap-y-1 text-xs text-secondary">
+      <span className="font-medium text-primary">How often it changes</span>
+      <span className="flex items-center gap-1.5" aria-label={`From no commits to ${grouped(most)} commits in the Window, on a log scale`}>
+        <span className="inline-block size-3 rounded-[3px] border border-line" style={{ background: "var(--empty)" }} aria-hidden />
+        <span>none</span>
+        <span className="ms-2 tnum">1</span>
+        <span aria-hidden className="flex h-3 w-28 overflow-hidden rounded-[3px]">
+          {[1, 2, 3, 4].map((step) => (
+            <span key={step} className="block h-full flex-1" style={{ background: ramp("blue", step) }} />
+          ))}
+        </span>
+        <span className="tnum">{many(most, "commit", "commits")}</span>
+      </span>
+    </div>
   );
 }
 

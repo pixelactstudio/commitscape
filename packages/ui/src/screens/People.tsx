@@ -289,15 +289,7 @@ function Profile({ params, go, id }: ScreenProps & { id: number }) {
         {standing && <Button label="Their Standing here" variant="secondary" icon={<Icon icon={Trophy} size="sm" />} href={standing} />}
       </header>
       {r ? (
-        <NumberStrip columns={7}>
-          <NumberCell id="commits" value={grouped(r.commits)} label="commits" />
-          <NumberCell id="days" value={grouped(r.active_days)} label="active days" />
-          <NumberCell id="streak" value={p.longest_streak === null ? "—" : many(p.longest_streak, "day", "days")} label="longest streak" />
-          <NumberCell id="added" value={known(r.lines_added, compact)} label="lines added" />
-          <NumberCell id="removed" value={known(r.lines_removed, compact)} label="lines removed" />
-          <NumberCell id="prs" value={known(r.prs_merged)} label="PRs merged" />
-          <NumberCell id="reviews" value={known(r.reviews)} label="reviews given" />
-        </NumberStrip>
+        <PersonNumbers r={r} streak={p.longest_streak} />
       ) : (
         <Quiet>No commits in this Window. Choose a longer one above.</Quiet>
       )}
@@ -308,10 +300,12 @@ function Profile({ params, go, id }: ScreenProps & { id: number }) {
       <Panel title="Their days" description={`${many(total, "commit", "commits")} ${span}`}>
         {p.days.length > 120 && p.days.length <= 371 ? <YearGrid firstDay={p.first_day} days={p.days} unit="commits" label="Their commits a day" /> : <TrendOverTime firstDay={p.first_day} days={p.days} unit="commits" height={200} />}
       </Panel>
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Panel title="Their week" description="Commits by weekday and hour, on their own clock">
+      <Panel title="Their week" description="Commits by weekday and hour, on their own clock">
+        <div className="max-w-[54rem]">
           <WeekGrid week={p.week} />
-        </Panel>
+        </div>
+      </Panel>
+      <div className={`grid items-start gap-4 ${p.areas.length > 0 || p.addresses.length > 0 || p.traits.length > 0 || p.mailmap ? "lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]" : ""}`}>
         <Panel title="What they work on" description="The files they changed most">
           {p.work.length === 0 ? (
             <Quiet>No files changed in this Window.</Quiet>
@@ -330,8 +324,7 @@ function Profile({ params, go, id }: ScreenProps & { id: number }) {
             />
           )}
         </Panel>
-      </div>
-      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="flex min-w-0 flex-col gap-4 empty:hidden">
         {p.areas.length > 0 && (
           <Panel title="Their folders" description="Their share of each folder's commits">
             <BarList
@@ -349,15 +342,17 @@ function Profile({ params, go, id }: ScreenProps & { id: number }) {
           </Panel>
         )}
         {(p.addresses.length > 0 || p.traits.length > 0 || p.mailmap) && (
-          <Panel title="Who they are" description="The addresses joined into this person, and why">
-            <ul className="m-0 flex list-none flex-col gap-1.5 p-0 text-sm">
-              {p.addresses.map((a) => (
-                <li key={a.email} className="flex items-center justify-between gap-3">
-                  <Path path={a.email} />
-                  <span className="flex-none text-xs text-secondary tnum">{many(a.commits, "commit", "commits")}</span>
-                </li>
-              ))}
-            </ul>
+          <Panel title="Who they are" description={p.addresses.length > 0 ? "The addresses joined into this person, and why" : "How their commits were joined into one person"}>
+            {p.addresses.length > 0 && (
+              <ul className="m-0 flex list-none flex-col gap-1.5 p-0 text-sm">
+                {p.addresses.map((a) => (
+                  <li key={a.email} className="flex items-center justify-between gap-3">
+                    <Path path={a.email} />
+                    <span className="flex-none text-xs text-secondary tnum">{many(a.commits, "commit", "commits")}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
             {p.traits.map((t) => (
               <p key={t} className="m-0 text-sm text-secondary">
                 {TRAITS[t] ?? t}
@@ -375,7 +370,27 @@ function Profile({ params, go, id }: ScreenProps & { id: number }) {
             <Explain>Addresses are joined only on strong evidence: a .mailmap, the same GitHub account, or the same full name.</Explain>
           </Panel>
         )}
+        </div>
       </div>
     </ScreenFrame>
+  );
+}
+
+function PersonNumbers({ r, streak }: { r: PersonRow; streak: number | null }) {
+  const cells: { id: string; value: string; label: string; note?: string }[] = [
+    { id: "commits", value: grouped(r.commits), label: "commits", note: `${date(r.first)} – ${date(r.last)}` },
+    { id: "days", value: grouped(r.active_days), label: "active days", note: `${share(r.active_days, Math.max(1, Math.round((r.last - r.first) / 86_400) + 1))} of the days in that span` },
+    ...(streak !== null ? [{ id: "streak", value: many(streak, "day", "days"), label: "longest streak", note: "days in a row with a commit" }] : []),
+    ...(r.lines_added !== null ? [{ id: "added", value: compact(r.lines_added), label: "lines added", note: `${compact(r.lines_removed ?? 0)} removed` }] : []),
+    ...(r.prs_merged !== null ? [{ id: "prs", value: grouped(r.prs_merged), label: "PRs merged", note: r.hours_to_merge !== null ? `${hoursWords(r.hours_to_merge)} to merge, typically` : undefined }] : []),
+    ...(r.reviews !== null ? [{ id: "reviews", value: grouped(r.reviews), label: "reviews given" }] : []),
+  ];
+  const columns = Math.min(7, Math.max(4, cells.length)) as 4 | 5 | 6 | 7;
+  return (
+    <NumberStrip columns={columns}>
+      {cells.map((c) => (
+        <NumberCell key={c.id} id={c.id} value={c.value} label={c.label} note={c.note} />
+      ))}
+    </NumberStrip>
   );
 }

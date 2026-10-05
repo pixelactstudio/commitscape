@@ -1,7 +1,9 @@
+import { eq } from "drizzle-orm";
 import { describe, expect, test } from "vitest";
 import { now, schema } from "@commitscape/server";
 import { testDb } from "#/test/deps";
-import { assemble, lookupProfile, PROFILE_FOR, readProfile, searchPrs, type ProfileViewer } from "./profiles";
+import type { Profile } from "@commitscape/data";
+import { assemble, CLOCK_RETRY, localSlot, upgraded, lookupProfile, PROFILE_FOR, readProfile, searchPrs, type ProfileViewer } from "./profiles";
 
 const repo = (nameWithOwner: string, isPrivate = false, language = "Rust") => ({ nameWithOwner, isPrivate, stargazerCount: 10, primaryLanguage: { name: language, color: "#dea584" } });
 const who = (login: string, type = "User") => ({ __typename: type, login, avatarUrl: `https://a/${login}` });
@@ -80,14 +82,16 @@ const prs = [
   pr(5, "CLOSED", "acme/rocket", "2026-06-01T00:00:00Z", null, 9, 9),
 ];
 
-function fakeGitHub(answers: { owner?: unknown } = {}) {
+const commitTimes = { items: [{ commit: { author: { date: "2026-09-01T23:30:00+05:30" } } }, { commit: { author: { date: "2026-09-02T23:10:00-07:00" } } }, { commit: { author: { date: "2026-09-03T09:00:00Z" } } }, { commit: { author: null } }] };
+
+function fakeGitHub(answers: { owner?: unknown; clock?: () => Response | Promise<Response> } = {}) {
   const asked: string[] = [];
   const tokens: (string | null)[] = [];
   const fetcher = (async (url: string, init: RequestInit) => {
     if (url.includes("/search/commits")) {
       asked.push("clock");
       tokens.push(new Headers(init.headers).get("authorization"));
-      return Response.json({ items: [{ commit: { author: { date: "2026-09-01T23:30:00+05:30" } } }, { commit: { author: { date: "2026-09-02T23:10:00-07:00" } } }, { commit: { author: { date: "2026-09-03T09:00:00Z" } } }, { commit: { author: null } }] });
+      return answers.clock ? answers.clock() : Response.json(commitTimes);
     }
     const body = JSON.parse(String(init.body)) as { query: string; variables: { after?: string | null; q?: string } };
     tokens.push(new Headers(init.headers).get("authorization"));
@@ -142,12 +146,16 @@ describe("a Profile from GitHub", () => {
       ["carol", 1, 1],
     ]);
     expect(p.years.find((y) => y.year === 2026)?.languages.map((l) => l.name)).toEqual(["Rust", "Go"]);
-    expect(p.months.find((m) => m.month === "2026-09")).toEqual({ month: "2026-09", contributions: 0, prsMerged: 1 });
+    expect(p.months.find((m) => m.month === "2026-09")).toEqual({ month: "2026-09", contributions: 0, prsMerged: 1, prs: { merged: 1, open: 0, closed: 0 } });
     expect([...gh.asked].sort()).toEqual(["clock", "owner", "prs:2025:first", "prs:2026:c1", "prs:2026:first", "reviewers", "years:y2026,y2025"]);
-    expect(p.read).toEqual({ prs: 5, prsTotal: 5, requests: 5, complete: true });
+    expect(p.read).toMatchObject({ prs: 5, prsTotal: 5, requests: 5, complete: true });
     expect(p.clock?.sampled).toBe(3);
     expect(p.clock?.hours[23]).toBe(2);
     expect(p.clock?.hours[9]).toBe(1);
+    expect(p.clock?.week?.[1]?.[23]).toBe(1);
+    expect(p.clock?.week?.[2]?.[23]).toBe(1);
+    expect(p.clock?.week?.[3]?.[9]).toBe(1);
+    expect(p.clock?.week?.flat().reduce((a, b) => a + b, 0)).toBe(3);
     expect(gh.tokens.every((t) => t === "Bearer site")).toBe(true);
   });
 
@@ -190,6 +198,91 @@ describe("a Profile from GitHub", () => {
     const gh = fakeGitHub();
     await expect(readProfile({ db: await testDb(), github: { api: "http://github.test", fetcher: gh.fetcher } }, anonymous, "alice")).rejects.toThrow("Sign in with GitHub");
   });
+});
+
+describe("when they commit", () => {
+  const stored = async (db: Awaited<ReturnType<typeof testDb>>) => {
+    const [row] = await db.select().from(schema.profiles).where(eq(schema.profiles.login, "alice"));
+    return JSON.parse(row?.data ?? "null") as Profile;
+  };
+  const age = async (db: Awaited<ReturnType<typeof testDb>>, seconds: number) => {
+    const p = await stored(db);
+    await db.update(schema.profiles).set({ data: JSON.stringify({ ...p, read: { ...p.read, clockAt: (p.read.clockAt ?? 0) - seconds } }) });
+  };
+
+  test("each commit's weekday and hour come from its own clock", () => {
+    expect(localSlot("2026-10-04T23:59:00-07:00")).toEqual({ weekday: 6, hour: 23 });
+    expect(localSlot("2026-10-05T00:10:00+05:30")).toEqual({ weekday: 0, hour: 0 });
+    expect(localSlot("not a date")).toBeNull();
+  });
+
+  for (const [why, clock] of [
+    ["a rate limit", () => new Response("{}", { status: 403 })],
+    ["a refused search", () => new Response("{}", { status: 422 })],
+    ["a network failure", () => Promise.reject(new Error("offline"))],
+    ["an answer that is not JSON", () => new Response("<html>", { status: 200 })],
+  ] as const)
+    test(`${why} is kept as unknown, not as no commits, and asked again on a later read`, async () => {
+      let failing = true;
+      const gh = fakeGitHub({ clock: () => (failing ? clock() : Response.json(commitTimes)) });
+      const db = await testDb();
+      const deps = { db, github: { api: "http://github.test", token: "site", fetcher: gh.fetcher } };
+      const first = await readProfile(deps, anonymous, "alice", true);
+      expect(first.clock).toBeNull();
+      expect((await stored(db)).clock).toBeNull();
+      failing = false;
+      const soon = await readProfile(deps, anonymous, "alice", true);
+      expect(soon.clock).toBeNull();
+      expect(gh.asked.filter((a) => a === "clock")).toHaveLength(1);
+      await age(db, CLOCK_RETRY + 1);
+      const later = await readProfile(deps, anonymous, "alice", true);
+      expect(later.clock?.sampled).toBe(3);
+      expect(later.read.requests).toBe(1);
+      expect(gh.asked.filter((a) => a === "clock")).toHaveLength(2);
+      expect((await stored(db)).clock?.sampled).toBe(3);
+      await age(db, CLOCK_RETRY + 1);
+      await readProfile(deps, anonymous, "alice", true);
+      expect(gh.asked.filter((a) => a === "clock")).toHaveLength(2);
+    });
+
+  test("a person with no commits on GitHub is kept as none, and not asked about again", async () => {
+    const gh = fakeGitHub({ clock: () => Response.json({ items: [] }) });
+    const db = await testDb();
+    const deps = { db, github: { api: "http://github.test", token: "site", fetcher: gh.fetcher } };
+    const p = await readProfile(deps, anonymous, "alice", true);
+    expect(p.clock).toMatchObject({ sampled: 0 });
+    await age(db, CLOCK_RETRY + 1);
+    await readProfile(deps, anonymous, "alice", true);
+    expect(gh.asked.filter((a) => a === "clock")).toHaveLength(1);
+  });
+
+  test("a failure that happens again waits another while before the next try", async () => {
+    const gh = fakeGitHub({ clock: () => new Response("{}", { status: 403 }) });
+    const db = await testDb();
+    const deps = { db, github: { api: "http://github.test", token: "site", fetcher: gh.fetcher } };
+    await readProfile(deps, anonymous, "alice", true);
+    await age(db, CLOCK_RETRY + 1);
+    expect((await readProfile(deps, anonymous, "alice", true)).clock).toBeNull();
+    await readProfile(deps, anonymous, "alice", true);
+    expect(gh.asked.filter((a) => a === "clock")).toHaveLength(2);
+  });
+});
+
+test("the pull requests opened each month, by how they ended, and a Profile saved before they were counted is brought up to date", () => {
+  const at = Date.parse("2026-10-04T12:00:00Z") / 1000;
+  const p = assemble(owner as never, years as never, prs as never, [], "public", at, 0);
+  const outcomes = Object.fromEntries(p.months.filter((m) => m.prs).map((m) => [m.month, m.prs]));
+  expect(outcomes).toEqual({
+    "2026-06": { merged: 0, open: 0, closed: 1 },
+    "2026-07": { merged: 1, open: 0, closed: 0 },
+    "2026-08": { merged: 1, open: 0, closed: 0 },
+    "2026-09": { merged: 1, open: 0, closed: 0 },
+    "2026-10": { merged: 0, open: 1, closed: 0 },
+  });
+  const old = { ...p, months: p.months.map((m) => ({ month: m.month, contributions: m.contributions, prsMerged: m.prsMerged })) };
+  expect(upgraded(old).months).toEqual(p.months);
+  const quick = assemble(owner as never, years as never, null, [], "public", at, 0);
+  expect(upgraded(quick)).toBe(quick);
 });
 
 test("a streak still running counts today, or up to yesterday when today has nothing yet", () => {

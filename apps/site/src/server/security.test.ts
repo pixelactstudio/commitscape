@@ -17,8 +17,18 @@ describe("addresses and limits", () => {
     const from = (origin?: string) => sameOrigin(new Request("http://site.internal:3000/", { headers: origin ? { origin } : {} }), "https://commitscape.example");
     expect(from("https://commitscape.example")).toBe(true);
     expect(from()).toBe(true);
-    expect(from("http://site.internal:3000")).toBe(false);
     expect(from("https://elsewhere.example")).toBe(false);
+    expect(from("https://site.internal:3000")).toBe(false);
+    expect(from("null")).toBe(false);
+  });
+
+  test("a page is the Site's at the address the request was sent to, as when it is opened by its IP address", () => {
+    const sent = (url: string, origin: string, host?: string) => sameOrigin(new Request(url, { headers: { origin, ...(host ? { host } : {}) } }), "http://localhost:3100");
+    expect(sent("http://100.120.169.108:3100/_serverFn/x", "http://100.120.169.108:3100")).toBe(true);
+    expect(sent("http://100.120.169.108:3100/_serverFn/x", "http://100.120.169.108:3101")).toBe(false);
+    expect(sent("http://100.120.169.108:3100/_serverFn/x", "http://evil.example")).toBe(false);
+    expect(sent("http://site.internal:3000/_serverFn/x", "http://10.0.0.5:3000", "10.0.0.5:3000")).toBe(true);
+    expect(sent("http://site.internal:3000/_serverFn/x", "http://site.internal:3000", "10.0.0.5:3000")).toBe(false);
   });
 
   test("an IPv6 address counts as its /64; an IPv4 one as itself", () => {

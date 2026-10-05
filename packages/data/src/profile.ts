@@ -41,7 +41,7 @@ export type ProfileYear = {
   top?: { repo: string; commits: number; private: boolean }[];
 };
 
-export type ProfileMonth = { month: string; contributions: number; prsMerged: number };
+export type ProfileMonth = { month: string; contributions: number; prsMerged: number; prs?: { merged: number; open: number; closed: number } };
 
 export type Partner = { login: string; avatar: string; reviewedTheirs: number; reviewedYours: number };
 
@@ -87,8 +87,8 @@ export type Profile = {
   repositories: ProfileRepo[];
   partners: Partner[];
   prs: ProfilePr[];
-  read: { prs: number; prsTotal: number; requests: number; complete: boolean };
-  clock: { hours: number[]; sampled: number } | null;
+  read: { prs: number; prsTotal: number; requests: number; complete: boolean; clockAt?: number };
+  clock: { hours: number[]; sampled: number; week?: number[][] } | null;
 };
 
 export type ProfileLookup =

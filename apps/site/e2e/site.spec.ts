@@ -207,7 +207,7 @@ test("the Leaderboards rank repositories from the night's seed Builds", async ({
     .toMatchObject({ seed: true, answered: 12 });
   await page.goto("/leaderboards?tab=repositories");
   await expect(page.getByRole("heading", { name: "Leaderboards", level: 1 })).toBeVisible();
-  await expect(page.getByText(/from 1 of the most starred repositories/)).toBeVisible();
+  await expect(page.getByText(/The people boards count 1 repository; here it is ranked/)).toBeVisible();
   const answers = page.locator("#answers");
   await expect(answers.getByRole("link", { name: "acme/ownership" })).toHaveAttribute("href", "/gh/acme/ownership");
   await expect(answers.getByText("4 h")).toBeVisible();

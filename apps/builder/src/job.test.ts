@@ -8,11 +8,12 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { expect, test } from "vitest";
-import { memoryStorage, now, readEntry, readIndex, schema, type BuildJob, type Db, type SurvivalJob } from "@commitscape/server";
+import { memoryStorage, now, readEntry, readIndex, schema, settleRepository, type BuildJob, type Db, type Queue, type SurvivalJob } from "@commitscape/server";
 import type { Config } from "./config";
 import { cacheKey, inUse } from "./disk";
 import { runJob, type JobContext } from "./job";
 import { BUILD_ATTEMPTS, type Ran } from "./run";
+import { queueSeeds } from "./seeds";
 
 const { builds, repositories, surviving } = schema;
 const migrations = fileURLToPath(new URL("../../../packages/server/drizzle", import.meta.url));
@@ -63,6 +64,38 @@ test("a Build stores its Report an answer at a time and replaces the one before"
 
   await runJob("b1", ctx);
   expect([...ctx.storage.objects.keys()].filter((k) => k.endsWith("index.json"))).toHaveLength(1);
+});
+
+test("a Build of a repository found renamed while it ran stores its Report and people under the current name", async () => {
+  const db = await database();
+  const ctx = await context(db, {}, { ...report, data: { ...report.data, "/api/people?window=all": { people: [person(1, "dan", 5)] } } });
+  await db.insert(repositories).values({ id: "facebook/react", owner: "facebook", name: "react", githubId: 10, sizeKb: 10 });
+  await db.insert(builds).values({ id: "b9", repoId: "facebook/react", state: "queued", requestedAt: 1 });
+  const run = ctx.run;
+  ctx.run = async (cmd, args, env, t) => {
+    await settleRepository(db, ctx.storage, { githubId: 10, owner: "react", name: "react" });
+    return run(cmd, args, env, t);
+  };
+  await runJob("b9", ctx);
+  const rows = await db.select().from(repositories);
+  expect(rows.map((r) => [r.id, r.reportKey])).toEqual([["react/react", "reports/gh/react/react/b9"]]);
+  expect((await db.select().from(schema.repoPeople)).map((p) => [p.repoId, p.login])).toEqual([["react/react", "dan"]]);
+  expect((await db.select().from(builds)).map((b) => [b.repoId, b.state])).toEqual([["react/react", "done"]]);
+});
+
+test("seeds are kept under the name GitHub's search gives, and a row under an older name moves there", async () => {
+  const db = await database();
+  const storage = memoryStorage();
+  await db.insert(repositories).values({ id: "facebook/react", owner: "facebook", name: "react", githubId: 10, reportKey: "reports/gh/facebook/react/b1", reportAt: now() });
+  const sent: string[] = [];
+  const queue: Queue = { send: async (job) => void sent.push(job.buildId) };
+  await queueSeeds(db, queue, [{ owner: "react", name: "react", language: "JavaScript", stars: 9, sizeKb: 10, githubId: 10 }, { owner: "a", name: "one", language: "Rust", stars: 1, sizeKb: 1 }], 5, storage);
+  const rows = await db.select().from(repositories);
+  expect(rows.map((r) => [r.id, r.seed, r.reportKey]).sort()).toEqual([
+    ["a/one", true, null],
+    ["react/react", true, "reports/gh/facebook/react/b1"],
+  ]);
+  expect((await db.select().from(builds)).map((b) => b.repoId)).toEqual(["a/one"]);
 });
 
 test("a private repository with no installation token fails as private and reads nothing", async () => {

@@ -29,5 +29,10 @@ test("a year, worked out by hand: its days, streak, busiest day, months and merg
   expect(w).toMatchObject({ year: 2026, contributions: 14, commits: 11, prsOpened: 3, prsMerged: 2, reviews: 4, issues: 1, linesAdded: 60, linesRemoved: 6, activeDays: 5, longestStreak: 3, busiest: { day: "2026-01-10", contributions: 7 }, complete: true });
   expect(w.months.slice(0, 2)).toEqual([14, 0]);
   expect(w.calendar.days).toHaveLength(365);
+  expect(w.weekdays).toEqual([0, 1, 0, 2, 3, 8, 0]);
+  expect(w.merges.slice(0, 2)).toEqual([2, 0]);
+  expect(w.opened).toEqual({ merged: 1, closed: 0, open: 0 });
+  expect(w.biggest).toMatchObject({ number: 1, additions: 50 });
+  expect(w.mergedIn).toEqual([{ repo: "acme/rocket", prs: 2, private: false }]);
   expect(w.repositories).toEqual([{ repo: "acme/rocket", commits: 11, private: false }]);
 });

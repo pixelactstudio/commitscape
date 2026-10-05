@@ -1,38 +1,38 @@
 import { useState } from "react";
 import { Button } from "@astryxdesign/core/Button";
 import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
-import type { ISODateString } from "@astryxdesign/core/Calendar";
-import { DateInput } from "@astryxdesign/core/DateInput";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import { Icon } from "@astryxdesign/core/Icon";
-import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
 import { Selector } from "@astryxdesign/core/Selector";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { useMutation, useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, Copy, Download, Link2, Lock, Search, Share2 } from "lucide-react";
-import { groupWork, periodDates, PERIODS, PRODUCT, type Period, type Work } from "@commitscape/data";
-import { Face, many, Page, PageHead, WorkSkeleton, WorkView } from "@commitscape/ui";
+import { ArrowLeft, Copy, Download, Link2, Lock, Share2 } from "lucide-react";
+import { groupWork, inFilter, periodDates, PRODUCT, WORK_KINDS, type Work, type WorkKind } from "@commitscape/data";
+import { Face, many, Page, PageHead, PeriodPicker, RepoPicker, WorkSkeleton, WorkView, type WorkLook } from "@commitscape/ui";
 import { Section } from "#/components/Boundary";
 import { Missing } from "#/components/Missing";
 import { shareMyWork } from "#/functions/work";
 import { profileLookupQuery, workQuery } from "#/lib/queries";
 import { useToast } from "#/lib/toast";
 
-type Search = { from: string; to: string; filter?: string };
-type Iso = ISODateString;
+type Search = { from: string; to: string; filter?: string; group?: "repository"; kind?: WorkKind };
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
-
-const SHORT: Record<Period, string> = { "last-month": "Last month", "this-month": "This month", "last-3-months": "3 months", "this-year": "This year", "last-year": "Last year" };
 
 export const Route = createFileRoute("/u/$login_/work")({
   validateSearch: (s: Record<string, unknown>): Search => {
     const last = periodDates("last-month");
     const from = typeof s.from === "string" && DATE.test(s.from) ? s.from : last.from;
     const to = typeof s.to === "string" && DATE.test(s.to) ? s.to : last.to;
-    return { from, to, ...(typeof s.filter === "string" && s.filter ? { filter: s.filter } : {}) };
+    return {
+      from,
+      to,
+      ...(typeof s.filter === "string" && s.filter ? { filter: s.filter } : {}),
+      ...(s.group === "repository" ? { group: "repository" as const } : {}),
+      ...(WORK_KINDS.some((k) => k.kind === s.kind) ? { kind: s.kind as WorkKind } : {}),
+    };
   },
   loader: async ({ params, context }) => ({ lookup: await context.queryClient.ensureQueryData(profileLookupQuery(params.login)), origin: context.origin ?? "" }),
   head: ({ params }) => ({ meta: [{ title: `@${params.login}'s Proof of Work on ${PRODUCT}` }, { name: "robots", content: "noindex" }] }),
@@ -61,12 +61,12 @@ function ProofOfWork() {
         title={lookup.self ? "Your Proof of Work" : `${name}'s Proof of Work`}
         description={
           lookup.self
-            ? "Every pull request merged and every commit, by month and repository, with links. Your private work shows to you alone, and goes into a shared link only if you choose it."
-            : "Every pull request merged and every commit, by month and repository, with links. Public work only."
+            ? "Every pull request you merged and every commit you made, with links. Your private work shows to you alone, and goes into a shared link only if you choose it."
+            : "Every pull request they merged and every commit they made, with links. Public work only."
         }
         actions={<Actions login={id.login} search={search} self={lookup.self} />}
       />
-      <Filters key={`${search.from}${search.to}${search.filter ?? ""}`} search={search} />
+      <Filters login={id.login} search={search} />
       <Section fallback={<WorkSkeleton />}>
         <Results login={id.login} search={search} />
       </Section>
@@ -169,60 +169,52 @@ function ShareChoices({ login, search }: { login: string; search: Search }) {
   );
 }
 
-function Filters({ search }: { search: Search }) {
+function Filters({ login, search }: { login: string; search: Search }) {
   const navigate = useNavigate({ from: Route.fullPath });
-  const [from, setFrom] = useState(search.from);
-  const [to, setTo] = useState(search.to);
-  const [filter, setFilter] = useState(search.filter ?? "");
-  const preset = PERIODS.find(([p]) => {
-    const d = periodDates(p);
-    return d.from === search.from && d.to === search.to;
-  })?.[0];
-  const pick = (v: string) => {
-    if (v === "custom") return;
-    void navigate({ search: { ...periodDates(v as Period), ...(search.filter ? { filter: search.filter } : {}) } });
-  };
-  const changed = from !== search.from || to !== search.to || filter.trim() !== (search.filter ?? "");
   return (
-    <form
-      className="flex flex-col gap-4 rounded-[var(--radius-container)] border border-line bg-surface p-4 sm:p-5"
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (from > to) return;
-        void navigate({ search: { from, to, ...(filter.trim() ? { filter: filter.trim() } : {}) } });
-      }}
-    >
-      <div className="hidden md:block">
-        <SegmentedControl label="Period" value={preset ?? "custom"} onChange={pick}>
-          {PERIODS.map(([value]) => (
-            <SegmentedControlItem key={value} value={value} label={SHORT[value]} />
-          ))}
-          <SegmentedControlItem value="custom" label="These dates" />
-        </SegmentedControl>
-      </div>
-      <div className="md:hidden">
-        <Selector label="Period" value={preset ?? "custom"} onChange={pick} options={[...PERIODS.map(([value, label]) => ({ value, label })), { value: "custom", label: "These dates" }]} width="100%" />
-      </div>
-      <div className="grid items-end gap-3 sm:grid-cols-2 md:flex md:flex-wrap">
-        <div className="md:w-44">
-          <DateInput label="From" value={from as Iso} max={to as Iso} onChange={(v) => v && setFrom(v)} format="date" width="100%" />
-        </div>
-        <div className="md:w-44">
-          <DateInput label="To" value={to as Iso} min={from as Iso} onChange={(v) => v && setTo(v)} format="date" width="100%" />
-        </div>
-        <div className="sm:col-span-2 md:w-64">
-          <TextInput label="Only in" placeholder="an organisation, or owner/repo" value={filter} onChange={setFilter} startIcon={Search} hasClear width="100%" />
-        </div>
-        <div className="sm:col-span-2 md:col-span-1">
-          <Button label="Show" variant={changed ? "primary" : "secondary"} type="submit" width="100%" />
-        </div>
-      </div>
-    </form>
+    <div className="flex flex-wrap items-center gap-2" role="group" aria-label="What to show">
+      <PeriodPicker from={search.from} to={search.to} onChange={(p) => void navigate({ search: (s) => ({ ...s, ...p, kind: undefined }) })} />
+      <Section
+        fallback={
+          <div className="w-full sm:w-[260px]">
+            <Selector label="Only in" isLabelHidden options={[]} placeholder="Every repository" isDisabled width="100%" />
+          </div>
+        }
+      >
+        <Places login={login} search={search} />
+      </Section>
+    </div>
   );
 }
 
+function Places({ login, search }: { login: string; search: Search }) {
+  const navigate = useNavigate({ from: Route.fullPath });
+  const { data: base } = useSuspenseQuery(workQuery(login, search.from, search.to, null));
+  return <RepoPicker items={base.items} value={search.filter ?? null} onChange={(filter) => void navigate({ search: (s) => ({ ...s, filter: filter ?? undefined, kind: undefined }) })} />;
+}
+
 function Results({ login, search }: { login: string; search: Search }) {
+  const { data: base } = useSuspenseQuery(workQuery(login, search.from, search.to, null));
+  if (search.filter && base.truncated) return <Narrowed login={login} search={search} />;
+  const work: Work = search.filter ? { ...base, filter: search.filter, items: base.items.filter((i) => inFilter(i, search.filter ?? null)) } : base;
+  return <Shown work={work} search={search} />;
+}
+
+function Narrowed({ login, search }: { login: string; search: Search }) {
   const { data: work } = useSuspenseQuery(workQuery(login, search.from, search.to, search.filter ?? null));
+  return <Shown work={work} search={search} />;
+}
+
+function Shown({ work, search }: { work: Work; search: Search }) {
+  const navigate = useNavigate({ from: Route.fullPath });
   const read = new Date(work.at * 1000).toLocaleString("en-GB", { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
-  return <WorkView work={work as Work} footer={`Read from GitHub on ${read} UTC. Pull requests are counted on the day they were merged, commits on the day their author made them.`} />;
+  const look: WorkLook = { group: search.group ?? "month", kind: search.kind ?? null };
+  return (
+    <WorkView
+      work={work}
+      look={look}
+      onLook={(l) => void navigate({ search: (s) => ({ ...s, group: l.group === "repository" ? "repository" : undefined, kind: l.kind ?? undefined }), replace: true, resetScroll: false })}
+      footer={`Read from GitHub on ${read} UTC. Pull requests are counted on the day they were merged, commits on the day their author made them.`}
+    />
+  );
 }

@@ -49,14 +49,14 @@ export function SteadyImage({ src, alt, width, height, className = "", eager = f
 }
 
 /** Picks a Card and dresses it: a preset, an accent, a background, corners; then gives the README Markdown, links and images, all carrying the style. */
-export function CardStudio({ choices, state, onChange, origin }: { choices: CardChoice[]; state: StudioState; onChange: (next: StudioState) => void; origin: string }) {
+export function CardStudio({ choices, state, onChange, origin, pinned = true }: { choices: CardChoice[]; state: StudioState; onChange: (next: StudioState) => void; origin: string; pinned?: boolean }) {
   const choice = choices.find((c) => c.id === state.card) ?? choices[0];
   const query = useSettled(styleQuery(state.style), 220);
   const set = (style: Partial<CardStyle>) => onChange({ ...state, style: { ...state.style, ...style } });
   if (!choice) return null;
   return (
     <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
-      <div className="flex min-w-0 flex-col gap-4">
+      <div className={`flex min-w-0 flex-col gap-4 ${pinned ? "lg:sticky lg:top-20" : ""}`}>
         <div className="studio-stage relative flex min-h-[22rem] items-center justify-center overflow-hidden rounded-[var(--radius-container)] border border-line px-4 py-10 sm:px-10">
           <div className="absolute end-3 top-3 z-10">
             <SegmentedControl label="Preview in" size="sm" value={state.mode} onChange={(m) => onChange({ ...state, mode: m as "light" | "dark" })}>
@@ -70,7 +70,7 @@ export function CardStudio({ choices, state, onChange, origin }: { choices: Card
         </div>
         <Outputs choice={choice} query={query} origin={origin} />
       </div>
-      <div className="flex flex-col gap-4 lg:sticky lg:top-20">
+      <div className="flex flex-col gap-4">
         <Picker choices={choices} value={choice.id} query={query} mode={state.mode} onPick={(card) => onChange({ ...state, card })} />
         <Styler style={state.style} mode={state.mode} set={set} reset={() => onChange({ ...state, style: DEFAULT_STYLE })} />
       </div>
@@ -233,16 +233,16 @@ function Outputs({ choice, query, origin }: { choice: CardChoice; query: string;
     <section className="rounded-[var(--radius-container)] border border-line bg-surface">
       <div className="flex flex-wrap items-center justify-between gap-3 px-4 pt-3">
         <TabList value={tab} onChange={setTab} size="sm" role="tablist">
-          <Tab value="readme" label="README" />
-          <Tab value="links" label="Links" />
-          <Tab value="post" label="Post it" />
+          <Tab value="readme" panelId="studio-output" label="README" />
+          <Tab value="links" panelId="studio-output" label="Links" />
+          <Tab value="post" panelId="studio-output" label="Post it" />
         </TabList>
         <div className="flex gap-1.5 pb-2">
           <Button label="PNG" size="sm" variant="secondary" icon={<Icon icon={Download} size="sm" />} href={cardSrc(choice.url, "png", "light", query)} target="_blank" />
           <Button label="PNG, dark" size="sm" variant="secondary" icon={<Icon icon={Download} size="sm" />} href={cardSrc(choice.url, "png", "dark", query)} target="_blank" />
         </div>
       </div>
-      <div className="border-t border-line p-4">
+      <div id="studio-output" role="tabpanel" className="border-t border-line p-4">
         {tab === "readme" && (
           <div className="flex flex-col gap-2">
             <p className="m-0 text-sm text-secondary">Paste into a README. GitHub shows the dark Card to readers in dark mode, animated, and it refreshes every six hours.</p>

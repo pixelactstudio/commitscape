@@ -5,21 +5,24 @@ import { readEntry, repoId as idOfRepo, schema } from "@commitscape/server";
 import { askCounts, wantsCount } from "./engine";
 import { hiddenAmong } from "./people";
 import { SiteError } from "./http";
-import { canSee, type Deps, type Viewer } from "./repos";
+import { canSee, rowOf, type Deps, type Viewer } from "./repos";
 
-const { pullRequests, pullReviews, repoPeople, repositories, surviving } = schema;
+const { pullRequests, pullReviews, repoPeople, surviving } = schema;
 
 export const COUNTED_FOR = 30;
 const NO_STANDINGS = "No Standings here: commitscape has not read this repository, or it is not one you can see.";
+
+type Counted = NonNullable<StandingRow["survivingStatus"]>;
+const COUNT_ORDER: Counted[] = ["counting", "stale", "over_budget", "failed", "not_counted", "counted"];
 
 export type StandingsViewer = Viewer & { login: () => Promise<string | null> };
 
 /** Everyone's Standings in one repository the Site has built, view by view and never combined; a private one only for people GitHub shows it to, and nobody who chose to hide but the viewer. */
 export async function standingsOf(deps: Deps, viewer: StandingsViewer, owner: string, name: string, focus?: string): Promise<Standings> {
-  const id = idOfRepo(owner, name);
-  if (!id) throw new SiteError(404, NO_STANDINGS);
-  const [repo] = await deps.db.select().from(repositories).where(eq(repositories.id, id));
+  const named = idOfRepo(owner, name);
+  const repo = named ? await rowOf(deps.db, named) : undefined;
   if (!repo?.reportKey) throw new SiteError(404, NO_STANDINGS);
+  const id = repo.id;
   if (repo.isPrivate || repo.status !== "ok") {
     const s = await viewer.session();
     const token = s ? await viewer.token() : null;
@@ -70,6 +73,8 @@ export async function standingsOf(deps: Deps, viewer: StandingsViewer, owner: st
     }
     return r;
   };
+  const statuses = new Map<string, (Counted | null)[]>();
+  const identities = new Map<string, number[]>();
   for (const e of engine) {
     const r = e.login ? byLogin(e.login) : blank(`#${e.personId}`, null, e.name);
     if (!e.login) rows.set(r.key, r);
@@ -81,11 +86,16 @@ export async function standingsOf(deps: Deps, viewer: StandingsViewer, owner: st
     r.linesRemoved = e.linesRemoved === null ? r.linesRemoved : (r.linesRemoved ?? 0) + e.linesRemoved;
     r.first = Math.min(r.first ?? Infinity, e.first ?? Infinity);
     r.last = Math.max(r.last ?? -Infinity, e.last ?? -Infinity);
+    identities.set(r.key, [...(identities.get(r.key) ?? []), e.personId]);
     const c = counts.find((x) => x.personId === e.personId);
-    if (c) {
-      r.survivingStatus = c.status === "queued" ? "counting" : (c.status as StandingRow["survivingStatus"]);
-      if (c.status === "counted") r.surviving = (r.surviving ?? 0) + (c.lines ?? 0);
-    }
+    statuses.set(r.key, [...(statuses.get(r.key) ?? []), c ? (c.status === "queued" ? "counting" : (c.status as Counted)) : null]);
+    if (c?.status === "counted") r.surviving = (r.surviving ?? 0) + (c.lines ?? 0);
+  }
+  for (const [key, all] of statuses) {
+    const r = rows.get(key);
+    if (!r) continue;
+    r.survivingStatus = all.includes(null) ? null : (COUNT_ORDER.find((x) => all.includes(x)) ?? null);
+    if (r.survivingStatus !== "counted") r.surviving = null;
   }
   const pulls = merged.length > 0 || opened.length > 0 || reviewed.length > 0;
   for (const m of opened) if (m.login && !m.login.endsWith("[bot]")) byLogin(m.login).prsOpened = m.n;
@@ -103,9 +113,9 @@ export async function standingsOf(deps: Deps, viewer: StandingsViewer, owner: st
     .filter((r) => r.personId !== null)
     .sort((a, b) => (b.commits ?? 0) - (a.commits ?? 0))
     .slice(0, COUNTED_FOR);
-  const wanted = [...top, ...list.filter((r) => focus && r.login?.toLowerCase() === focus.toLowerCase() && r.personId !== null)].filter((r) => wantsCount(counts.find((x) => x.personId === r.personId), repo.reportLines));
-  const ids = [...new Set(wanted.map((r) => r.personId as number))];
-  if (await askCounts(deps, viewer.address, id, repo.reportKey, ids)) for (const r of list) if (r.personId !== null && ids.includes(r.personId)) r.survivingStatus = "counting";
+  const chosen = [...top, ...list.filter((r) => focus && r.login?.toLowerCase() === focus.toLowerCase() && r.personId !== null)];
+  const ids = [...new Set(chosen.flatMap((r) => identities.get(r.key) ?? []))].filter((p) => wantsCount(counts.find((x) => x.personId === p), repo.reportLines));
+  if (await askCounts(deps, viewer.address, id, repo.reportKey, ids)) for (const r of list) if ((identities.get(r.key) ?? []).some((p) => ids.includes(p))) r.survivingStatus = "counting";
   for (const r of list) if (r.personId !== null && r.survivingStatus === null) r.survivingStatus = "not_asked";
 
   const reportKey = repo.reportKey;

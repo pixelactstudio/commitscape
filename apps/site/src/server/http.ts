@@ -42,8 +42,16 @@ export function clientAddress(request: Request, header: string): string {
     .join(":")}::/64`;
 }
 
-/** Whether a request comes from the Site's own pages, judged by the public address it is served at. */
+/** Whether a request comes from the Site's own pages: its Origin is the public address the Site is served at, or the address the request itself was sent to. */
 export function sameOrigin(request: Request, site: string): boolean {
   const origin = request.headers.get("origin");
-  return origin === null || origin === new URL(site).origin;
+  if (origin === null) return true;
+  if (origin === new URL(site).origin) return true;
+  try {
+    const from = new URL(origin);
+    const to = new URL(request.url);
+    return from.host === (request.headers.get("host") ?? to.host) && from.protocol === to.protocol;
+  } catch {
+    return false;
+  }
 }

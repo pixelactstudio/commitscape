@@ -1,15 +1,22 @@
 import type { Activity as Data } from "@commitscape/data";
 import { useData } from "../data";
-import { WeekGrid } from "../charts/Grid";
+import { Clock } from "lucide-react";
+import { peakOf, WeekGrid } from "../charts/Grid";
+import { useTip } from "../charts/tip";
 import { Lines } from "../charts/Lines";
 import { Explain } from "../explain";
 import { grouped, many, share } from "../format";
 import { Panel } from "../kit/layout";
 import { personColour } from "../theme";
-import { BarList, Failed, Quiet, ScreenFrame, StacksOverTime, type Stack, within } from "./kit";
+import { Failed, Quiet, ScreenFrame, StacksOverTime, type Stack, within } from "./kit";
 import type { ScreenProps } from "./props";
 
 const WEEKDAYS = ["Mondays", "Tuesdays", "Wednesdays", "Thursdays", "Fridays", "Saturdays", "Sundays"];
+
+const TYPED = new Set(["features", "fixes", "refactors", "performance", "style", "build", "chores"]);
+const CONVENTIONAL = 0.3;
+
+const hh = (h: number) => `${String(h % 24).padStart(2, "0")}:00`;
 
 /** How the work moved: commits over time by person, pull requests and issues, the hours of the week, and the kinds of work. */
 export function Activity({ params }: ScreenProps) {
@@ -22,12 +29,13 @@ export function Activity({ params }: ScreenProps) {
   ].filter((s) => s.days.some((v) => v > 0));
   const commits = a.days.reduce((n, d) => n + d.reduce((m, v) => m + v, 0), 0);
   const told = a.kinds.reduce((n, k) => n + k.commits, 0);
-  const kinds = told >= (told + a.unclassified) / 4 && told > 0;
+  const typed = a.kinds.filter((k) => TYPED.has(k.kind)).reduce((n, k) => n + k.commits, 0);
+  const kinds = told > 0 && typed >= (told + a.unclassified) * CONVENTIONAL;
   const releases = a.releases.filter((r) => {
     const d = Math.floor(r.time / 86_400);
     return d >= a.first_day && d < a.first_day + a.days.length;
   });
-  const busiest = busiestHour(a.week);
+  const peak = peakOf(a.week);
   return (
     <ScreenFrame stale={stale}>
       <Panel
@@ -63,28 +71,23 @@ export function Activity({ params }: ScreenProps) {
         </Panel>
       )}
 
-      <div className={`grid gap-4 ${kinds ? "lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]" : ""}`}>
-        <Panel title="When the work happens" description={busiest ? `Busiest on ${busiest}, on each author's own clock` : "Commits by weekday and hour, on each author's own clock"}>
-          <div className="flex flex-wrap items-start gap-x-8 gap-y-4">
-            <div className="max-w-[44rem] min-w-[16rem] flex-1">
+      <div className="flex flex-col gap-4">
+        <Panel
+          title="When the work happens"
+          description={peak ? `Busiest on ${WEEKDAYS[peak.day]} from ${hh(peak.hour)} to ${hh(peak.hour + 1)}: ${many(peak.commits, "commit", "commits")}, ${peak.times.toFixed(peak.times >= 10 ? 0 : 1)}× a typical hour` : "Commits by weekday and hour"}
+          actions={<ClockNote />}
+        >
+          <div className="flex flex-col gap-x-10 gap-y-5 lg:flex-row lg:items-start">
+            <div className="max-w-[54rem] min-w-0 flex-1">
               <WeekGrid week={a.week} />
             </div>
             <Rhythm week={a.week} />
           </div>
-          <Explain>Each commit at the hour its author's clock showed, so a team across time zones still shows its working day.</Explain>
+          <Explain>Each commit at the hour its author's clock showed, so a team across time zones still shows its working day. The bars above are each hour's total across the week, those beside each day's share; the ringed cell is the busiest hour.</Explain>
         </Panel>
         {kinds && (
-          <Panel title="Kinds of work" description={`${share(told, told + a.unclassified)} of commits could be told`}>
-            <BarList
-              label="Kinds of work"
-              items={a.kinds.map((k, i) => ({
-                key: k.kind,
-                label: k.kind,
-                value: k.commits,
-                shown: `${grouped(k.commits)} · ${share(k.commits, told + a.unclassified)}`,
-                colour: `var(--s${(i % 8) + 1})`,
-              }))}
-            />
+          <Panel title="Kinds of work" description={`${share(typed, told + a.unclassified)} of commits say their kind in a conventional prefix (feat:, fix:…)`}>
+            <KindsBar kinds={a.kinds} all={told + a.unclassified} />
             <Explain>
               Judged from the files a commit changed first (only tests, only docs, only CI, only dependency manifests), and from its message when the files cannot tell. {grouped(a.unclassified)} commits could be told by neither.
             </Explain>
@@ -102,19 +105,20 @@ function Rhythm({ week }: { week: number[][] }) {
   if (all === 0) return null;
   const weekend = [5, 6].reduce((n, d) => n + (week[d] ?? []).reduce((a, b) => a + b, 0), 0);
   const night = week.reduce((n, hours) => n + hours.reduce((m, v, h) => (NIGHT.has(h) ? m + v : m), 0), 0);
+  const office = week.slice(0, 5).reduce((n, hours) => n + hours.reduce((m, v, h) => (h >= 9 && h < 18 ? m + v : m), 0), 0);
   const days = week.map((hours) => hours.reduce((a, b) => a + b, 0));
   const top = days.indexOf(Math.max(...days));
   const facts: [string, string][] = [
-    [share(all - weekend, all), "on weekdays"],
+    [share(office, all), "in office hours, 09:00 to 18:00 on weekdays"],
     [share(weekend, all), "on weekends"],
-    [share(night, all), "between 22:00 and 05:00"],
+    [share(night, all), "at night, 22:00 to 05:00"],
     [WEEKDAYS[top] ?? "", "the busiest day"],
   ];
   return (
-    <dl className="m-0 grid w-full grid-cols-2 gap-x-6 gap-y-4 sm:w-auto sm:grid-cols-4 lg:w-44 lg:grid-cols-1">
+    <dl className="m-0 grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4 lg:w-52 lg:flex-none lg:grid-cols-1 lg:border-s lg:border-line lg:ps-6">
       {facts.map(([value, label]) => (
         <div key={label} className="flex flex-col gap-0.5">
-          <dt className="order-2 text-xs text-secondary">{label}</dt>
+          <dt className="order-2 text-xs text-pretty text-secondary">{label}</dt>
           <dd className="order-1 m-0 text-[1.3rem] leading-tight font-semibold tracking-[-0.02em]">{value}</dd>
         </div>
       ))}
@@ -122,9 +126,47 @@ function Rhythm({ week }: { week: number[][] }) {
   );
 }
 
-function busiestHour(week: number[][]): string | null {
-  let best = { n: 0, d: -1, h: -1 };
-  week.forEach((hours, d) => hours.forEach((n, h) => n > best.n && (best = { n, d, h })));
-  if (best.d < 0) return null;
-  return `${WEEKDAYS[best.d]} at ${String(best.h).padStart(2, "0")}:00`;
+function KindsBar({ kinds, all }: { kinds: Data["kinds"]; all: number }) {
+  const tip = useTip();
+  const parts = kinds.map((k, i) => ({ ...k, colour: `var(--s${(i % 8) + 1})` }));
+  const told = kinds.reduce((n, k) => n + k.commits, 0);
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex h-3 gap-0.5 overflow-hidden rounded-full" role="img" aria-label="Commits by kind of work">
+        {parts.map((p) => (
+          <span key={p.kind} className="block h-full min-w-[3px] transition-opacity hover:opacity-80" style={{ width: `${(p.commits * 100) / Math.max(1, told)}%`, background: p.colour }} {...tip(<><strong>{p.kind}</strong><div className="note">{many(p.commits, "commit", "commits")} · {share(p.commits, all)} of all</div></>)} />
+        ))}
+      </div>
+      <ul className="m-0 grid list-none grid-cols-2 gap-x-8 gap-y-2 p-0 sm:grid-cols-3 lg:grid-cols-4" aria-label="Kinds of work">
+        {parts.map((p) => (
+          <li key={p.kind} className="flex min-w-0 items-center gap-2 text-sm">
+            <span aria-hidden className="size-2.5 flex-none rounded-full" style={{ background: p.colour }} />
+            <span className="truncate">{p.kind}</span>
+            <span className="ms-auto text-xs whitespace-nowrap text-secondary tnum">
+              {grouped(p.commits)} · {share(p.commits, all)}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function ClockNote() {
+  const tip = useTip();
+  return (
+    <span
+      tabIndex={0}
+      className="inline-flex h-7 cursor-help items-center gap-1.5 rounded-full border border-line px-2.5 text-xs whitespace-nowrap text-secondary outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
+      {...tip(
+        <>
+          <strong>On each author's own clock</strong>
+          <div className="note">The hour their commit recorded, in their own time zone: not your time, and not UTC. A team spread across the world still shows its working day.</div>
+        </>,
+      )}
+    >
+      <Clock size={13} aria-hidden />
+      Authors' local time
+    </span>
+  );
 }

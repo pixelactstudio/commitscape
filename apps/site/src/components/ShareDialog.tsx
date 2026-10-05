@@ -18,7 +18,7 @@ export function ShareButton({ choices, origin, label = "Share", title = "Share a
       <Button label={label} variant={variant} icon={<Icon icon={Share2} size="sm" />} onClick={() => setOpen(true)} />
       <Dialog isOpen={open} onOpenChange={setOpen} width="min(1180px, 96vw)" maxHeight="92dvh" padding={5}>
         <DialogHeader title={title} onOpenChange={setOpen} />
-        <div className="pt-4">{open && <CardStudio choices={choices} state={state} onChange={setState} origin={origin} />}</div>
+        <div className="pt-4">{open && <CardStudio choices={choices} state={state} onChange={setState} origin={origin} pinned={false} />}</div>
       </Dialog>
     </>
   );

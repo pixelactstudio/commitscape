@@ -51,4 +51,4 @@ export const TOKENS: Record<CardTheme, Tokens> = {
     other: "#6b6a65",
   },
 };
-export const CARD_DESIGN = 4;
+export const CARD_DESIGN = 5;

@@ -12,6 +12,10 @@ test("people on the Leaderboards: this Season by merged pull requests and review
   await expect(merged.getByRole("link").first()).toContainText("bob");
   await expect(merged.getByRole("link").first()).toContainText("2");
   await expect(page.getByRole("region", { name: "Most pull requests reviewed" }).getByRole("link")).toHaveCount(3);
+  await expect(page.getByRole("region", { name: "Repositories counted" }).getByRole("link", { name: /acme\/ownership/ })).toHaveAttribute("href", "/gh/acme/ownership");
+  await page.getByRole("button", { name: "How these boards work" }).click();
+  await expect(page.getByRole("dialog")).toContainText("Why a small number can top a board");
+  await page.keyboard.press("Escape");
   await page.goto("/leaderboards?repo=acme/ownership&window=all");
   await expect(merged.getByRole("link")).toHaveCount(3);
   await expect(merged.getByRole("link", { name: /bob/ })).toHaveAttribute("href", "/u/bob/acme/ownership");

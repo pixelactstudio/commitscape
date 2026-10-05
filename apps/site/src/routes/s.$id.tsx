@@ -6,7 +6,7 @@ import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { KeyRound, Lock, Timer, Trash2 } from "lucide-react";
 import { deleteToken, readReport, reportSource, unlock, type DataSource } from "@commitscape/data";
-import { App, Page, PageHead, ScreenSkeleton, SourceContext, toRoute, toSearch, type Route as Where } from "@commitscape/ui";
+import { App, Page, PageHead, SCREEN_SKELETONS, ScreenBar, SourceContext, toRoute, toSearch, type Route as Where } from "@commitscape/ui";
 import { Chip } from "#/components/Facts";
 import { shareKey } from "#/share-key";
 
@@ -27,9 +27,9 @@ function left(expiresAt: number): string {
 
 const ABOUT = "Locked on the machine that made it, with a key only its link holds: the Site stores what it cannot read.";
 
-function Head({ title, chips, actions }: { title: ReactNode; chips?: ReactNode; actions?: ReactNode }) {
+function Head({ title, chips, actions, attached = false }: { title: ReactNode; chips?: ReactNode; actions?: ReactNode; attached?: boolean }) {
   return (
-    <section className="border-b border-line">
+    <section className={attached ? "" : "border-b border-line"}>
       <Page>
         <PageHead
           eyebrow={
@@ -99,10 +99,12 @@ function SharedReport() {
     else setDeleting(((await answer.json()) as { error?: string }).error ?? "It could not be deleted.");
   };
 
+  const Opening = SCREEN_SKELETONS[where.screen];
   if (state.kind === "open") {
     return (
       <SourceContext value={state.source}>
         <Head
+          attached
           title={state.source.meta.name}
           chips={
             <>
@@ -114,26 +116,22 @@ function SharedReport() {
           }
           actions={<Button label={deleting ?? "Delete"} variant="destructive" icon={<Icon icon={Trash2} size="sm" />} onClick={() => void remove()} isDisabled={deleting === "Deleting…"} tooltip="Take it down now, for everyone with the link" />}
         />
-        <Page className="pb-6">
-          <App route={where} go={go} />
-        </Page>
+        <App route={where} go={go} />
       </SourceContext>
     );
   }
   return (
     <>
-      <Head title={state.kind === "opening" ? <Skeleton height={36} width={260} radius={2} /> : "A Shared Report"} chips={state.kind === "opening" ? <Chip icon={<KeyRound size={13} aria-hidden />}>unlocking it in this browser…</Chip> : undefined} />
-      <Page className="flex flex-col gap-4 pt-6 pb-16">
-        {state.kind === "opening" && (
-          <div aria-busy="true" aria-label="Unlocking">
-            <div className="-mx-4 flex h-[37px] items-center gap-6 border-b border-line px-4 sm:-mx-6 sm:px-6">
-              {[64, 52, 58, 36, 64].map((w, i) => (
-                <Skeleton key={i} height={14} width={w} radius={1} index={i} />
-              ))}
-            </div>
-            <ScreenSkeleton />
-          </div>
-        )}
+      <Head attached={state.kind === "opening"} title={state.kind === "opening" ? <Skeleton height={36} width={260} radius={2} /> : "A Shared Report"} chips={state.kind === "opening" ? <Chip icon={<KeyRound size={13} aria-hidden />}>unlocking it in this browser…</Chip> : undefined} />
+      {state.kind === "opening" && (
+        <div aria-busy="true" aria-label="Unlocking" className="pb-16">
+          <ScreenBar route={where} />
+          <Page>
+            <Opening />
+          </Page>
+        </div>
+      )}
+      <Page className="flex flex-col gap-4 pt-6 pb-16 empty:hidden">
         {state.kind === "deleted" && <Banner status="success" title="Deleted: this link no longer opens anything." />}
         {state.kind === "error" && <Banner status="warning" title={state.words} />}
       </Page>

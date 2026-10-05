@@ -86,42 +86,59 @@ export async function runJob(buildId: string, ctx: JobContext, attempt = 1): Pro
     return;
   }
 
-  const prefix = reportPrefix(repo.id, buildId);
+  const [before] = await db
+    .select({ id: repositories.id, owner: repositories.owner, name: repositories.name })
+    .from(builds)
+    .innerJoin(repositories, eq(repositories.id, builds.repoId))
+    .where(eq(builds.id, buildId));
+  const named = before ?? repo;
+  const prefix = reportPrefix(named.id, buildId);
   const { index, bytes } = await storeReport(storage, prefix, outcome.report);
   const stats = outcome.stats ?? index.stats;
-  const [updated] = await db
-    .update(repositories)
-    .set({
-      reportKey: prefix,
-      reportAt: now(),
-      reportBytes: bytes,
-      reportLines: true,
-      ...(stats
-        ? {
-            busFactor: stats.bus_factor,
-            maintainers: stats.maintainers,
-            commits30d: stats.commits_30d,
-            people30d: stats.people_30d,
-            codeLines: stats.code_lines,
-            untouched5y: stats.untouched_5y,
-            ...(stats.answered !== undefined ? { answered: stats.answered, answerHours: stats.answer_hours ?? null } : {}),
-          }
-        : {}),
-    })
-    .where(eq(repositories.id, repo.id))
-    .returning({ id: repositories.id });
-  if (!updated) {
+  const people = await peopleRows(ctx, named.id, named.owner, named.name, outcome.report, token);
+  const target = await db.transaction(async (tx) => {
+    const [current] = await tx
+      .select({ id: repositories.id, reportKey: repositories.reportKey })
+      .from(builds)
+      .innerJoin(repositories, eq(repositories.id, builds.repoId))
+      .where(eq(builds.id, buildId));
+    if (!current) return null;
+    await tx
+      .update(repositories)
+      .set({
+        reportKey: prefix,
+        reportAt: now(),
+        reportBytes: bytes,
+        reportLines: true,
+        ...(stats
+          ? {
+              busFactor: stats.bus_factor,
+              maintainers: stats.maintainers,
+              commits30d: stats.commits_30d,
+              people30d: stats.people_30d,
+              codeLines: stats.code_lines,
+              untouched5y: stats.untouched_5y,
+              ...(stats.answered !== undefined ? { answered: stats.answered, answerHours: stats.answer_hours ?? null } : {}),
+            }
+          : {}),
+      })
+      .where(eq(repositories.id, current.id));
+    const rows = people.map((p) => ({ ...p, repoId: current.id, reportKey: prefix }));
+    await tx.delete(repoPeople).where(eq(repoPeople.repoId, current.id));
+    for (let i = 0; i < rows.length; i += 1000) await tx.insert(repoPeople).values(rows.slice(i, i + 1000));
+    return current;
+  });
+  if (!target) {
     await storage.deletePrefix(`${prefix}/`);
     return;
   }
-  const people = await storePeople(ctx, repo.id, repo.owner, repo.name, prefix, outcome.report, token);
   await db
     .update(builds)
     .set({ state: "done", step: null, finishedAt: now(), seconds: Math.round(outcome.seconds), partial: false })
     .where(eq(builds.id, buildId));
-  if (repo.reportKey && repo.reportKey !== prefix) await storage.deletePrefix(`${repo.reportKey}/`);
-  await ctx.queuePulls?.(repo.id).catch((e: unknown) => log(`pulls for ${repo.id} not queued: ${(e as Error).message}`));
-  if (repo.seed) await queueSeedCounts(ctx, repo.id, prefix, people).catch((e: unknown) => log(`counts for ${repo.id} not queued: ${(e as Error).message}`));
+  if (target.reportKey && target.reportKey !== prefix) await storage.deletePrefix(`${target.reportKey}/`);
+  await ctx.queuePulls?.(target.id).catch((e: unknown) => log(`pulls for ${target.id} not queued: ${(e as Error).message}`));
+  if (repo.seed) await queueSeedCounts(ctx, target.id, prefix, people).catch((e: unknown) => log(`counts for ${target.id} not queued: ${(e as Error).message}`));
 }
 
 async function queueSeedCounts(ctx: JobContext, repoId: string, reportKey: string, people: { personId: number; login: string | null; commits: number }[]): Promise<void> {
@@ -136,7 +153,7 @@ async function queueSeedCounts(ctx: JobContext, repoId: string, reportKey: strin
   for (let i = 0; i < ids.length; i += COUNTED_AT_ONCE) await ctx.queueCounts({ repoId, reportKey, personIds: ids.slice(i, i + COUNTED_AT_ONCE) });
 }
 
-async function storePeople(ctx: JobContext, repoId: string, owner: string, name: string, reportKey: string, report: Uint8Array, token: string | null) {
+async function peopleRows(ctx: JobContext, repoId: string, owner: string, name: string, report: Uint8Array, token: string | null) {
   const { people, newest } = peopleOf(report);
   let found = new Map<number, string>();
   try {
@@ -144,10 +161,5 @@ async function storePeople(ctx: JobContext, repoId: string, owner: string, name:
   } catch (e) {
     ctx.log(`logins for ${repoId}: ${(e as Error).message}`);
   }
-  const rows = people.map((p) => ({ ...p, login: p.login ?? found.get(p.personId) ?? null, repoId, reportKey }));
-  await ctx.db.transaction(async (tx) => {
-    await tx.delete(repoPeople).where(eq(repoPeople.repoId, repoId));
-    for (let i = 0; i < rows.length; i += 1000) await tx.insert(repoPeople).values(rows.slice(i, i + 1000));
-  });
-  return rows;
+  return people.map((p) => ({ ...p, login: p.login ?? found.get(p.personId) ?? null }));
 }

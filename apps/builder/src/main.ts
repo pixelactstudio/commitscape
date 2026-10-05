@@ -97,7 +97,7 @@ async function once(what: string) {
       const s = seedConfig(env);
       const list = await seedList(s);
       const boss = await startQueue(env.DATABASE_URL, { worker: false });
-      const queued = await queueSeeds(db, bossQueue(boss), list, s.budget);
+      const queued = await queueSeeds(db, bossQueue(boss), list, s.budget, storage);
       await boss.stop();
       console.log(`seeds: ${list.length} from GitHub's search, ${queued} queued`);
     }

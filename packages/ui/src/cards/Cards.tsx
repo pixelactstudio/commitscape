@@ -17,7 +17,7 @@ const SHORT_VIEW: Record<string, string> = { surviving: "lines running", prsMerg
 
 const paper = (look: Look) => (look.backgroundImage ? { backgroundImage: look.backgroundImage, backgroundSize: look.backgroundSize ?? "100% 100%" } : {});
 
-function Shell({ look, width, height, children, site, login }: { look: Look; width: number; height: number; children: ReactNode; site: string; login?: string }) {
+function Shell({ look, width, height, children, site, login, link }: { look: Look; width: number; height: number; children: ReactNode; site: string; login?: string; link?: string }) {
   const t = look.t;
   return (
     <div style={{ display: "flex", flexDirection: "column", width, height, padding: "26px 30px 20px", backgroundColor: t.bg, ...paper(look), border: `1px solid ${t.border}`, borderRadius: look.radius, fontFamily: font, color: t.text, boxSizing: "border-box" }}>
@@ -27,7 +27,7 @@ function Shell({ look, width, height, children, site, login }: { look: Look; wid
           <img src={LOGO} width={18} height={18} style={{ borderRadius: 5 }} />
           <span style={{ marginLeft: 8, fontSize: 14, fontWeight: 600, color: t.muted }}>commitscape</span>
         </div>
-        {login && <span style={{ fontSize: 13, color: t.faint }}>{`${site}/u/${login}`}</span>}
+        {(link ?? login) && <span style={{ fontSize: 13, color: t.faint }}>{link ?? `${site}/u/${login}`}</span>}
       </div>
     </div>
   );
@@ -247,25 +247,125 @@ export function StandingCard({ data, theme, paint, images, site, style }: CardPr
 }
 
 
-/** A repository's contributors, with their faces and numbers, for its maintainers to thank them. */
+const LANGUAGE_COLOURS: Record<string, string> = {
+  TypeScript: "#3178c6",
+  JavaScript: "#f1e05a",
+  Python: "#3572a5",
+  Rust: "#dea584",
+  Go: "#00add8",
+  Java: "#b07219",
+  Kotlin: "#a97bff",
+  Swift: "#f05138",
+  C: "#555555",
+  "C++": "#f34b7d",
+  "C#": "#178600",
+  Ruby: "#701516",
+  PHP: "#4f5d95",
+  Shell: "#89e051",
+  HTML: "#e34c26",
+  CSS: "#663399",
+  Vue: "#41b883",
+  Svelte: "#ff3e00",
+  Dart: "#00b4ab",
+  Elixir: "#6e4a7e",
+  Haskell: "#5e5086",
+  Scala: "#c22d40",
+  Lua: "#000080",
+  Zig: "#ec915c",
+  Nix: "#7e7eff",
+  "Objective-C": "#438eff",
+  OCaml: "#ef7a08",
+  Clojure: "#db5855",
+  "Jupyter Notebook": "#da5b0b",
+  MDX: "#fcb32c",
+};
+
+const STAR = "M12 2.5l2.94 5.96 6.56.95-4.75 4.63 1.12 6.54L12 17.5l-5.87 3.08 1.12-6.54L2.5 9.41l6.56-.95L12 2.5z";
+
+function clip(text: string, most: number): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  return flat.length <= most ? flat : `${flat.slice(0, most - 1).trimEnd()}…`;
+}
+
+function Pill({ t, children }: { t: Tokens; children: ReactNode }) {
+  return <div style={{ display: "flex", alignItems: "center", height: 30, padding: "0 12px", marginLeft: 8, borderRadius: 30, border: `1px solid ${t.border}`, backgroundColor: t.surface, fontSize: 14 }}>{children}</div>;
+}
+
+/** A repository's Card: its owner's face, its name, what it is, its stars, forks and main language, then the people who built it with their faces and numbers. */
 export function HallOfFameCard({ data, theme, paint, images, site, style }: CardProps<HallOfFameData>) {
   const look = lookOf(theme, style);
   const t = look.t;
   const people = data.people.slice(0, 10);
+  const owner = images[data.repo.owner.toLowerCase()];
+  const language = data.repo.language ?? null;
+  const dot = language ? (LANGUAGE_COLOURS[language] ?? t.faint) : null;
+  const lines = people.some((p) => p.surviving !== null);
+  const most = Math.max(1, ...people.map((p) => (lines ? (p.surviving ?? 0) : (p.commits ?? 0))));
   return (
-    <Shell look={look} {...hallOfFameSize(data)} site={site}>
-      <span style={{ fontSize: 20, fontWeight: 700, color: paint.mark("rise", t.text, 0) }}>{`The people who built ${data.repo.owner}/${data.repo.name}`}</span>
-      <span style={{ fontSize: 14, color: paint.mark("rise", t.muted, 60), marginTop: 2 }}>{`${many(data.total, "contributor", "contributors")}; the ${people.length} with the most lines still running`}</span>
-      <div style={{ display: "flex", flexDirection: "column", marginTop: 12 }}>
+    <Shell look={look} {...hallOfFameSize(data)} site={site} link={`${site}/gh/${data.repo.owner}/${data.repo.name}`}>
+      <div style={{ display: "flex", alignItems: "center", height: 64 }}>
+        {owner ? <img src={owner} width={60} height={60} style={{ borderRadius: 16, border: `1px solid ${t.border}` }} /> : <div style={{ display: "flex", width: 60, height: 60, borderRadius: 16, background: t.surface, border: `1px solid ${t.border}` }} />}
+        <div style={{ display: "flex", flexDirection: "column", marginLeft: 16, flexGrow: 1, minWidth: 0 }}>
+          <span style={{ fontSize: 15, color: paint.mark("rise", t.muted, 0) }}>{`${data.repo.owner} /`}</span>
+          <span style={{ fontSize: 30, fontWeight: 700, letterSpacing: -0.8, lineHeight: 1.1, color: paint.mark("rise", t.text, 40) }}>{clip(data.repo.name, 28)}</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center" }}>
+          <Pill t={t}>
+            <svg width={15} height={15} viewBox="0 0 24 24">
+              <path d={STAR} fill={t.accent} />
+            </svg>
+            <span style={{ marginLeft: 6, fontWeight: 700, color: t.text }}>{compact(data.repo.stars)}</span>
+            <span style={{ marginLeft: 4, color: t.muted }}>{data.repo.stars === 1 ? "star" : "stars"}</span>
+          </Pill>
+          {data.repo.forks !== null && data.repo.forks !== undefined && (
+            <Pill t={t}>
+              <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke={t.muted} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="18" r="3" />
+                <circle cx="6" cy="6" r="3" />
+                <circle cx="18" cy="6" r="3" />
+                <path d="M18 9v2c0 .6-.4 1-1 1H7c-.6 0-1-.4-1-1V9" />
+                <path d="M12 12v3" />
+              </svg>
+              <span style={{ marginLeft: 6, fontWeight: 700, color: t.text }}>{compact(data.repo.forks)}</span>
+              <span style={{ marginLeft: 4, color: t.muted }}>{data.repo.forks === 1 ? "fork" : "forks"}</span>
+            </Pill>
+          )}
+        </div>
+      </div>
+      <span style={{ display: "flex", height: 20, marginTop: 12, fontSize: 15, color: paint.mark("rise", data.repo.description ? t.text : t.faint, 80) }}>{data.repo.description ? clip(data.repo.description, 86) : "No description on GitHub"}</span>
+      <div style={{ display: "flex", alignItems: "center", height: 20, marginTop: 12, fontSize: 14, color: t.muted }}>
+        {language && dot && (
+          <div style={{ display: "flex", alignItems: "center", marginRight: 18 }}>
+            <div style={{ display: "flex", width: 10, height: 10, borderRadius: 10, background: dot, marginRight: 7 }} />
+            <span style={{ color: t.text }}>{language}</span>
+          </div>
+        )}
+        <span>{many(data.total, "contributor", "contributors")}</span>
+      </div>
+      <div style={{ display: "flex", height: 1, marginTop: 16, marginBottom: 14, background: t.border }} />
+      <div style={{ display: "flex", alignItems: "center", height: 18, marginBottom: 4, fontSize: 12, fontWeight: 600, letterSpacing: 0.6, color: t.faint }}>
+        <span style={{ flexGrow: 1 }}>{people.length === 1 ? "BUILT BY" : `TOP ${people.length} CONTRIBUTORS`}</span>
+        <span style={{ display: "flex", justifyContent: "flex-end", width: 110 }}>{lines ? "LINES RUNNING" : ""}</span>
+        <span style={{ display: "flex", justifyContent: "flex-end", width: 80 }}>PRS</span>
+        <span style={{ display: "flex", justifyContent: "flex-end", width: 96 }}>COMMITS</span>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column" }}>
         {people.map((p, i) => {
           const face = p.login ? images[p.login.toLowerCase()] : undefined;
+          const value = lines ? (p.surviving ?? 0) : (p.commits ?? 0);
           return (
             <div key={`${p.login ?? p.name}${i}`} style={{ display: "flex", alignItems: "center", height: 40, fontSize: 15 }}>
-              {face ? <img src={face} width={26} height={26} style={{ borderRadius: 26 }} /> : <div style={{ display: "flex", width: 26, height: 26, borderRadius: 26, background: t.surface }} />}
-              <span style={{ marginLeft: 10, flexGrow: 1, fontWeight: 600, color: paint.mark("rise", t.text, 120 + i * 60) }}>{p.name}</span>
-              <span style={{ width: 120, textAlign: "right", fontWeight: 600, color: paint.mark("rise", t.accent, 160 + i * 60) }}>{p.surviving !== null ? `${compact(p.surviving)} lines` : ""}</span>
-              <span style={{ width: 110, textAlign: "right", color: paint.mark("rise", t.muted, 180 + i * 60) }}>{p.prsMerged ? `${compact(p.prsMerged)} PRs` : ""}</span>
-              <span style={{ width: 120, textAlign: "right", color: paint.mark("rise", t.muted, 200 + i * 60) }}>{p.commits ? `${compact(p.commits)} commits` : ""}</span>
+              <span style={{ width: 24, fontSize: 13, fontWeight: 700, color: i === 0 ? t.accent : t.faint }}>{String(i + 1)}</span>
+              {face ? <img src={face} width={28} height={28} style={{ borderRadius: 28 }} /> : <div style={{ display: "flex", width: 28, height: 28, borderRadius: 28, background: t.surface, border: `1px solid ${t.border}` }} />}
+              <div style={{ display: "flex", flexDirection: "column", flexGrow: 1, marginLeft: 12, marginRight: 16 }}>
+                <span style={{ fontWeight: 600, color: paint.mark("rise", t.text, 140 + i * 60) }}>{clip(p.name, 30)}</span>
+                <div style={{ display: "flex", height: 3, marginTop: 4, width: 220, background: t.empty, borderRadius: 3 }}>
+                  <div style={{ display: "flex", width: `${Math.max(value > 0 ? 3 : 0, (value * 100) / most)}%`, height: 3, borderRadius: 3, background: paint.mark("grow", t.accent, 180 + i * 60) }} />
+                </div>
+              </div>
+              <span style={{ display: "flex", justifyContent: "flex-end", width: 110, fontWeight: 700, color: paint.mark("rise", t.accent, 160 + i * 60) }}>{p.surviving !== null ? compact(p.surviving) : lines ? "—" : ""}</span>
+              <span style={{ display: "flex", justifyContent: "flex-end", width: 80, color: paint.mark("rise", t.muted, 180 + i * 60) }}>{p.prsMerged ? compact(p.prsMerged) : "—"}</span>
+              <span style={{ display: "flex", justifyContent: "flex-end", width: 96, color: paint.mark("rise", t.muted, 200 + i * 60) }}>{p.commits ? compact(p.commits) : "—"}</span>
             </div>
           );
         })}

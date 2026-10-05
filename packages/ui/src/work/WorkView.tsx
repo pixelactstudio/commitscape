@@ -1,58 +1,50 @@
-import type { ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
+import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
-import { GitCommitHorizontal, GitMerge, Lock } from "lucide-react";
-import { groupWork, monthName, workTotals, type Work, type WorkItem } from "@commitscape/data";
+import { CircleCheck, GitCommitHorizontal, GitMerge, Lock, X } from "lucide-react";
+import { groupWork, kindOf, monthName, percent, workSummary, type Work, type WorkItem, type WorkKind } from "@commitscape/data";
 import { Face } from "../components/Face";
-import { Cell } from "../profile/view";
+import { Nothing } from "../motion";
 import { Stat } from "../kit/layout";
 import { compact, grouped, many } from "../format";
+import { KIND_COLOURS, periodWords } from "./helpers";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const LONG = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+const FIRST = 40;
+const STEP = 60;
+const STICK = "sticky top-[53px] z-[2]";
 
 const day = (iso: string) => `${Number(iso.slice(8, 10))} ${MONTHS[Number(iso.slice(5, 7)) - 1] ?? ""}`;
 const longDay = (iso: string) => LONG.format(new Date(`${iso.slice(0, 10)}T00:00:00Z`));
+const span = (from: string, to: string) => Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000) + 1;
 
-/** A period as words: "1 September to 30 September 2026". */
-export function periodWords(from: string, to: string): string {
-  const a = new Date(`${from}T00:00:00Z`);
-  const b = new Date(`${to}T00:00:00Z`);
-  const sameYear = a.getUTCFullYear() === b.getUTCFullYear();
-  const first = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", ...(sameYear ? {} : { year: "numeric" }), timeZone: "UTC" }).format(a);
-  return `${first} to ${LONG.format(b)}`;
-}
+export type WorkGroup = "month" | "repository";
+export type WorkLook = { group: WorkGroup; kind: WorkKind | null };
 
-/** A Proof of Work as a document: who and when, its numbers, then every merged pull request and commit by month and repository, with links. */
-export function WorkView({ work, footer }: { work: Work; footer?: ReactNode }) {
-  const t = workTotals(work.items);
-  const months = groupWork(work.items);
+/** A Proof of Work as a document: its numbers, what kind of work it was, then every merged pull request and commit, grouped by month or repository, drawn as you scroll. */
+export function WorkView({ work, look, onLook, footer }: { work: Work; look?: WorkLook; onLook?: (look: WorkLook) => void; footer?: ReactNode }) {
+  const [own, setOwn] = useState<WorkLook>({ group: "month", kind: null });
+  const view = look ?? own;
+  const change = (next: Partial<WorkLook>) => (onLook ?? setOwn)({ ...view, ...next });
+  const summary = useMemo(() => workSummary(work.items), [work.items]);
+  const t = summary.totals;
   const name = work.name ?? work.login;
+  const kind = view.kind && summary.kinds.some((k) => k.kind === view.kind) ? view.kind : null;
+  const items = useMemo(() => (kind ? work.items.filter((i) => kindOf(i.title) === kind) : work.items), [work.items, kind]);
+  const days = span(work.from, work.to);
   return (
-    <article className="overflow-hidden rounded-[var(--radius-container)] border border-line bg-surface" aria-label={`${name}'s Proof of Work`}>
-      <header className="flex flex-col gap-5 px-5 pt-6 pb-5 sm:flex-row sm:items-start sm:justify-between sm:px-7 sm:pt-7">
-        <div className="flex min-w-0 items-center gap-4">
-          <Face login={work.login} name={name} size={48} />
-          <div className="flex min-w-0 flex-col">
-            <span className="truncate text-lg font-semibold tracking-[-0.015em]">{name}</span>
-            <span className="text-sm text-secondary">@{work.login}</span>
-          </div>
-        </div>
-        <div className="flex flex-col gap-0.5 sm:items-end sm:text-end">
-          <span className="text-xs font-medium tracking-[0.08em] text-secondary uppercase">Proof of Work</span>
-          <span className="text-sm font-medium">{periodWords(work.from, work.to)}</span>
-          <span className="text-xs text-secondary">{work.filter ? `Only in ${work.filter}` : "Everywhere on GitHub"}</span>
-        </div>
-      </header>
-      <div className="grid grid-cols-2 border-t border-line lg:grid-cols-4">
+    <article className="overflow-clip rounded-[var(--radius-container)] border border-line bg-surface" aria-label={`${name}'s Proof of Work`}>
+      <div className="grid grid-cols-2 lg:grid-cols-4">
         <Cell>
           <Stat value={grouped(t.prs)} label="Pull requests merged" note={`in ${many(t.repositories, "repository", "repositories")}`} />
         </Cell>
         <Cell>
           <Stat
             value={
-              <span className="text-[1.3rem] whitespace-nowrap tnum sm:text-[1.6rem]">
+              <span className="text-[1.15rem] whitespace-nowrap tnum sm:text-[1.6rem]">
                 <span className="text-added">+{compact(t.additions)}</span> <span className="text-secondary">/</span> <span className="text-removed">−{compact(t.deletions)}</span>
               </span>
             }
@@ -61,75 +53,213 @@ export function WorkView({ work, footer }: { work: Work; footer?: ReactNode }) {
           />
         </Cell>
         <Cell>
-          <Stat value={grouped(t.commits)} label="Commits" note="without the squash merges of those pull requests" />
+          <Stat value={grouped(t.commits)} label="Commits" note="besides the merges of those pull requests" />
         </Cell>
         <Cell>
-          <Stat value={grouped(t.repositories)} label={t.repositories === 1 ? "Repository" : "Repositories"} note={work.filter ? `in ${work.filter}` : "anywhere on GitHub"} />
+          <Stat value={grouped(summary.activeDays)} label="Active days" note={`of the period's ${many(days, "day", "days")}`} />
         </Cell>
       </div>
+      {summary.kinds.length > 0 && <Kinds kinds={summary.kinds} active={kind} onPick={(k) => change({ kind: k === kind ? null : k })} />}
       {work.truncated && (
         <div className="border-t border-line px-5 py-4 sm:px-7">
           <Banner status="info" title="GitHub returns at most 1,000 pull requests and 1,000 commits for one search. Narrow the period to see everything." />
         </div>
       )}
-      {months.length === 0 ? (
-        <div className="flex flex-col items-center gap-2 border-t border-line px-6 py-16 text-center">
-          <span className="font-medium">Nothing merged or committed in this period</span>
-          <span className="max-w-md text-sm text-pretty text-secondary">
-            {work.scope === "public" ? "Only public repositories count here. " : ""}Try a longer period{work.filter ? `, or look beyond ${work.filter}` : ""}.
-          </span>
+      {work.items.length === 0 ? (
+        <div className="border-t border-line px-6 py-6">
+          <Nothing
+            title="Nothing merged or committed in this period"
+            words={`${work.scope === "public" ? "Only public repositories count here. " : ""}Try a longer period${work.filter ? `, or look beyond ${work.filter}` : ""}.`}
+          />
         </div>
       ) : (
-        months.map((m) => <Month key={m.month} month={m.month} repositories={m.repositories} work={work} />)
+        <>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-5 py-3 sm:px-7">
+            <div className="flex min-w-0 flex-wrap items-center gap-2 text-sm">
+              <span className="font-semibold">{kind ? `${summary.kinds.find((k) => k.kind === kind)?.label}` : "Everything"}</span>
+              <span className="text-secondary tnum">{many(items.length, "item", "items")}</span>
+              {kind && (
+                <button type="button" onClick={() => change({ kind: null })} className="inline-flex cursor-pointer items-center gap-1 rounded-full border border-line bg-transparent px-2 py-0.5 text-xs text-secondary hover:border-strong hover:text-primary">
+                  <X size={12} aria-hidden /> Show every kind
+                </button>
+              )}
+            </div>
+            <SegmentedControl label="Group by" size="sm" value={view.group} onChange={(g) => change({ group: g as WorkGroup })}>
+              <SegmentedControlItem value="month" label="By month" />
+              <SegmentedControlItem value="repository" label="By repository" />
+            </SegmentedControl>
+          </div>
+          <List key={`${view.group}${kind ?? ""}${work.items.length}${work.filter ?? ""}`} items={items} group={view.group} work={work} />
+        </>
       )}
       {footer && <footer className="border-t border-line px-5 py-4 text-xs text-secondary sm:px-7">{footer}</footer>}
     </article>
   );
 }
 
-function Month({ month, repositories, work }: { month: string; repositories: { repo: string; private: boolean; items: WorkItem[] }[]; work: Work }) {
-  const items = repositories.flatMap((r) => r.items);
-  const prs = items.filter((i) => i.kind === "pr").length;
+function Cell({ children }: { children: ReactNode }) {
+  return <div className="min-w-0 border-line px-5 py-5 sm:px-6 [&:not(:last-child)]:border-e max-lg:[&:nth-child(2n)]:border-e-0 max-lg:[&:nth-child(n+3)]:border-t">{children}</div>;
+}
+
+function Kinds({ kinds, active, onPick }: { kinds: ReturnType<typeof workSummary>["kinds"]; active: WorkKind | null; onPick: (k: WorkKind) => void }) {
   return (
-    <section className="border-t border-line" aria-labelledby={`month-${month}`}>
-      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 bg-[var(--color-background-body)]/40 px-5 py-3 sm:px-7">
-        <h2 id={`month-${month}`} className="m-0 text-base font-semibold tracking-[-0.01em]">
-          {monthName(month)}
-        </h2>
-        <span className="text-xs text-secondary tnum">{[prs > 0 && many(prs, "pull request", "pull requests"), items.length - prs > 0 && many(items.length - prs, "commit", "commits"), many(repositories.length, "repository", "repositories")].filter(Boolean).join(" · ")}</span>
+    <section aria-label="Kind of work" className="flex flex-col gap-3 border-t border-line px-5 py-4 sm:px-7">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <h2 className="m-0 text-sm font-semibold">Kind of work</h2>
+        <span className="text-xs text-secondary">From conventional prefixes and the words of each title. Pick one to list only it.</span>
       </div>
-      <div className="flex flex-col gap-6 px-5 pt-4 pb-6 sm:px-7">
-        {repositories.map((r) => (
-          <Repository key={r.repo} repo={r.repo} isPrivate={r.private} items={r.items} work={work} />
+      <div className="flex h-2.5 w-full gap-[2px] overflow-hidden rounded-full" aria-hidden>
+        {kinds.map((k) => (
+          <span key={k.kind} className="h-full min-w-[3px] transition-opacity duration-200" style={{ flexGrow: k.count, background: KIND_COLOURS[k.kind], opacity: active && active !== k.kind ? 0.25 : 1 }} />
         ))}
       </div>
+      <ul className="m-0 flex list-none flex-wrap gap-1.5 p-0">
+        {kinds.map((k) => (
+          <li key={k.kind}>
+            <button
+              type="button"
+              aria-pressed={active === k.kind}
+              onClick={() => onPick(k.kind)}
+              className={`inline-flex cursor-pointer items-center gap-2 rounded-full border px-2.5 py-1 text-xs transition-colors ${active === k.kind ? "border-[var(--color-text-primary)] bg-[var(--color-overlay-hover)] text-primary" : "border-line bg-transparent text-primary hover:border-strong"}`}
+            >
+              <span className="size-2 rounded-full" style={{ background: KIND_COLOURS[k.kind] }} aria-hidden />
+              {k.short}
+              <span className="text-secondary tnum">
+                {grouped(k.count)} · {percent(k.share)}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }
 
-function Repository({ repo, isPrivate, items, work }: { repo: string; isPrivate: boolean; items: WorkItem[]; work: Work }) {
-  const [owner = "", name = repo] = repo.split("/");
+type Block = { key: string; title: ReactNode; meta: string; repo?: { repo: string; private: boolean }; rows: { repo: string; private: boolean; items: WorkItem[]; meta: string }[] };
+
+function counts(items: WorkItem[]) {
   const prs = items.filter((i) => i.kind === "pr").length;
-  const commits = items.length - prs;
+  return [prs > 0 && many(prs, "pull request", "pull requests"), items.length - prs > 0 && many(items.length - prs, "commit", "commits")].filter(Boolean).join(" · ");
+}
+
+function blocksOf(items: WorkItem[], group: WorkGroup): Block[] {
+  if (group === "month")
+    return groupWork(items).map((m) => {
+      const all = m.repositories.flatMap((r) => r.items);
+      return { key: m.month, title: monthName(m.month), meta: `${counts(all)} · ${many(m.repositories.length, "repository", "repositories")}`, rows: m.repositories.map((r) => ({ ...r, meta: counts(r.items) })) };
+    });
+  const repos = new Map<string, WorkItem[]>();
+  for (const i of items) repos.set(i.repo, [...(repos.get(i.repo) ?? []), i]);
+  return [...repos.entries()]
+    .sort((a, b) => b[1].length - a[1].length || (a[0] < b[0] ? -1 : 1))
+    .map(([repo, list]) => {
+      const sorted = [...list].sort((a, b) => (a.at < b.at ? 1 : -1));
+      const isPrivate = list.some((i) => i.private);
+      return { key: repo, title: repo, meta: counts(list), repo: { repo, private: isPrivate }, rows: [{ repo, private: isPrivate, items: sorted, meta: "" }] };
+    });
+}
+
+function trim(blocks: Block[], limit: number): Block[] {
+  const out: Block[] = [];
+  let left = limit;
+  for (const b of blocks) {
+    if (left <= 0) break;
+    const rows: Block["rows"] = [];
+    for (const r of b.rows) {
+      if (left <= 0) break;
+      rows.push({ ...r, items: r.items.slice(0, left) });
+      left -= r.items.length;
+    }
+    out.push({ ...b, rows });
+  }
+  return out;
+}
+
+function List({ items, group, work }: { items: WorkItem[]; group: WorkGroup; work: Work }) {
+  const [limit, setLimit] = useState(FIRST);
+  const end = useRef<HTMLDivElement>(null);
+  const blocks = useMemo(() => blocksOf(items, group), [items, group]);
+  const shown = useMemo(() => trim(blocks, limit), [blocks, limit]);
+  const more = limit < items.length;
+  useEffect(() => {
+    const el = end.current;
+    if (!el || !more) return;
+    const seen = new IntersectionObserver((e) => e.some((x) => x.isIntersecting) && setLimit((l) => l + STEP), { rootMargin: "0px 0px 900px 0px" });
+    seen.observe(el);
+    return () => seen.disconnect();
+  }, [more, limit]);
   return (
-    <div className="flex min-w-0 flex-col gap-1">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <Face login={owner} name={owner} size={20} shape="rounded" />
-        <h3 className="m-0 min-w-0 text-[0.95rem] font-semibold">
-          <a href={`https://github.com/${repo}`} className="text-primary no-underline hover:underline">
-            <span className="font-normal text-secondary">{owner}/</span>
-            {name}
-          </a>
-        </h3>
-        {isPrivate && <Badge label={work.shared ? "private, shared by choice" : work.scope === "self" ? "private: only you see this" : "private"} icon={<Lock size={11} aria-hidden />} variant="neutral" />}
-        <span className="ms-auto text-xs text-secondary tnum">{[prs > 0 && many(prs, "pull request", "pull requests"), commits > 0 && many(commits, "commit", "commits")].filter(Boolean).join(" · ")}</span>
+    <div>
+      {shown.map((b) => (
+        <section key={b.key} className="border-t border-line" aria-labelledby={`g-${b.key}`}>
+          <div className={`${STICK} flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-line bg-[color-mix(in_srgb,var(--color-background-surface)_88%,transparent)] px-5 py-2.5 backdrop-blur-md sm:px-7`}>
+            {b.repo ? (
+              <RepoTitle id={`g-${b.key}`} repo={b.repo.repo} isPrivate={b.repo.private} work={work} level={2} />
+            ) : (
+              <h2 id={`g-${b.key}`} className="m-0 text-[0.95rem] font-semibold tracking-[-0.01em]">
+                {b.title}
+              </h2>
+            )}
+            <span className="text-xs text-secondary tnum">{b.meta}</span>
+          </div>
+          <div className="flex flex-col gap-5 px-5 pt-3 pb-5 sm:px-7">
+            {b.rows.map((r) => (
+              <div key={r.repo} className="flex min-w-0 flex-col gap-1">
+                {!b.repo && (
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-1">
+                    <RepoTitle repo={r.repo} isPrivate={r.private} work={work} level={3} />
+                    <span className="ms-auto text-xs text-secondary tnum">{r.meta}</span>
+                  </div>
+                )}
+                <ul className={`m-0 flex list-none flex-col p-0 ${b.repo ? "" : "sm:ps-8"}`}>
+                  {r.items.map((i) => (
+                    <Row key={i.url} item={i} />
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </section>
+      ))}
+      <div ref={end} className="border-t border-line px-5 py-5 sm:px-7" aria-live="polite">
+        {more ? (
+          <div className="flex flex-col gap-2">
+            <span className="text-xs text-secondary tnum">
+              Showing {grouped(Math.min(limit, items.length))} of {grouped(items.length)}. More appear as you scroll.
+            </span>
+            {[0, 1, 2].map((i) => (
+              <Skeleton key={i} height={18} index={i} radius={1} />
+            ))}
+          </div>
+        ) : (
+          <div className="flex items-center justify-center gap-3 text-xs text-secondary">
+            <span className="h-px flex-1 bg-[var(--color-border)]" />
+            <span className="inline-flex items-center gap-1.5">
+              <CircleCheck size={13} aria-hidden className="text-brand" />
+              {items.length === 1 ? "That is the one item" : `That is all ${grouped(items.length)}`}, {periodWords(work.from, work.to)}
+            </span>
+            <span className="h-px flex-1 bg-[var(--color-border)]" />
+          </div>
+        )}
       </div>
-      <ul className="m-0 flex list-none flex-col p-0 sm:ps-8">
-        {items.map((i) => (
-          <Row key={i.url} item={i} />
-        ))}
-      </ul>
     </div>
+  );
+}
+
+function RepoTitle({ id, repo, isPrivate, work, level }: { id?: string; repo: string; isPrivate: boolean; work: Work; level: 2 | 3 }) {
+  const [owner = "", name = repo] = repo.split("/");
+  const H = level === 2 ? "h2" : "h3";
+  return (
+    <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+      <Face login={owner} name={owner} size={20} shape="rounded" />
+      <H id={id} className="m-0 min-w-0 text-[0.95rem] font-semibold [overflow-wrap:anywhere]">
+        <a href={`https://github.com/${repo}`} className="text-primary no-underline hover:underline">
+          <span className="font-normal text-secondary">{owner}/</span>
+          {name}
+        </a>
+      </H>
+      {isPrivate && <Badge label={work.shared ? "private, shared by choice" : work.scope === "self" ? "private: only you see this" : "private"} icon={<Lock size={11} aria-hidden />} variant="neutral" />}
+    </span>
   );
 }
 
@@ -142,7 +272,7 @@ function Row({ item }: { item: WorkItem }) {
     </span>
   );
   return (
-    <li className="flex items-start gap-3 border-b border-line py-2 text-sm last:border-b-0">
+    <li className="flex items-start gap-3 border-b border-line py-2 text-[0.875rem] last:border-b-0">
       <span className={`mt-0.5 flex-none ${pr ? "text-brand" : "text-secondary"}`} title={pr ? "Pull request, merged" : "Commit"}>
         {pr ? <GitMerge size={15} aria-label="Pull request, merged" /> : <GitCommitHorizontal size={15} aria-label="Commit" />}
       </span>
@@ -169,21 +299,7 @@ function Row({ item }: { item: WorkItem }) {
 export function WorkSkeleton() {
   return (
     <div className="overflow-hidden rounded-[var(--radius-container)] border border-line bg-surface">
-      <div className="flex flex-col gap-5 px-5 pt-6 pb-5 sm:flex-row sm:items-start sm:justify-between sm:px-7 sm:pt-7">
-        <div className="flex items-center gap-4">
-          <Skeleton height={48} width={48} radius="rounded" />
-          <div className="flex flex-col gap-2">
-            <Skeleton height={18} width={160} radius={1} />
-            <Skeleton height={13} width={90} radius={1} />
-          </div>
-        </div>
-        <div className="flex flex-col gap-1.5 sm:items-end">
-          <Skeleton height={12} width={100} radius={1} />
-          <Skeleton height={15} width={220} radius={1} />
-          <Skeleton height={12} width={130} radius={1} />
-        </div>
-      </div>
-      <div className="grid grid-cols-2 border-t border-line lg:grid-cols-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4">
         {[0, 1, 2, 3].map((i) => (
           <Cell key={i}>
             <div className="flex flex-col gap-2.5">
@@ -193,6 +309,19 @@ export function WorkSkeleton() {
             </div>
           </Cell>
         ))}
+      </div>
+      <div className="flex flex-col gap-3 border-t border-line px-5 py-4 sm:px-7">
+        <Skeleton height={14} width={110} radius={1} />
+        <Skeleton height={10} radius="rounded" />
+        <div className="flex flex-wrap gap-1.5">
+          {[90, 70, 80, 60, 64].map((w, i) => (
+            <Skeleton key={i} height={24} width={w} index={i} radius="rounded" />
+          ))}
+        </div>
+      </div>
+      <div className="flex items-center justify-between border-t border-line px-5 py-3 sm:px-7">
+        <Skeleton height={16} width={140} radius={1} />
+        <Skeleton height={28} width={200} radius={2} />
       </div>
       <div className="border-t border-line px-5 py-3 sm:px-7">
         <Skeleton height={18} width={140} radius={1} />

@@ -3,11 +3,11 @@ import type { Profile } from "@commitscape/data";
 import { now, schema } from "@commitscape/server";
 import { testDb } from "#/test/deps";
 import { saveChoices } from "./people";
-import { addRival, monthOf, removeRival, rivalLogins, rivalsOf, versusOf } from "./versus";
+import { addRival, monthOf, removeRival, rivalLogins, rivalsOf, versusFullOf, versusOf } from "./versus";
 
 const totals = (over: Partial<Profile["totals"]>): Profile["totals"] => ({ prsOpened: 0, prsMerged: 0, prsClosed: 0, prsOpen: 0, reviews: 0, commits: 0, issues: 0, hidden: 0, linesAdded: 0, linesRemoved: 0, hoursToMerge: null, activeDays: 0, longestStreak: 0, currentStreak: 0, contributions: 0, ...over });
 
-function profile(login: string, t: Partial<Profile["totals"]>, months: Profile["months"] = []): Profile {
+function profile(login: string, t: Partial<Profile["totals"]>, months: Profile["months"] = [], over: Partial<Profile> = {}): Profile {
   return {
     identity: { login, githubId: login.length, name: login.toUpperCase(), avatar: "", bio: null, company: null, location: null, website: null, twitter: null, followers: 0, createdAt: "2020-01-01T00:00:00Z", kind: "user" },
     fetchedAt: now(),
@@ -21,6 +21,7 @@ function profile(login: string, t: Partial<Profile["totals"]>, months: Profile["
     prs: [],
     read: { prs: 0, prsTotal: 0, requests: 0, complete: true },
     clock: null,
+    ...over,
   };
 }
 
@@ -33,6 +34,13 @@ async function seeded() {
     profile("ada", { prsMerged: 40, reviews: 12, commits: 900, linesAdded: 10_000, activeDays: 200, longestStreak: 14, hoursToMerge: 3 }, [{ month, contributions: 61, prsMerged: 4 }]),
     profile("bo", { prsMerged: 55, reviews: 12, commits: 400, linesAdded: 8_000, activeDays: 230, longestStreak: 9, hoursToMerge: 1.5 }, [{ month, contributions: 40, prsMerged: 7 }]),
     profile("cy", { commits: 3 }),
+    profile("di", { commits: 120, contributions: 140 }, [], {
+      years: [{ year: 2025, commits: 100, prs: 10, reviews: 5, issues: 3, hidden: 2, languages: [{ name: "Rust", colour: "#dea584", commits: 80 }, { name: "Go", colour: "#00ADD8", commits: 20 }] }, { year: 2026, commits: 20, prs: 0, reviews: 0, issues: 0, hidden: 0, languages: [{ name: "Go", colour: "#00ADD8", commits: 20 }] }],
+      calendar: { firstDay: 20_000, days: Array.from({ length: 500 }, (_, i) => i % 3) },
+      repositories: [{ owner: "acme", name: "tool", private: false, stars: 5, language: "Rust", colour: null, commits: 9, prsOpened: 0, prsMerged: 2, reviews: 0, linesAdded: 0, linesRemoved: 0, first: null, last: null }],
+      partners: [{ login: "ada", avatar: "", reviewedTheirs: 2, reviewedYours: 0 }],
+      clock: { hours: Array.from({ length: 24 }, () => 0), sampled: 0 },
+    }),
   ]) {
     await db.insert(schema.profiles).values({ login: p.identity.login, scope: "public", identity: JSON.stringify(p.identity), identityAt: now(), data: JSON.stringify(p), fetchedAt: now() });
   }
@@ -58,6 +66,28 @@ describe("Versus", () => {
       ["hoursToMerge", "b"],
     ]);
     expect(Object.keys(v)).toEqual(["a", "b", "rows"]);
+  });
+
+  test("in full: each person's last year, years, languages and traits, the repositories they share, and their reviews of each other", async () => {
+    const deps = await seeded();
+    const v = await versusFullOf(deps, "di", "ada");
+    expect(v.rows.find((r) => r.view === "commits")?.winner).toBe("b");
+    const di = v.people.a;
+    expect(di.lastYear.days.length).toBeLessThanOrEqual(371);
+    expect(di.lastYear.firstDay + di.lastYear.days.length).toBe(20_500);
+    expect(di.years.map((y) => [y.year, y.contributions])).toEqual([
+      [2025, 120],
+      [2026, 20],
+    ]);
+    expect(di.languages.map((l) => [l.name, l.commits])).toEqual([
+      ["Rust", 80],
+      ["Go", 40],
+    ]);
+    expect(di.clock).toBeNull();
+    expect(di.achievements.length).toBeGreaterThan(0);
+    expect(v.shared).toEqual([]);
+    expect(v.between).toEqual({ aReviewedB: 2, bReviewedA: 0 });
+    await expect(versusFullOf(deps, "di", "DI")).rejects.toThrow("two different people");
   });
 
   test("a hidden Profile is refused, and so is a person against themselves", async () => {

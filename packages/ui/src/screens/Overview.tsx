@@ -1,8 +1,8 @@
 import { useContext } from "react";
 import { Button } from "@astryxdesign/core/Button";
 import { useSuspenseQueries } from "@tanstack/react-query";
-import { ChevronRight, File, Folder, Trophy } from "lucide-react";
-import type { MapBlock, MapLevel, Overview as Data, People, PersonRow } from "@commitscape/data";
+import { ChevronRight, Trophy } from "lucide-react";
+import type { MapLevel, Overview as Data, People, PersonRow, QuarterLines } from "@commitscape/data";
 import { dataQuery, StaleContext, useSource } from "../data";
 import { Face } from "../components/Face";
 import { useLogin } from "../components/login";
@@ -12,15 +12,16 @@ import { compact, date, duration, grouped, many, share } from "../format";
 import { A } from "../kit/A";
 import { Panel } from "../kit/layout";
 import { personColour } from "../theme";
-import { BarList, Failed, NumberCell, NumberStrip, Quiet, ScreenFrame, TrendOverTime, within } from "./kit";
+import { useTip } from "../charts/tip";
+import { Failed, NumberCell, NumberStrip, Quiet, ScreenFrame, TrendOverTime, within } from "./kit";
 import { openers, type ScreenProps } from "./props";
+import { WhereWork } from "./WhereWork";
 
 export const CONTRIBUTORS_SHOWN = 8;
-export const FOLDERS_SHOWN = 5;
 export const LANGUAGES_SHOWN = 6;
 
-/** The repository at a glance: its size and age, who built it, where the work is now, its languages, and how its commits fell over time. */
-export function Overview({ params, go }: ScreenProps) {
+/** The repository at a glance: its size and age, who built it, its languages, where the work is as a sunburst, and how its commits fell over time; laid out to fit how many people and how much history it has. */
+export function Overview({ meta, params, go }: ScreenProps) {
   const source = useSource();
   const stale = useContext(StaleContext);
   const [overview, people, map] = useSuspenseQueries({
@@ -32,16 +33,22 @@ export function Overview({ params, go }: ScreenProps) {
   const span = within(o.window);
   const releases = o.timeline.filter((m) => m.kind === "release").map((r) => ({ day: Math.floor(r.time / 86_400), label: r.name ?? "a release" }));
   const inWindow = releases.filter((r) => r.day >= o.first_day && r.day < o.first_day + o.days.length);
+  const rows = people.data.data?.people ?? [];
+  const few = rows.length > 0 && rows.length <= FEW;
+  const ages = ageBuckets(o.code_age);
+  const who = <WhoBuiltIt rows={rows} everyone={o.window === "all" ? o.totals.people : null} commits={o.commits} span={span} onPerson={open.person} onAll={() => go({ screen: "people", id: undefined })} few={few} />;
+  const name = meta.name.split("/").at(-1) || meta.name;
   return (
     <ScreenFrame stale={stale}>
       <KeyNumbers o={o} span={span} />
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
-        <WhoBuiltIt rows={people.data.data?.people ?? []} everyone={o.window === "all" ? o.totals.people : null} commits={o.commits} span={span} onPerson={open.person} onAll={() => go({ screen: "people", id: undefined })} />
+        {who}
         <div className="flex min-w-0 flex-col gap-4">
-          <WhereWorkIs level={map.data.data} span={span} onOpen={(b) => (b.file ? open.file(b.path) : open.folder(b.path))} />
           <Languages o={o} />
+          {!few && ages.length >= 3 && <CodeAge ages={ages} />}
         </div>
       </div>
+      <WhereWork root={map.data.data} name={name} params={params} span={span} commits={o.commits} onFile={open.file} onFolder={open.folder} />
       <Panel
         title="Commits over time"
         description={`${many(o.commits, "commit", "commits")} ${span}, merges left out`}
@@ -57,6 +64,8 @@ export function Overview({ params, go }: ScreenProps) {
     </ScreenFrame>
   );
 }
+
+export const FEW = 3;
 
 export const LISTED = 1000;
 
@@ -85,13 +94,24 @@ function KeyNumbers({ o, span }: { o: Data; span: string }) {
   );
 }
 
-function WhoBuiltIt({ rows, everyone, commits, span, onPerson, onAll }: { rows: PersonRow[]; everyone: number | null; commits: number; span: string; onPerson: (id: number) => void; onAll: () => void }) {
+function WhoBuiltIt({ rows, everyone, commits, span, onPerson, onAll, few }: { rows: PersonRow[]; everyone: number | null; commits: number; span: string; onPerson: (id: number) => void; onAll: () => void; few: boolean }) {
   const people = everyone !== null && everyone > rows.length ? grouped(everyone) : counted(rows.length);
   const shown = rows.slice(0, CONTRIBUTORS_SHOWN);
   const lines = rows.some((r) => r.lines_added !== null);
   const most = Math.max(1, ...shown.map((r) => r.commits));
+  const description = rows.length === 0 ? `Nobody committed ${span}` : rows.length === 1 ? `One person ${span}` : `${people} people ${span}, most commits first`;
+  if (few)
+    return (
+      <Panel title="Who built it" description={description} className="h-full [&>*]:h-full" actions={<Button label="People" variant="ghost" size="sm" onClick={onAll} endContent={<ChevronRight size={14} aria-hidden />} />}>
+        <ol className="m-0 flex list-none flex-col gap-3 p-0" aria-label="Contributors">
+          {shown.map((r) => (
+            <Builder key={r.person.id} r={r} commits={commits} lines={lines} solo={rows.length === 1} onPerson={onPerson} />
+          ))}
+        </ol>
+      </Panel>
+    );
   return (
-    <Panel padding={0} title="Who built it" description={rows.length === 0 ? `Nobody committed ${span}` : `${people} ${rows.length === 1 ? "person" : "people"} ${span}, most commits first`}>
+    <Panel padding={0} title="Who built it" description={description}>
       {shown.length === 0 ? (
         <div className="px-5 pb-5">
           <Quiet>No commits in this Window. Choose a longer one above.</Quiet>
@@ -112,6 +132,53 @@ function WhoBuiltIt({ rows, everyone, commits, span, onPerson, onAll }: { rows: 
         )}
       </div>
     </Panel>
+  );
+}
+
+function Builder({ r, commits, lines, solo, onPerson }: { r: PersonRow; commits: number; lines: boolean; solo: boolean; onPerson: (id: number) => void }) {
+  const login = useLogin(r.person);
+  const standing = useStanding(login);
+  const facts: [string, string, string?][] = [
+    [grouped(r.commits), r.commits === 1 ? "commit" : "commits", solo ? undefined : `${share(r.commits, commits)} of all`],
+    [grouped(r.active_days), r.active_days === 1 ? "active day" : "active days"],
+    ...(lines && r.lines_added !== null ? ([[`+${compact(r.lines_added)}`, "lines added", `−${compact(r.lines_removed ?? 0)} removed`]] as [string, string, string][]) : []),
+    ...(r.prs_merged !== null && r.prs_merged > 0 ? ([[grouped(r.prs_merged), r.prs_merged === 1 ? "PR merged" : "PRs merged"]] as [string, string][]) : []),
+  ];
+  return (
+    <li className="flex flex-col gap-4 rounded-[var(--radius-element)] border border-line bg-[color-mix(in_srgb,var(--color-background-muted)_60%,transparent)] p-4 sm:flex-row sm:items-center">
+      <div className="flex min-w-0 flex-1 items-center gap-3">
+        <span className="rounded-full" style={{ boxShadow: `0 0 0 2px var(--color-background-surface), 0 0 0 4px ${personColour(r.person.colour)}` }}>
+          <Face login={login} name={r.person.name} size={solo ? 48 : 40} />
+        </span>
+        <span className="flex min-w-0 flex-col gap-0.5">
+          <button type="button" onClick={() => onPerson(r.person.id)} className="min-w-0 cursor-pointer truncate border-0 bg-transparent p-0 text-start font-[inherit] text-[0.95rem] font-semibold text-primary underline-offset-[3px] hover:underline">
+            {r.person.name}
+          </button>
+          <span className="truncate text-xs text-secondary">
+            {login ? `@${login} · ` : ""}
+            {date(r.first)} – {date(r.last)}
+          </span>
+        </span>
+        {standing && (
+          <A href={standing} title={`Where ${r.person.name} stands here`} aria-label={`Where ${r.person.name} stands here`} className="ms-auto grid size-8 flex-none place-items-center rounded-[var(--radius-element)] text-secondary transition-colors hover:bg-[var(--color-overlay-hover)] hover:text-primary sm:hidden">
+            <Trophy size={15} aria-hidden />
+          </A>
+        )}
+      </div>
+      <dl className="m-0 grid flex-none grid-cols-3 gap-x-5 gap-y-2 sm:flex sm:items-center">
+        {facts.slice(0, 3).map(([value, label, note]) => (
+          <div key={label} className="flex min-w-0 flex-col">
+            <dd className={`order-1 m-0 text-[1.05rem] leading-tight font-semibold tracking-[-0.01em] tnum ${value.startsWith("+") ? "text-added" : ""}`}>{value}</dd>
+            <dt className="order-2 text-[0.72rem] whitespace-nowrap text-secondary">{note ?? label}</dt>
+          </div>
+        ))}
+      </dl>
+      {standing && (
+        <A href={standing} title={`Where ${r.person.name} stands here`} aria-label={`Where ${r.person.name} stands here`} className="hidden size-8 flex-none place-items-center rounded-[var(--radius-element)] text-secondary transition-colors hover:bg-[var(--color-overlay-hover)] hover:text-primary sm:grid">
+          <Trophy size={15} aria-hidden />
+        </A>
+      )}
+    </li>
   );
 }
 
@@ -163,44 +230,6 @@ function Contributor({ r, place, commits, most, lines, onPerson }: { r: PersonRo
   );
 }
 
-function WhereWorkIs({ level, span, onOpen }: { level: MapLevel | null; span: string; onOpen: (b: MapBlock) => void }) {
-  if (!level) return null;
-  const busy = [...level.children].filter((b) => b.churn > 0).sort((a, b) => b.churn - a.churn);
-  const all = level.children.reduce((n, b) => n + b.churn, 0);
-  return (
-    <Panel title="Where the work is" description={`The folders and files changed most ${span}`}>
-      {busy.length === 0 ? (
-        <Quiet>Nothing changed in this Window.</Quiet>
-      ) : (
-        <BarList
-          label="Folders by commits"
-          items={busy.slice(0, FOLDERS_SHOWN).map((b) => ({
-            key: b.path,
-            label: <span className="font-mono text-[0.82rem]">{b.file ? b.name : `${b.name}/`}</span>,
-            lead: b.file ? <File size={14} className="flex-none text-secondary" aria-hidden /> : <Folder size={14} className="flex-none text-secondary" aria-hidden />,
-            value: b.churn,
-            colour: "var(--brand)",
-            shown: (
-              <span className="inline-flex items-center gap-1.5">
-                {b.owner && <Owner p={b.owner} />}
-                {many(b.churn, "commit", "commits")} · {share(b.churn, all)}
-              </span>
-            ),
-            title: b.owner ? `Most commits by ${b.owner.name}` : undefined,
-            onClick: () => onOpen(b),
-          }))}
-        />
-      )}
-      <Explain>Commits in the Window that touched each top folder, merges and bulk commits left out; a commit touching two folders counts in both. The face is who made most of them. Click one to open it on the Map.</Explain>
-    </Panel>
-  );
-}
-
-function Owner({ p }: { p: NonNullable<MapBlock["owner"]> }) {
-  const login = useLogin(p);
-  return <Face login={login} name={p.name} size={16} />;
-}
-
 function Languages({ o }: { o: Data }) {
   const total = Math.max(1, o.languages.reduce((n, l) => n + l.lines, 0));
   const named = o.languages.slice(0, LANGUAGES_SHOWN);
@@ -230,6 +259,63 @@ function Languages({ o }: { o: Data }) {
           </ul>
         </div>
       )}
+    </Panel>
+  );
+}
+
+type Age = { key: string; label: string; short: string; lines: number };
+
+function ageBuckets(quarters: QuarterLines[]): Age[] {
+  if (quarters.length === 0) return [];
+  const sorted = [...quarters].sort((a, b) => a.year - b.year || a.quarter - b.quarter);
+  const first = sorted[0];
+  const last = sorted.at(-1);
+  if (!first || !last) return [];
+  const span = (last.year - first.year) * 4 + last.quarter - first.quarter + 1;
+  if (span <= 12) {
+    const out: Age[] = [];
+    for (let i = 0; i < span; i++) {
+      const year = first.year + Math.floor((first.quarter - 1 + i) / 4);
+      const quarter = ((first.quarter - 1 + i) % 4) + 1;
+      const lines = sorted.find((q) => q.year === year && q.quarter === quarter)?.lines ?? 0;
+      out.push({ key: `${year}q${quarter}`, label: `Q${quarter} ${year}`, short: quarter === 1 || i === 0 ? `Q${quarter} ’${String(year).slice(2)}` : `Q${quarter}`, lines });
+    }
+    return out;
+  }
+  const out: Age[] = [];
+  for (let year = first.year; year <= last.year; year++) {
+    const lines = sorted.filter((q) => q.year === year).reduce((n, q) => n + q.lines, 0);
+    out.push({ key: String(year), label: String(year), short: `’${String(year).slice(2)}`, lines });
+  }
+  return out;
+}
+
+function CodeAge({ ages }: { ages: Age[] }) {
+  const tip = useTip();
+  const total = Math.max(1, ages.reduce((n, a) => n + a.lines, 0));
+  const most = Math.max(1, ...ages.map((a) => a.lines));
+  const old = ages.slice(0, Math.max(1, Math.floor(ages.length / 2))).reduce((n, a) => n + a.lines, 0);
+  const label = (i: number) => ages.length <= 8 || i % Math.ceil(ages.length / 7) === 0 || i === ages.length - 1;
+  return (
+    <Panel title="How old the code is" description={`Lines of code at HEAD by when their file first appeared; ${share(old, total)} from the first half of its history`} className="flex-1 [&>*]:h-full">
+      <div className="flex h-full min-h-[9rem] flex-col gap-1.5">
+        <div className="relative min-h-[7.5rem] flex-1">
+        <div className="absolute inset-0 flex items-end gap-[3px]" role="img" aria-label="Lines of code at HEAD by when their file first appeared">
+          {ages.map((a) => (
+            <span key={a.key} className="group flex h-full min-w-0 flex-1 cursor-default items-end" {...tip(<><strong>{a.label}</strong><div className="note">{compact(a.lines)} lines still at HEAD · {share(a.lines, total)}</div></>)}>
+              <span className="block w-full rounded-t-[3px] bg-[var(--s1)] opacity-80 transition-opacity group-hover:opacity-100" style={{ height: `${Math.max(a.lines > 0 ? 2 : 0, (a.lines * 100) / most)}%` }} />
+            </span>
+          ))}
+        </div>
+        </div>
+        <div className="flex gap-[3px] border-t border-line pt-1.5 text-[0.68rem] text-secondary tnum">
+          {ages.map((a, i) => (
+            <span key={a.key} className="min-w-0 flex-1 overflow-visible text-center whitespace-nowrap">
+              {label(i) ? a.short : ""}
+            </span>
+          ))}
+        </div>
+      </div>
     </Panel>
   );
 }

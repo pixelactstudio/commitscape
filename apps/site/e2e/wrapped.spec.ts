@@ -9,6 +9,7 @@ test("a person's year: its numbers, its calendar, and its Cards", async ({ page,
   await expect(stat("Commits")).toContainText("21");
   await expect(stat("Lines added, merged")).toContainText("+210");
   await expect(page.getByRole("region", { name: "The year, a square a day" })).toBeVisible();
+  for (const chart of ["Month by month", "How it added up", "What it was made of", "The week", "Pull requests"]) await expect(page.getByRole("region", { name: chart })).toBeVisible();
   for (const card of ["wrapped", "wrapped-calendar"]) {
     const answer = await request.get(`/api/cards/u/alice/wrapped/2026/${card}.png`);
     expect(answer.headers()["content-type"]).toBe("image/png");

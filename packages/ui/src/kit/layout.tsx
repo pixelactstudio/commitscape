@@ -32,8 +32,8 @@ export function PageHead({ eyebrow, title, description, actions, media }: { eyeb
 /** One section of a page: a titled surface with an explanation and its own actions. */
 export function Panel({ title, description, actions, children, id, className = "", padding = 5, bare = false }: { title?: ReactNode; description?: ReactNode; actions?: ReactNode; children: ReactNode; id?: string; className?: string; padding?: 0 | 4 | 5 | 6; bare?: boolean }) {
   const head = (title || actions) && (
-    <div className={`flex flex-wrap items-start justify-between gap-x-4 gap-y-2 ${padding === 0 ? "px-5 pt-5" : ""}`}>
-      <div className="flex min-w-0 flex-col gap-0.5">
+    <div className={`flex flex-col items-start gap-x-6 gap-y-3 sm:flex-row sm:justify-between ${padding === 0 ? "px-5 pt-5" : ""}`}>
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         {title && (
           <Heading level={2}>
             <span className="block text-[1.02rem] font-semibold tracking-[-0.01em]">{title}</span>
@@ -41,7 +41,7 @@ export function Panel({ title, description, actions, children, id, className = "
         )}
         {description && <div className="text-sm text-pretty text-secondary">{description}</div>}
       </div>
-      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+      {actions && <div className="flex max-w-full flex-none flex-wrap items-center gap-2">{actions}</div>}
     </div>
   );
   if (bare)

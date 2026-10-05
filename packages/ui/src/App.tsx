@@ -1,13 +1,15 @@
-import { Suspense, useDeferredValue, useMemo, useState, type ReactNode } from "react";
+import { Suspense, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Icon } from "@astryxdesign/core/Icon";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
 import { Selector } from "@astryxdesign/core/Selector";
 import { Tab, TabList } from "@astryxdesign/core/TabList";
-import { CircleHelp, Search } from "lucide-react";
+import { CircleHelp, FolderTree, GitCommitHorizontal, LayoutGrid, Search, Users, Activity as Pulse, type LucideIcon } from "lucide-react";
 import type { Meta } from "@commitscape/data";
 import { TipLayer } from "./charts/Tip";
 import { Key } from "./components/Key";
+import { Page } from "./kit/layout";
+import { AnimatePresence, DISTANCE, DURATION, EASE, motion } from "./motion";
 import { StandingContext } from "./components/Name";
 import { SCREEN_SKELETONS } from "./components/skeletons";
 import { StaleContext, useSource } from "./data";
@@ -29,11 +31,19 @@ const WINDOW_BUTTONS: Record<string, string> = {
   all: "All time",
 };
 
+const ICONS: Record<Screen, LucideIcon> = {
+  overview: LayoutGrid,
+  people: Users,
+  activity: Pulse,
+  map: FolderTree,
+  commits: GitCommitHorizontal,
+};
+
 const NO_LOGINS: ReadonlyMap<number, string> = new Map();
 
 export type Extras = Partial<Record<Screen, ReactNode>>;
 
-/** Every screen of a Report under the page's own header, with a sticky bar of screens and Windows; the page owns the route. */
+/** Every screen of a Report under the page's own header: a full-width bar of screens and Windows docked on the header's bottom edge, sticky under the top bar, then the screen; the page owns the route. */
 export default function App({
   route,
   go,
@@ -41,6 +51,7 @@ export default function App({
   nav,
   standing,
   extras,
+  notice,
 }: {
   route: Route;
   go: Go;
@@ -48,20 +59,21 @@ export default function App({
   nav?: ReactNode;
   standing?: (login: string) => string;
   extras?: Extras;
+  notice?: ReactNode;
 }) {
   const source = useSource();
   return (
     <LoginsContext value={logins}>
       <StandingContext value={standing ?? null}>
         <TipLayer>
-          <Shell meta={source.meta} route={route} go={go} nav={nav} extras={extras} />
+          <Shell meta={source.meta} route={route} go={go} nav={nav} extras={extras} notice={notice} />
         </TipLayer>
       </StandingContext>
     </LoginsContext>
   );
 }
 
-function Shell({ meta, route, go, nav, extras }: { meta: Meta; route: Route; go: Go; nav?: ReactNode; extras?: Extras }) {
+function Shell({ meta, route, go, nav, extras, notice }: { meta: Meta; route: Route; go: Go; nav?: ReactNode; extras?: Extras; notice?: ReactNode }) {
   const [help, setHelp] = useState(false);
   const [palette, setPalette] = useState(false);
   const { from, to, person, folder, window } = route;
@@ -100,46 +112,106 @@ function Shell({ meta, route, go, nav, extras }: { meta: Meta; route: Route; go:
   return (
     <HelpContext value={help}>
       <div className="min-w-0 pb-16">
-        <div className="sticky top-[53px] z-10 -mx-4 border-b border-line bg-[color-mix(in_srgb,var(--color-background-body)_86%,transparent)] px-4 backdrop-blur-md backdrop-saturate-150 sm:-mx-6 sm:px-6">
-          <div className="flex items-end gap-4">
-            <div className="min-w-0 flex-1">
-              <TabList value={route.screen} onChange={(s) => choose(s as Screen)} size="md">
-                {SCREENS.map((s, i) => (
-                  <Tab key={s} value={s} label={TITLES[s]} endContent={help ? <Key keys={String(i + 1)} /> : undefined} />
-                ))}
-              </TabList>
+        <ScreenBar
+          route={route}
+          help={help}
+          choose={choose}
+          end={
+            <div className="flex flex-none items-center gap-1.5">
+            <SegmentedControl label="Window" size="sm" value={ranged ? "" : span} onChange={setWindow}>
+              {windows.map((w) => (
+                <SegmentedControlItem key={w.value} value={w.value} label={w.label} />
+              ))}
+            </SegmentedControl>
+            {help && <Key keys="w" />}
+            <Tools help={help} setHelp={setHelp} openPalette={() => setPalette(true)} nav={nav} />
             </div>
-            <div className="hidden flex-none items-center gap-1.5 pb-2 md:flex">
-              <SegmentedControl label="Window" size="sm" value={ranged ? "" : span} onChange={setWindow}>
-                {windows.map((w) => (
-                  <SegmentedControlItem key={w.value} value={w.value} label={w.label} />
-                ))}
-              </SegmentedControl>
-              {help && <Key keys="w" />}
+          }
+          below={
+            <div className="flex items-center gap-2 pb-2.5">
+              <div className="min-w-0 flex-1">
+                <Selector label="Window" isLabelHidden size="sm" value={ranged ? undefined : span} placeholder="The dates chosen" onChange={setWindow} options={windows} width="100%" />
+              </div>
               <Tools help={help} setHelp={setHelp} openPalette={() => setPalette(true)} nav={nav} />
             </div>
-          </div>
-          <div className="flex items-center gap-2 pb-2.5 md:hidden">
-            <div className="min-w-0 flex-1">
-              <Selector label="Window" isLabelHidden size="sm" value={ranged ? undefined : span} placeholder="The dates chosen" onChange={setWindow} options={windows} width="100%" />
-            </div>
-            <Tools help={help} setHelp={setHelp} openPalette={() => setPalette(true)} nav={nav} />
-          </div>
-        </div>
-        {help && <Help ranged={ranged} span={span} filtered={route.person !== undefined || !!route.folder} />}
-        <StaleContext value={deferredParams !== params}>
-          <Suspense fallback={<Skeleton />}>
-            {route.screen === "overview" && <Overview {...props} />}
-            {route.screen === "activity" && <Activity {...props} />}
-            {route.screen === "people" && <People {...props} extra={extras?.people} />}
-            {route.screen === "map" && <MapScreen {...props} />}
-            {route.screen === "commits" && <Commits {...props} />}
-          </Suspense>
-        </StaleContext>
-        {route.screen !== "people" && extras?.[route.screen] && <div className="pt-4">{extras[route.screen]}</div>}
+          }
+        />
+        <Page>
+          {notice}
+          {help && <Help ranged={ranged} span={span} filtered={route.person !== undefined || !!route.folder} />}
+          <StaleContext value={deferredParams !== params}>
+            <ScreenMotion screen={route.screen}>
+              <Suspense fallback={<Skeleton />}>
+                {route.screen === "overview" && <Overview {...props} />}
+                {route.screen === "activity" && <Activity {...props} />}
+                {route.screen === "people" && <People {...props} extra={extras?.people} />}
+                {route.screen === "map" && <MapScreen {...props} />}
+                {route.screen === "commits" && <Commits {...props} />}
+              </Suspense>
+              {route.screen !== "people" && extras?.[route.screen] && <div className="pt-4">{extras[route.screen]}</div>}
+            </ScreenMotion>
+          </StaleContext>
+        </Page>
       </div>
       <Palette isOpen={palette} onOpenChange={setPalette} window={span} go={go} />
     </HelpContext>
+  );
+}
+
+/** The bar of screens, full width under the page's header and sticky under the top bar once the header scrolls away. */
+export function ScreenBar({ route, help = false, choose, end, below }: { route: Pick<Route, "screen">; help?: boolean; choose?: (s: Screen) => void; end?: ReactNode; below?: ReactNode }) {
+  const isWide = useWide();
+  const mark = useRef<HTMLDivElement>(null);
+  const [stuck, setStuck] = useState(false);
+  useEffect(() => {
+    const el = mark.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const seen = new IntersectionObserver(([e]) => setStuck(!!e && !e.isIntersecting), { rootMargin: "-54px 0px 0px 0px" });
+    seen.observe(el);
+    return () => seen.disconnect();
+  }, []);
+  return (
+    <>
+      <div ref={mark} aria-hidden className="h-0" />
+      <div data-stuck={stuck || undefined} className="screen-bar sticky top-[53px] z-10 border-b border-line bg-[color-mix(in_srgb,var(--color-background-body)_88%,transparent)] backdrop-blur-md backdrop-saturate-150 transition-shadow duration-200 data-[stuck]:shadow-[0_8px_24px_-16px_rgb(0_0_0/0.45)]">
+        <Page>
+          <div className="flex items-center gap-4">
+            <div className="min-w-0 flex-1">
+              <TabList value={route.screen} onChange={(s) => choose?.(s as Screen)} size="md">
+                {SCREENS.map((s, i) => {
+                  const Glyph = ICONS[s];
+                  return <Tab key={s} value={s} label={TITLES[s]} icon={<Glyph size={15} strokeWidth={2} aria-hidden />} endContent={help ? <Key keys={String(i + 1)} /> : undefined} />;
+                })}
+              </TabList>
+            </div>
+            {end && isWide !== false && <div className="hidden md:block">{end}</div>}
+          </div>
+          {below && isWide !== true && <div className="md:hidden">{below}</div>}
+        </Page>
+      </div>
+    </>
+  );
+}
+
+function useWide(): boolean | null {
+  const [wide, setWide] = useState<boolean | null>(null);
+  useEffect(() => {
+    const q = window.matchMedia("(min-width: 48rem)");
+    const set = () => setWide(q.matches);
+    set();
+    q.addEventListener("change", set);
+    return () => q.removeEventListener("change", set);
+  }, []);
+  return wide;
+}
+
+function ScreenMotion({ screen, children }: { screen: Screen; children: ReactNode }) {
+  return (
+    <AnimatePresence initial={false}>
+      <motion.div key={screen} initial={{ opacity: 0, y: DISTANCE.nudge }} animate={{ opacity: 1, y: 0 }} transition={{ duration: DURATION.base, ease: EASE.out }}>
+        {children}
+      </motion.div>
+    </AnimatePresence>
   );
 }
 

@@ -108,7 +108,19 @@ export const repositories = pgTable(
     pullsAt: text("pulls_at"),
     pullsReadAt: seconds("pulls_read_at"),
   },
-  (t) => [index("repositories_installation").on(t.installationId), index("repositories_seed").on(t.seed, t.reportAt)],
+  (t) => [index("repositories_installation").on(t.installationId), index("repositories_seed").on(t.seed, t.reportAt), index("repositories_github_id").on(t.githubId)],
+);
+
+export const repoNames = pgTable(
+  "repo_names",
+  {
+    id: text("id").primaryKey(),
+    repoId: text("repo_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    at: seconds("at").notNull(),
+  },
+  (t) => [index("repo_names_repo").on(t.repoId)],
 );
 
 export const builds = pgTable(

@@ -104,16 +104,20 @@ test("you in this repository: your place in each view, who is next, and everyone
   await page.getByRole("radio", { name: "Commits", exact: true }).click();
   await expect(board.getByRole("listitem")).toHaveCount(3);
   await expect(board.getByRole("listitem").first()).toContainText("Alice Example");
-  await expect(board.getByRole("listitem").first()).toContainText("you");
+  await expect(board.getByRole("listitem").first()).toHaveAttribute("aria-current", "true");
   await page.goto("/u/alice/acme/never-read");
-  await expect(page.getByText(/has no commits, pull requests or reviews in acme\/never-read|No Standings here|not read/).first()).toBeVisible();
+  await expect(page.getByText("GitHub shows no repository called acme/never-read")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Alice Example's profile" })).toHaveAttribute("href", "/u/alice");
 });
 
 test("a Profile shows its Archetype with the rule behind it, and every Achievement with what reaches it", async ({ page, request }) => {
   await page.goto("/u/alice");
   const archetype = page.getByRole("region", { name: "Archetype" });
-  await archetype.getByText("Every rule, in the order they are tried").click();
-  await expect(archetype.locator("dt")).toHaveText(["Reviewer", "Janitor", "Firefighter", "Night Owl", "Polyglot", "Weekend Warrior", "Marathoner", "Builder"]);
+  await archetype.getByRole("button", { name: "Every Archetype rule" }).click();
+  const rules = page.getByRole("dialog");
+  await expect(rules.locator("dt")).toHaveText([/Reviewer/, /Janitor/, /Firefighter/, /Night Owl/, /Polyglot/, /Weekend Warrior/, /Marathoner/, /Builder/]);
+  await expect(rules).toContainText("reviews given");
+  await page.keyboard.press("Escape");
   await expect(page.getByRole("region", { name: "Achievements" }).getByRole("listitem")).toHaveCount(10);
   await expect(page.getByText("A pull request of theirs merged into a repository with 10,000 stars or more, as it has now.")).toBeVisible();
   const card = await request.get("/api/cards/u/alice/archetype.svg");

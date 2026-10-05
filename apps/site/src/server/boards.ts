@@ -1,7 +1,8 @@
 import "@tanstack/react-start/server-only";
-import { and, asc, count, desc, eq, gt, gte, isNotNull, sql } from "drizzle-orm";
+import { and, eq, isNotNull } from "drizzle-orm";
 import type { Board, BoardRow, Boards } from "@commitscape/data";
 import { now, schema, type Db } from "@commitscape/server";
+import { distinctSeeds } from "./people-boards";
 
 const { repositories } = schema;
 const ROWS = 25;
@@ -10,29 +11,30 @@ let kept: { at: number; boards: Boards } | null = null;
 
 type Repo = typeof repositories.$inferSelect;
 
-/** The Leaderboards, ranked from the seed repositories' last Builds. */
+/** The Leaderboards, ranked from the seed repositories' last Builds; a renamed or moved repository counts once. */
 export async function leaderboards(db: Db, keepFor = 0): Promise<Boards> {
   if (keepFor > 0 && kept && kept.at > now() - keepFor) return kept.boards;
-  const built = and(eq(repositories.seed, true), isNotNull(repositories.reportAt));
-  const top = (where: ReturnType<typeof and>, ...order: ReturnType<typeof desc>[]) =>
-    db.select().from(repositories).where(where).orderBy(...order).limit(ROWS);
-  const [total] = await db.select({ n: count() }).from(repositories).where(built);
-  const [onePerson, maintainers, byCommits, byPeople, answers, oldest, newest] = await Promise.all([
-    top(and(built, eq(repositories.busFactor, 1)), desc(repositories.stars)),
-    top(and(built, gt(repositories.maintainers, 0)), desc(repositories.maintainers), desc(repositories.stars)),
-    top(and(built, gt(repositories.commits30d, 0)), desc(repositories.commits30d)),
-    top(and(built, gt(repositories.people30d, 0)), desc(repositories.people30d), desc(repositories.commits30d)),
-    top(and(built, isNotNull(repositories.answerHours), gte(repositories.answered, 10)), asc(repositories.answerHours)),
-    top(
-      and(built, gte(repositories.codeLines, 1000), isNotNull(repositories.busFactor)),
-      sql`cast(${repositories.untouched5y} as real) / ${repositories.codeLines} desc`,
-    ),
-    db.select({ at: sql<number>`max(${repositories.reportAt})` }).from(repositories).where(built),
-  ]);
+  const built = distinctSeeds(await db.select().from(repositories).where(and(eq(repositories.seed, true), eq(repositories.isPrivate, false), isNotNull(repositories.reportAt))));
+  const top = (keep: (r: Repo) => boolean, ...order: ((r: Repo) => number)[]) =>
+    built
+      .filter(keep)
+      .sort((x, y) => {
+        for (const o of order) if (o(y) !== o(x)) return o(y) - o(x);
+        return x.id.localeCompare(y.id);
+      })
+      .slice(0, ROWS);
+  const of = (v: number | null) => v ?? 0;
+  const share = (r: Repo) => (of(r.untouched5y) * 100) / Math.max(1, of(r.codeLines) || 1);
+  const onePerson = top((r) => r.busFactor === 1, (r) => of(r.stars));
+  const maintainers = top((r) => of(r.maintainers) > 0, (r) => of(r.maintainers), (r) => of(r.stars));
+  const byCommits = top((r) => of(r.commits30d) > 0, (r) => of(r.commits30d));
+  const byPeople = top((r) => of(r.people30d) > 0, (r) => of(r.people30d), (r) => of(r.commits30d));
+  const answers = top((r) => r.answerHours !== null && of(r.answered) >= 10, (r) => -of(r.answerHours));
+  const oldest = top((r) => of(r.codeLines) >= 1000 && r.busFactor !== null && of(r.untouched5y) > 0, share);
+  const newest = built.reduce((m, r) => Math.max(m, of(r.reportAt)), 0);
   const row = (r: Repo, value: number, shown: string): BoardRow => ({ owner: r.owner, name: r.name, language: r.language, stars: r.stars ?? 0, value, shown });
   const many = (n: number, one: string, more: string) => `${n.toLocaleString("en-US")} ${n === 1 ? one : more}`;
   const hours = (h: number) => (h < 1 ? `${Math.max(1, Math.round(h * 60))} min` : h < 48 ? `${Math.round(h)} h` : `${Math.round(h / 24)} days`);
-  const share = (r: Repo) => ((r.untouched5y ?? 0) * 100) / Math.max(1, r.codeLines ?? 1);
   const boards: Board[] = [
     {
       id: "one_person",
@@ -68,10 +70,10 @@ export async function leaderboards(db: Db, keepFor = 0): Promise<Boards> {
       id: "oldest_code",
       title: "Oldest code still running",
       how: "The share of today's lines of code in files nobody has changed for five years, in projects with commits in the last year; 1,000 lines or more.",
-      rows: oldest.map((r) => row(r, share(r), `${Math.round(share(r))}% of ${(r.codeLines ?? 0).toLocaleString("en-US")} lines`)),
+      rows: oldest.map((r) => row(r, share(r), `${share(r) < 1 ? "<1" : Math.round(share(r))}% of ${(r.codeLines ?? 0).toLocaleString("en-US")} lines`)),
     },
   ];
-  const result: Boards = { builtAt: Number(newest[0]?.at ?? 0), from: total?.n ?? 0, boards: boards };
+  const result: Boards = { builtAt: newest, from: built.length, boards: boards };
   kept = { at: now(), boards: result };
   return result;
 }

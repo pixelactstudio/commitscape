@@ -1,8 +1,8 @@
 import "@tanstack/react-start/server-only";
 import { Resvg } from "@resvg/resvg-js";
 import { and, eq } from "drizzle-orm";
-import { monthName, type AchievementCardData, type ArchetypeCardData, type CardImages, type WindowCardData, type WrappedCardData, type CardKind, type HallOfFameData, type Profile, type ProfileCardData, type StandingCardData, type VersusCardData } from "@commitscape/data";
-import { now, schema } from "@commitscape/server";
+import { monthName, type AchievementCardData, type ArchetypeCardData, type CardImages, type WindowCardData, type WrappedCardData, type CardKind, type Facts, type HallOfFameData, type Profile, type ProfileCardData, type StandingCardData, type VersusCardData } from "@commitscape/data";
+import { now, repoId, schema } from "@commitscape/server";
 import { CARD_DESIGN, CARDS, DEFAULT_STYLE, isOffered, placesFor, styleKey, topLine, type CardSpec, type CardStyle, type CardTheme } from "@commitscape/ui";
 import { renderCard, renderPending } from "@commitscape/ui/cards/render";
 import { SiteError } from "./http";
@@ -16,7 +16,7 @@ import { traitsOf } from "./traits";
 import { wrappedFor } from "./wrapped";
 import { versusOf } from "./versus";
 
-const { profiles } = schema;
+const { profiles, repositories } = schema;
 
 export const CARD_FOR = 6 * 3600;
 const PENDING_FOR = 60;
@@ -96,14 +96,27 @@ export async function standingCardData(deps: CardDeps, login: string, owner: str
   };
 }
 
-/** A public repository's people, for its hall of fame. */
+/** A public repository's people, for its hall of fame, with what GitHub says of the repository itself. */
 export async function hallOfFameData(deps: CardDeps, owner: string, repo: string): Promise<HallOfFameData> {
   const s = await standingsOf(deps, anonymous, owner, repo);
+  const id = repoId(s.repo.owner, s.repo.name);
+  const [row] = id ? await deps.db.select({ facts: repositories.facts, language: repositories.language }).from(repositories).where(eq(repositories.id, id)) : [];
+  const facts = factsOf(row?.facts ?? null);
+  const top = s.people.slice(0, 10);
   return {
-    repo: { owner: s.repo.owner, name: s.repo.name, stars: s.repo.stars },
-    people: s.people.slice(0, 10).map((r) => ({ login: r.login, name: r.name, surviving: r.surviving, prsMerged: r.prsMerged, commits: r.commits })),
+    repo: { owner: s.repo.owner, name: s.repo.name, stars: facts?.stars ?? s.repo.stars, forks: facts?.forks ?? null, description: facts?.description ?? null, language: facts?.languages[0]?.name ?? row?.language ?? null },
+    people: top.map((r) => ({ login: r.login, name: r.login && top.filter((o) => o.name === r.name).length > 1 ? `@${r.login}` : r.name, surviving: r.surviving, prsMerged: r.prsMerged, commits: r.commits })),
     total: s.people.length,
   };
+}
+
+function factsOf(text: string | null): Facts | null {
+  if (!text) return null;
+  try {
+    return JSON.parse(text) as Facts;
+  } catch {
+    return null;
+  }
 }
 
 function keyOf(kind: CardKind, subject: Subject, theme: CardTheme, format: Format, style: CardStyle = DEFAULT_STYLE): string {
@@ -158,7 +171,7 @@ async function draw(deps: CardDeps, kind: CardKind, subject: Subject, theme: Car
   } else if (kind === "hall-of-fame") {
     const d = await hallOfFameData(deps, subject.owner ?? "", subject.repo ?? "");
     data = d;
-    logins = d.people.map((p) => p.login);
+    logins = [d.repo.owner, ...d.people.map((p) => p.login)];
   } else if (kind === "standing") {
     data = await standingCardData(deps, subject.login ?? "", subject.owner ?? "", subject.repo ?? "");
     logins = [data.identity.login];

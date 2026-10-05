@@ -49,7 +49,12 @@ function SharedProof() {
           </Link>
         }
         title={`${name}'s Proof of Work`}
-        description={`${periodWords(work.from, work.to)}${work.filter ? `, in ${work.filter}` : ""}. Shared as it was on ${LONG.format(new Date(work.at * 1000))}: it does not change.`}
+        description={
+          <>
+            <span className="font-medium text-primary">{periodWords(work.from, work.to)}</span>
+            {work.filter ? `, only in ${work.filter}` : ", everywhere on GitHub"}. Shared as it was on {LONG.format(new Date(work.at * 1000))}: it does not change.
+          </>
+        }
         actions={
           <>
             <Button label="Copy link" variant="secondary" icon={<Icon icon={Link2} size="sm" />} onClick={() => void navigator.clipboard?.writeText(`${origin}/u/${work.login}/work/${id}`).then(() => toast("Link copied"))} />

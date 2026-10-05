@@ -20,11 +20,11 @@ export function Chip({ icon, children, title, tone }: { icon?: ReactNode; childr
 }
 
 /** A repository's hero: its owner's face, its name and what GitHub says of it, drawn at once from the lookup, with the page's actions. */
-export function RepoHero({ owner, name, facts, status, actions }: { owner: string; name: string; facts: Data | null; status?: ReactNode; actions?: ReactNode }) {
+export function RepoHero({ owner, name, facts, status, actions, attached = false }: { owner: string; name: string; facts: Data | null; status?: ReactNode; actions?: ReactNode; attached?: boolean }) {
   const language = facts?.languages[0]?.name;
   return (
-    <section className="face-backdrop relative overflow-hidden border-b border-line" style={{ "--face": `url(${avatarUrl(owner, 64)})` } as CSSProperties}>
-      <Page className="relative flex flex-col gap-6 pt-9 pb-7 md:flex-row md:items-end md:justify-between">
+    <section className={`face-backdrop relative overflow-hidden ${attached ? "" : "border-b border-line"}`} style={{ "--face": `url(${avatarUrl(owner, 64)})` } as CSSProperties}>
+      <Page className={`relative flex flex-col gap-6 pt-9 md:flex-row md:items-end md:justify-between ${attached ? "pb-6" : "pb-7"}`}>
         <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-center sm:gap-5">
           <img src={avatarUrl(owner, 96)} alt="" width={80} height={80} className="size-[4.5rem] flex-none rounded-[20px] bg-muted shadow-[0_0_0_4px_var(--color-background-body),0_12px_32px_-8px_rgb(0_0_0/0.35)] sm:size-[5rem]" />
           <div className="flex min-w-0 flex-col gap-2">

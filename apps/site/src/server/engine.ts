@@ -54,25 +54,35 @@ export async function engineOf(deps: Deps, viewer: Viewer & { login: () => Promi
     }
   }
   if (visible.length === 0) return { repos: [], surviving: null, added: null, counting: 0 };
+  const newestOf = new Map<string, (typeof rows)[number]["repo"]>();
+  const keyOf = (repo: (typeof rows)[number]["repo"]) => {
+    const { owner, name } = currentName(repo);
+    return `${owner}/${name}`.toLowerCase();
+  };
+  for (const v of visible) {
+    const kept = newestOf.get(keyOf(v.repo));
+    if (!kept || (v.repo.reportAt ?? 0) > (kept.reportAt ?? 0)) newestOf.set(keyOf(v.repo), v.repo);
+  }
+  const named = visible.filter((v) => newestOf.get(keyOf(v.repo))?.id === v.repo.id).map((v) => ({ ...v, ...currentName(v.repo) }));
   const counts = await deps.db
     .select()
     .from(surviving)
     .where(
       and(
-        inArray(surviving.repoId, visible.map((v) => v.repo.id)),
-        inArray(surviving.personId, visible.map((v) => v.person.personId)),
+        inArray(surviving.repoId, named.map((v) => v.repo.id)),
+        inArray(surviving.personId, named.map((v) => v.person.personId)),
       ),
     );
-  const countOf = (v: (typeof visible)[number]) => counts.find((c) => c.repoId === v.repo.id && c.reportKey === v.person.reportKey && c.personId === v.person.personId);
-  const wanted = visible.filter((v) => wantsCount(countOf(v), v.repo.reportLines));
+  const countOf = (v: (typeof named)[number]) => counts.find((c) => c.repoId === v.repo.id && c.reportKey === v.person.reportKey && c.personId === v.person.personId);
+  const wanted = named.filter((v) => wantsCount(countOf(v), v.repo.reportLines));
   const asked = new Set<string>();
   for (const v of wanted.slice(0, ASKED_AT_ONCE)) if (await askCounts(deps, viewer.address, v.repo.id, v.person.reportKey, [v.person.personId])) asked.add(v.repo.id);
-  const repos: EngineRepo[] = visible.map((v) => {
+  const repos: EngineRepo[] = named.map((v) => {
       const c = countOf(v);
       const status: EngineRepo["surviving"]["status"] = asked.has(v.repo.id) || c?.status === "queued" ? "counting" : c ? (c.status as EngineRepo["surviving"]["status"]) : "counting";
       return {
-        owner: v.repo.owner,
-        name: v.repo.name,
+        owner: v.owner,
+        name: v.name,
         private: v.repo.isPrivate,
         builtAt: v.repo.reportAt ?? 0,
         commits: v.person.commits,
@@ -87,6 +97,13 @@ export async function engineOf(deps: Deps, viewer: Viewer & { login: () => Promi
   for (const r of repos) groups.set(`${r.owner}/${r.name}`.toLowerCase(), [...(groups.get(`${r.owner}/${r.name}`.toLowerCase()) ?? []), r]);
   const merged = [...groups.values()].map(mergeRepo).sort((a, b) => (b.surviving.lines ?? -1) - (a.surviving.lines ?? -1) || b.commits - a.commits);
   return totalsOf(merged);
+}
+
+/** A repository's name as GitHub last gave it, which differs from its row's when it was renamed or moved since. */
+export function currentName(repo: { owner: string; name: string; facts: string | null }): { owner: string; name: string } {
+  const full = repo.facts ? (JSON.parse(repo.facts) as { fullName?: unknown }).fullName : null;
+  const [owner, name, more] = typeof full === "string" ? full.split("/") : [];
+  return owner && name && more === undefined ? { owner, name } : { owner: repo.owner, name: repo.name };
 }
 
 const STATUS_ORDER: EngineRepo["surviving"]["status"][] = ["counting", "stale", "over_budget", "failed", "not_counted", "counted"];

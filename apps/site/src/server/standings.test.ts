@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { now, schema, type SurvivalJob } from "@commitscape/server";
 import { fakeGitHub, testDeps, viewer } from "#/test/deps";
@@ -85,6 +86,19 @@ describe("Standings", () => {
     const again = await standingsOf(deps, anyone, "acme", "rocket");
     expect(again.people.find((r) => r.key === "alice")?.survivingStatus).toBe("counting");
     expect(counted.at(-1)?.personIds.sort()).toEqual([0, 1, 2]);
+  });
+
+  test("a person under two identities is counted only once both are, and both are asked for", async () => {
+    const deps = await seeded();
+    const counted: SurvivalJob[] = [];
+    deps.queue = async () => ({ send: async () => {}, count: async (job) => void counted.push(job) });
+    await deps.db.insert(repoPeople).values({ repoId: "acme/rocket", reportKey: "r/rocket/b1", personId: 7, name: "Alice at work", login: "alice", commits: 4, linesAdded: 40, linesRemoved: 4, first: 1, last: 2 });
+    const first = await standingsOf(deps, anyone, "acme", "rocket");
+    expect(first.people.find((r) => r.key === "alice")).toMatchObject({ commits: 34, surviving: null, survivingStatus: "counting" });
+    expect(counted.flatMap((j) => j.personIds)).toContain(7);
+    await deps.db.update(surviving).set({ status: "counted", lines: 20, added: 40 }).where(eq(surviving.personId, 7));
+    const both = await standingsOf(deps, anyone, "acme", "rocket");
+    expect(both.people.find((r) => r.key === "alice")).toMatchObject({ surviving: 420, survivingStatus: "counted" });
   });
 
   test("a repository not read yet has no Standings", async () => {

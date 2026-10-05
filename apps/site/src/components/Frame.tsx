@@ -11,6 +11,7 @@ import { Briefcase, Flag, Image as ImageIcon, LogOut, Menu, Monitor, Moon, Searc
 import { PRODUCT } from "@commitscape/data";
 import { Logo, useMode, type Mode } from "@commitscape/ui";
 import { signIn, signOut } from "#/lib/auth-client";
+import { Footer } from "#/components/Footer";
 import { SearchPalette } from "#/components/SearchPalette";
 
 const NAV = [
@@ -163,46 +164,5 @@ function MobileMenu() {
       presentation="adaptive"
       items={NAV.map((n) => ({ label: n.label, icon: n.icon, onClick: () => void router.navigate({ to: n.to as "/" }) }))}
     />
-  );
-}
-
-function Footer() {
-  const { user } = useRouteContext({ from: "__root__" });
-  return (
-    <footer className="border-t border-line">
-      <div className="mx-auto flex max-w-[var(--page)] flex-col gap-8 px-4 py-10 sm:px-6 md:flex-row md:justify-between">
-        <div className="flex max-w-xs flex-col gap-3">
-          <Link to="/" className="flex items-center gap-2 font-semibold text-primary no-underline">
-            <Logo size={22} />
-            {PRODUCT}
-          </Link>
-          <p className="m-0 text-sm text-secondary">What you have built, how you stand next to the people you build with, and cards to share it. Every number says what it counts.</p>
-        </div>
-        <nav aria-label="Footer" className="grid grid-cols-2 gap-x-12 gap-y-2 text-sm sm:grid-cols-3">
-          <FootLinks title="Explore" links={[["/leaderboards", "Leaderboards"], ["/vs", "Versus"], ["/races", "Races"], ["/crews", "Crews"]]} />
-          <FootLinks title="You" links={[[user ? `/u/${user.login}` : "/me", user ? "Your Profile" : "Sign in"], [user ? `/u/${user.login}/cards` : "/me", "Your Cards"], ["/me", "Settings"], ["/privacy", "What we keep"]]} />
-          <FootLinks title="Open source" links={[["https://github.com/pixelactstudio/commitscape", "Source"], ["https://github.com/pixelactstudio/commitscape#install", "The command line"], ["https://github.com/pixelactstudio/commitscape/blob/main/LICENSE-MIT", "MIT or Apache-2.0"]]} />
-        </nav>
-      </div>
-    </footer>
-  );
-}
-
-function FootLinks({ title, links }: { title: string; links: [string, string][] }) {
-  return (
-    <div className="flex flex-col gap-2">
-      <span className="font-medium text-primary">{title}</span>
-      {links.map(([to, label]) =>
-        to.startsWith("http") ? (
-          <a key={label} href={to} className="text-secondary no-underline hover:text-primary">
-            {label}
-          </a>
-        ) : (
-          <Link key={label} to={to as "/"} className="text-secondary no-underline hover:text-primary">
-            {label}
-          </Link>
-        ),
-      )}
-    </div>
   );
 }

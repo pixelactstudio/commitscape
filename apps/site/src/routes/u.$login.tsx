@@ -10,6 +10,7 @@ import { PRODUCT, type Identity } from "@commitscape/data";
 import {
   ArchetypePill,
   Cell,
+  clockState,
   CommitClock,
   HeadlineNumbers,
   LanguagesOverTime,
@@ -26,6 +27,7 @@ import {
   TipLayer,
   TraitsPanel,
 } from "@commitscape/ui";
+import { Reveal } from "@commitscape/ui/motion";
 import { engineQuery, fullProfileQuery, liveEngineQuery, traitsQuery, profileLookupQuery, profileQuery } from "#/lib/queries";
 import { Section } from "#/components/Boundary";
 import { Compare } from "#/components/Compare";
@@ -99,31 +101,29 @@ function ProfilePage() {
         <Section fallback={<PanelSkeleton title="The last year" height={196} />}>
           <Year login={id.login} />
         </Section>
-        <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
-          <Section fallback={<PanelSkeleton title="Over the years" height={276} />}>
-            <Years login={id.login} />
-          </Section>
-          <Section fallback={<PanelSkeleton title="Languages over the years" height={276} />}>
-            <Languages login={id.login} />
-          </Section>
-        </div>
-        <Section fallback={null}>
-          <Survival login={id.login} />
+        <Section fallback={<YearsSkeleton />}>
+          <Timeline login={id.login} />
         </Section>
-        <Section fallback={<PanelSkeleton title="Where their work is" height={8 * 57 + 34} />}>
-          <Work login={id.login} />
-        </Section>
-        <Section fallback={<PanelSkeleton title="Achievements" height={360} />}>
-          <Traits login={id.login} />
-        </Section>
-        <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr]">
-          <Section fallback={<PanelSkeleton title="The people they work with most" height={260} />}>
-            <People login={id.login} me={lookup.self ? null : undefined} />
+        <Reveal>
+          <Section fallback={null}>
+            <Survival login={id.login} />
           </Section>
-          <Section fallback={<PanelSkeleton title="When they commit" height={260} />}>
-            <Clock login={id.login} />
+        </Reveal>
+        <Reveal>
+          <Section fallback={<PanelSkeleton title="Where their work is" height={12 * 57 + 34} />}>
+            <Work login={id.login} />
           </Section>
-        </div>
+        </Reveal>
+        <Reveal>
+          <Section fallback={<PanelSkeleton title="Achievements" height={360} />}>
+            <Traits login={id.login} />
+          </Section>
+        </Reveal>
+        <Reveal>
+          <Section fallback={<TogetherSkeleton />}>
+            <Together login={id.login} />
+          </Section>
+        </Reveal>
         <Section fallback={<Skeleton height={16} width={420} radius={1} />}>
           <Read login={id.login} />
         </Section>
@@ -259,12 +259,27 @@ function Year({ login }: { login: string }) {
   return <LastYear profile={useProfile(login)} />;
 }
 
-function Years({ login }: { login: string }) {
-  return <OverTheYears profile={useProfile(login)} />;
+function YearsSkeleton() {
+  return (
+    <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+      <PanelSkeleton title="Over the years" height={440} />
+      <PanelSkeleton title="Languages over the years" height={440} />
+    </div>
+  );
 }
 
-function Languages({ login }: { login: string }) {
-  return <LanguagesOverTime profile={useProfile(login)} />;
+function Timeline({ login }: { login: string }) {
+  const profile = useProfile(login);
+  const mounted = useHydrated();
+  const full = useQuery({ ...fullProfileQuery(login), enabled: mounted });
+  const years = <OverTheYears profile={profile} full={mounted ? (full.data ?? null) : null} />;
+  if (profile.totals.contributions === 0 || !profile.years.some((y) => y.languages.length > 0)) return years;
+  return (
+    <div className="grid items-stretch gap-4 lg:grid-cols-[1.4fr_1fr]">
+      {years}
+      <LanguagesOverTime profile={profile} />
+    </div>
+  );
 }
 
 function Survival({ login }: { login: string }) {
@@ -280,15 +295,33 @@ function Work({ login }: { login: string }) {
 function Traits({ login }: { login: string }) {
   const router = useRouter();
   const { data } = useSuspenseQuery(traitsQuery(login));
-  return <TraitsPanel archetypes={data.archetypes} achievements={data.achievements} complete={data.complete} onCard={(id) => void router.navigate({ to: "/u/$login/cards", params: { login }, search: { card: `achievement-${id}` } as never })} />;
+  return <TraitsPanel archetypes={data.archetypes} achievements={data.achievements} complete={data.complete} checks={data.checks} onCard={(id) => void router.navigate({ to: "/u/$login/cards", params: { login }, search: { card: `achievement-${id}` } as never })} />;
 }
 
-function People({ login }: { login: string; me?: null }) {
-  return <PeoplePanel profile={useFullProfile(login)} versus={(other) => `/vs/${login}/${other}`} />;
+function TogetherSkeleton() {
+  return (
+    <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr]">
+      <PanelSkeleton title="The people they work with most" height={260} />
+      <PanelSkeleton title="When they commit" height={260} />
+    </div>
+  );
 }
 
-function Clock({ login }: { login: string }) {
-  return <CommitClock profile={useFullProfile(login)} />;
+function Together({ login }: { login: string }) {
+  const profile = useFullProfile(login);
+  const people = profile.partners.length > 0;
+  const clock = clockState(profile) !== "none";
+  const versus = (other: string) => `/vs/${login}/${other}`;
+  if (people && clock)
+    return (
+      <div className={`grid items-stretch gap-4 ${profile.partners.length > 6 ? "lg:grid-cols-[1.6fr_1fr]" : "lg:grid-cols-[1fr_1fr]"}`}>
+        <PeoplePanel profile={profile} versus={versus} />
+        <CommitClock profile={profile} />
+      </div>
+    );
+  if (people) return <PeoplePanel profile={profile} versus={versus} wide />;
+  if (clock) return <CommitClock profile={profile} wide />;
+  return null;
 }
 
 function Read({ login }: { login: string }) {
@@ -296,7 +329,7 @@ function Read({ login }: { login: string }) {
   const when = new Date(p.fetchedAt * 1000).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
   return (
     <p className="m-0 pt-2 text-xs text-secondary">
-      Read from GitHub {when} UTC{p.scope === "self" ? ", with your own sign-in: private work is shown to you alone" : ""}. Lines and partners come from the newest {p.read.prs.toLocaleString("en-US")} of {p.read.prsTotal.toLocaleString("en-US")} pull requests; the totals count them all.
+      Read from GitHub {when} UTC{p.scope === "self" ? ", with your own sign-in: private work is shown to you alone" : ""}.{p.read.prsTotal > 0 ? ` Lines and partners come from the newest ${p.read.prs.toLocaleString("en-US")} of ${p.read.prsTotal.toLocaleString("en-US")} pull requests; the totals count them all.` : ""}
     </p>
   );
 }

@@ -28,7 +28,7 @@ function step(n: number, b: number[]): number {
 const fill = (s: number) => (s === 0 ? "var(--empty)" : `var(--green-${s})`);
 
 /** A year of days as a grid of squares, a column a week from Monday, shaded by how much happened each day. */
-export function YearGrid({ firstDay, days, unit = "contributions", label }: { firstDay: number; days: number[]; unit?: string; label?: string }) {
+export function YearGrid({ firstDay, days, unit = "contributions", label, table = true }: { firstDay: number; days: number[]; unit?: string; label?: string; table?: boolean }) {
   const tip = useTip();
   const scroller = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -93,7 +93,7 @@ export function YearGrid({ firstDay, days, unit = "contributions", label }: { fi
         </svg>
       </div>
       <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-secondary">
-        <TableView head={["Day", unit]} rows={days.flatMap((n, i) => (n > 0 ? [[day(firstDay + i), n]] : []))} />
+        {table ? <TableView head={["Day", unit]} rows={days.flatMap((n, i) => (n > 0 ? [[day(firstDay + i), n]] : []))} /> : <span />}
         <span className="flex items-center gap-1.5">
           Less
           {[0, 1, 2, 3, 4].map((s) => (

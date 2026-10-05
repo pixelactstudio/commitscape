@@ -22,8 +22,13 @@ export function languagesSize(data: ProfileCardData) {
 
 export const STANDING_SIZE = { width: 600, height: 268 };
 
+/** How big a repository's hall of fame Card is for a number of people. */
+export function hallOfFameCardSize(people: number) {
+  return { width: 720, height: 262 + Math.max(1, Math.min(10, people)) * 40 };
+}
+
 export function hallOfFameSize(data: HallOfFameData) {
-  return { width: 720, height: 150 + Math.min(10, data.people.length) * 40 };
+  return hallOfFameCardSize(data.people.length);
 }
 
 export const PREVIEW_SIZE = { width: 1200, height: 630 };

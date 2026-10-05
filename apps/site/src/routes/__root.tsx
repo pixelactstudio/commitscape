@@ -10,6 +10,7 @@ import { LinkProvider } from "@astryxdesign/core/Link";
 import { ToastViewport } from "@astryxdesign/core/Toast";
 import { PRODUCT } from "@commitscape/data";
 import { commitscapeTheme, MODE_COOKIE, ModeContext, themeCss, type Mode } from "@commitscape/ui";
+import { MotionProvider } from "@commitscape/ui/motion";
 import styles from "@commitscape/ui/styles.css?url";
 import type { getViewer } from "#/functions/account";
 import { rememberViewer, viewer } from "#/lib/viewer";
@@ -89,9 +90,11 @@ function Root() {
         <LinkProvider component={RouterLink}>
           <ToastViewport>
             <Analytics>
-              <Frame>
-                <Outlet />
-              </Frame>
+              <MotionProvider>
+                <Frame>
+                  <Outlet />
+                </Frame>
+              </MotionProvider>
             </Analytics>
           </ToastViewport>
         </LinkProvider>

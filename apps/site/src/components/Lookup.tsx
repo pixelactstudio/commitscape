@@ -52,7 +52,7 @@ export function Lookup({ autoFocus = false, label = "Show me" }: { autoFocus?: b
             if (to) void navigate({ to: to as "/" });
           }}
           renderItem={(item) => <LookupRow item={item} selected={false} />}
-          status={wrong ? { type: "error", message: "Type a GitHub username, like gaearon, or a repository, like facebook/react." } : undefined}
+          status={wrong ? { type: "error", message: "Type a GitHub username, like gaearon, or a repository, like react/react." } : undefined}
           statusVariant="detached"
         />
       </div>

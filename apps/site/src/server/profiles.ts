@@ -10,6 +10,7 @@ const { people, profiles, user } = schema;
 
 export const PROFILE_FOR = 24 * 3600;
 export const PRS_READ = 3000;
+export const CLOCK_RETRY = 10 * 60;
 const PAGES_A_RANGE = 10;
 const AT_ONCE = 10;
 const YEARS_A_REQUEST = 2;
@@ -138,6 +139,30 @@ function identityOf(o: Owner): Identity {
 
 const isBot = (w: Who) => !w || w.__typename === "Bot" || w.login.endsWith("[bot]");
 const dayOf = (iso: string) => Math.floor(Date.parse(`${iso.slice(0, 10)}T00:00:00Z`) / 1000 / DAY);
+
+function withOutcomes(month: (key: string) => ProfileMonth, prs: Pick<PrRaw, "state" | "createdAt">[]) {
+  for (const pr of prs) {
+    const m = month(pr.createdAt.slice(0, 7));
+    m.prs ??= { merged: 0, open: 0, closed: 0 };
+    m.prs[pr.state === "MERGED" ? "merged" : pr.state === "OPEN" ? "open" : "closed"]++;
+  }
+}
+
+/** A stored Profile brought up to what the Site now draws: the pull requests opened each month, by how they ended, worked out from its pull requests when it was saved before those were counted. */
+export function upgraded(p: Profile): Profile {
+  if (!p.read.complete || p.prs.length === 0 || p.months.some((m) => m.prs)) return p;
+  const months = new Map(p.months.map((m) => [m.month, { ...m }]));
+  const month = (key: string) => {
+    let m = months.get(key);
+    if (!m) {
+      m = { month: key, contributions: 0, prsMerged: 0 };
+      months.set(key, m);
+    }
+    return m;
+  };
+  withOutcomes(month, p.prs);
+  return { ...p, months: [...months.values()].sort((a, b) => (a.month < b.month ? -1 : 1)) };
+}
 
 /** Turns GitHub's answers about a person into their Profile; private work stays in the totals only, unless it is for the person themselves. */
 export function assemble(owner: Owner, years: Record<string, YearRaw>, prs: PrRaw[] | null, reviewers: Who[][], scope: Profile["scope"], at: number, requests: number, clock: Profile["clock"] = null): Profile {
@@ -281,6 +306,7 @@ export function assemble(owner: Owner, years: Record<string, YearRaw>, prs: PrRa
     if (n > 0) month(new Date((firstDay + i) * DAY * 1000).toISOString().slice(0, 7)).contributions += n;
   });
   for (const pr of prs ?? []) if (pr.mergedAt) month(pr.mergedAt.slice(0, 7)).prsMerged++;
+  if (prs) withOutcomes(month, prs);
 
   const sum = (f: (y: ProfileYear) => number) => yearList.reduce((n, y) => n + f(y), 0);
   return {
@@ -310,7 +336,7 @@ export function assemble(owner: Owner, years: Record<string, YearRaw>, prs: PrRa
     repositories: [...repos.values()].sort((a, b) => b.prsMerged * 3 + b.commits + b.reviews - (a.prsMerged * 3 + a.commits + a.reviews)),
     partners: [...partners.values()].sort((a, b) => b.reviewedTheirs + b.reviewedYours - (a.reviewedTheirs + a.reviewedYours)).slice(0, 12),
     prs: keptPrs,
-    read: { prs: prs?.length ?? 0, prsTotal: (owner.merged?.totalCount ?? 0) + (owner.open?.totalCount ?? 0) + (owner.closed?.totalCount ?? 0), requests, complete: prs !== null },
+    read: { prs: prs?.length ?? 0, prsTotal: (owner.merged?.totalCount ?? 0) + (owner.open?.totalCount ?? 0) + (owner.closed?.totalCount ?? 0), requests, complete: prs !== null, ...(prs !== null ? { clockAt: at } : {}) },
     clock,
   };
 }
@@ -340,22 +366,35 @@ export function localHour(iso: string): number | null {
   return m ? Number(m[1]) : null;
 }
 
-async function fetchClock(gh: GraphQL, login: string): Promise<Profile["clock"]> {
+/** The weekday (Monday 0) and hour on each commit's own clock, from an ISO date with its offset. */
+export function localSlot(iso: string): { weekday: number; hour: number } | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):\d{2}/.exec(iso);
+  if (!m) return null;
+  const weekday = (new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))).getUTCDay() + 6) % 7;
+  return { weekday, hour: Number(m[4]) };
+}
+
+/** When a person's newest 100 commits were made, by hour and by weekday and hour; null when GitHub did not answer, never mistaken for "no commits". */
+export async function fetchClock(gh: GraphQL, login: string): Promise<Profile["clock"]> {
   if (gh.count) gh.count.requests++;
   const answer = await (gh.fetcher ?? fetch)(`${gh.api.replace(/\/$/, "")}/search/commits?q=${encodeURIComponent(`author:${login}`)}&sort=author-date&order=desc&per_page=100`, {
     headers: { accept: "application/vnd.github+json", "user-agent": "commitscape", "x-github-api-version": "2022-11-28", ...(gh.token ? { authorization: `Bearer ${gh.token}` } : {}) },
   }).catch(() => null);
   if (!answer?.ok) return null;
   const body = (await answer.json().catch(() => null)) as { items?: { commit: { author: { date: string } | null } }[] } | null;
+  if (!body || !Array.isArray(body.items)) return null;
   const hours = Array(24).fill(0) as number[];
+  const week = Array.from({ length: 7 }, () => Array(24).fill(0) as number[]);
   let sampled = 0;
-  for (const c of body?.items ?? []) {
-    const h = c.commit.author ? localHour(c.commit.author.date) : null;
-    if (h === null) continue;
-    hours[h] = (hours[h] ?? 0) + 1;
+  for (const c of body.items) {
+    const slot = c.commit.author ? localSlot(c.commit.author.date) : null;
+    if (!slot) continue;
+    hours[slot.hour] = (hours[slot.hour] ?? 0) + 1;
+    const row = week[slot.weekday];
+    if (row) row[slot.hour] = (row[slot.hour] ?? 0) + 1;
     sampled++;
   }
-  return { hours, sampled };
+  return { hours, sampled, week };
 }
 
 async function fetchPrs(gh: GraphQL, raw: Raw): Promise<{ prs: PrRaw[]; reviewers: Who[][]; clock: Profile["clock"] }> {
@@ -497,16 +536,27 @@ export async function readProfile(deps: ProfileDeps, viewer: ProfileViewer, logi
   if (chosen.hidden && scope !== "self") throw new SiteError(404, "This person has chosen to stay out of comparisons, so their Profile is hidden.");
   if (chosen.namePrivate && scope === "public") {
     const own = await stored(deps.db, login, "self");
-    const kept = own?.data ? (JSON.parse(own.data) as Profile) : null;
+    const kept = own?.data ? upgraded(JSON.parse(own.data) as Profile) : null;
     if (kept && (!full || kept.read.complete)) return { ...kept, scope: "public", read: { ...kept.read, requests: 0 } };
   }
   const kept = await stored(deps.db, login, scope);
   const fresh = !!kept?.data && (kept.fetchedAt ?? 0) > now() - PROFILE_FOR;
-  const keptProfile = kept?.data ? (JSON.parse(kept.data) as Profile) : null;
-  if (fresh && keptProfile && (!full || keptProfile.read.complete)) return { ...keptProfile, read: { ...keptProfile.read, requests: 0 } };
+  const keptProfile = kept?.data ? upgraded(JSON.parse(kept.data) as Profile) : null;
   const key = `${login.toLowerCase()}:${scope}`;
   const count = { requests: 0 };
   const client = async () => gh(deps, await viewer.token().catch(() => null), count);
+  if (fresh && keptProfile && (!full || keptProfile.read.complete)) {
+    if (full && kept?.raw && !keptProfile.clock?.week && (keptProfile.read.clockAt ?? 0) <= now() - CLOCK_RETRY) {
+      const raw = kept.raw;
+      return once(`${key}:clock`, async () => {
+        const clock = await fetchClock(await client(), keptProfile.identity.login);
+        const patched: Profile = { ...keptProfile, clock, read: { ...keptProfile.read, clockAt: now() } };
+        await save(deps.db, scope, patched, JSON.parse(raw) as Raw);
+        return { ...patched, read: { ...patched.read, requests: count.requests } };
+      }).catch(() => ({ ...keptProfile, read: { ...keptProfile.read, requests: 0 } }));
+    }
+    return { ...keptProfile, read: { ...keptProfile.read, requests: 0 } };
+  }
   try {
     const raw =
       fresh && kept?.raw

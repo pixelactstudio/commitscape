@@ -12,7 +12,7 @@ const EXAMPLES: Visit[] = [
   { kind: "person", id: "gaearon" },
   { kind: "person", id: "torvalds" },
   { kind: "person", id: "sindresorhus" },
-  { kind: "repo", id: "facebook/react" },
+  { kind: "repo", id: "react/react" },
 ];
 
 function visitItem(v: Visit, group: string): Item {

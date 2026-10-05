@@ -71,6 +71,13 @@
       "when": 1791123159514,
       "tag": "0009_races_and_crews",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791150880489,
+      "tag": "0010_repo_names",
+      "breakpoints": true
     }
   ]
 }

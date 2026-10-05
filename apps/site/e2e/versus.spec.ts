@@ -18,13 +18,18 @@ async function sql(text: string) {
 
 test("two people side by side, a winner for each view, and their Card", async ({ page, request }) => {
   await page.goto("/vs/alice/bob");
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("View by view");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("alice versus bob");
+  await expect(page.getByRole("heading", { name: "View by view" })).toBeVisible();
   const row = (label: string) => page.getByRole("listitem").filter({ hasText: label });
   await expect(row("Commits")).toContainText("30");
   await expect(row("Commits")).toContainText("40");
   await expect(row("Commits").getByLabel("leads this view")).toHaveCount(1);
   await expect(row("Reviews given")).toContainText("5");
   await expect(page.locator("body")).not.toContainText(/wins \d|\d+ views? won|overall winner:|leads \d+ views?/i);
+  await page.getByRole("radio", { name: "Full" }).click();
+  await expect(page).toHaveURL(/view=full/);
+  await expect(page.getByRole("region", { name: "The last year" })).toBeAttached();
+  await expect(page.getByRole("region", { name: "Where both work" })).toBeAttached();
   const card = await request.get("/api/cards/vs/alice/bob/versus.png");
   expect(card.headers()["content-type"]).toBe("image/png");
   await page.goto("/vs/alice/nobody-here");

@@ -2,7 +2,7 @@ import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { Panel } from "../kit/layout";
 import { CommitsLoading } from "../screens/Commits";
 import { NARROW, WIDE } from "../screens/Map";
-import { CONTRIBUTORS_SHOWN, FOLDERS_SHOWN } from "../screens/Overview";
+import { CONTRIBUTORS_SHOWN } from "../screens/Overview";
 import { NumberCell, NumberStrip, ScreenFrame } from "../screens/kit";
 
 function line(width: string | number, index: number, height = 14) {
@@ -61,9 +61,6 @@ export function OverviewSkeleton() {
           <div className="flex h-[53px] items-center border-t border-line px-5">{line(220, 0, 11)}</div>
         </Panel>
         <div className="flex min-w-0 flex-col gap-4">
-          <Panel title="Where the work is" description={"\u00a0"}>
-            <Bars count={FOLDERS_SHOWN} />
-          </Panel>
           <Panel title="Languages" description="Lines of code at HEAD">
             <div className="flex flex-col gap-4">
               <Skeleton height={10} radius="rounded" />
@@ -78,6 +75,15 @@ export function OverviewSkeleton() {
           </Panel>
         </div>
       </div>
+      <Panel title="Where the work is" description={"\u00a0"}>
+        <div className="flex h-[30px] items-center">{line(120, 0, 14)}</div>
+        <div className="grid items-center gap-x-10 gap-y-5 md:grid-cols-[minmax(0,19rem)_minmax(0,1fr)] lg:grid-cols-[minmax(0,21rem)_minmax(0,1fr)]">
+          <div className="mx-auto aspect-square w-full max-w-[21rem]">
+            <Skeleton height="100%" radius="rounded" index={1} />
+          </div>
+          <Bars count={6} />
+        </div>
+      </Panel>
       <Panel title="Commits over time" description={"\u00a0"}>
         <div className="flex flex-col gap-1">
           <Skeleton height={240} index={3} />
@@ -127,14 +133,9 @@ export function ActivitySkeleton() {
           <Skeleton height={280} index={1} />
         </div>
       </Panel>
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-        <Panel title="When the work happens" description={"\u00a0"}>
-          <Skeleton height={200} index={2} />
-        </Panel>
-        <Panel title="Kinds of work" description={"\u00a0"}>
-          <Bars count={5} />
-        </Panel>
-      </div>
+      <Panel title="When the work happens" description={"\u00a0"}>
+        <Skeleton height={260} index={2} />
+      </Panel>
     </ScreenFrame>
   );
 }

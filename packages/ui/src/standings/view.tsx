@@ -115,6 +115,11 @@ export function Leaderboard({ standings, focus, view, onView, link = true }: { s
   const pinned = !all && you >= SHOWN ? sorted[you] : null;
   const { owner, name } = standings.repo;
   const meta = VIEWS.find((v) => v.id === by);
+  const twins = useMemo(() => {
+    const seen = new Map<string, number>();
+    for (const r of standings.people) seen.set(r.name, (seen.get(r.name) ?? 0) + 1);
+    return new Set([...seen].filter(([, n]) => n > 1).map(([n]) => n));
+  }, [standings]);
   return (
     <Panel
       padding={0}
@@ -132,14 +137,14 @@ export function Leaderboard({ standings, focus, view, onView, link = true }: { s
     >
       <ol className="m-0 list-none p-0">
         {rows.map((r) => (
-          <Entry key={r.key} r={r} place={places[by].get(r.key)} value={valueOf(r, by)} top={top} view={by} you={r.login?.toLowerCase() === focused || r.you} owner={owner} name={name} link={link} />
+          <Entry key={r.key} r={r} place={places[by].get(r.key)} value={valueOf(r, by)} top={top} view={by} you={r.login?.toLowerCase() === focused || r.you} owner={owner} name={name} link={link} alias={twins.has(r.name)} />
         ))}
         {pinned && (
           <>
             <li className="border-t border-dashed border-line px-5 py-1 text-center text-xs text-secondary" aria-hidden>
               ⋯
             </li>
-            <Entry r={pinned} place={places[by].get(pinned.key)} value={valueOf(pinned, by)} top={top} view={by} you owner={owner} name={name} link={link} />
+            <Entry r={pinned} place={places[by].get(pinned.key)} value={valueOf(pinned, by)} top={top} view={by} you owner={owner} name={name} link={link} alias={twins.has(pinned.name)} />
           </>
         )}
       </ol>
@@ -151,7 +156,7 @@ export function Leaderboard({ standings, focus, view, onView, link = true }: { s
   );
 }
 
-function Entry({ r, place, value, top, view, you, owner, name, link }: { r: StandingRow; place: Place | undefined; value: number | null; top: number; view: View; you: boolean; owner: string; name: string; link: boolean }) {
+function Entry({ r, place, value, top, view, you, owner, name, link, alias }: { r: StandingRow; place: Place | undefined; value: number | null; top: number; view: View; you: boolean; owner: string; name: string; link: boolean; alias: boolean }) {
   const medal = place && place.place <= 3 ? ["#e8b931", "#b8bec7", "#c98a54"][place.place - 1] : null;
   const body = (
     <>
@@ -159,8 +164,9 @@ function Entry({ r, place, value, top, view, you, owner, name, link }: { r: Stan
       <Face login={r.login} name={r.name} size={32} />
       <span className="flex min-w-0 flex-1 flex-col gap-1">
         <span className="flex items-center gap-2 truncate text-sm font-medium">
-          {r.name}
-          {you && <span className="rounded-full bg-brand px-1.5 py-px text-[0.65rem] font-semibold text-[var(--color-background-body)]">you</span>}
+          <span className="truncate">{r.name}</span>
+          {alias && r.login && <span className="truncate text-xs font-normal text-secondary">@{r.login}</span>}
+          {r.you && <span className="rounded-full bg-brand px-1.5 py-px text-[0.65rem] font-semibold text-[var(--color-background-body)]">you</span>}
         </span>
         <span className="block h-1 w-full max-w-md overflow-hidden rounded-full bg-[var(--color-track)]" aria-hidden>
           <span className={`block h-full rounded-full ${you ? "bg-brand" : "bg-[var(--color-text-secondary)] opacity-50"}`} style={{ width: `${((value ?? 0) * 100) / top}%` }} />
@@ -170,7 +176,7 @@ function Entry({ r, place, value, top, view, you, owner, name, link }: { r: Stan
     </>
   );
   return (
-    <li className={`border-t border-line ${you ? "bg-brand-soft" : ""}`}>
+    <li className={`border-t border-line ${you ? "bg-brand-soft" : ""}`} aria-current={you || undefined}>
       {link && r.login ? (
         <A href={`/u/${r.login}/${owner}/${name}`} className="flex items-center gap-3 px-5 py-2.5 text-primary no-underline transition-colors hover:bg-[var(--color-overlay-hover)]">
           {body}

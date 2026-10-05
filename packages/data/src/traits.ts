@@ -29,18 +29,45 @@ function lastYear(input: TraitInput): { day: number; n: number }[] {
   return days.slice(-365).map((n, i, all) => ({ day: firstDay + days.length - all.length + i, n }));
 }
 
-const RULES: (Archetype & { test: (i: TraitInput) => boolean })[] = [
+const n = (v: number) => v.toLocaleString("en-US");
+const pct = (part: number, whole: number) => `${whole > 0 ? Math.round((part * 100) / whole) : 0}%`;
+
+function weekendDays(i: TraitInput) {
+  const active = lastYear(i).filter((d) => d.n > 0);
+  return { active: active.length, weekend: active.filter((d) => (d.day + 4) % 7 === 6 || (d.day + 4) % 7 === 0).length };
+}
+
+function languageShares(i: TraitInput) {
+  const by = new Map<string, number>();
+  for (const y of i.years) for (const l of y.languages) by.set(l.name, (by.get(l.name) ?? 0) + l.commits);
+  const all = [...by.values()].reduce((a, b) => a + b, 0);
+  return { all, big: [...by.entries()].filter(([, v]) => v * 20 >= all && all > 0).map(([k]) => k) };
+}
+
+function nightShare(i: TraitInput) {
+  const night = [22, 23, 0, 1, 2, 3, 4].reduce((s, h) => s + (i.clock?.hours[h] ?? 0), 0);
+  return { night, sampled: i.clock?.sampled ?? 0 };
+}
+
+function fixShare(i: TraitInput) {
+  const merged = i.prs.filter((p) => p.state === "MERGED" && p.repo !== "");
+  return { merged: merged.length, fixes: merged.filter((p) => isFix(p.title)).length };
+}
+
+const RULES: (Archetype & { test: (i: TraitInput) => boolean; measure: (i: TraitInput) => string })[] = [
   {
     id: "reviewer",
     title: "Reviewer",
     rule: "Gave more reviews than they opened pull requests, and at least 20 reviews.",
     test: (i) => i.totals.reviews >= 20 && i.totals.reviews > i.totals.prsOpened,
+    measure: (i) => `${n(i.totals.reviews)} reviews given, ${n(i.totals.prsOpened)} pull requests opened`,
   },
   {
     id: "janitor",
     title: "Janitor",
     rule: "Removed more lines than they added in their merged pull requests, and at least 1,000 lines.",
     test: (i) => i.totals.linesRemoved !== null && i.totals.linesAdded !== null && i.totals.linesRemoved >= 1000 && i.totals.linesRemoved > i.totals.linesAdded,
+    measure: (i) => (i.totals.linesAdded === null || i.totals.linesRemoved === null ? "Lines not read yet" : `${n(i.totals.linesRemoved)} lines removed, ${n(i.totals.linesAdded)} added`),
   },
   {
     id: "firefighter",
@@ -51,6 +78,10 @@ const RULES: (Archetype & { test: (i: TraitInput) => boolean })[] = [
       const fixes = merged.filter((p) => isFix(p.title)).length;
       return fixes >= 10 && fixes * 2 >= merged.length;
     },
+    measure: (i) => {
+      const f = fixShare(i);
+      return `${n(f.fixes)} fixes in ${n(f.merged)} merged pull requests read (${pct(f.fixes, f.merged)})`;
+    },
   },
   {
     id: "night-owl",
@@ -60,6 +91,10 @@ const RULES: (Archetype & { test: (i: TraitInput) => boolean })[] = [
       if (!i.clock || i.clock.sampled < 30) return false;
       const night = [22, 23, 0, 1, 2, 3, 4].reduce((n, h) => n + (i.clock?.hours[h] ?? 0), 0);
       return night * 100 >= i.clock.sampled * 40;
+    },
+    measure: (i) => {
+      const s = nightShare(i);
+      return i.clock ? `${n(s.night)} of ${n(s.sampled)} commits at night (${pct(s.night, s.sampled)})` : "Commit times not read";
     },
   },
   {
@@ -72,6 +107,10 @@ const RULES: (Archetype & { test: (i: TraitInput) => boolean })[] = [
       const all = [...by.values()].reduce((a, b) => a + b, 0);
       return all > 0 && [...by.values()].filter((n) => n * 20 >= all).length >= 5;
     },
+    measure: (i) => {
+      const l = languageShares(i);
+      return l.big.length > 0 ? `${l.big.length} at 5% or more: ${l.big.join(", ")}` : "No language read yet";
+    },
   },
   {
     id: "weekend",
@@ -82,18 +121,24 @@ const RULES: (Archetype & { test: (i: TraitInput) => boolean })[] = [
       const weekend = active.filter((d) => (d.day + 4) % 7 === 6 || (d.day + 4) % 7 === 0).length;
       return active.length >= 30 && weekend * 100 >= active.length * 40;
     },
+    measure: (i) => {
+      const w = weekendDays(i);
+      return `${n(w.weekend)} of ${n(w.active)} active days on a weekend (${pct(w.weekend, w.active)})`;
+    },
   },
   {
     id: "marathoner",
     title: "Marathoner",
     rule: "A streak of 30 days or more in a row with a contribution.",
     test: (i) => i.totals.longestStreak >= 30,
+    measure: (i) => `Longest streak ${n(i.totals.longestStreak)} ${i.totals.longestStreak === 1 ? "day" : "days"}`,
   },
   {
     id: "builder",
     title: "Builder",
     rule: "Merged 25 or more pull requests, adding at least twice the lines they removed.",
     test: (i) => i.totals.prsMerged >= 25 && i.totals.linesAdded !== null && i.totals.linesRemoved !== null && i.totals.linesAdded >= 2 * i.totals.linesRemoved,
+    measure: (i) => `${n(i.totals.prsMerged)} merged${i.totals.linesAdded !== null && i.totals.linesRemoved !== null ? `, ${n(i.totals.linesAdded)} lines added to ${n(i.totals.linesRemoved)} removed` : ""}`,
   },
 ];
 
@@ -104,6 +149,14 @@ export const ARCHETYPES: Archetype[] = RULES.map(({ id, title, rule }) => ({ id,
 export function archetypesOf(input: TraitInput): Archetype[] {
   if (input.totals.contributions < ARCHETYPE_MINIMUM) return [];
   return RULES.filter((r) => r.test(input)).map(({ id, title, rule }) => ({ id, title, rule }));
+}
+
+export type ArchetypeCheck = Archetype & { met: boolean; numbers: string };
+
+/** Every Archetype rule in the order they are tried, whether this person meets it, and the numbers it was tried on. */
+export function archetypeChecks(input: TraitInput): ArchetypeCheck[] {
+  const enough = input.totals.contributions >= ARCHETYPE_MINIMUM;
+  return RULES.map(({ id, title, rule, test, measure }) => ({ id, title, rule, met: enough && test(input), numbers: measure(input) }));
 }
 
 export type AchievementId = "star-10k" | "prs-100" | "prs-1000" | "reviews-100" | "reviews-1000" | "demolition" | "streak-30" | "streak-100" | "surviving-10k" | "survivor-5y";

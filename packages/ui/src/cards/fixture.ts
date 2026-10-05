@@ -35,7 +35,7 @@ export const STANDING: StandingCardData = {
 };
 
 export const HALL: HallOfFameData = {
-  repo: { owner: "BurntSushi", name: "ripgrep", stars: 68_826 },
+  repo: { owner: "BurntSushi", name: "ripgrep", stars: 68_826, forks: 2_412, description: "ripgrep recursively searches directories for a regex pattern while respecting your gitignore", language: "Rust" },
   people: [
     { login: "BurntSushi", name: "Andrew Gallant", surviving: 61_148, prsMerged: 106, commits: 1_551 },
     { login: "dana", name: "dana", surviving: 893, prsMerged: 33, commits: 56 },
@@ -95,9 +95,14 @@ export const WRAPPED: WrappedCardData = {
   activeDays: 263,
   longestStreak: 33,
   busiest: { day: "2026-09-19", contributions: 161 },
-  languages: [{ name: "TypeScript", commits: 2600 }],
+  languages: [{ name: "TypeScript", commits: 2600, colour: "#3178c6" }],
   repositories: [{ repo: "acme/rocket", commits: 900, private: false }],
+  mergedIn: [{ repo: "acme/rocket", prs: 581, private: false }],
   months: [100, 200, 300, 400, 500, 600, 700, 800, 900, 417, 0, 0],
+  weekdays: [900, 880, 860, 840, 800, 330, 307],
+  merges: [20, 30, 40, 50, 60, 70, 80, 90, 100, 41, 0, 0],
+  opened: { merged: 560, closed: 30, open: 10 },
+  biggest: { repo: "acme/rocket", number: 42, title: "Ship the engine", additions: 12_000, deletions: 3_000, private: false },
   calendar: { firstDay: Date.UTC(2026, 0, 1) / 86_400_000, days: Array.from({ length: 365 }, (_, i) => (i > 276 ? 0 : (i * 7) % 13)) },
   complete: true,
 };

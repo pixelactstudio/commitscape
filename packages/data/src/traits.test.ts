@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { ProfilePr } from "./profile";
-import { achievementsOf, archetypesOf, isFix, type TraitInput } from "./traits";
+import { achievementsOf, archetypeChecks, archetypesOf, isFix, type TraitInput } from "./traits";
 
 const NOW = Date.UTC(2026, 9, 4) / 1000;
 
@@ -157,4 +157,13 @@ describe("Achievements, each rule at its edges", () => {
     expect(achievementsOf(input({ engine: { surviving: 10, oldest: Date.UTC(2019, 4, 2) / 1000 } })).find((a) => a.id === "survivor-5y")).toMatchObject({ earned: true, at: "2019-05-02" });
     expect(earned(input({ engine: null }))).toEqual([]);
   });
+});
+
+test("every rule's check says whether it is met and the numbers it was tried on", () => {
+  const checks = archetypeChecks(input({}, { reviews: 31, prsOpened: 12, longestStreak: 40 }));
+  expect(checks.map((c) => c.id)).toEqual(["reviewer", "janitor", "firefighter", "night-owl", "polyglot", "weekend", "marathoner", "builder"]);
+  expect(checks.filter((c) => c.met).map((c) => c.id)).toEqual(ids(input({}, { reviews: 31, prsOpened: 12, longestStreak: 40 })));
+  expect(checks[0]?.numbers).toBe("31 reviews given, 12 pull requests opened");
+  expect(checks[3]?.numbers).toBe("Commit times not read");
+  expect(archetypeChecks(input({}, { reviews: 500, contributions: 49 })).some((c) => c.met)).toBe(false);
 });

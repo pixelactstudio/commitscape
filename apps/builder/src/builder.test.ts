@@ -226,14 +226,14 @@ test("the seed list is the most starred per language, each once", async () => {
   const fetcher = (async (url: string) => {
     asked.push(decodeURIComponent(url));
     const both = [
-      { full_name: "a/one", stargazers_count: 900, size: 10 },
+      { id: 1, full_name: "a/one", stargazers_count: 900, size: 10 },
       { full_name: "b/two", stargazers_count: 500, size: 20 },
     ];
     return new Response(JSON.stringify({ items: url.includes("Rust") ? both : both.slice(0, 1) }));
   }) as unknown as typeof fetch;
   const list = await seedList({ languages: ["Rust", "Go"], perLanguage: 2, budget: 5, api: "http://gh", token: undefined }, fetcher);
   expect(list).toEqual([
-    { owner: "a", name: "one", language: "Rust", stars: 900, sizeKb: 10 },
+    { owner: "a", name: "one", language: "Rust", stars: 900, sizeKb: 10, githubId: 1 },
     { owner: "b", name: "two", language: "Rust", stars: 500, sizeKb: 20 },
   ]);
   expect(asked[0]).toContain('q=language:"Rust" archived:false fork:false&sort=stars&order=desc&per_page=2');

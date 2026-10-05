@@ -1,14 +1,14 @@
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { Spinner } from "@astryxdesign/core/Spinner";
 import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, redirect, useNavigate } from "@tanstack/react-router";
 import { Check, Download, ExternalLink, History, Share2 } from "lucide-react";
 import { FAILURE_WORDS, PRODUCT, type Lookup, type View } from "@commitscape/data";
-import { App, Leaderboard, Page, Panel, ScreenSkeleton, SourceContext, toRoute, toSearch, type Route as Where } from "@commitscape/ui";
+import { App, hallOfFameCardSize, Leaderboard, Page, Panel, SCREEN_SKELETONS, ScreenBar, SourceContext, toRoute, toSearch, type Route as Where } from "@commitscape/ui";
 import { startBuild } from "#/functions/repos";
 import { lookupQuery, reportHeadQuery, running, standingsQuery } from "#/lib/queries";
 import { siteSource } from "#/lib/source";
@@ -34,6 +34,7 @@ export const Route = createFileRoute("/gh/$owner/$repo")({
   validateSearch: (search: Record<string, unknown>) => toSearch(search),
   loader: async ({ params, context }) => {
     const lookup = await context.queryClient.ensureQueryData(lookupQuery(params.owner, params.repo));
+    if (lookup.id !== `${params.owner}/${params.repo}`.toLowerCase()) throw redirect({ to: "/gh/$owner/$repo", params: { owner: lookup.owner, repo: lookup.name }, search: true, replace: true });
     return {
       name: `${lookup.owner}/${lookup.name}`,
       description: lookup.facts?.description ?? null,
@@ -99,6 +100,7 @@ function Repository() {
   return (
     <>
       <RepoHero
+        attached={!!lookup.report}
         owner={lookup.owner}
         name={lookup.name}
         facts={lookup.facts}
@@ -114,44 +116,48 @@ function Repository() {
           </>
         }
       />
-      <Page className="pb-6">
-        {lookup.report ? (
-          <>
-            {!lookup.report.lines && (
-              <div className="pt-5 pb-2">
-                <Banner
-                  status="info"
-                  title={busy ? "A fresh read that counts every line is under way." : "A fresh read with line counts is on its way."}
-                  description="This Report was written before every line was counted, so lines added, removed and still running are left out below until the new one lands. The page updates by itself."
-                />
-              </div>
-            )}
-            <Suspense fallback={<ReportSkeleton />}>
-              <Report owner={owner} repo={repo} at={lookup.report.at} />
-            </Suspense>
-          </>
-        ) : (
+      {lookup.report ? (
+        <Suspense fallback={<ReportSkeleton />}>
+          <Report
+            owner={owner}
+            repo={repo}
+            at={lookup.report.at}
+            notice={
+              !lookup.report.lines && (
+                <div className="pt-5">
+                  <Banner
+                    status="info"
+                    title={busy ? "A fresh read that counts every line is under way." : "A fresh read with line counts is on its way."}
+                    description="This Report was written before every line was counted, so lines added, removed and still running are left out below until the new one lands. The page updates by itself."
+                  />
+                </div>
+              )
+            }
+          />
+        </Suspense>
+      ) : (
+        <Page className="pb-6">
           <Waiting lookup={lookup} owner={owner} repo={repo} error={build.error?.message ?? null} />
-        )}
-      </Page>
+        </Page>
+      )}
     </>
   );
 }
 
 function ReportSkeleton() {
+  const where = toRoute(Route.useSearch());
+  const Screen = SCREEN_SKELETONS[where.screen];
   return (
-    <div aria-busy="true" aria-label="Loading the Report">
-      <div className="-mx-4 flex h-[37px] items-center gap-6 border-b border-line px-4 sm:-mx-6 sm:px-6">
-        {[64, 52, 58, 36, 64].map((w, i) => (
-          <Skeleton key={i} height={14} width={w} radius={1} index={i} />
-        ))}
-      </div>
-      <ScreenSkeleton />
+    <div aria-busy="true" aria-label="Loading the Report" className="pb-16">
+      <ScreenBar route={where} />
+      <Page>
+        <Screen />
+      </Page>
     </div>
   );
 }
 
-function Report({ owner, repo, at }: { owner: string; repo: string; at: number }) {
+function Report({ owner, repo, at, notice }: { owner: string; repo: string; at: number; notice?: ReactNode }) {
   const where = toRoute(Route.useSearch());
   const navigate = useNavigate({ from: Route.fullPath });
   const { card } = Route.useLoaderData();
@@ -168,14 +174,14 @@ function Report({ owner, repo, at }: { owner: string; repo: string; at: number }
     ),
     overview:
       card && !head.private ? (
-        <Section fallback={<Fallback title="A hall of fame for your README" height={330} />}>
+        <Section fallback={<Fallback title="Its Card, for a README or a post" height={360} />}>
           <HallOfFame owner={owner} repo={repo} />
         </Section>
       ) : undefined,
   };
   return (
     <SourceContext value={source}>
-      <App route={where} go={go} logins={logins} standing={standing} extras={extras} />
+      <App route={where} go={go} logins={logins} standing={standing} extras={extras} notice={notice} />
     </SourceContext>
   );
 }
@@ -195,19 +201,15 @@ function Standings({ owner, repo }: { owner: string; repo: string }) {
   return <Leaderboard standings={data} view={view} onView={setView} />;
 }
 
-function hallSize(people: number) {
-  return { width: 720, height: 150 + Math.min(10, people) * 40 };
-}
-
 function HallShare({ owner, repo, label, variant }: { owner: string; repo: string; label: string; variant: "primary" | "secondary" }) {
   const { origin } = Route.useLoaderData();
   const { data } = useSuspenseQuery(standingsQuery(owner, repo));
   const choice = {
     id: "hall-of-fame",
-    title: "Hall of fame",
-    about: "The people who built it, with their faces and numbers.",
+    title: "Repository card",
+    about: "What it is, its stars and forks, and the people who built it, with their faces and numbers.",
     url: `/api/cards/gh/${owner}/${repo}/hall-of-fame`,
-    ...hallSize(data.people.length),
+    ...hallOfFameCardSize(data.people.length),
     link: `/gh/${owner}/${repo}`,
     share: `The people who built ${owner}/${repo}.`,
     alt: `The people who built ${owner}/${repo}`,
@@ -218,12 +220,12 @@ function HallShare({ owner, repo, label, variant }: { owner: string; repo: strin
 function HallOfFame({ owner, repo }: { owner: string; repo: string }) {
   const { data } = useSuspenseQuery(standingsQuery(owner, repo));
   if (data.people.length === 0) return null;
-  const size = hallSize(data.people.length);
+  const size = hallOfFameCardSize(data.people.length);
   const src = `/api/cards/gh/${owner}/${repo}/hall-of-fame`;
   return (
     <Panel
-      title="A hall of fame for your README"
-      description="The people who built it, with their faces and numbers; light and dark, refreshed every six hours."
+      title="Its Card, for a README or a post"
+      description="What it is, its stars, forks and language, and the people who built it with their faces and numbers; light and dark, refreshed every six hours."
       actions={
         <>
           <a href={`${src}.png`} download={`${owner}-${repo}-hall-of-fame.png`} className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-element)] px-2.5 text-sm font-medium text-primary no-underline transition-colors hover:bg-[var(--color-overlay-hover)]">

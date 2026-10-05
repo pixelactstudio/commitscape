@@ -27,7 +27,7 @@ export type StandingCardData = {
 };
 
 export type HallOfFameData = {
-  repo: { owner: string; name: string; stars: number };
+  repo: { owner: string; name: string; stars: number; forks?: number | null; description?: string | null; language?: string | null };
   people: { login: string | null; name: string; surviving: number | null; prsMerged: number | null; commits: number | null }[];
   total: number;
 };

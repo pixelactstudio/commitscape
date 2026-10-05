@@ -5,15 +5,15 @@ import { auth } from "#/server/auth";
 import { db } from "#/server/context";
 import { SiteError } from "#/server/http";
 import { loginOf } from "#/server/profiles";
-import { addRival, removeRival, rivalLogins, rivalsOf, versusOf } from "#/server/versus";
+import { addRival, removeRival, rivalLogins, rivalsOf, versusFullOf } from "#/server/versus";
 import { profileDeps } from "#/server/viewer";
 
 const login = z.string().min(1).max(39);
 
-/** Two people side by side. */
+/** Two people side by side, in full. */
 export const getVersus = createServerFn({ method: "GET" })
   .validator(z.object({ a: login, b: login }))
-  .handler(({ data }) => versusOf(profileDeps(), data.a, data.b));
+  .handler(({ data }) => versusFullOf(profileDeps(), data.a, data.b));
 
 async function me() {
   const s = await auth.api.getSession({ headers: getRequest().headers });
