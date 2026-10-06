@@ -5,7 +5,7 @@ import { Typeahead } from "@astryxdesign/core/Typeahead";
 import { createFileRoute, Link, useNavigate, useRouteContext } from "@tanstack/react-router";
 import { ArrowRight, Swords } from "lucide-react";
 import { isLogin, PRODUCT } from "@commitscape/data";
-import { Face, Page } from "@commitscape/ui";
+import { Face, FaceStack, Page } from "@commitscape/ui";
 import { ICON } from "@commitscape/ui/design";
 import { LookupRow, useLookupSource, type Item } from "#/lib/lookup";
 
@@ -92,14 +92,7 @@ function Pick() {
           {MATCHES.map(([x, y]) => (
             <li key={`${x}${y}`}>
               <Link to="/vs/$a/$b" params={{ a: x, b: y }} className="group flex items-center gap-3 rounded-lg border border-line bg-surface px-4 py-3 text-primary no-underline transition-colors hover:border-line-strong">
-                <span className="flex -space-x-2">
-                  <span className="rounded-full ring-2 ring-surface">
-                    <Face login={x} name={x} size={32} />
-                  </span>
-                  <span className="rounded-full ring-2 ring-surface">
-                    <Face login={y} name={y} size={32} />
-                  </span>
-                </span>
+                <FaceStack people={[{ login: x }, { login: y }]} />
                 <span className="min-w-0 flex-1 truncate type-label">
                   {x} <span className="text-secondary">vs</span> {y}
                 </span>

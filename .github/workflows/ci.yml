@@ -119,6 +119,8 @@ jobs:
           docker compose -f compose.dev.yaml up -d --wait
 
       - name: Typecheck, lint, test and build
+        env:
+          CARD_BUDGET_MS: "500"
         run: |
           pnpm install --frozen-lockfile
           pnpm check

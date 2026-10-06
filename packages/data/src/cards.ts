@@ -13,7 +13,8 @@ export type ProfileCardData = {
   repositories: ProfileRepo[];
   years: ProfileYear[];
   calendar: { firstDay: number; days: number[] };
-  engine: { surviving: number; added: number | null; repositories: number } | null;
+  engine: { surviving: number; added: number | null; repositories: number; of?: number | null } | null;
+  spread?: Record<"commits" | "prsMerged", { repositories: number; total: number }> | null;
   at: number;
 };
 

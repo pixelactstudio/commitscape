@@ -2,27 +2,37 @@ import { useState } from "react";
 import { Button } from "@astryxdesign/core/Button";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Popover } from "@astryxdesign/core/Popover";
-import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { Award, LayoutList, Pencil, Rows3 } from "lucide-react";
+import { createFileRoute, Link, redirect, useNavigate } from "@tanstack/react-router";
+import { Award, Pencil } from "lucide-react";
 import { isLogin, PRODUCT, type Identity, type VersusFull, type VersusRow } from "@commitscape/data";
 import { Nothing } from "@commitscape/ui/motion";
 import { ICON } from "@commitscape/ui/design";
-import { avatarUrl, compact, DuelRows, grouped, hours, Page, TipLayer, toneOf, VersusSections, type Duel, type Side } from "@commitscape/ui";
+import { Chip, compact, DuelRows, Face, grouped, hours, Page, PanelSkeleton, TipLayer, TONE, VersusSections, type Duel, type Side } from "@commitscape/ui";
 import { Section } from "#/components/Boundary";
 import { Missing } from "#/components/Missing";
 import { ShareButton } from "#/components/ShareDialog";
 import { profileLookupQuery, versusQuery } from "#/lib/queries";
 
-type Search = { view?: "full" };
+type Search = { view?: string };
+
+const DAY = 24 * 3600;
 
 export const Route = createFileRoute("/vs/$a/$b")({
-  validateSearch: (s: Record<string, unknown>): Search => (s.view === "full" ? { view: "full" } : {}),
+  validateSearch: (s: Record<string, unknown>): Search => (s.view === undefined ? {} : { view: String(s.view) }),
+  beforeLoad: ({ search, params }) => {
+    if (search.view !== undefined) throw redirect({ to: "/vs/$a/$b", params, search: {}, replace: true, statusCode: 301 });
+  },
   loader: async ({ params, context }) => {
     const [a, b] = await Promise.all([context.queryClient.ensureQueryData(profileLookupQuery(params.a)), context.queryClient.ensureQueryData(profileLookupQuery(params.b))]);
+    if (a.status === "ok" && b.status === "ok" && params.a.toLowerCase() !== params.b.toLowerCase()) {
+      const kept = [a, b].every((l) => l.status === "ok" && l.fetchedAt !== null && l.fetchedAt > Date.now() / 1000 - DAY);
+      const versus = versusQuery(params.a, params.b);
+      if (kept) await context.queryClient.ensureQueryData(versus).catch(() => undefined);
+      else void context.queryClient.prefetchQuery(versus);
+    }
     return { a, b, origin: context.origin ?? "" };
   },
   head: ({ params, loaderData }) => ({
@@ -47,7 +57,6 @@ const duels = (rows: VersusRow[]): Duel[] => rows.map((r) => ({ key: r.view, lab
 
 function VersusPage() {
   const { a, b } = Route.useParams();
-  const { view } = Route.useSearch();
   const { a: left, b: right } = Route.useLoaderData();
   const refused = [left, right].find((l) => l.status !== "ok");
   if (a.toLowerCase() === b.toLowerCase()) return <Missing title="A Versus needs two people" words={`Pick someone to put next to @${a}.`} back={{ label: "Pick two people", href: "/vs" }} />;
@@ -58,66 +67,60 @@ function VersusPage() {
     return <Missing title="No Versus here" words={words} back={{ label: "Pick two people", href: "/vs" }} />;
   }
   if (left.status !== "ok" || right.status !== "ok") return null;
-  const full = view === "full";
   return (
     <TipLayer>
       <section className="versus-stage relative overflow-hidden border-b border-line">
         <h1 className="sr-only">
           {left.identity.login} versus {right.identity.login}
         </h1>
-        <Page className="relative grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-start gap-2 py-8 sm:gap-6 sm:py-12">
+        <Page className="relative grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-start gap-2 pt-page-top pb-10 sm:items-center sm:gap-6 sm:pb-12">
           <Corner identity={left.identity} other={right.identity.login} side="a" />
-          <span className="vs-badge rise mt-5 grid size-11 place-items-center rounded-full text-xs font-bold tracking-tight sm:mt-10 sm:size-14 sm:text-base">VS</span>
+          <span className="vs-badge rise mt-6 grid size-11 place-items-center rounded-full text-xs font-bold sm:mt-0 sm:size-14 sm:text-base">VS</span>
           <Corner identity={right.identity} other={left.identity.login} side="b" />
         </Page>
       </section>
-      <Page width={full ? "default" : "narrow"} className="flex flex-col gap-stack pt-page-top pb-16">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div className="flex flex-col gap-1">
-            <h2 className="m-0 type-heading">View by view</h2>
-            <p className="m-0 type-description">A winner for each view and none overall: each counts something different.</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <ViewSwitch full={full} />
+      <Page className="flex flex-col gap-section pt-page-top pb-16">
+        <section aria-labelledby="views" className="flex flex-col gap-stack">
+          <div className="flex flex-wrap items-end justify-between gap-cluster">
+            <div className="flex min-w-0 flex-col gap-1">
+              <h2 id="views" className="m-0 type-heading">
+                View by view
+              </h2>
+              <p className="m-0 type-description">A winner for each view and none overall: each counts something different.</p>
+            </div>
             <Section fallback={<Skeleton width={84} height={32} radius={2} />}>
               <Share a={left.identity.login} b={right.identity.login} />
             </Section>
           </div>
-        </div>
-        <Section fallback={<BoardSkeleton full={full} />}>
-          <Board full={full} />
+          <Section fallback={<DuelSkeleton />}>
+            <Views />
+          </Section>
+        </section>
+        <Section fallback={<SectionsSkeleton />}>
+          <Sections />
         </Section>
+        <p className="m-0 text-center type-micro">Numbers come from GitHub's public record and the repositories commitscape has read.</p>
       </Page>
     </TipLayer>
-  );
-}
-
-function ViewSwitch({ full }: { full: boolean }) {
-  const navigate = useNavigate({ from: Route.fullPath });
-  return (
-    <SegmentedControl label="How much to show" size="sm" value={full ? "full" : "short"} onChange={(v) => void navigate({ search: v === "full" ? { view: "full" } : {}, resetScroll: false, replace: true })}>
-      <SegmentedControlItem value="short" label="Short" icon={<LayoutList size={ICON.sm} />} />
-      <SegmentedControlItem value="full" label="Full" icon={<Rows3 size={ICON.sm} />} />
-    </SegmentedControl>
   );
 }
 
 function Corner({ identity, other, side }: { identity: Pick<Identity, "login" | "name">; other: string; side: Side }) {
   const right = side === "b";
   return (
-    <div className={`rise flex min-w-0 flex-col items-center gap-3 text-center sm:flex-row sm:gap-5 ${right ? "sm:flex-row-reverse sm:text-end" : "sm:text-start"}`} style={toneOf(side)}>
-      <Link to="/u/$login" params={{ login: identity.login }} className="vs-face flex-none rounded-full" aria-label={`@${identity.login}'s Profile`}>
-        <img src={avatarUrl(identity.login, 128)} alt="" width={128} height={128} className="block size-17 rounded-full bg-muted sm:size-28" />
+    <div className={`rise flex min-w-0 flex-col items-center gap-4 text-center sm:flex-row sm:gap-6 ${right ? "sm:flex-row-reverse sm:text-end" : "sm:text-start"}`}>
+      <Link to="/u/$login" params={{ login: identity.login }} className="flex flex-none rounded-full" aria-label={`@${identity.login}'s Profile`}>
+        <Face login={identity.login} name={identity.name ?? identity.login} size={72} wide={128} ring={TONE[side]} glow />
       </Link>
-      <div className={`flex min-w-0 max-w-full flex-col items-center gap-1.5 ${right ? "sm:items-end" : "sm:items-start"}`}>
-        <Link to="/u/$login" params={{ login: identity.login }} className="max-w-full text-lg leading-tight font-semibold tracking-snug text-balance break-words text-primary no-underline hover:underline sm:text-3xl">
+      <div className={`flex min-w-0 max-w-full flex-col items-center gap-2 ${right ? "sm:items-end" : "sm:items-start"}`}>
+        <Link to="/u/$login" params={{ login: identity.login }} className="max-w-full text-lg font-semibold tracking-snug break-words text-balance text-primary no-underline hover:underline sm:type-title">
           {identity.name ?? identity.login}
         </Link>
-        <div className={`flex max-w-full items-center gap-0.5 text-xs text-secondary ${right ? "sm:flex-row-reverse" : ""}`}>
+        <div className={`flex max-w-full items-center gap-0.5 type-caption ${right ? "sm:flex-row-reverse" : ""}`}>
           <span className="truncate font-medium">@{identity.login}</span>
           <Change side={side} other={other} />
         </div>
-        <Section fallback={<Skeleton width={120} height={26} radius="rounded" />}>
+        <Section fallback={<Skeleton width={120} height={24} radius="rounded" />}>
           <Standout side={side} />
         </Section>
       </div>
@@ -127,7 +130,6 @@ function Corner({ identity, other, side }: { identity: Pick<Identity, "login" | 
 
 function Change({ side, other }: { side: Side; other: string }) {
   const navigate = useNavigate();
-  const { view } = Route.useSearch();
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
   const login = text.trim().replace(/^@/, "");
@@ -147,7 +149,7 @@ function Change({ side, other }: { side: Side; other: string }) {
             if (!valid) return;
             setOpen(false);
             setText("");
-            void navigate({ to: "/vs/$a/$b", params: side === "a" ? { a: login, b: other } : { a: other, b: login }, search: view ? { view } : {} });
+            void navigate({ to: "/vs/$a/$b", params: side === "a" ? { a: login, b: other } : { a: other, b: login } });
           }}
         >
           <TextInput label={`Someone else on the ${side === "a" ? "left" : "right"}`} placeholder="a GitHub username" value={text} onChange={setText} hasAutoFocus />
@@ -160,22 +162,22 @@ function Change({ side, other }: { side: Side; other: string }) {
   );
 }
 
-function useVersus() {
+function useVersus(): VersusFull {
   const { a, b } = Route.useParams();
   return useSuspenseQuery(versusQuery(a, b)).data;
 }
 
 function Standout({ side }: { side: Side }) {
   const v = useVersus();
-  const p = v.people[side];
-  const main = p.archetypes[0];
+  const main = v.people[side].archetypes[0];
   const ahead = v.rows.filter((r) => r.winner === side).map((r) => r.label);
   return (
     <div className={`fade flex max-w-full flex-col items-center gap-2 ${side === "b" ? "sm:items-end" : "sm:items-start"}`}>
       {main && (
-        <span className="vs-archetype inline-flex max-w-full items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold" title={main.rule}>
-          <Award size={ICON.xs} aria-hidden className="flex-none" />
-          <span className="truncate">{main.title}</span>
+        <span title={main.rule} className="max-w-full">
+          <Chip icon={<Award size={ICON.xs} aria-hidden className="flex-none" style={{ color: TONE[side] }} />} className="max-w-full">
+            <span className="truncate">{main.title}</span>
+          </Chip>
         </span>
       )}
       {ahead.length > 0 && (
@@ -212,37 +214,48 @@ function Share({ a, b }: { a: string; b: string }) {
   );
 }
 
-function BoardSkeleton({ full }: { full: boolean }) {
+function DuelSkeleton() {
   return (
-    <div className="flex flex-col gap-stack">
-      <div className="flex flex-col overflow-hidden rounded-lg border border-line">
-        {Array.from({ length: 8 }, (_, i) => (
-          <div key={i} className="flex flex-col gap-2 border-b border-line px-5 py-3.5 last:border-b-0">
-            <div className="flex items-center justify-between gap-3">
-              <Skeleton width={70} height={18} radius={2} index={i} />
-              <Skeleton width={110} height={12} radius={2} index={i} />
-              <Skeleton width={70} height={18} radius={2} index={i} />
-            </div>
-            <Skeleton height={8} radius={4} index={i} />
+    <div className="grid overflow-hidden rounded-lg border border-line lg:grid-cols-2">
+      {Array.from({ length: 8 }, (_, i) => (
+        <div key={i} className="-mb-px flex flex-col gap-2 border-b border-line px-5 py-3.5 lg:odd:border-e">
+          <div className="flex items-center justify-between gap-3">
+            <Skeleton width={70} height={18} radius={2} index={i} />
+            <Skeleton width={110} height={12} radius={2} index={i} />
+            <Skeleton width={70} height={18} radius={2} index={i} />
           </div>
-        ))}
-      </div>
-      {full && <Skeleton height={260} radius={4} />}
+          <Skeleton height={8} radius={4} index={i} />
+        </div>
+      ))}
     </div>
   );
 }
 
-function Board({ full }: { full: boolean }) {
-  const v: VersusFull = useVersus();
+function SectionsSkeleton() {
+  return (
+    <div className="flex flex-col gap-section">
+      <PanelSkeleton title="The last year" height={150} />
+      <PanelSkeleton title="Over the years" height={260} />
+      <div className="grid gap-gutter lg:grid-cols-2">
+        <PanelSkeleton title="Pull requests" height={360} />
+        <PanelSkeleton title="Streaks and days" height={360} />
+      </div>
+    </div>
+  );
+}
+
+function Views() {
+  const v = useVersus();
   return (
     <>
-      <div className={full ? "mx-auto w-full max-w-3xl" : ""}>
-        <DuelRows rows={duels(v.rows)} label="View by view" />
-      </div>
+      <DuelRows rows={duels(v.rows)} label="View by view" columns={2} />
       <p className="m-0 text-center type-caption">— means not known for one of them. Lines that still run count only repositories commitscape has read.</p>
-      {full && <VersusSections v={v} />}
     </>
   );
+}
+
+function Sections() {
+  return <VersusSections v={useVersus()} />;
 }
 
 function NoVersus({ words, kept, side }: { words: string; kept: Pick<Identity, "login" | "name">; side: Side }) {
@@ -253,9 +266,7 @@ function NoVersus({ words, kept, side }: { words: string; kept: Pick<Identity, "
   return (
     <Page width="narrow" className="flex flex-col items-center gap-6 py-16 text-center">
       <div className="flex items-center gap-4">
-        <span className="vs-face rounded-full" style={toneOf(side)}>
-          <img src={avatarUrl(kept.login, 96)} alt="" width={72} height={72} className="block size-18 rounded-full bg-muted" />
-        </span>
+        <Face login={kept.login} name={kept.name ?? kept.login} size={72} ring={TONE[side]} glow />
         <span className="vs-badge grid size-11 place-items-center rounded-full text-xs font-bold">VS</span>
         <span className="grid size-18 place-items-center rounded-full border-2 border-dashed border-line-strong text-2xl font-semibold text-secondary">?</span>
       </div>

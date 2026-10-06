@@ -68,15 +68,23 @@ export async function profileCardData(deps: CardDeps, login: string): Promise<Pr
   }
   const p = JSON.parse(row.data) as Profile;
   const engine = await survivingTotal(deps.db, login);
+  const open = p.repositories.filter((r) => !r.private && (r.commits > 0 || r.prsMerged > 0));
+  const committed = new Set([...open.filter((r) => r.commits > 0).flatMap((r) => repoId(r.owner, r.name) ?? []), ...(engine?.ids ?? [])]);
   return {
     identity: { login: p.identity.login, name: p.identity.name },
     totals: p.totals,
-    repositories: p.repositories.slice(0, 5),
+    repositories: [...open].sort((a, b) => b.commits - a.commits || b.prsMerged - a.prsMerged).slice(0, 5),
+    spread: { commits: spreadOf(open, "commits"), prsMerged: spreadOf(open, "prsMerged") },
     years: p.years,
     calendar: { firstDay: p.calendar.firstDay + Math.max(0, p.calendar.days.length - 380), days: p.calendar.days.slice(-380) },
-    engine,
+    engine: engine ? { surviving: engine.surviving, added: engine.added, repositories: engine.repositories, of: committed.size } : null,
     at: p.fetchedAt,
   };
+}
+
+function spreadOf(repos: Profile["repositories"], by: "commits" | "prsMerged") {
+  const some = repos.filter((r) => r[by] > 0);
+  return { repositories: some.length, total: some.reduce((n, r) => n + r[by], 0) };
 }
 
 /** A person's place in one public repository, for its Card. */

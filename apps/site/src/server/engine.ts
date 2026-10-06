@@ -139,9 +139,9 @@ function totalsOf(repos: EngineRepo[]): EngineView {
 }
 
 /** A person's Surviving Lines and lines added over every public repository where they are counted, from the stored counts alone. */
-export async function survivingTotal(db: Deps["db"], login: string): Promise<{ surviving: number; added: number | null; repositories: number; oldest: number | null } | null> {
+export async function survivingTotal(db: Deps["db"], login: string): Promise<{ surviving: number; added: number | null; repositories: number; oldest: number | null; ids: string[] } | null> {
   const counted = await db
-    .select({ lines: surviving.lines, added: surviving.added, oldest: surviving.oldest })
+    .select({ id: surviving.repoId, lines: surviving.lines, added: surviving.added, oldest: surviving.oldest })
     .from(surviving)
     .innerJoin(repoPeople, and(eq(repoPeople.repoId, surviving.repoId), eq(repoPeople.reportKey, surviving.reportKey), eq(repoPeople.personId, surviving.personId)))
     .innerJoin(repositories, and(eq(repositories.id, surviving.repoId), eq(repositories.reportKey, surviving.reportKey)))
@@ -149,5 +149,5 @@ export async function survivingTotal(db: Deps["db"], login: string): Promise<{ s
   if (counted.length === 0) return null;
   const sum = (f: (c: (typeof counted)[number]) => number | null) => counted.reduce((n, c) => n + (f(c) ?? 0), 0);
   const oldest = counted.flatMap((c) => (c.oldest !== null && (c.lines ?? 0) > 0 ? [c.oldest] : []));
-  return { surviving: sum((c) => c.lines), added: counted.every((c) => c.added !== null) ? sum((c) => c.added) : null, repositories: counted.length, oldest: oldest.length > 0 ? Math.min(...oldest) : null };
+  return { surviving: sum((c) => c.lines), added: counted.every((c) => c.added !== null) ? sum((c) => c.added) : null, repositories: counted.length, oldest: oldest.length > 0 ? Math.min(...oldest) : null, ids: [...new Set(counted.map((c) => c.id))] };
 }

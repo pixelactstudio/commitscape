@@ -2734,3 +2734,9 @@ The owner asked for one design system applied to every screen, plus a list of fi
 - **Archetype** stage is a WebGL shader (`MeshGradient`, `packages/ui/src/motion`) with a palette per Archetype (`ARCHETYPE_PALETTES`).
 - **CI:** pnpm overrides for seroval and source-map-js (audit), `apt-get upgrade` in both Docker images (Trivy, perl CVEs), a non-backtracking title regex in `kindOf` (CodeQL), and the Card timing test takes the best of three with `CARD_BUDGET_MS` raised under coverage.
 
+### Versus, Cards and the Card studio (2026-10-06, uncommitted)
+
+- **Versus** is always the full comparison (`?view=` redirects to the clean address), laid out top to bottom: the two people, view by view in two columns, then the sections. Every avatar with a ring goes through `Face` (`ring`, `glow`, `wide`, `edge`, `lift`); `Person` and `FaceStack` in `packages/ui/src/kit/people.tsx` are shared.
+- **Cards** (`packages/ui/src/cards`): one Shell for every kind; Top repositories is a donut with a ranked legend and an honest "N more" share; Survival says how many repositories it covers. Twelve backgrounds drawn as generated SVG (`backdrop.ts`: mesh, foil, grain, contours, ripples, horizon and the redrawn originals), twelve presets, corners 0/12/22, and `randomStyle()`. `CARD_DESIGN` is 6.
+- **Card studio** (`apps/site/src/components/studio/`): a shader stage in the Card's colours with a 3D tilt and glare, "Surprise me", grouped Card picker, style panel; the share modal is a large dialog (a bottom sheet on phones).
+

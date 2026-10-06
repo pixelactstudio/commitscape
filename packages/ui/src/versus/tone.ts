@@ -2,7 +2,7 @@ import type { CSSProperties, ReactNode } from "react";
 
 export type Side = "a" | "b";
 
-export const TONE: Record<Side, string> = { a: "var(--s1)", b: "var(--s2)" };
+export const TONE: Record<Side, string> = { a: "var(--side-a)", b: "var(--side-b)" };
 
 /** The CSS variables that colour one person's side of a Versus. */
 export function toneOf(side: Side): CSSProperties {

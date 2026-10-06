@@ -7,7 +7,7 @@ import { useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ChevronLeft, ChevronRight, GitMerge, Lock } from "lucide-react";
 import { PRODUCT, type Wrapped } from "@commitscape/data";
-import { AreaTrend, avatarUrl, compact, Donut, grouped, many, Outcomes, Page, Panel, RepoTiles, StackedColumns, Stat, TipLayer, WeekBars, WRAPPED_CALENDAR_CARD_SIZE, WRAPPED_CARD_SIZE, YearGrid, type Slice } from "@commitscape/ui";
+import { AreaTrend, compact, Donut, Face, grouped, many, Outcomes, Page, Panel, RepoTiles, StackedColumns, Stat, TipLayer, WeekBars, WRAPPED_CALENDAR_CARD_SIZE, WRAPPED_CARD_SIZE, YearGrid, type Slice } from "@commitscape/ui";
 import { Nothing, Reveal } from "@commitscape/ui/motion";
 import { ICON } from "@commitscape/ui/design";
 import { Section } from "#/components/Boundary";
@@ -48,7 +48,7 @@ function WrappedPage() {
         <Page className="relative flex flex-col gap-8 pt-10 pb-12">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <Link to="/u/$login" params={{ login: id.login }} className="flex items-center gap-3 text-white no-underline">
-              <img src={avatarUrl(id.login, 56)} alt="" width={56} height={56} className="size-14 rounded-full ring-3 ring-white/25" />
+              <Face login={id.login} name={name} size={56} ring="var(--stage-cell-2)" />
               <span className="flex flex-col">
                 <span className="type-panel">{name}</span>
                 <span className="text-xs text-on-stage-2">@{id.login}'s year on GitHub</span>

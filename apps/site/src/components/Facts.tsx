@@ -26,7 +26,7 @@ export function RepoHero({ owner, name, facts, status, actions, attached = false
     <section className={`face-backdrop relative overflow-hidden ${attached ? "" : "border-b border-line"}`} style={{ "--face": `url(${avatarUrl(owner, 64)})` } as CSSProperties}>
       <Page className={`relative flex flex-col gap-6 pt-9 md:flex-row md:items-end md:justify-between ${attached ? "pb-6" : "pb-7"}`}>
         <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-center sm:gap-5">
-          <img src={avatarUrl(owner, 96)} alt="" width={80} height={80} className="aspect-square size-18 flex-none self-start rounded-2xl bg-muted shadow-float ring-4 ring-body sm:size-20 sm:self-center" />
+          <Face login={owner} name={owner} size={72} wide={80} shape="rounded" edge="body" lift="float" className="self-start sm:self-center" />
           <div className="flex min-w-0 flex-col gap-2">
             <Link to="/u/$login" params={{ login: owner }} className="w-fit text-xs font-medium text-primary no-underline opacity-75 hover:opacity-100">
               {owner}

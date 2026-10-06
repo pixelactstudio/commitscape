@@ -21,10 +21,8 @@ const at = (h: number) => `${String(h).padStart(2, "0")}:00`;
 
 function Who({ p, side, size = 24 }: { p: VersusPerson; side: Side; size?: 20 | 24 | 32 }) {
   return (
-    <span className="inline-flex min-w-0 items-center gap-2" style={toneOf(side)}>
-      <span className="flex-none rounded-full p-0.5 ring-2 ring-[var(--side)]">
-        <Face login={p.identity.login} name={p.identity.login} size={size} />
-      </span>
+    <span className="inline-flex min-w-0 items-center gap-2">
+      <Face login={p.identity.login} name={p.identity.login} size={size} ring={TONE[side]} />
       <span className="truncate text-xs font-semibold">@{p.identity.login}</span>
     </span>
   );
@@ -487,7 +485,7 @@ function Traits({ a, b }: { a: VersusPerson; b: VersusPerson }) {
   );
 }
 
-/** The full side-by-side of two people: the views, their last years, careers, pull requests, rhythm, languages, hours, shared repositories, Archetypes and Achievements. Sections with nothing in them are left out. */
+/** The full side-by-side of two people: their last years, careers, pull requests, rhythm, languages, hours, shared repositories, Archetypes and Achievements. Sections with nothing in them are left out. */
 export function VersusSections({ v }: { v: VersusFull }) {
   const { a, b } = v.people;
   const langA = new Set(a.languages.slice(0, LANGUAGES).map((l) => l.name));
@@ -495,7 +493,7 @@ export function VersusSections({ v }: { v: VersusFull }) {
   const anyLanguages = a.languages.length + b.languages.length > 0;
   const anyClock = !!a.clock || !!b.clock;
   return (
-    <div className="flex flex-col gap-5">
+    <>
       <Reveal>
         <Panel title="The last year" description="Contributions a day on GitHub: commits, pull requests, reviews and issues">
           <Pair a={<Calendar p={a} side="a" />} b={<Calendar p={b} side="b" />} />
@@ -504,35 +502,41 @@ export function VersusSections({ v }: { v: VersusFull }) {
       <Reveal>
         <Years v={v} />
       </Reveal>
-      <div className="grid gap-5 lg:grid-cols-2">
-        <Reveal className="flex flex-col gap-3">
-          <SectionHead title="Pull requests" words="Across all of GitHub, from the pull requests read for each" />
-          <DuelRows rows={pullDuels(v)} label="Pull requests" />
+      <div className="grid gap-gutter lg:grid-cols-2">
+        <Reveal className="flex">
+          <Panel padding={0} className="flex-1" title="Pull requests" description="Across all of GitHub, from the pull requests read for each">
+            <DuelRows rows={pullDuels(v)} label="Pull requests" bare />
+          </Panel>
         </Reveal>
-        <Reveal className="flex flex-col gap-3">
-          <SectionHead title="Streaks and days" words="Days in a row with a contribution, and how much they show up" />
-          <DuelRows rows={rhythmDuels(v)} label="Streaks and days" />
+        <Reveal className="flex">
+          <Panel padding={0} className="flex-1" title="Streaks and days" description="Days in a row with a contribution, and how much they show up">
+            <DuelRows rows={rhythmDuels(v)} label="Streaks and days" bare />
+          </Panel>
         </Reveal>
       </div>
-      {anyLanguages && (
-        <Reveal>
-          <Panel title="Languages" description="Each repository's main language, weighted by their commits to it, over every year">
-            <Pair a={<Languages p={a} side="a" shared={shared} />} b={<Languages p={b} side="b" shared={shared} />}>
-              {shared.size > 0 && <p className="m-0 type-caption">Both write {[...shared].join(", ")}.</p>}
-            </Pair>
-          </Panel>
-        </Reveal>
-      )}
-      {anyClock && (
-        <Reveal>
-          <Panel title="When they commit" description="The hour of their newest commits, on each commit's own clock; darker is busier">
-            <div className="flex flex-col gap-4">
-              <Hours p={a} side="a" />
-              <Hours p={b} side="b" />
-              <HourScale />
-            </div>
-          </Panel>
-        </Reveal>
+      {(anyLanguages || anyClock) && (
+        <div className={`grid gap-gutter ${anyLanguages && anyClock ? "lg:grid-cols-2" : ""}`}>
+          {anyLanguages && (
+            <Reveal className="flex">
+              <Panel className="flex-1" title="Languages" description="Each repository's main language, weighted by their commits to it, over every year">
+                <Pair a={<Languages p={a} side="a" shared={shared} />} b={<Languages p={b} side="b" shared={shared} />}>
+                  {shared.size > 0 && <p className="m-0 type-caption">Both write {[...shared].join(", ")}.</p>}
+                </Pair>
+              </Panel>
+            </Reveal>
+          )}
+          {anyClock && (
+            <Reveal className="flex">
+              <Panel className="flex-1" title="When they commit" description="The hour of their newest commits, on each commit's own clock; darker is busier">
+                <div className="flex flex-col gap-stack">
+                  <Hours p={a} side="a" />
+                  <Hours p={b} side="b" />
+                  <HourScale />
+                </div>
+              </Panel>
+            </Reveal>
+          )}
+        </div>
       )}
       <Reveal>
         <Shared v={v} />
@@ -540,18 +544,6 @@ export function VersusSections({ v }: { v: VersusFull }) {
       <Reveal>
         <Traits a={a} b={b} />
       </Reveal>
-      <p className="m-0 text-center type-micro">
-        Numbers come from GitHub's public record and the repositories commitscape has read.
-      </p>
-    </div>
-  );
-}
-
-function SectionHead({ title, words }: { title: string; words: string }) {
-  return (
-    <div className="flex flex-col gap-0.5 px-1">
-      <h2 className="m-0 type-panel">{title}</h2>
-      <p className="m-0 type-caption">{words}</p>
-    </div>
+    </>
   );
 }

@@ -16,7 +16,8 @@ export const PROFILE: ProfileCardData = {
     { year: 2026, commits: 3683, prs: 550, reviews: 190, issues: 37, hidden: 0, languages: [{ name: "TypeScript", colour: null, commits: 2600 }, { name: "Rust", colour: null, commits: 700 }, { name: "Nix", colour: null, commits: 300 }, { name: "Shell", colour: null, commits: 83 }] },
   ],
   calendar: { firstDay: 20_000, days },
-  engine: { surviving: 41_200, added: 120_400, repositories: 3 },
+  engine: { surviving: 41_200, added: 120_400, repositories: 3, of: 7 },
+  spread: { commits: { repositories: 9, total: 640 }, prsMerged: { repositories: 4, total: 44 } },
   at: 1_790_000_000,
 };
 

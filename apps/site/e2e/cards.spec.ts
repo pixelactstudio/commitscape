@@ -50,6 +50,30 @@ test("the Card studio picks a Card, dresses it, and gives its README Markdown wi
   expect(await styled.text()).toContain("#f97316");
   await page.reload();
   await expect(page.getByRole("button", { name: "Grape", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "Reset", exact: true }).click();
+  await expect(page).not.toHaveURL(/preset=/);
+  await expect(page.getByRole("button", { name: "Reset", exact: true })).toBeDisabled();
+  await page.getByRole("button", { name: "Surprise me" }).click();
+  await expect(page.getByRole("button", { name: "Reset", exact: true })).toBeEnabled();
+  await expect(page).toHaveURL(/(preset|accent|bg|corner)=/);
+  await page.getByRole("group", { name: "Preview in" }).getByRole("button", { name: "Light" }).click();
+  await expect(page).toHaveURL(/mode=light/);
+});
+
+test("Share opens the Card on a stage with the ways to take it out", async ({ page }) => {
+  await page.goto("/gh/acme/ownership");
+  await page.waitForLoadState("networkidle");
+  await page.getByRole("button", { name: "Share", exact: true }).first().click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("hall of fame");
+  await expect(dialog.getByRole("img", { name: /The people who built acme\/ownership/ })).toBeVisible();
+  await dialog.getByRole("button", { name: "Surprise me" }).click();
+  await expect(dialog.getByRole("button", { name: "Reset", exact: true })).toBeEnabled();
+  await expect(dialog.getByRole("link", { name: "PNG, dark" })).toHaveAttribute("href", /\/api\/cards\/gh\/acme\/ownership\/hall-of-fame\.png\?theme=dark&/);
+  await dialog.getByText("See the Markdown").click();
+  await expect(dialog.locator("code, pre").filter({ hasText: "prefers-color-scheme: dark" }).first()).toContainText("/api/cards/gh/acme/ownership/hall-of-fame.svg?theme=dark&");
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
 });
 
 test("every page carries a preview image", async ({ request }) => {

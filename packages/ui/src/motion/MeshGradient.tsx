@@ -67,10 +67,14 @@ function compile(gl: WebGLRenderingContext, type: number, source: string) {
   return gl.getShaderParameter(shader, gl.COMPILE_STATUS) ? shader : null;
 }
 
-/** A slowly flowing, domain-warped gradient drawn by a WebGL fragment shader behind its parent; still when motion is reduced, paused off screen. */
+type Colours = [number, number, number][];
+
+/** A slowly flowing, domain-warped gradient drawn by a WebGL fragment shader behind its parent; still when motion is reduced, paused off screen. A new palette blends in over the old one. */
 export function MeshGradient({ palette, seed = 0, className = "" }: { palette: MeshPalette; seed?: number; className?: string }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const key = palette.join();
+  const wanted = useRef(key);
+  const shift = useRef<((key: string) => void) | null>(null);
   useEffect(() => {
     const canvas = ref.current;
     const gl = canvas?.getContext("webgl", { antialias: false, alpha: false, preserveDrawingBuffer: false });
@@ -92,14 +96,29 @@ export function MeshGradient({ palette, seed = 0, className = "" }: { palette: M
     gl.vertexAttribPointer(at, 2, gl.FLOAT, false, 0, 0);
     const u = (name: string) => gl.getUniformLocation(program, name);
     const [size, time] = [u("size"), u("time")];
+    const slots = [0, 1, 2, 3].map((i) => u(`c${i}`));
     gl.uniform1f(u("seed"), seed);
-    key.split(",").forEach((hex, i) => gl.uniform3fv(u(`c${i}`), rgb(hex)));
+    const parse = (k: string): Colours => k.split(",").map(rgb);
+    let from = parse(wanted.current);
+    let to = from;
+    let now = from;
+    let since = 0;
+    const paint = (colours: Colours) => colours.forEach((c, i) => gl.uniform3fv(slots[i] ?? null, c));
+    paint(now);
 
     const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const started = performance.now() - seed * 7000;
     let frame = 0;
     let onScreen = true;
+    const blend = () => {
+      if (now === to) return;
+      const t = Math.min(1, (performance.now() - since) / 900);
+      const e = 1 - (1 - t) ** 3;
+      now = t >= 1 ? to : from.map((c, i) => c.map((v, j) => v + ((to[i]?.[j] ?? v) - v) * e) as [number, number, number]);
+      paint(now);
+    };
     const draw = () => {
+      blend();
       gl.uniform1f(time, still ? 40 + seed * 10 : (performance.now() - started) / 1000);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
       canvas.dataset.ready = "";
@@ -119,6 +138,17 @@ export function MeshGradient({ palette, seed = 0, className = "" }: { palette: M
     const wake = () => {
       if (!frame && !still && onScreen && !document.hidden) frame = requestAnimationFrame(loop);
     };
+    shift.current = (k) => {
+      from = now;
+      to = parse(k);
+      since = performance.now();
+      if (frame) return;
+      if (still || !onScreen || document.hidden) {
+        now = to;
+        paint(now);
+        draw();
+      } else wake();
+    };
     const sized = new ResizeObserver(resize);
     sized.observe(canvas);
     const seen = new IntersectionObserver(([e]) => {
@@ -130,6 +160,7 @@ export function MeshGradient({ palette, seed = 0, className = "" }: { palette: M
     resize();
     wake();
     return () => {
+      shift.current = null;
       cancelAnimationFrame(frame);
       sized.disconnect();
       seen.disconnect();
@@ -139,6 +170,11 @@ export function MeshGradient({ palette, seed = 0, className = "" }: { palette: M
       gl.deleteShader(vertex);
       gl.deleteShader(fragment);
     };
-  }, [key, seed]);
+  }, [seed]);
+  useEffect(() => {
+    if (wanted.current === key) return;
+    wanted.current = key;
+    shift.current?.(key);
+  }, [key]);
   return <canvas ref={ref} aria-hidden className={`pointer-events-none absolute inset-0 -z-20 size-full rounded-[inherit] opacity-0 transition-opacity duration-[var(--duration-reveal)] data-[ready]:opacity-100 ${className}`} />;
 }

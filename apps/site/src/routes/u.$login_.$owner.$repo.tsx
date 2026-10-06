@@ -8,7 +8,7 @@ import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-q
 import { createFileRoute, Link, redirect } from "@tanstack/react-router";
 import { ArrowRight, BookMarked, Hourglass, Play, Trophy, UserRound } from "lucide-react";
 import { FAILURE_WORDS, PRODUCT, type Lookup, type View } from "@commitscape/data";
-import { avatarUrl, Chip, compact, date, hallOfFameCardSize, Leaderboard, NextUp, Page, Panel, PlaceCards, STANDING_CARD_SIZE, topLine, placesFor, viewsOf } from "@commitscape/ui";
+import { avatarUrl, Chip, compact, date, Face, hallOfFameCardSize, Leaderboard, NextUp, Page, Panel, PlaceCards, STANDING_CARD_SIZE, topLine, placesFor, viewsOf } from "@commitscape/ui";
 import { ICON } from "@commitscape/ui/design";
 import { Nothing } from "@commitscape/ui/motion";
 import { startBuild } from "#/functions/repos";
@@ -58,9 +58,11 @@ function PersonInRepository() {
       <section className="face-backdrop relative overflow-hidden border-b border-line" style={{ "--face": `url(${avatarUrl(where.login, 64)})` } as CSSProperties}>
         <Page className="flex flex-col gap-6 pt-page-top pb-8 md:flex-row md:items-end md:justify-between">
           <div className="flex min-w-0 items-center gap-5">
-            <span className="relative flex-none">
-              <img src={avatarUrl(where.login, 96)} alt="" width={96} height={96} className="size-20 rounded-full bg-muted shadow-md ring-4 ring-[var(--color-background-body)] sm:size-24" />
-              <img src={avatarUrl(owner, 48)} alt="" width={40} height={40} className="absolute -end-1 -bottom-1 size-9 rounded-md bg-muted ring-3 ring-[var(--color-background-body)] sm:size-10" />
+            <span className="relative flex flex-none">
+              <Face login={where.login} name={where.name} size={80} wide={96} edge="body" lift="md" />
+              <span className="absolute -end-1 -bottom-1 flex">
+                <Face login={owner} name={owner} size={36} wide={40} shape="rounded" edge="body" />
+              </span>
             </span>
             <div className="flex min-w-0 flex-col gap-1.5">
               <span className="type-caption">

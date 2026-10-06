@@ -63,10 +63,79 @@
   background-image: radial-gradient(circle, var(--color-border-emphasized) 1px, transparent 1.4px);
   background-size: 18px 18px;
 }
+.studio-live {
+  --glass: rgb(255 255 255 / 0.12);
+  --glass-hover: rgb(255 255 255 / 0.2);
+  --glass-line: rgb(255 255 255 / 0.18);
+  --glass-ink: #fff;
+  --glass-ink-2: rgb(255 255 255 / 0.72);
+  --glass-solid: #fff;
+  --glass-on-solid: #0b0c0e;
+  --card-shadow: drop-shadow(0 28px 36px rgb(0 0 0 / 0.5)) drop-shadow(0 6px 10px rgb(0 0 0 / 0.3));
+  color: var(--glass-ink);
+}
+.studio-live[data-mode="light"] {
+  --glass: rgb(255 255 255 / 0.55);
+  --glass-hover: rgb(255 255 255 / 0.8);
+  --glass-line: rgb(15 18 24 / 0.1);
+  --glass-ink: #121418;
+  --glass-ink-2: rgb(18 20 24 / 0.66);
+  --glass-solid: #121418;
+  --glass-on-solid: #fff;
+  --card-shadow: drop-shadow(0 26px 30px rgb(20 24 40 / 0.22)) drop-shadow(0 4px 8px rgb(20 24 40 / 0.12));
+}
+.studio-live::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -10;
+  pointer-events: none;
+  background: radial-gradient(120% 90% at 50% 45%, transparent 55%, rgb(0 0 0 / 0.28));
+}
+.studio-live[data-mode="light"]::after { background: radial-gradient(120% 90% at 50% 45%, transparent 60%, rgb(255 255 255 / 0.35)); }
+.studio-ink-2 { color: var(--glass-ink-2); }
+.studio-card { filter: var(--card-shadow); }
+.studio-glass {
+  color: var(--glass-ink);
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
+  backdrop-filter: blur(14px) saturate(1.4);
+  transition: background-color var(--duration-fast) var(--ease-out), transform var(--duration-fast) var(--ease-out), opacity var(--duration-fast) var(--ease-out);
+}
+.studio-glass:hover:not(:disabled) { background: var(--glass-hover); }
+.studio-glass[aria-pressed="true"] { background: var(--glass-solid); color: var(--glass-on-solid); border-color: transparent; }
+.studio-glass:disabled { opacity: 0.45; cursor: default; }
+.studio-solid {
+  color: var(--glass-on-solid);
+  background: var(--glass-solid);
+  border: 1px solid transparent;
+  box-shadow: 0 10px 30px -10px rgb(0 0 0 / 0.45);
+  transition: transform var(--duration-fast) var(--ease-out), box-shadow var(--duration-fast) var(--ease-out);
+}
+.studio-solid:hover { transform: translateY(-1px); box-shadow: 0 14px 34px -10px rgb(0 0 0 / 0.5); }
+.studio-solid:active { transform: translateY(0) scale(0.98); }
+.studio-seg {
+  color: var(--glass-ink);
+  background: transparent;
+  border: 0;
+  transition: background-color var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out);
+}
+.studio-seg:hover { background: var(--glass-hover); }
+.studio-seg[aria-pressed="true"] { background: var(--glass-solid); color: var(--glass-on-solid); }
+.studio-glass:focus-visible, .studio-solid:focus-visible, .studio-seg:focus-visible { outline: 2px solid var(--glass-ink); outline-offset: 2px; }
+.studio-fade { animation: fade var(--duration-slow) var(--ease-out) backwards; }
+.studio-pick { transition: border-color var(--duration-fast) var(--ease-out), background-color var(--duration-fast) var(--ease-out), box-shadow var(--duration-fast) var(--ease-out); }
+.studio-pick:hover { background-color: var(--surface-hover); }
+.studio-pick[aria-pressed="true"] { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
+.studio-pick:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  .studio-fade { animation: none; }
+  .studio-solid:hover { transform: none; }
+}
 .versus-stage {
   background:
-    radial-gradient(55% 140% at 0% 50%, color-mix(in oklab, var(--s1) 15%, transparent), transparent 72%),
-    radial-gradient(55% 140% at 100% 50%, color-mix(in oklab, var(--s2) 15%, transparent), transparent 72%);
+    radial-gradient(55% 140% at 0% 50%, color-mix(in oklab, var(--side-a) 15%, transparent), transparent 72%),
+    radial-gradient(55% 140% at 100% 50%, color-mix(in oklab, var(--side-b) 15%, transparent), transparent 72%);
 }
 .versus-stage::before {
   content: "";
@@ -76,17 +145,6 @@
   background: linear-gradient(to bottom, transparent, var(--color-border-emphasized) 30%, var(--color-border-emphasized) 70%, transparent);
   pointer-events: none;
 }
-.vs-face {
-  padding: 3px;
-  background: var(--color-background-body);
-  box-shadow: 0 0 0 2px var(--side), 0 16px 36px -14px color-mix(in oklab, var(--side) 70%, transparent);
-}
-.vs-archetype {
-  color: var(--color-text-primary);
-  background: var(--color-background-surface);
-  border: 1px solid color-mix(in oklab, var(--side) 50%, transparent);
-}
-.vs-archetype svg { color: var(--side); }
 .vs-badge {
   color: var(--color-text-primary);
   background: var(--color-background-surface);

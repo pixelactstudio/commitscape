@@ -3,7 +3,7 @@ import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { Link } from "@tanstack/react-router";
 import { ArrowDown, Crown } from "lucide-react";
 import { leadersOf, WINDOW_VIEWS, type RaceState, type WindowStandings, type WindowView } from "@commitscape/data";
-import { Face, grouped } from "@commitscape/ui";
+import { FaceStack, grouped, Person } from "@commitscape/ui";
 
 /** A Race's state as a badge: running pulses, upcoming and finished are quiet. */
 export function StateBadge({ state }: { state: RaceState }) {
@@ -33,13 +33,7 @@ export function Leaders({ standings }: { standings: WindowStandings }) {
             {top ? (
               <>
                 <span className="flex items-center gap-2.5">
-                  <span className="flex -space-x-2">
-                    {who.slice(0, 3).map((r) => (
-                      <span key={r.login} className="flex flex-none rounded-full ring-2 ring-surface">
-                        <Face login={r.login} name={r.name ?? r.login} size={32} />
-                      </span>
-                    ))}
-                  </span>
+                  <FaceStack people={who.slice(0, 3)} />
                   <span className="flex min-w-0 flex-col">
                     <span className="truncate text-sm font-semibold">{who.length === 1 ? (top.name ?? top.login) : `${who.length} tied`}</span>
                     <span className="truncate text-xs text-secondary">{who.length === 1 ? `@${top.login}` : who.map((r) => `@${r.login}`).join(", ")}</span>
@@ -91,12 +85,8 @@ export function WindowTable({ standings, label = "Standings" }: { standings: Win
           {rows.map((r) => (
             <tr key={r.login} className="border-t border-line">
               <th scope="row" className="sticky start-0 z-(--z-raised) bg-surface py-2.5 ps-5 pe-3 text-start font-normal">
-                <Link to="/u/$login" params={{ login: r.login }} className="flex min-w-0 items-center gap-2.5 text-primary no-underline hover:underline">
-                  <Face login={r.login} name={r.name ?? r.login} size={32} />
-                  <span className="flex min-w-0 flex-col">
-                    <span className="truncate font-medium">{r.name ?? r.login}</span>
-                    {r.name && <span className="truncate text-xs text-secondary">@{r.login}</span>}
-                  </span>
+                <Link to="/u/$login" params={{ login: r.login }} className="flex min-w-0 text-primary no-underline hover:underline">
+                  <Person login={r.login} name={r.name} />
                 </Link>
               </th>
               {WINDOW_VIEWS.map((v) => {

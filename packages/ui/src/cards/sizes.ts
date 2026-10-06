@@ -6,7 +6,7 @@ export const GAP = 3;
 export const TOTALS_SIZE = { width: 600, height: 236 };
 
 export function repositoriesSize(data: ProfileCardData) {
-  return { width: 600, height: 150 + Math.min(5, data.repositories.length) * 50 };
+  return { width: 600, height: 150 + Math.max(3, Math.min(5, data.repositories.length)) * 50 };
 }
 
 export const SURVIVAL_SIZE = { width: 600, height: 236 };

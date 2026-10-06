@@ -39,7 +39,7 @@ function Gallery() {
   if (lookup.status !== "ok") return <Missing title={`No one called @${login}`} words="GitHub has no person by that name." />;
   const name = lookup.identity.name ?? lookup.identity.login;
   return (
-    <Page className="pb-section">
+    <Page width="wide" className="pb-section">
       <PageHead
         media={<Face login={lookup.identity.login} name={name} size={48} />}
         eyebrow={
@@ -48,7 +48,7 @@ function Gallery() {
           </a>
         }
         title={lookup.self ? "Your Cards" : `${name}'s Cards`}
-        description="For a README, a post, a self-review or a client. Pick one, make it yours, and copy it out. Every number on a Card is the one on the Profile."
+        description="For a README, a post, a self-review or a client. Pick one, make it yours, or let Surprise me dress it. Every number on a Card is the one on the Profile."
       />
       <Section fallback={<StudioSkeleton />}>
         <Studio login={lookup.identity.login} name={name} />
@@ -59,14 +59,11 @@ function Gallery() {
 
 function StudioSkeleton() {
   return (
-    <div className="grid gap-gutter lg:grid-cols-[minmax(0,1fr)_22rem]">
-      <div className="flex flex-col gap-gutter">
-        <Skeleton height={380} radius={4} />
-        <Skeleton height={190} radius={4} />
-      </div>
-      <div className="flex flex-col gap-gutter">
-        <Skeleton height={300} radius={4} />
-        <Skeleton height={420} radius={4} />
+    <div className="grid items-start gap-x-8 gap-y-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
+      <Skeleton height={520} radius={4} />
+      <div className="flex flex-col gap-6">
+        <Skeleton height={340} radius={3} />
+        <Skeleton height={420} radius={3} />
       </div>
     </div>
   );
@@ -105,7 +102,7 @@ function Studio({ login, name }: { login: string; name: string }) {
     }),
     { id: "archetype", title: data.archetype ? data.archetype.title : "Archetype", about: data.archetype?.rule ?? "None of the rules fits yet.", url: `${base}/archetype`, ...ARCHETYPE_CARD_SIZE, link: profile, share: data.archetype ? `My Archetype: ${data.archetype.title}.` : "My Archetype.", alt: `${name}'s Archetype`, group: "Profile" },
     ...data.achievements.map((a) => ({ id: `achievement-${a.id}`, title: a.title, about: a.rule, url: `${base}/achievement-${a.id}`, ...ACHIEVEMENT_CARD_SIZE, link: profile, share: `${a.title}.`, alt: `${name}: ${a.title}`, group: "Achievements" })),
-    ...data.standings.map((r) => ({ id: `standing-${r.owner}/${r.name}`, title: `${r.owner}/${r.name}`, about: CARDS.standing.about, url: `/api/cards/u/${login}/${r.owner}/${r.name}/standing`, ...STANDING_CARD_SIZE, link: `/u/${login}/${r.owner}/${r.name}`, share: `Where I stand in ${r.owner}/${r.name}.`, alt: `${name} in ${r.owner}/${r.name}`, group: "Where you stand" })),
+    ...data.standings.map((r) => ({ id: `standing-${r.owner}/${r.name}`, title: `${r.owner}/${r.name}`, about: CARDS.standing.about, url: `/api/cards/u/${login}/${r.owner}/${r.name}/standing`, ...STANDING_CARD_SIZE, link: `/u/${login}/${r.owner}/${r.name}`, share: `Where I stand in ${r.owner}/${r.name}.`, alt: `${name} in ${r.owner}/${r.name}`, group: "Standings" })),
   ];
   return <Chosen choices={choices} origin={origin} first={{ card: search.card ?? "totals", style: parseStyle(search as Record<string, unknown>), mode: search.mode ?? (siteMode === "light" ? "light" : "dark") }} />;
 }

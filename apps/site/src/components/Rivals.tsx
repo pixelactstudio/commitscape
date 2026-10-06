@@ -3,7 +3,7 @@ import { Icon } from "@astryxdesign/core/Icon";
 import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { ArrowDownRight, ArrowUpRight, EyeOff, Minus, Swords, UserCheck, UserPlus } from "lucide-react";
-import { Face, grouped, Panel } from "@commitscape/ui";
+import { grouped, Panel, Person } from "@commitscape/ui";
 import { setMyRival } from "#/functions/versus";
 import { rivalGapsQuery, rivalsQuery } from "#/lib/queries";
 import { useToast } from "#/lib/toast";
@@ -47,12 +47,8 @@ export function RivalGaps() {
       <ul className="m-0 mt-1 flex list-none flex-col p-0">
         {gaps.map((r) => (
           <li key={r.login} className="flex flex-col gap-3 border-t border-line px-5 py-3.5 md:flex-row md:items-center">
-            <Link to="/u/$login" params={{ login: r.login }} className="flex min-w-0 items-center gap-3 text-primary no-underline hover:underline md:w-56 md:flex-none">
-              <Face login={r.login} name={r.login} size={32} />
-              <span className="flex min-w-0 flex-col">
-                <span className="truncate text-sm font-semibold">{"hidden" in r ? `@${r.login}` : (r.name ?? r.login)}</span>
-                {!("hidden" in r) && r.name && <span className="truncate text-xs text-secondary">@{r.login}</span>}
-              </span>
+            <Link to="/u/$login" params={{ login: r.login }} className="flex min-w-0 text-primary no-underline hover:underline md:w-56 md:flex-none">
+              <Person login={r.login} name={"hidden" in r ? `@${r.login}` : r.name} note={"hidden" in r ? "" : undefined} />
             </Link>
             {"hidden" in r ? (
               <span className="inline-flex items-center gap-1.5 type-description">

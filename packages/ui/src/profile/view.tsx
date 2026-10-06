@@ -47,7 +47,7 @@ export function ProfileHeader({ identity, archetype, also = [], badges, actions 
     <section className="face-backdrop relative overflow-hidden border-b border-line" style={{ "--face": `url(${avatarUrl(identity.login, 64)})` } as CSSProperties}>
       <Page className="relative flex flex-col gap-6 pt-page-top pb-8 md:flex-row md:items-end md:justify-between">
         <div className="flex min-w-0 flex-col gap-5 sm:flex-row sm:items-center">
-          <img src={avatarUrl(identity.login, 112)} alt="" width={112} height={112} className="size-24 flex-none rounded-full bg-muted shadow-md ring-4 ring-[var(--color-background-body)] sm:size-28" />
+          <Face login={identity.login} name={name} size={96} wide={112} edge="body" lift="md" className="self-start sm:self-center" />
           <div className="flex min-w-0 flex-col gap-2">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
               <h1 className="m-0 type-display">{name}</h1>
