@@ -19,7 +19,7 @@ export function ArchetypePanel({ archetypes, complete, checks }: { archetypes: A
   const Glyph = main ? ARCHETYPE_ICONS[main.id] : Award;
   const palette = ARCHETYPE_PALETTES[main?.id ?? "none"];
   return (
-    <section aria-label="Archetype" className="archetype-card relative isolate flex h-full min-w-0 flex-col gap-5 overflow-hidden rounded-lg p-panel text-on-stage shadow-sm" style={{ background: meshFallback(palette) }}>
+    <section aria-label="Archetype" className="archetype-card relative isolate flex h-full min-w-0 flex-col gap-5 overflow-hidden rounded-lg [clip-path:inset(0_round_var(--radius-lg))] p-panel text-on-stage shadow-sm" style={{ background: meshFallback(palette) }}>
       <MeshGradient palette={palette} seed={main ? main.id.length : 3} />
       <Glyph aria-hidden size={176} strokeWidth={1.25} className="pointer-events-none absolute -end-8 -bottom-8 -z-10 text-on-stage opacity-10" />
       <div className="flex items-center justify-between gap-3">

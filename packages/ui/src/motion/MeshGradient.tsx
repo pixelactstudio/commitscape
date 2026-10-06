@@ -140,5 +140,5 @@ export function MeshGradient({ palette, seed = 0, className = "" }: { palette: M
       gl.deleteShader(fragment);
     };
   }, [key, seed]);
-  return <canvas ref={ref} aria-hidden className={`pointer-events-none absolute inset-0 -z-20 size-full opacity-0 transition-opacity duration-[var(--duration-reveal)] data-[ready]:opacity-100 ${className}`} />;
+  return <canvas ref={ref} aria-hidden className={`pointer-events-none absolute inset-0 -z-20 size-full rounded-[inherit] opacity-0 transition-opacity duration-[var(--duration-reveal)] data-[ready]:opacity-100 ${className}`} />;
 }
