@@ -12,7 +12,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 rust-version = "1.98"
@@ -20,12 +20,12 @@ repository = "https://github.com/pixelactstudio/commitscape"
 homepage = "https://github.com/pixelactstudio/commitscape"
 
 [workspace.dependencies]
-commitscape-core = { path = "crates/commitscape-core", version = "0.1.1" }
-commitscape-forge = { path = "crates/commitscape-forge", version = "0.1.1" }
-commitscape-index = { path = "crates/commitscape-index", version = "0.1.1" }
-commitscape-metrics = { path = "crates/commitscape-metrics", version = "0.1.1" }
-commitscape-report = { path = "crates/commitscape-report", version = "0.1.1" }
-commitscape-tui = { path = "crates/commitscape-tui", version = "0.1.1" }
+commitscape-core = { path = "crates/commitscape-core", version = "0.2.0" }
+commitscape-forge = { path = "crates/commitscape-forge", version = "0.2.0" }
+commitscape-index = { path = "crates/commitscape-index", version = "0.2.0" }
+commitscape-metrics = { path = "crates/commitscape-metrics", version = "0.2.0" }
+commitscape-report = { path = "crates/commitscape-report", version = "0.2.0" }
+commitscape-tui = { path = "crates/commitscape-tui", version = "0.2.0" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
