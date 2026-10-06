@@ -7,9 +7,9 @@ import { useRouteContext } from "@tanstack/react-router";
 import { Share2 } from "lucide-react";
 import { DEFAULT_STYLE } from "@commitscape/ui";
 import { QuickOutputs } from "#/components/studio/Outputs";
-import { Picker } from "#/components/studio/Picker";
+import { Shelf } from "#/components/studio/Shelf";
 import { Stage } from "#/components/studio/Stage";
-import { Styler } from "#/components/studio/Styler";
+import { Style } from "#/components/studio/Style";
 import type { CardChoice, StudioState } from "#/components/studio/types";
 import { useStudio } from "#/components/studio/useStudio";
 
@@ -71,14 +71,14 @@ function Share({ choices, state, onChange, origin, title, onClose, large }: { ch
     <div className="flex flex-col gap-6">
       {choices.length > 1 && (
         <Block label="Card">
-          <Picker choices={choices} value={s.choice.id} query={s.query} mode={state.mode} onPick={s.pick} />
+          <Shelf choices={choices} value={s.choice.id} query={s.query} mode={state.mode} onPick={s.pick} layout="grid" />
         </Block>
       )}
       <Block label="Take it with you">
         <QuickOutputs choice={s.choice} query={s.query} origin={origin} />
       </Block>
       <Block label="Style">
-        <Styler style={state.style} mode={state.mode} set={s.set} compact />
+        <Style style={state.style} mode={state.mode} set={s.set} />
       </Block>
     </div>
   );

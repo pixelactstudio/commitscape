@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { Spinner } from "@astryxdesign/core/Spinner";
-import { Dices, Moon, RotateCcw, Sun } from "lucide-react";
+import { ChevronLeft, ChevronRight, Dices, Moon, RotateCcw, Sun } from "lucide-react";
 import { lookOf, parseStyle, type CardStyle } from "@commitscape/ui";
 import { ICON } from "@commitscape/ui/design";
 import { animate, EASE, MeshGradient, meshFallback, motion, useMotionTemplate, useMotionValue, useReducedMotion, useSpring, useTransform } from "@commitscape/ui/motion";
@@ -56,11 +56,12 @@ type StageProps = {
   onMode: (mode: "light" | "dark") => void;
   onSurprise: () => void;
   onReset: () => void;
+  step?: { at: number; of: number; go: (by: 1 | -1) => void };
   className?: string;
 };
 
-/** The Card on a living backdrop of its own colours: it tilts toward the pointer and catches the light, and Surprise me shuffles its style. */
-export function Stage({ choice, mode, style, query, spin, changed, onMode, onSurprise, onReset, className = "" }: StageProps) {
+/** The Card on a living backdrop of its own colours: it tilts toward the pointer and catches the light, Surprise me shuffles its style, and the arrows step through the Cards. */
+export function Stage({ choice, mode, style, query, spin, changed, onMode, onSurprise, onReset, step, className = "" }: StageProps) {
   const reduce = useReducedMotion();
   const palette = useMemo(() => stagePalette(mode, style), [mode, style]);
   const shown = useMemo(() => parseStyle(new URLSearchParams(query)), [query]);
@@ -112,7 +113,10 @@ export function Stage({ choice, mode, style, query, spin, changed, onMode, onSur
       <MeshGradient palette={palette} seed={2} />
       <div className="flex items-start justify-between gap-3 p-3 sm:p-4">
         <div className="flex min-w-0 flex-col ps-1 pt-1">
-          <span className="truncate text-sm font-semibold">{choice.title}</span>
+          <span className="flex min-w-0 items-baseline gap-2">
+            <span className="truncate text-sm font-semibold">{choice.title}</span>
+            {step && step.of > 1 && <span className="studio-ink-2 flex-none text-xs tabular-nums">{step.at + 1} of {step.of}</span>}
+          </span>
           <span className="studio-ink-2 hidden truncate text-xs sm:block">{choice.about}</span>
         </div>
         <div role="group" aria-label="Preview in" className="studio-glass flex flex-none gap-0.5 rounded-full p-0.5">
@@ -129,7 +133,17 @@ export function Stage({ choice, mode, style, query, spin, changed, onMode, onSur
           ))}
         </div>
       </div>
-      <div className="flex flex-1 items-center justify-center px-4 py-2 sm:px-10 [perspective:1400px]">
+      <div className="relative flex flex-1 items-center justify-center px-4 py-2 sm:px-16 [perspective:1400px]">
+        {step && step.of > 1 && (
+          <>
+            <button type="button" aria-label="The Card before" onClick={() => step.go(-1)} className="studio-glass absolute start-3 top-1/2 z-10 hidden size-10 -translate-y-1/2 cursor-pointer place-items-center rounded-full sm:grid">
+              <ChevronLeft size={ICON.md} aria-hidden className="rtl:rotate-180" />
+            </button>
+            <button type="button" aria-label="The Card after" onClick={() => step.go(1)} className="studio-glass absolute end-3 top-1/2 z-10 hidden size-10 -translate-y-1/2 cursor-pointer place-items-center rounded-full sm:grid">
+              <ChevronRight size={ICON.md} aria-hidden className="rtl:rotate-180" />
+            </button>
+          </>
+        )}
         <motion.div ref={toss} className="w-full" style={{ maxWidth: `min(${choice.width}px, calc(var(--card-h) * ${ratio}))` }}>
           <motion.div ref={card} className="relative [transform-style:preserve-3d]" style={{ rotateX, rotateY }}>
             <SteadyImage src={cardSrc(choice.url, "svg", mode, query)} alt={`${choice.alt}, ${mode}`} width={choice.width} height={choice.height} className="studio-card" eager />

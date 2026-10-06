@@ -416,18 +416,22 @@ export function SurvivalPanel({ engine, login, onRead }: { engine: EngineView; l
         ) : null
       }
     >
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-[15rem_minmax(0,1fr)]">
-        <div className="flex flex-col gap-1">
-          <span className={`type-stat-lg ${c.total === null ? "text-secondary" : "text-brand"}`}>{c.total === null ? "—" : compact(c.total)}</span>
-          <span className="mt-1 type-label">lines still running</span>
-          <span className="type-caption">
-            {c.total === null ? (c.busy ? "None counted yet; the first arrive in a few minutes." : "No repository of theirs counted yet.") : `The sum of the ${many(c.counted.length, "repository", "repositories")} listed${share ? `: ${share} of the ${compact(c.added ?? 0)} lines they added there` : ""}.`}
-          </span>
+      <div className="flex flex-col gap-stack">
+        <div className="grid grid-cols-1 items-end gap-x-10 gap-y-4 border-b border-line pb-stack md:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
+          <div className="flex min-w-0 flex-col gap-1">
+            <span className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <span className={`type-stat-lg ${c.total === null ? "text-secondary" : "text-brand"}`}>{c.total === null ? "—" : compact(c.total)}</span>
+              <span className="type-label">lines still running</span>
+            </span>
+            <span className="type-caption">
+              {c.total === null ? (c.busy ? "None counted yet; the first arrive in a few minutes." : "No repository of theirs counted yet.") : `The sum of the ${many(c.counted.length, "repository", "repositories")} listed${share ? `: ${share} of the ${compact(c.added ?? 0)} lines they added there` : ""}.`}
+            </span>
+          </div>
           <CoverageBar c={c} />
         </div>
         <div className="flex min-w-0 flex-col gap-stack">
           {listed.length > 0 && (
-            <ul className="m-0 flex min-w-0 list-none flex-col gap-3 p-0">
+            <ul className="m-0 grid min-w-0 list-none grid-cols-1 gap-x-10 gap-y-4 p-0 lg:grid-cols-2">
               {listed.map((r) => (
                 <SurvivalRow key={`${r.owner}/${r.name}`} r={r} login={login} most={most} />
               ))}
@@ -468,13 +472,13 @@ function CoverageBar({ c }: { c: Coverage }) {
     { n: c.unread.length, colour: "bg-[var(--color-track)]", word: "not read" },
   ].filter((p) => p.n > 0);
   return (
-    <div className="mt-3 flex flex-col gap-2">
+    <div className="flex flex-col gap-2">
       <span role="img" aria-label={parts.map((p) => `${p.n} ${p.word}`).join(", ")} className="flex h-1.5 w-full gap-0.5 overflow-hidden rounded-full">
         {parts.map((p) => (
           <span key={p.word} className={`block h-full min-w-1 ${p.colour}`} style={{ flexGrow: p.n }} />
         ))}
       </span>
-      <ul className="m-0 flex list-none flex-col gap-0.5 p-0 type-caption">
+      <ul className="m-0 flex list-none flex-wrap gap-x-4 gap-y-0.5 p-0 type-caption">
         {parts.map((p) => (
           <li key={p.word} className="flex items-center gap-1.5">
             <span className={`size-2 rounded-full ${p.colour}`} aria-hidden />
@@ -501,7 +505,7 @@ function SurvivalRow({ r, login, most }: { r: EngineRepo; login: string; most: n
           {counted ? (
             <>
               <strong className="font-semibold text-primary">{grouped(r.surviving.lines ?? 0)}</strong>
-              {r.surviving.added ? ` of ${grouped(r.surviving.added)} · ${survival(r.surviving.lines, r.surviving.added) ?? ""}` : ""}
+              {r.surviving.added ? ` of ${grouped(r.surviving.added)}${survival(r.surviving.lines, r.surviving.added) ? ` · ${survival(r.surviving.lines, r.surviving.added)}` : ""}` : ""}
             </>
           ) : (
             <SurvivingCell repo={r} />

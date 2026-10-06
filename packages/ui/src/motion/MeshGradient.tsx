@@ -9,6 +9,7 @@ const FRAGMENT = `precision mediump float;
 uniform vec2 size;
 uniform float time;
 uniform float seed;
+uniform vec4 corners;
 uniform vec3 c0;
 uniform vec3 c1;
 uniform vec3 c2;
@@ -51,7 +52,12 @@ void main() {
   float light = smoothstep(-0.1, 1.5, uv.x * 0.9 + (1.0 - uv.y) * 0.5);
   colour = mix(c0, colour, mix(0.45, 1.0, light));
   colour += (hash(gl_FragCoord.xy + fract(time)) - 0.5) * 0.04;
-  gl_FragColor = vec4(colour, 1.0);
+  vec2 at = gl_FragCoord.xy - size * 0.5;
+  float r = at.x > 0.0 ? (at.y > 0.0 ? corners.y : corners.z) : (at.y > 0.0 ? corners.x : corners.w);
+  vec2 d = abs(at) - size * 0.5 + r;
+  float edge = length(max(d, 0.0)) + min(max(d.x, d.y), 0.0) - r;
+  float alpha = clamp(0.5 - edge, 0.0, 1.0);
+  gl_FragColor = vec4(colour * alpha, alpha);
 }`;
 
 function rgb(hex: string): [number, number, number] {
@@ -69,7 +75,7 @@ function compile(gl: WebGLRenderingContext, type: number, source: string) {
 
 type Colours = [number, number, number][];
 
-/** A slowly flowing, domain-warped gradient drawn by a WebGL fragment shader behind its parent; still when motion is reduced, paused off screen. A new palette blends in over the old one. */
+/** A slowly flowing, domain-warped gradient drawn by a WebGL fragment shader behind its parent; still when motion is reduced, paused off screen. A new palette blends in over the old one. It draws its parent's rounded corners itself, so no browser shows it square. */
 export function MeshGradient({ palette, seed = 0, className = "" }: { palette: MeshPalette; seed?: number; className?: string }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const key = palette.join();
@@ -77,7 +83,7 @@ export function MeshGradient({ palette, seed = 0, className = "" }: { palette: M
   const shift = useRef<((key: string) => void) | null>(null);
   useEffect(() => {
     const canvas = ref.current;
-    const gl = canvas?.getContext("webgl", { antialias: false, alpha: false, preserveDrawingBuffer: false });
+    const gl = canvas?.getContext("webgl", { antialias: false, alpha: true, premultipliedAlpha: true, preserveDrawingBuffer: false });
     if (!canvas || !gl) return;
     const vertex = compile(gl, gl.VERTEX_SHADER, VERTEX);
     const fragment = compile(gl, gl.FRAGMENT_SHADER, FRAGMENT);
@@ -95,7 +101,7 @@ export function MeshGradient({ palette, seed = 0, className = "" }: { palette: M
     gl.enableVertexAttribArray(at);
     gl.vertexAttribPointer(at, 2, gl.FLOAT, false, 0, 0);
     const u = (name: string) => gl.getUniformLocation(program, name);
-    const [size, time] = [u("size"), u("time")];
+    const [size, time, corners] = [u("size"), u("time"), u("corners")];
     const slots = [0, 1, 2, 3].map((i) => u(`c${i}`));
     gl.uniform1f(u("seed"), seed);
     const parse = (k: string): Colours => k.split(",").map(rgb);
@@ -133,6 +139,9 @@ export function MeshGradient({ palette, seed = 0, className = "" }: { palette: M
       canvas.height = Math.max(1, Math.round(canvas.clientHeight * scale));
       gl.viewport(0, 0, canvas.width, canvas.height);
       gl.uniform2f(size, canvas.width, canvas.height);
+      const css = getComputedStyle(canvas);
+      const r = (v: string) => (Number.parseFloat(v) || 0) * scale;
+      gl.uniform4f(corners, r(css.borderTopLeftRadius), r(css.borderTopRightRadius), r(css.borderBottomRightRadius), r(css.borderBottomLeftRadius));
       if (!frame) draw();
     };
     const wake = () => {

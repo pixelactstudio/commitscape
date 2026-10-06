@@ -43,7 +43,6 @@ test("the Card studio picks a Card, dresses it, and gives its README Markdown wi
   await expect(page).toHaveURL(/accent=f97316/);
   await expect(page).toHaveURL(/bg=dots/);
   await expect(page.locator("code, pre").filter({ hasText: "prefers-color-scheme: dark" }).first()).toContainText("/api/cards/u/alice/calendar.svg?theme=dark&preset=grape&accent=f97316&bg=dots");
-  await page.getByRole("tab", { name: "Post it" }).click();
   await expect(page.getByRole("link", { name: "Share on LinkedIn" })).toHaveAttribute("href", /linkedin\.com\/sharing\/share-offsite\/\?url=.*%2Fu%2Falice/);
   const styled = await request.get("/api/cards/u/alice/totals.svg?preset=grape&accent=f97316&bg=dots");
   expect(styled.status()).toBe(200);

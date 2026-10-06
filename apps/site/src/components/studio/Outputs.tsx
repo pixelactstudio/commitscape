@@ -1,8 +1,7 @@
-import { useState } from "react";
+import type { ReactNode } from "react";
 import { Button } from "@astryxdesign/core/Button";
 import { CodeBlock } from "@astryxdesign/core/CodeBlock";
 import { Icon } from "@astryxdesign/core/Icon";
-import { Tab, TabList } from "@astryxdesign/core/TabList";
 import { ChevronRight, Copy, Download, Link2 } from "lucide-react";
 import { ICON } from "@commitscape/ui/design";
 import { cardSrc, markdownOf } from "#/lib/markdown";
@@ -26,65 +25,80 @@ function useAddresses(choice: CardChoice, query: string, origin: string) {
   };
 }
 
-/** Everything a styled Card can be taken out as: README Markdown, its addresses, a post, and PNGs. */
+/** Everything a styled Card can be taken out as, side by side: README Markdown, PNG downloads, a post, and its addresses. */
 export function Outputs({ choice, query, origin }: { choice: CardChoice; query: string; origin: string }) {
-  const [tab, setTab] = useState("readme");
   const a = useAddresses(choice, query, origin);
+  const file = choice.id.replace(/[^a-z0-9]+/gi, "-");
   return (
-    <section aria-label="Use it" className="flex flex-col gap-stack rounded-lg border border-line bg-surface p-panel">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="m-0 type-panel">Use it</h2>
-        <TabList value={tab} onChange={setTab} size="sm" role="tablist">
-          <Tab value="readme" panelId="studio-output" label="README" />
-          <Tab value="links" panelId="studio-output" label="Links" />
-          <Tab value="post" panelId="studio-output" label="Post it" />
-        </TabList>
+    <section aria-labelledby="studio-use" className="flex flex-col gap-5">
+      <div className="flex flex-col gap-1">
+        <h2 id="studio-use" className="m-0 type-heading">
+          Use it
+        </h2>
+        <p className="m-0 type-description">Everything here carries the style you picked, so it looks the way it does above.</p>
       </div>
-      <div id="studio-output" role="tabpanel" className="flex min-w-0 flex-col gap-3">
-        {tab === "readme" && (
-          <>
-            <p className="m-0 type-description">Paste it into a README. GitHub shows the dark Card to readers in dark mode, animated, and it refreshes every six hours.</p>
-            <CodeBlock code={a.markdown} language="html" width="100%" size="sm" isWrapped onCopy={() => a.toast("Markdown copied")} />
-            <Button label="Copy the Markdown" variant="primary" width="100%" icon={<Icon icon={Copy} size="sm" />} onClick={() => a.copy(a.markdown, "Markdown copied")} />
-          </>
-        )}
-        {tab === "links" && (
-          <ul className="m-0 flex list-none flex-col gap-2 p-0">
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Block title="In a README" words="GitHub shows the dark Card to readers in dark mode, animated, and it refreshes every six hours." className="lg:col-span-2">
+          <CodeBlock code={a.markdown} language="html" width="100%" size="sm" isWrapped onCopy={() => a.toast("Markdown copied")} />
+          <div className="mt-auto flex flex-wrap gap-2">
+            <Button label="Copy the Markdown" variant="primary" icon={<Icon icon={Copy} size="sm" />} onClick={() => a.copy(a.markdown, "Markdown copied")} />
+          </div>
+        </Block>
+        <Block title="As an image" words="A still PNG, for a slide, a document or a post.">
+          <div className="grid flex-1 grid-cols-2 gap-2">
+            {(["light", "dark"] as const).map((theme) => (
+              <a key={theme} href={a.png(theme)} download={`${file}-${theme}.png`} aria-label={`PNG, ${theme}`} data-mode={theme} className="studio-download group/dl flex min-h-36 flex-col justify-between gap-3 rounded-lg p-3 no-underline">
+                <span className="grid flex-1 place-items-center">
+                  <img src={cardSrc(choice.url, "svg", theme, query)} alt="" loading="lazy" className="max-h-32 w-full object-contain drop-shadow-md transition-transform duration-(--duration-base) ease-(--ease-out) group-hover/dl:-translate-y-0.5" />
+                </span>
+                <span className="flex items-center justify-between gap-2 text-sm font-medium">
+                  {theme === "light" ? "Light" : "Dark"}
+                  <Download size={ICON.sm} aria-hidden />
+                </span>
+              </a>
+            ))}
+          </div>
+        </Block>
+        <Block title="In a post" words="The post links to the page, and X and LinkedIn show its preview image. Attach the PNG to post the Card itself.">
+          <div className="flex flex-col gap-1 rounded-lg border border-line bg-sunken px-4 py-3">
+            <p className="m-0 type-body text-primary">{choice.share}</p>
+            <p className="m-0 truncate text-sm text-brand">{a.link}</p>
+          </div>
+          <div className="mt-auto flex flex-wrap gap-2">
+            <Button label="Post on X" variant="primary" href={a.x} target="_blank" rel="noopener noreferrer" />
+            <Button label="Share on LinkedIn" variant="secondary" href={a.linkedin} target="_blank" rel="noopener noreferrer" />
+            <Button label="Copy text and link" variant="ghost" isIconOnly icon={<Icon icon={Copy} size="sm" />} onClick={() => a.copy(`${choice.share} ${a.link}`, "Copied")} />
+          </div>
+        </Block>
+        <Block title="Its addresses" words="To put the Card anywhere an image goes, or to link to the page behind it." className="lg:col-span-2">
+          <ul className="m-0 flex list-none flex-col divide-y divide-line p-0">
             {[
-              ["The page it links to", a.link],
+              ["The page", a.link],
               ["The Card, light", a.image("svg", "light")],
               ["The Card, dark", a.image("svg", "dark")],
               ["As a PNG", a.image("png", "light")],
             ].map(([label, link]) => (
-              <li key={label} className="flex min-w-0 flex-col gap-1">
-                <span className="type-caption">{label}</span>
-                <div className="flex min-w-0 items-center gap-1.5">
-                  <code className="min-w-0 flex-1 truncate rounded-sm border border-line bg-sunken px-2 py-1.5 text-2xs">{link}</code>
-                  <Button label={`Copy: ${label}`} isIconOnly size="sm" variant="ghost" icon={<Icon icon={Link2} size="sm" />} onClick={() => a.copy(link ?? "", "Link copied")} />
-                </div>
+              <li key={label} className="grid min-w-0 items-center gap-x-4 gap-y-1 py-2 first:pt-0 last:pb-0 sm:grid-cols-[8.5rem_minmax(0,1fr)_auto]">
+                <span className="type-label">{label}</span>
+                <code className="min-w-0 truncate font-mono text-xs text-secondary">{link}</code>
+                <Button label={`Copy: ${label}`} isIconOnly size="sm" variant="ghost" icon={<Icon icon={Link2} size="sm" />} onClick={() => a.copy(link ?? "", "Link copied")} className="hidden sm:inline-flex" />
               </li>
             ))}
           </ul>
-        )}
-        {tab === "post" && (
-          <>
-            <p className="m-0 type-description">The post links to the page, and X and LinkedIn show its preview image. Download the PNG to attach the Card itself.</p>
-            <blockquote className="m-0 rounded-md border border-line bg-sunken px-3 py-2 type-body text-primary">
-              {choice.share} <span className="text-secondary">{a.link}</span>
-            </blockquote>
-            <div className="flex flex-wrap gap-2">
-              <Button label="Post on X" variant="primary" href={a.x} target="_blank" rel="noopener noreferrer" />
-              <Button label="Share on LinkedIn" variant="secondary" href={a.linkedin} target="_blank" rel="noopener noreferrer" />
-              <Button label="Copy text and link" variant="ghost" icon={<Icon icon={Copy} size="sm" />} onClick={() => a.copy(`${choice.share} ${a.link}`, "Copied")} />
-            </div>
-          </>
-        )}
+        </Block>
       </div>
-      <div className="flex flex-wrap items-center gap-2 border-t border-line pt-stack">
-        <span className="me-auto type-label">As an image</span>
-        <Button label="PNG, light" size="sm" variant="secondary" icon={<Icon icon={Download} size="sm" />} href={a.png("light")} target="_blank" />
-        <Button label="PNG, dark" size="sm" variant="secondary" icon={<Icon icon={Download} size="sm" />} href={a.png("dark")} target="_blank" />
+    </section>
+  );
+}
+
+function Block({ title, words, className = "", children }: { title: string; words: string; className?: string; children: ReactNode }) {
+  return (
+    <section aria-label={title} className={`flex min-w-0 flex-col gap-4 rounded-xl border border-line bg-surface p-5 ${className}`}>
+      <div className="flex flex-col gap-1">
+        <h3 className="m-0 type-panel">{title}</h3>
+        <p className="m-0 type-description">{words}</p>
       </div>
+      {children}
     </section>
   );
 }
