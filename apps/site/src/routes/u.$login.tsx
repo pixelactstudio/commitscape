@@ -3,13 +3,14 @@ import { Button } from "@astryxdesign/core/Button";
 import { DropdownMenu } from "@astryxdesign/core/DropdownMenu";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
-import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { Briefcase, ExternalLink, Link2, MoreHorizontal, Share2, Sparkles } from "lucide-react";
 import { PRODUCT, type Identity } from "@commitscape/data";
 import {
   ArchetypePill,
   Cell,
+  Chip,
   clockState,
   CommitClock,
   HeadlineNumbers,
@@ -29,6 +30,7 @@ import {
 } from "@commitscape/ui";
 import { Reveal } from "@commitscape/ui/motion";
 import { engineQuery, fullProfileQuery, liveEngineQuery, traitsQuery, profileLookupQuery, profileQuery } from "#/lib/queries";
+import { startBuild } from "#/functions/repos";
 import { Section } from "#/components/Boundary";
 import { Compare } from "#/components/Compare";
 import { Missing } from "#/components/Missing";
@@ -83,12 +85,12 @@ function ProfilePage() {
             <Section fallback={null}>
               <Archetype login={id.login} />
             </Section>
-            {lookup.self && <span className="rounded-full border border-line px-2.5 py-0.5 text-xs text-secondary">you</span>}
+            {lookup.self && <Chip tone="quiet">you</Chip>}
           </>
         }
         actions={<Actions identity={id} self={lookup.self} />}
       />
-      <Page className="flex flex-col gap-4 pt-6 pb-16">
+      <Page className="flex flex-col gap-gutter pt-6 pb-section">
         {lookup.self && lookup.hidden && <Banner status="info" title="Your Profile is hidden. Everyone else sees only that it is hidden, and you are in no one's comparisons. Change it in Settings." />}
         {lookup.self && (
           <Section fallback={null}>
@@ -110,7 +112,7 @@ function ProfilePage() {
           </Section>
         </Reveal>
         <Reveal>
-          <Section fallback={<PanelSkeleton title="Where their work is" height={12 * 57 + 34} />}>
+          <Section fallback={<PanelSkeleton title="Where their work is" height={12 * 56 + 34} />}>
             <Work login={id.login} />
           </Section>
         </Reveal>
@@ -178,7 +180,7 @@ function Organization({ identity }: { identity: Identity }) {
 
 function NumbersSkeleton() {
   return (
-    <div className="grid overflow-hidden rounded-[var(--radius-container)] border border-line bg-surface">
+    <div className="grid overflow-hidden rounded-lg border border-line bg-surface">
       <div className="grid grid-cols-2 lg:grid-cols-4">
         {[0, 1, 2, 3].map((i) => (
           <Cell key={i}>
@@ -222,8 +224,26 @@ function useFullProfile(login: string) {
 function useEngine(login: string) {
   const { data } = useSuspenseQuery(engineQuery(login));
   const mounted = useHydrated();
-  const live = useQuery({ ...liveEngineQuery(login), enabled: mounted && data.counting > 0 });
+  const live = useQuery({ ...liveEngineQuery(login), enabled: mounted, initialData: data, staleTime: Infinity });
   return mounted && live.data ? live.data : data;
+}
+
+function useRead(login: string) {
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  return async (repos: { owner: string; name: string }[]) => {
+    let failed: string | null = null;
+    for (const r of repos) {
+      try {
+        await startBuild({ data: { owner: r.owner, repo: r.name } });
+      } catch (e) {
+        failed = e instanceof Error ? e.message : "Could not start reading it.";
+        break;
+      }
+    }
+    if (failed) toast(failed);
+    await queryClient.refetchQueries({ queryKey: liveEngineQuery(login).queryKey });
+  };
 }
 
 function Numbers({ login }: { login: string }) {
@@ -261,7 +281,7 @@ function Year({ login }: { login: string }) {
 
 function YearsSkeleton() {
   return (
-    <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+    <div className="grid gap-gutter lg:grid-cols-[1.4fr_1fr]">
       <PanelSkeleton title="Over the years" height={440} />
       <PanelSkeleton title="Languages over the years" height={440} />
     </div>
@@ -275,7 +295,7 @@ function Timeline({ login }: { login: string }) {
   const years = <OverTheYears profile={profile} full={mounted ? (full.data ?? null) : null} />;
   if (profile.totals.contributions === 0 || !profile.years.some((y) => y.languages.length > 0)) return years;
   return (
-    <div className="grid items-stretch gap-4 lg:grid-cols-[1.4fr_1fr]">
+    <div className="grid items-stretch gap-gutter lg:grid-cols-[1.4fr_1fr]">
       {years}
       <LanguagesOverTime profile={profile} />
     </div>
@@ -283,7 +303,7 @@ function Timeline({ login }: { login: string }) {
 }
 
 function Survival({ login }: { login: string }) {
-  return <SurvivalPanel engine={useEngine(login)} login={login} />;
+  return <SurvivalPanel engine={useEngine(login)} login={login} onRead={useRead(login)} />;
 }
 
 function Work({ login }: { login: string }) {
@@ -300,7 +320,7 @@ function Traits({ login }: { login: string }) {
 
 function TogetherSkeleton() {
   return (
-    <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr]">
+    <div className="grid gap-gutter lg:grid-cols-[1.6fr_1fr]">
       <PanelSkeleton title="The people they work with most" height={260} />
       <PanelSkeleton title="When they commit" height={260} />
     </div>
@@ -314,7 +334,7 @@ function Together({ login }: { login: string }) {
   const versus = (other: string) => `/vs/${login}/${other}`;
   if (people && clock)
     return (
-      <div className={`grid items-stretch gap-4 ${profile.partners.length > 6 ? "lg:grid-cols-[1.6fr_1fr]" : "lg:grid-cols-[1fr_1fr]"}`}>
+      <div className={`grid items-stretch gap-gutter ${profile.partners.length > 6 ? "lg:grid-cols-[1.6fr_1fr]" : "lg:grid-cols-[1fr_1fr]"}`}>
         <PeoplePanel profile={profile} versus={versus} />
         <CommitClock profile={profile} />
       </div>
@@ -328,7 +348,7 @@ function Read({ login }: { login: string }) {
   const p = useFullProfile(login);
   const when = new Date(p.fetchedAt * 1000).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
   return (
-    <p className="m-0 pt-2 text-xs text-secondary">
+    <p className="m-0 pt-2 type-micro">
       Read from GitHub {when} UTC{p.scope === "self" ? ", with your own sign-in: private work is shown to you alone" : ""}.{p.read.prsTotal > 0 ? ` Lines and partners come from the newest ${p.read.prs.toLocaleString("en-US")} of ${p.read.prsTotal.toLocaleString("en-US")} pull requests; the totals count them all.` : ""}
     </p>
   );

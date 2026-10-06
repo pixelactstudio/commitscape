@@ -42,7 +42,7 @@ function Blob({ onPoke, mood }: { onPoke: () => void; mood: number }) {
       type="button"
       aria-label="Poke the mascot"
       onClick={onPoke}
-      className="relative grid size-14 cursor-pointer place-items-center rounded-[18px] border-0 bg-brand p-0 shadow-[0_10px_30px_-10px_var(--brand),inset_0_-4px_0_rgb(0_0_0/0.18)]"
+      className="relative grid size-14 cursor-pointer place-items-center rounded-2xl border-0 bg-brand p-0 shadow-[0_10px_30px_-10px_var(--brand),inset_0_-4px_0_rgb(0_0_0/0.18)]"
       animate={reduce ? undefined : mood === LINES.length - 1 ? { y: [0, -26, 0], rotate: [0, 360] } : { y: [0, -3, 0] }}
       transition={mood === LINES.length - 1 ? { duration: 0.7, ease: "easeOut" } : { duration: 2.6, repeat: Infinity, ease: "easeInOut" }}
       whileTap={{ scale: 0.9 }}
@@ -63,10 +63,10 @@ export function Nothing({ title, words, action, compact = false }: { title?: Rea
     <div className={`flex flex-col items-center justify-center gap-3 text-center ${compact ? "py-6" : "py-10"}`}>
       <Blob mood={mood} onPoke={() => setMood((m) => (m + 1) % LINES.length)} />
       <div className="flex max-w-sm flex-col gap-1">
-        <span className="text-sm font-medium text-primary" aria-live="polite">
+        <span className="text-xs font-medium text-primary" aria-live="polite">
           {mood === 0 ? (title ?? LINES[0]) : LINES[mood]}
         </span>
-        {words && <span className="text-sm text-pretty text-secondary">{words}</span>}
+        {words && <span className="text-xs text-pretty text-secondary">{words}</span>}
       </div>
       {action}
     </div>

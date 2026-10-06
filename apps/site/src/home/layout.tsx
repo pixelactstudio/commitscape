@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
+import { Chip } from "@commitscape/ui";
+import { ICON } from "@commitscape/ui/design";
 import { Reveal, STAGGER } from "@commitscape/ui/motion";
 
 /** The home page's frame: a centred column ruled on both sides that every band sits in. */
@@ -18,20 +20,26 @@ export function Band({ children, className = "", label }: { children: ReactNode;
   );
 }
 
+/** The small labelled chip above a home section's title. */
+export function Kicker({ icon: Glyph, children }: { icon: LucideIcon; children: ReactNode }) {
+  return (
+    <Chip icon={<Glyph size={ICON.xs} className="text-brand" aria-hidden />} className="text-secondary!">
+      {children}
+    </Chip>
+  );
+}
+
 /** A section's centred heading that blurs into view: a small labelled chip, the title and a line of explanation. */
-export function Heading({ icon: Glyph, eyebrow, title, words }: { icon: LucideIcon; eyebrow: string; title: ReactNode; words: string }) {
+export function Heading({ icon, eyebrow, title, words }: { icon: LucideIcon; eyebrow: string; title: ReactNode; words: string }) {
   return (
     <div className="mx-auto flex max-w-2xl flex-col items-center gap-4 px-5 text-center">
       <Reveal blur={false} y={0}>
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-[var(--color-background-surface)] px-3 py-1 text-[0.78rem] font-medium text-secondary">
-          <Glyph size={13} className="text-brand" aria-hidden />
-          {eyebrow}
-        </span>
+        <Kicker icon={icon}>{eyebrow}</Kicker>
       </Reveal>
-      <Reveal as="h2" delay={STAGGER.base} className="m-0 text-[clamp(1.85rem,4vw,2.9rem)] leading-[1.06] font-semibold tracking-[-0.04em] text-balance">
+      <Reveal as="h2" delay={STAGGER.base} className="m-0 type-display">
         {title}
       </Reveal>
-      <Reveal as="p" delay={STAGGER.loose} className="m-0 max-w-xl text-[1.02rem] leading-relaxed text-pretty text-secondary">
+      <Reveal as="p" delay={STAGGER.loose} className="m-0 max-w-xl type-lead">
         {words}
       </Reveal>
     </div>

@@ -7,7 +7,9 @@ import { ordinal, placesOf, VIEWS, type Place, type StandingRow, type Standings,
 import { Face } from "../components/Face";
 import { compact, date, grouped, many } from "../format";
 import { A } from "../kit/A";
+import { ICON, MEDAL } from "../design/tokens";
 import { Panel } from "../kit/layout";
+import { STAGGER } from "../motion";
 
 const SHOWN = 20;
 
@@ -40,22 +42,22 @@ function Pending({ status }: { status: StandingRow["survivingStatus"] }) {
 export function PlaceCards({ standings, row }: { standings: Standings; row: StandingRow }) {
   const places = useMemo(() => placesByView(standings), [standings]);
   return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-[repeat(var(--views),minmax(0,1fr))]" style={{ "--views": viewsOf(standings).length } as CSSProperties}>
+    <div className="grid grid-cols-2 gap-gutter md:grid-cols-3 lg:grid-cols-[repeat(var(--views),minmax(0,1fr))]" style={{ "--views": viewsOf(standings).length } as CSSProperties}>
       {viewsOf(standings).map((v, i) => {
         const p = places[v.id].get(row.key);
         const value = valueOf(row, v.id);
         const share = p ? 1 - (p.place - 1) / Math.max(1, p.of) : 0;
         const best = p?.place === 1;
         return (
-          <div key={v.id} className={`rise flex flex-col gap-2 rounded-[var(--radius-container)] border p-4 ${best ? "border-[var(--brand)] bg-brand-soft" : "border-line bg-surface"}`} style={{ animationDelay: `${i * 50}ms` }} title={v.why}>
-            <span className="text-xs font-medium text-secondary">{v.label}</span>
+          <div key={v.id} className={`rise flex flex-col gap-2 rounded-lg border p-4 ${best ? "border-brand-line bg-brand-soft" : "border-line bg-surface"}`} style={{ animationDelay: `${i * STAGGER.tight}s` }} title={v.why}>
+            <span className="type-caption font-medium">{v.label}</span>
             {p ? (
               <span className="flex items-baseline gap-1.5">
-                <span className={`text-[2rem] leading-none font-semibold tracking-[-0.04em] ${best ? "text-brand" : ""}`}>{ordinal(p.place)}</span>
-                <span className="text-sm text-secondary">of {grouped(p.of)}</span>
+                <span className={`type-stat-lg ${best ? "text-brand" : ""}`}>{ordinal(p.place)}</span>
+                <span className="type-caption">of {grouped(p.of)}</span>
               </span>
             ) : (
-              <span className="text-[2rem] leading-none font-semibold tracking-[-0.04em] text-[var(--color-text-disabled)]">—</span>
+              <span className="type-stat-lg text-quiet">—</span>
             )}
             <span className="relative mt-1 block h-1.5 rounded-full bg-[var(--color-track)]" aria-hidden>
               {p && <span className="absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[var(--color-background-surface)] bg-brand" style={{ left: `${Math.max(4, Math.min(96, share * 100))}%` }} />}
@@ -81,11 +83,11 @@ export function NextUp({ standings, row, view }: { standings: Standings; row: St
     const gap = Math.abs((valueOf(r, view) ?? 0) - mine);
     return (
       <div className="flex items-center gap-3">
-        <span className={`grid size-7 flex-none place-items-center rounded-full ${up ? "bg-[var(--color-track)] text-primary" : "bg-brand-soft text-brand"}`}>{up ? <ArrowUp size={14} /> : <ArrowDown size={14} />}</span>
+        <span className={`grid size-7 flex-none place-items-center rounded-full ${up ? "bg-[var(--color-track)] text-primary" : "bg-brand-soft text-brand"}`}>{up ? <ArrowUp size={ICON.sm} aria-hidden /> : <ArrowDown size={ICON.sm} aria-hidden />}</span>
         <Face login={r.login} name={r.name} size={32} />
         <span className="flex min-w-0 flex-col">
           <span className="truncate text-sm font-medium">{r.name}</span>
-          <span className="text-xs text-secondary">
+          <span className="type-caption">
             {up ? `${many(gap, ...unit)} ahead` : `${many(gap, ...unit)} behind`}
           </span>
         </span>
@@ -94,9 +96,9 @@ export function NextUp({ standings, row, view }: { standings: Standings; row: St
   };
   if (!ahead && !behind) return null;
   return (
-    <div className="grid gap-3 rounded-[var(--radius-container)] border border-line bg-surface p-4 sm:grid-cols-2">
-      {ahead ? line(ahead, true) : <span className="text-sm font-medium text-brand">Nobody ahead: first in this view.</span>}
-      {behind ? line(behind, false) : <span className="text-sm text-secondary">Nobody behind in this view.</span>}
+    <div className="grid gap-gutter rounded-lg border border-line bg-surface p-4 sm:grid-cols-2">
+      {ahead ? line(ahead, true) : <span className="self-center text-sm font-medium text-brand">Nobody ahead: first in this view.</span>}
+      {behind ? line(behind, false) : <span className="self-center type-caption">Nobody behind in this view.</span>}
     </div>
   );
 }
@@ -141,7 +143,7 @@ export function Leaderboard({ standings, focus, view, onView, link = true }: { s
         ))}
         {pinned && (
           <>
-            <li className="border-t border-dashed border-line px-5 py-1 text-center text-xs text-secondary" aria-hidden>
+            <li className="border-t border-dashed border-line px-5 py-1 text-center type-micro" aria-hidden>
               ⋯
             </li>
             <Entry r={pinned} place={places[by].get(pinned.key)} value={valueOf(pinned, by)} top={top} view={by} you owner={owner} name={name} link={link} alias={twins.has(pinned.name)} />
@@ -150,35 +152,35 @@ export function Leaderboard({ standings, focus, view, onView, link = true }: { s
       </ol>
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line px-5 py-3">
         {sorted.length > SHOWN ? <Button label={all ? "Show fewer" : `Show all ${grouped(sorted.length)}`} variant="ghost" size="sm" onClick={() => setAll(!all)} /> : <span />}
-        <span className="text-xs text-secondary">{standings.repo.pullsReadAt ? `Read ${date(standings.repo.builtAt)}; pull requests and reviews from GitHub.` : "GitHub's pull requests for this repository are still being read."}</span>
+        <span className="type-micro">{standings.repo.pullsReadAt ? `Read ${date(standings.repo.builtAt)}; pull requests and reviews from GitHub.` : "GitHub's pull requests for this repository are still being read."}</span>
       </div>
     </Panel>
   );
 }
 
 function Entry({ r, place, value, top, view, you, owner, name, link, alias }: { r: StandingRow; place: Place | undefined; value: number | null; top: number; view: View; you: boolean; owner: string; name: string; link: boolean; alias: boolean }) {
-  const medal = place && place.place <= 3 ? ["#e8b931", "#b8bec7", "#c98a54"][place.place - 1] : null;
+  const medal = place && place.place <= 3 ? MEDAL[place.place - 1] : null;
   const body = (
     <>
-      <span className="w-8 flex-none text-end text-sm text-secondary tnum">{medal ? <span className="inline-grid size-6 place-items-center rounded-full text-xs font-bold text-[#141416]" style={{ background: medal }}>{place?.place}</span> : (place?.place ?? "—")}</span>
+      <span className="w-8 flex-none text-end text-xs text-secondary tnum">{medal ? <span className="inline-grid size-6 place-items-center rounded-full text-2xs font-bold text-on-medal" style={{ background: medal }}>{place?.place}</span> : (place?.place ?? "—")}</span>
       <Face login={r.login} name={r.name} size={32} />
       <span className="flex min-w-0 flex-1 flex-col gap-1">
         <span className="flex items-center gap-2 truncate text-sm font-medium">
           <span className="truncate">{r.name}</span>
-          {alias && r.login && <span className="truncate text-xs font-normal text-secondary">@{r.login}</span>}
-          {r.you && <span className="rounded-full bg-brand px-1.5 py-px text-[0.65rem] font-semibold text-[var(--color-background-body)]">you</span>}
+          {alias && r.login && <span className="truncate type-micro font-normal">@{r.login}</span>}
+          {r.you && <span className="rounded-full bg-brand px-1.5 py-px text-2xs font-semibold text-on-brand">you</span>}
         </span>
         <span className="block h-1 w-full max-w-md overflow-hidden rounded-full bg-[var(--color-track)]" aria-hidden>
-          <span className={`block h-full rounded-full ${you ? "bg-brand" : "bg-[var(--color-text-secondary)] opacity-50"}`} style={{ width: `${((value ?? 0) * 100) / top}%` }} />
+          <span className={`block h-full rounded-full ${you ? "bg-brand" : "bg-tertiary"}`} style={{ width: `${((value ?? 0) * 100) / top}%` }} />
         </span>
       </span>
-      <span className="w-20 flex-none text-end text-sm tnum sm:w-28">{value !== null ? <span className="font-medium">{view === "linesAdded" || value >= 100_000 ? compact(value) : grouped(value)}</span> : view === "surviving" ? <Pending status={r.survivingStatus} /> : <span className="text-[var(--color-text-disabled)]">—</span>}</span>
+      <span className="w-20 flex-none text-end text-sm tnum sm:w-28">{value !== null ? <span className="font-medium">{view === "linesAdded" || value >= 100_000 ? compact(value) : grouped(value)}</span> : view === "surviving" ? <Pending status={r.survivingStatus} /> : <span className="text-quiet">—</span>}</span>
     </>
   );
   return (
     <li className={`border-t border-line ${you ? "bg-brand-soft" : ""}`} aria-current={you || undefined}>
       {link && r.login ? (
-        <A href={`/u/${r.login}/${owner}/${name}`} className="flex items-center gap-3 px-5 py-2.5 text-primary no-underline transition-colors hover:bg-[var(--color-overlay-hover)]">
+        <A href={`/u/${r.login}/${owner}/${name}`} className="flex items-center gap-3 px-5 py-2.5 text-primary no-underline transition-colors hover:bg-hover">
           {body}
         </A>
       ) : (

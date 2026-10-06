@@ -1,3 +1,4 @@
+import { heat } from "../design/tokens";
 import { grouped, many, share } from "../format";
 import { TableView } from "./common";
 import { useTip } from "./tip";
@@ -11,7 +12,6 @@ function step(n: number, max: number): number {
   return Math.min(4, Math.max(1, Math.ceil(Math.sqrt(n / max) * 4)));
 }
 
-const green = (s: number) => (s === 0 ? "var(--empty)" : `var(--green-${s})`);
 
 export type Peak = { day: number; hour: number; commits: number; times: number };
 
@@ -43,7 +43,7 @@ export function WeekGrid({ week, unit = "commits", totals = true }: { week: numb
   const columns = totals ? "grid-cols-[2.1rem_repeat(24,minmax(0,1fr))] sm:grid-cols-[2.4rem_repeat(24,minmax(0,1fr))_4rem]" : "grid-cols-[2.1rem_repeat(24,minmax(0,1fr))]";
   return (
     <div className="flex min-w-0 flex-col gap-3">
-      <div className={`grid ${columns} items-end gap-[3px] text-[0.68rem] text-secondary tnum`} role="img" aria-label={`${unit} by weekday and hour, on each author's own clock`}>
+      <div className={`grid ${columns} items-end gap-0.75 text-2xs text-secondary tnum`} role="img" aria-label={`${unit} by weekday and hour, on each author's own clock`}>
         {totals && (
           <>
             <span aria-hidden />
@@ -62,7 +62,7 @@ export function WeekGrid({ week, unit = "commits", totals = true }: { week: numb
                   </>,
                 )}
               >
-                <span className="block w-full rounded-t-[2px] bg-[var(--green-2)] opacity-70" style={{ height: `${Math.max(n > 0 ? 6 : 0, (n * 100) / hourMost)}%` }} />
+                <span className="block w-full rounded-t-cell bg-heat-2 opacity-70" style={{ height: `${Math.max(n > 0 ? 6 : 0, (n * 100) / hourMost)}%` }} />
               </span>
             ))}
             <span aria-hidden className="hidden sm:block" />
@@ -76,8 +76,8 @@ export function WeekGrid({ week, unit = "commits", totals = true }: { week: numb
               return (
                 <span
                   key={h}
-                  className={`aspect-square rounded-[3px] transition-[filter] hover:brightness-125 ${top ? "outline-2 outline-offset-1 outline-[var(--color-text-primary)] outline-solid" : ""}`}
-                  style={{ background: green(step(n, max)) }}
+                  className={`aspect-square rounded-cell transition-[filter] hover:brightness-125 ${top ? "outline-2 outline-offset-1 outline-primary outline-solid" : ""}`}
+                  style={{ background: heat(step(n, max)) }}
                   {...tip(
                     <>
                       <strong>
@@ -98,7 +98,7 @@ export function WeekGrid({ week, unit = "commits", totals = true }: { week: numb
             {totals && (
               <span className="hidden h-full items-center gap-1.5 ps-1.5 sm:flex" title={`${grouped(byDay[d] ?? 0)} on ${WEEKDAYS[d]}s`}>
                 <span className="flex w-5 flex-none">
-                  <span className="block h-1.5 rounded-full bg-[var(--green-2)] opacity-70" style={{ width: `${Math.max((byDay[d] ?? 0) > 0 ? 12 : 0, ((byDay[d] ?? 0) * 100) / dayMost)}%` }} />
+                  <span className="block h-1.5 rounded-full bg-heat-2 opacity-70" style={{ width: `${Math.max((byDay[d] ?? 0) > 0 ? 12 : 0, ((byDay[d] ?? 0) * 100) / dayMost)}%` }} />
                 </span>
                 <span className="whitespace-nowrap">{share(byDay[d] ?? 0, all)}</span>
               </span>
@@ -113,12 +113,12 @@ export function WeekGrid({ week, unit = "commits", totals = true }: { week: numb
         ))}
         {totals && <span aria-hidden className="hidden sm:block" />}
       </div>
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-xs text-secondary">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-2xs text-secondary">
         <TableView head={["Day", ...Array.from({ length: 24 }, (_, h) => `${h}`)]} rows={week.map((hours, d) => [WEEKDAYS[d] ?? "", ...hours])} />
         <span className="flex items-center gap-1.5" aria-label={`From none to ${grouped(max)} ${unit} in one hour of the week`}>
           <span className="tnum">0</span>
           {[0, 1, 2, 3, 4].map((s) => (
-            <span key={s} aria-hidden className="inline-block size-[11px] rounded-[3px]" style={{ background: green(s) }} />
+            <span key={s} aria-hidden className="inline-block size-2.75 rounded-cell" style={{ background: heat(s) }} />
           ))}
           <span className="tnum">
             {grouped(max)} {unit} in an hour

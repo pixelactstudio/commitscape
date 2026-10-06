@@ -1,9 +1,8 @@
-import { useState } from "react";
+import { Component, Suspense, useState, type ReactNode } from "react";
 import { Button } from "@astryxdesign/core/Button";
 import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import { Icon } from "@astryxdesign/core/Icon";
-import { Selector } from "@astryxdesign/core/Selector";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { useMutation, useSuspenseQuery } from "@tanstack/react-query";
@@ -23,7 +22,7 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 export const Route = createFileRoute("/u/$login_/work")({
   validateSearch: (s: Record<string, unknown>): Search => {
-    const last = periodDates("last-month");
+    const last = periodDates("last-year");
     const from = typeof s.from === "string" && DATE.test(s.from) ? s.from : last.from;
     const to = typeof s.to === "string" && DATE.test(s.to) ? s.to : last.to;
     return {
@@ -50,7 +49,7 @@ function ProofOfWork() {
   const id = lookup.identity;
   const name = id.name ?? id.login;
   return (
-    <Page className="flex flex-col gap-4 pb-16">
+    <Page className="flex flex-col gap-gutter pb-16">
       <PageHead
         media={<Face login={id.login} name={name} size={48} />}
         eyebrow={
@@ -83,7 +82,7 @@ function Actions({ login, search, self }: { login: string; search: Search; self:
     <>
       <Button label="Copy link" variant="secondary" icon={<Icon icon={Link2} size="sm" />} onClick={copy} />
       {self && <ShareWork login={login} search={search} />}
-      <span className="hidden h-6 w-px bg-[var(--color-border)] sm:block" aria-hidden />
+      <span className="hidden h-6 w-px bg-line sm:block" aria-hidden />
       <Button label="Markdown" variant="secondary" icon={<Icon icon={Download} size="sm" />} href={`/api/work/u/${login}/proof.md?${query}`} tooltip="Download as Markdown" />
       <Button label="PDF" variant="secondary" icon={<Icon icon={Download} size="sm" />} href={`/api/work/u/${login}/proof.pdf?${query}`} tooltip="Download as PDF" />
     </>
@@ -126,7 +125,7 @@ function ShareChoices({ login, search }: { login: string; search: Search }) {
   if (link)
     return (
       <div className="flex flex-col gap-4 pt-4">
-        <p className="m-0 text-sm text-secondary">This link opens the Proof of Work as it is now, and stays the same if your work changes. Delete it from its page at any time.</p>
+        <p className="m-0 type-description">This link opens the Proof of Work as it is now, and stays the same if your work changes. Delete it from its page at any time.</p>
         <div className="flex items-end gap-2">
           <div className="min-w-0 flex-1">
             <TextInput label="Link" value={link} isReadOnly width="100%" />
@@ -137,12 +136,12 @@ function ShareChoices({ login, search }: { login: string; search: Search }) {
     );
   return (
     <div className="flex flex-col gap-4 pt-4">
-      <p className="m-0 text-sm text-pretty text-secondary">
+      <p className="m-0 type-description">
         A link that keeps this Proof of Work as it is now, from {work.from} to {work.to}. Public work is always in it.{" "}
         {privateRepos.length > 0 ? "Choose the private repositories it may name; the others stay out." : "Nothing private is in this period, so it holds exactly what others see."}
       </p>
       {privateRepos.length > 0 && (
-        <ul className="m-0 flex list-none flex-col divide-y divide-[var(--color-border)] rounded-[var(--radius-element)] border border-line p-0">
+        <ul className="m-0 flex list-none flex-col divide-y divide-line rounded-md border border-line p-0">
           {privateRepos.map((r) => (
             <li key={r.repo} className="flex items-center justify-between gap-3 px-3 py-2.5">
               <CheckboxInput
@@ -151,12 +150,12 @@ function ShareChoices({ login, search }: { login: string; search: Search }) {
                 value={chosen.has(r.repo)}
                 onChange={(on) => setChosen((s) => (on ? new Set([...s, r.repo]) : new Set([...s].filter((x) => x !== r.repo))))}
               />
-              <span className="flex-none text-xs text-secondary tnum">{many(r.count, "item", "items")}</span>
+              <span className="flex-none type-caption tnum">{many(r.count, "item", "items")}</span>
             </li>
           ))}
         </ul>
       )}
-      {share.error && <p className="m-0 text-sm text-[var(--color-text-error)]">{share.error.message}</p>}
+      {share.error && <p className="m-0 text-sm text-removed">{share.error.message}</p>}
       <div className="flex justify-end">
         <Button
           label={chosen.size > 0 ? `Create a link with ${many(chosen.size, "private repository", "private repositories")}` : privateRepos.length > 0 ? "Create a link with public work only" : "Create the link"}
@@ -172,19 +171,23 @@ function ShareChoices({ login, search }: { login: string; search: Search }) {
 function Filters({ login, search }: { login: string; search: Search }) {
   const navigate = useNavigate({ from: Route.fullPath });
   return (
-    <div className="flex flex-wrap items-center gap-2" role="group" aria-label="What to show">
+    <div className="flex flex-col gap-cluster sm:flex-row sm:flex-wrap sm:items-center" role="group" aria-label="What to show">
       <PeriodPicker from={search.from} to={search.to} onChange={(p) => void navigate({ search: (s) => ({ ...s, ...p, kind: undefined }) })} />
-      <Section
-        fallback={
-          <div className="w-full sm:w-[260px]">
-            <Selector label="Only in" isLabelHidden options={[]} placeholder="Every repository" isDisabled width="100%" />
-          </div>
-        }
-      >
+      <Quiet key={`${search.from}:${search.to}`} fallback={<RepoPicker items={[]} value={search.filter ?? null} disabled onChange={() => undefined} />}>
         <Places login={login} search={search} />
-      </Section>
+      </Quiet>
     </div>
   );
+}
+
+class Quiet extends Component<{ fallback: ReactNode; children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  render() {
+    return this.state.failed ? this.props.fallback : <Suspense fallback={this.props.fallback}>{this.props.children}</Suspense>;
+  }
 }
 
 function Places({ login, search }: { login: string; search: Search }) {

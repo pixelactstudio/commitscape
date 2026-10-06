@@ -9,6 +9,7 @@ import type { Meta } from "@commitscape/data";
 import { TipLayer } from "./charts/Tip";
 import { Key } from "./components/Key";
 import { Page } from "./kit/layout";
+import { ICON } from "./design/tokens";
 import { AnimatePresence, DISTANCE, DURATION, EASE, motion } from "./motion";
 import { StandingContext } from "./components/Name";
 import { SCREEN_SKELETONS } from "./components/skeletons";
@@ -148,7 +149,7 @@ function Shell({ meta, route, go, nav, extras, notice }: { meta: Meta; route: Ro
                 {route.screen === "map" && <MapScreen {...props} />}
                 {route.screen === "commits" && <Commits {...props} />}
               </Suspense>
-              {route.screen !== "people" && extras?.[route.screen] && <div className="pt-4">{extras[route.screen]}</div>}
+              {route.screen !== "people" && extras?.[route.screen] && <div className="pt-gutter">{extras[route.screen]}</div>}
             </ScreenMotion>
           </StaleContext>
         </Page>
@@ -173,14 +174,14 @@ export function ScreenBar({ route, help = false, choose, end, below }: { route: 
   return (
     <>
       <div ref={mark} aria-hidden className="h-0" />
-      <div data-stuck={stuck || undefined} className="screen-bar sticky top-[53px] z-10 border-b border-line bg-[color-mix(in_srgb,var(--color-background-body)_88%,transparent)] backdrop-blur-md backdrop-saturate-150 transition-shadow duration-200 data-[stuck]:shadow-[0_8px_24px_-16px_rgb(0_0_0/0.45)]">
+      <div data-stuck={stuck || undefined} className="screen-bar sticky top-header z-(--z-sticky) border-b border-line bg-body/88 backdrop-blur-md backdrop-saturate-150 transition-shadow duration-(--duration-fast) data-[stuck]:shadow-md">
         <Page>
           <div className="flex items-center gap-4">
             <div className="min-w-0 flex-1">
               <TabList value={route.screen} onChange={(s) => choose?.(s as Screen)} size="md">
                 {SCREENS.map((s, i) => {
                   const Glyph = ICONS[s];
-                  return <Tab key={s} value={s} label={TITLES[s]} icon={<Glyph size={15} strokeWidth={2} aria-hidden />} endContent={help ? <Key keys={String(i + 1)} /> : undefined} />;
+                  return <Tab key={s} value={s} label={TITLES[s]} icon={<Glyph size={ICON.sm} strokeWidth={2} aria-hidden />} endContent={help ? <Key keys={String(i + 1)} /> : undefined} />;
                 })}
               </TabList>
             </div>
@@ -227,7 +228,7 @@ function Tools({ help, setHelp, openPalette, nav }: { help: boolean; setHelp: (h
 
 function Help({ ranged, span, filtered }: { ranged: boolean; span: string; filtered: boolean }) {
   return (
-    <section aria-label="Help" className="fade mt-4 flex flex-col gap-3 rounded-[var(--radius-container)] border border-[var(--color-accent)] bg-surface px-5 py-4 text-sm">
+    <section aria-label="Help" className="fade mt-5 flex flex-col gap-3 rounded-lg border border-accent-bg bg-surface p-panel text-sm">
       <p className="m-0 text-pretty">
         Every number is over <strong>{ranged ? "the dates chosen" : (WINDOW_WORDS[span] ?? span)}</strong>
         {filtered ? ", and the filters chosen" : ""}. What each one means is now shown beneath it, and every key is ringed on screen.

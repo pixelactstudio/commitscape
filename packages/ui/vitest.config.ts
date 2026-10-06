@@ -1,3 +1,3 @@
 import { defineConfig } from "vitest/config";
 
-export default defineConfig({ test: { include: ["src/**/*.test.ts", "src/**/*.test.tsx"] } });
+export default defineConfig({ test: { include: ["src/**/*.test.ts", "src/**/*.test.tsx"], css: { include: [/tokens\.css/] } } });

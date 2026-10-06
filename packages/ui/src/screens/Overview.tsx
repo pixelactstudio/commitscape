@@ -41,10 +41,10 @@ export function Overview({ meta, params, go }: ScreenProps) {
   return (
     <ScreenFrame stale={stale}>
       <KeyNumbers o={o} span={span} />
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+      <div className="grid gap-gutter lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
         {who}
-        <div className="flex min-w-0 flex-col gap-4">
-          <Languages o={o} />
+        <div className="flex min-w-0 flex-col gap-gutter">
+          <Languages o={o} fill={few || ages.length < 3} />
           {!few && ages.length >= 3 && <CodeAge ages={ages} />}
         </div>
       </div>
@@ -52,10 +52,10 @@ export function Overview({ meta, params, go }: ScreenProps) {
       <Panel
         title="Commits over time"
         description={`${many(o.commits, "commit", "commits")} ${span}, merges left out`}
-        actions={inWindow.length > 0 ? <span className="text-xs text-secondary">{many(inWindow.length, "release", "releases")}, newest {inWindow.at(-1)?.label}</span> : undefined}
+        actions={inWindow.length > 0 ? <span className="type-micro">{many(inWindow.length, "release", "releases")}, newest {inWindow.at(-1)?.label}</span> : undefined}
       >
         {o.commits === 0 ? (
-          <p className="m-0 grid h-[264px] place-items-center text-sm text-secondary">No commits in this Window. Choose a longer one above.</p>
+          <p className="m-0 grid h-[264px] place-items-center type-caption">No commits in this Window. Choose a longer one above.</p>
         ) : (
           <TrendOverTime firstDay={o.first_day} days={o.days} unit="commits" releases={releases} />
         )}
@@ -102,7 +102,7 @@ function WhoBuiltIt({ rows, everyone, commits, span, onPerson, onAll, few }: { r
   const description = rows.length === 0 ? `Nobody committed ${span}` : rows.length === 1 ? `One person ${span}` : `${people} people ${span}, most commits first`;
   if (few)
     return (
-      <Panel title="Who built it" description={description} className="h-full [&>*]:h-full" actions={<Button label="People" variant="ghost" size="sm" onClick={onAll} endContent={<ChevronRight size={14} aria-hidden />} />}>
+      <Panel title="Who built it" description={description} className="h-full [&>*]:h-full [&>*>*]:h-full" actions={<Button label="People" variant="ghost" size="sm" onClick={onAll} endContent={<ChevronRight size={14} aria-hidden />} />}>
         <ol className="m-0 flex list-none flex-col gap-3 p-0" aria-label="Contributors">
           {shown.map((r) => (
             <Builder key={r.person.id} r={r} commits={commits} lines={lines} solo={rows.length === 1} onPerson={onPerson} />
@@ -111,7 +111,7 @@ function WhoBuiltIt({ rows, everyone, commits, span, onPerson, onAll, few }: { r
       </Panel>
     );
   return (
-    <Panel padding={0} title="Who built it" description={description}>
+    <Panel padding={0} title="Who built it" description={description} className="h-full [&>*]:h-full [&>*>*]:h-full">
       {shown.length === 0 ? (
         <div className="px-5 pb-5">
           <Quiet>No commits in this Window. Choose a longer one above.</Quiet>
@@ -124,7 +124,7 @@ function WhoBuiltIt({ rows, everyone, commits, span, onPerson, onAll, few }: { r
         </ol>
       )}
       <div className="mt-auto flex items-center justify-between gap-3 border-t border-line px-5 py-2.5">
-        <span className="hidden text-xs text-secondary sm:inline">{lines ? "Lines leave out lockfiles and generated files" : "Click a name for what they did here"}</span>
+        <span className="hidden type-micro sm:inline">{lines ? "Lines leave out lockfiles and generated files" : "Click a name for what they did here"}</span>
         {rows.length > 0 && (
           <span className="ms-auto">
             <Button label={rows.length > CONTRIBUTORS_SHOWN ? `All ${people} people` : "People"} variant="ghost" size="sm" onClick={onAll} endContent={<ChevronRight size={14} aria-hidden />} />
@@ -145,37 +145,35 @@ function Builder({ r, commits, lines, solo, onPerson }: { r: PersonRow; commits:
     ...(r.prs_merged !== null && r.prs_merged > 0 ? ([[grouped(r.prs_merged), r.prs_merged === 1 ? "PR merged" : "PRs merged"]] as [string, string][]) : []),
   ];
   return (
-    <li className="flex flex-col gap-4 rounded-[var(--radius-element)] border border-line bg-[color-mix(in_srgb,var(--color-background-muted)_60%,transparent)] p-4 sm:flex-row sm:items-center">
-      <div className="flex min-w-0 flex-1 items-center gap-3">
-        <span className="rounded-full" style={{ boxShadow: `0 0 0 2px var(--color-background-surface), 0 0 0 4px ${personColour(r.person.colour)}` }}>
-          <Face login={login} name={r.person.name} size={solo ? 48 : 40} />
-        </span>
+    <li className="flex flex-col gap-4 rounded-md border border-line bg-sunken p-4 sm:flex-row sm:items-center">
+      <div className="flex min-w-0 flex-1 items-center gap-4">
+        <Face login={login} name={r.person.name} size={solo ? 48 : 40} ring={personColour(r.person.colour)} />
         <span className="flex min-w-0 flex-col gap-0.5">
-          <button type="button" onClick={() => onPerson(r.person.id)} className="min-w-0 cursor-pointer truncate border-0 bg-transparent p-0 text-start font-[inherit] text-[0.95rem] font-semibold text-primary underline-offset-[3px] hover:underline">
+          <button type="button" onClick={() => onPerson(r.person.id)} className="min-w-0 cursor-pointer truncate border-0 bg-transparent p-0 text-start font-[inherit] text-md font-semibold text-primary underline-offset-[3px] hover:underline">
             {r.person.name}
           </button>
-          <span className="truncate text-xs text-secondary">
+          <span className="truncate type-caption">
             {login ? `@${login} · ` : ""}
             {date(r.first)} – {date(r.last)}
           </span>
         </span>
         {standing && (
-          <A href={standing} title={`Where ${r.person.name} stands here`} aria-label={`Where ${r.person.name} stands here`} className="ms-auto grid size-8 flex-none place-items-center rounded-[var(--radius-element)] text-secondary transition-colors hover:bg-[var(--color-overlay-hover)] hover:text-primary sm:hidden">
-            <Trophy size={15} aria-hidden />
+          <A href={standing} title={`Where ${r.person.name} stands here`} aria-label={`Where ${r.person.name} stands here`} className="ms-auto grid size-8 flex-none place-items-center rounded-md text-secondary transition-colors hover:bg-sunken hover:text-primary sm:hidden">
+            <Trophy size={14} aria-hidden />
           </A>
         )}
       </div>
       <dl className="m-0 grid flex-none grid-cols-3 gap-x-5 gap-y-2 sm:flex sm:items-center">
         {facts.slice(0, 3).map(([value, label, note]) => (
           <div key={label} className="flex min-w-0 flex-col">
-            <dd className={`order-1 m-0 text-[1.05rem] leading-tight font-semibold tracking-[-0.01em] tnum ${value.startsWith("+") ? "text-added" : ""}`}>{value}</dd>
-            <dt className="order-2 text-[0.72rem] whitespace-nowrap text-secondary">{note ?? label}</dt>
+            <dd className={`order-1 m-0 type-stat-sm ${value.startsWith("+") ? "text-added" : ""}`}>{value}</dd>
+            <dt className="order-2 mt-1 type-caption whitespace-nowrap">{note ?? label}</dt>
           </div>
         ))}
       </dl>
       {standing && (
-        <A href={standing} title={`Where ${r.person.name} stands here`} aria-label={`Where ${r.person.name} stands here`} className="hidden size-8 flex-none place-items-center rounded-[var(--radius-element)] text-secondary transition-colors hover:bg-[var(--color-overlay-hover)] hover:text-primary sm:grid">
-          <Trophy size={15} aria-hidden />
+        <A href={standing} title={`Where ${r.person.name} stands here`} aria-label={`Where ${r.person.name} stands here`} className="hidden size-8 flex-none place-items-center rounded-md text-secondary transition-colors hover:bg-sunken hover:text-primary sm:grid">
+          <Trophy size={14} aria-hidden />
         </A>
       )}
     </li>
@@ -186,31 +184,31 @@ function Contributor({ r, place, commits, most, lines, onPerson }: { r: PersonRo
   const login = useLogin(r.person);
   const standing = useStanding(login);
   return (
-    <li className="flex h-[60px] items-center gap-3 border-t border-line px-5">
-      <span className="w-4 flex-none text-end text-xs text-secondary tnum">{place}</span>
+    <li className="flex h-15 items-center gap-3 border-t border-line px-5">
+      <span className="w-4 flex-none text-end type-micro tnum">{place}</span>
       <Face login={login} name={r.person.name} size={36} />
       <span className="flex min-w-0 flex-1 flex-col gap-1.5">
         <span className="flex min-w-0 items-baseline gap-2">
           <button type="button" onClick={() => onPerson(r.person.id)} className="min-w-0 cursor-pointer truncate border-0 bg-transparent p-0 text-start font-[inherit] text-sm font-medium text-primary underline-offset-[3px] hover:underline">
             {r.person.name}
           </button>
-          {login && <span className="hidden truncate text-xs text-secondary sm:inline">@{login}</span>}
+          {login && <span className="hidden truncate type-micro sm:inline">@{login}</span>}
         </span>
-        <span className="block h-1 w-full max-w-72 overflow-hidden rounded-full bg-[var(--color-track)]" aria-hidden>
+        <span className="block h-1 w-full max-w-72 overflow-hidden rounded-full bg-track" aria-hidden>
           <span className="block h-full rounded-full" style={{ width: `${(r.commits * 100) / most}%`, background: personColour(r.person.colour) }} />
         </span>
       </span>
-      <span className="flex w-14 flex-none flex-col items-end text-sm tnum sm:w-20">
+      <span className="flex w-14 flex-none flex-col items-end text-sm whitespace-nowrap tnum sm:w-24">
         <span className="font-medium">{grouped(r.commits)}</span>
-        <span className="text-xs text-secondary">
+        <span className="type-micro">
           {share(r.commits, commits)}
           <span className="hidden sm:inline"> of commits</span>
         </span>
       </span>
       {lines && (
-        <span className="hidden w-24 flex-none flex-col items-end text-xs tnum sm:flex">
+        <span className="hidden w-20 flex-none flex-col items-end text-xs tnum sm:flex">
           {r.lines_added === null ? (
-            <span className="text-[var(--color-text-disabled)]">—</span>
+            <span className="text-tertiary">—</span>
           ) : (
             <>
               <span className="text-added">+{compact(r.lines_added)}</span>
@@ -220,8 +218,8 @@ function Contributor({ r, place, commits, most, lines, onPerson }: { r: PersonRo
         </span>
       )}
       {standing ? (
-        <A href={standing} title={`Where ${r.person.name} stands here`} aria-label={`Where ${r.person.name} stands here`} className="grid size-8 flex-none place-items-center rounded-[var(--radius-element)] text-secondary transition-colors hover:bg-[var(--color-overlay-hover)] hover:text-primary">
-          <Trophy size={15} aria-hidden />
+        <A href={standing} title={`Where ${r.person.name} stands here`} aria-label={`Where ${r.person.name} stands here`} className="grid size-8 flex-none place-items-center rounded-md text-secondary transition-colors hover:bg-sunken hover:text-primary">
+          <Trophy size={14} aria-hidden />
         </A>
       ) : (
         <span className="hidden w-8 flex-none sm:block" aria-hidden />
@@ -230,20 +228,20 @@ function Contributor({ r, place, commits, most, lines, onPerson }: { r: PersonRo
   );
 }
 
-function Languages({ o }: { o: Data }) {
+function Languages({ o, fill = false }: { o: Data; fill?: boolean }) {
   const total = Math.max(1, o.languages.reduce((n, l) => n + l.lines, 0));
   const named = o.languages.slice(0, LANGUAGES_SHOWN);
   const rest = o.languages.slice(LANGUAGES_SHOWN).reduce((n, l) => n + l.lines, 0);
   const parts = [...named.map((l, i) => ({ name: l.name, lines: l.lines, colour: `var(--s${i + 1})` })), ...(rest > 0 ? [{ name: "Other", lines: rest, colour: "var(--other)" }] : [])];
   return (
-    <Panel title="Languages" description="Lines of code at HEAD">
+    <Panel title="Languages" description="Lines of code at HEAD" className={fill ? "flex-1 [&>*]:h-full [&>*>*]:h-full" : ""}>
       {parts.length === 0 ? (
         <Quiet>No code at HEAD in a language this tool knows.</Quiet>
       ) : (
         <div className="flex flex-col gap-4">
           <span className="flex h-2.5 gap-0.5 overflow-hidden rounded-full" aria-hidden>
             {parts.map((p) => (
-              <span key={p.name} className="block h-full min-w-[3px]" style={{ width: `${(p.lines * 100) / total}%`, background: p.colour }} />
+              <span key={p.name} className="block h-full min-w-0.75" style={{ width: `${(p.lines * 100) / total}%`, background: p.colour }} />
             ))}
           </span>
           <ul className="m-0 grid list-none grid-cols-2 gap-x-6 gap-y-2 p-0" aria-label="Languages by lines of code">
@@ -297,18 +295,18 @@ function CodeAge({ ages }: { ages: Age[] }) {
   const old = ages.slice(0, Math.max(1, Math.floor(ages.length / 2))).reduce((n, a) => n + a.lines, 0);
   const label = (i: number) => ages.length <= 8 || i % Math.ceil(ages.length / 7) === 0 || i === ages.length - 1;
   return (
-    <Panel title="How old the code is" description={`Lines of code at HEAD by when their file first appeared; ${share(old, total)} from the first half of its history`} className="flex-1 [&>*]:h-full">
-      <div className="flex h-full min-h-[9rem] flex-col gap-1.5">
+    <Panel title="How old the code is" description={`Lines of code at HEAD by when their file first appeared; ${share(old, total)} from the first half of its history`} className="flex-1 [&>*]:h-full [&>*>*]:h-full">
+      <div className="flex min-h-[9rem] flex-1 flex-col gap-1.5">
         <div className="relative min-h-[7.5rem] flex-1">
-        <div className="absolute inset-0 flex items-end gap-[3px]" role="img" aria-label="Lines of code at HEAD by when their file first appeared">
+        <div className="absolute inset-0 flex items-end gap-0.75" role="img" aria-label="Lines of code at HEAD by when their file first appeared">
           {ages.map((a) => (
             <span key={a.key} className="group flex h-full min-w-0 flex-1 cursor-default items-end" {...tip(<><strong>{a.label}</strong><div className="note">{compact(a.lines)} lines still at HEAD · {share(a.lines, total)}</div></>)}>
-              <span className="block w-full rounded-t-[3px] bg-[var(--s1)] opacity-80 transition-opacity group-hover:opacity-100" style={{ height: `${Math.max(a.lines > 0 ? 2 : 0, (a.lines * 100) / most)}%` }} />
+              <span className="block w-full rounded-t-cell bg-(--s1) opacity-80 transition-opacity group-hover:opacity-100" style={{ height: `${Math.max(a.lines > 0 ? 2 : 0, (a.lines * 100) / most)}%` }} />
             </span>
           ))}
         </div>
         </div>
-        <div className="flex gap-[3px] border-t border-line pt-1.5 text-[0.68rem] text-secondary tnum">
+        <div className="flex gap-0.75 border-t border-line pt-1.5 type-micro tnum">
           {ages.map((a, i) => (
             <span key={a.key} className="min-w-0 flex-1 overflow-visible text-center whitespace-nowrap">
               {label(i) ? a.short : ""}

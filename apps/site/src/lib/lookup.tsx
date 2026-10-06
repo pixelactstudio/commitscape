@@ -75,7 +75,7 @@ export function LookupRow({ item, selected }: { item: Item; selected: boolean })
         </span>
       )}
       <span className="min-w-0 flex-1 truncate font-medium">{item.label}</span>
-      {a?.hint && <span className="flex-none text-xs text-secondary">{a.hint}</span>}
+      {a?.hint && <span className="flex-none text-2xs text-secondary">{a.hint}</span>}
       <CornerDownLeft size={14} className={`flex-none text-secondary transition-opacity ${selected ? "opacity-100" : "opacity-0"}`} aria-hidden />
     </span>
   );

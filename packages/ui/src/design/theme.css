@@ -1,0 +1,190 @@
+@theme reference inline {
+  --text-2xs: var(--type-2xs);
+  --text-2xs--line-height: var(--type-2xs-leading);
+  --text-xs: var(--type-xs);
+  --text-xs--line-height: var(--type-xs-leading);
+  --text-sm: var(--type-sm);
+  --text-sm--line-height: var(--type-sm-leading);
+  --text-base: var(--type-base);
+  --text-base--line-height: var(--type-base-leading);
+  --text-md: var(--type-md);
+  --text-md--line-height: var(--type-md-leading);
+  --text-lg: var(--type-lg);
+  --text-lg--line-height: var(--type-lg-leading);
+  --text-xl: var(--type-xl);
+  --text-xl--line-height: var(--type-xl-leading);
+  --text-2xl: var(--type-2xl);
+  --text-2xl--line-height: var(--type-2xl-leading);
+  --text-3xl: var(--type-3xl);
+  --text-3xl--line-height: var(--type-3xl-leading);
+  --text-4xl: var(--type-4xl);
+  --text-4xl--line-height: var(--type-4xl-leading);
+  --text-5xl: var(--type-5xl);
+  --text-5xl--line-height: var(--type-5xl-leading);
+
+  --tracking-tight: var(--tracking-tight);
+  --tracking-snug: var(--tracking-snug);
+  --tracking-heading: var(--tracking-heading);
+  --tracking-display: var(--tracking-display);
+  --tracking-number: var(--tracking-number);
+  --tracking-wide: var(--tracking-wide);
+
+  --spacing-cluster: var(--space-cluster);
+  --spacing-stack: var(--space-stack);
+  --spacing-gutter: var(--space-gutter);
+  --spacing-panel: var(--space-panel);
+  --spacing-page-top: var(--space-page-top);
+  --spacing-section: var(--space-section);
+  --spacing-band: var(--space-band);
+  --spacing-header: var(--header-height);
+
+  --radius-cell: var(--radius-cell);
+  --radius-xs: var(--radius-xs);
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
+  --radius-2xl: var(--radius-2xl);
+
+  --color-brand: var(--brand);
+  --color-brand-strong: var(--brand-strong);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-line: var(--brand-line);
+  --color-on-brand: var(--on-brand);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-tertiary: var(--ink-3);
+  --color-quiet: var(--ink-quiet);
+  --color-raised: var(--surface-raised);
+  --color-sunken: var(--surface-sunken);
+  --color-hover: var(--surface-hover);
+  --color-added: var(--added);
+  --color-removed: var(--removed);
+  --color-other: var(--other);
+  --color-side-a: var(--side-a);
+  --color-side-b: var(--side-b);
+  --color-heat-0: var(--heat-0);
+  --color-heat-1: var(--heat-1);
+  --color-heat-2: var(--heat-2);
+  --color-heat-3: var(--heat-3);
+  --color-heat-4: var(--heat-4);
+  --color-medal-1: var(--medal-1);
+  --color-medal-2: var(--medal-2);
+  --color-medal-3: var(--medal-3);
+  --color-on-medal: var(--on-medal);
+  --color-on-stage: var(--on-stage);
+  --color-on-stage-2: var(--on-stage-2);
+
+  --shadow-xs: var(--shadow-xs);
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+  --shadow-float: var(--shadow-float);
+
+  --ease-out: var(--ease-out);
+  --ease-in-out: var(--ease-in-out);
+  --ease-in: var(--ease-in);
+
+  --font-sans: var(--font-family-body);
+  --font-mono: var(--font-family-code);
+}
+
+@utility type-hero {
+  font-size: var(--type-5xl);
+  line-height: var(--type-5xl-leading);
+  font-weight: 600;
+  letter-spacing: -0.045em;
+  text-wrap: balance;
+}
+@utility type-display {
+  font-size: var(--type-4xl);
+  line-height: var(--type-4xl-leading);
+  font-weight: 600;
+  letter-spacing: var(--tracking-display);
+  text-wrap: balance;
+}
+@utility type-title {
+  font-size: var(--type-3xl);
+  line-height: var(--type-3xl-leading);
+  font-weight: 600;
+  letter-spacing: var(--tracking-heading);
+  text-wrap: balance;
+}
+@utility type-heading {
+  font-size: var(--type-xl);
+  line-height: var(--type-xl-leading);
+  font-weight: 600;
+  letter-spacing: var(--tracking-snug);
+}
+@utility type-panel {
+  font-size: var(--type-lg);
+  line-height: var(--type-lg-leading);
+  font-weight: 600;
+  letter-spacing: var(--tracking-tight);
+}
+@utility type-lead {
+  font-size: var(--type-md);
+  line-height: var(--type-md-leading);
+  color: var(--ink-2);
+  text-wrap: pretty;
+}
+@utility type-body {
+  font-size: var(--type-base);
+  line-height: var(--type-base-leading);
+}
+@utility type-description {
+  font-size: var(--type-sm);
+  line-height: var(--type-sm-leading);
+  color: var(--ink-2);
+  text-wrap: pretty;
+}
+@utility type-label {
+  font-size: var(--type-sm);
+  line-height: var(--type-sm-leading);
+  font-weight: 500;
+  color: var(--ink-1);
+}
+@utility type-caption {
+  font-size: var(--type-xs);
+  line-height: var(--type-xs-leading);
+  color: var(--ink-2);
+}
+@utility type-micro {
+  font-size: var(--type-2xs);
+  line-height: var(--type-2xs-leading);
+  color: var(--ink-2);
+}
+@utility type-eyebrow {
+  font-size: var(--type-2xs);
+  line-height: var(--type-2xs-leading);
+  font-weight: 600;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+@utility type-stat-lg {
+  font-size: var(--type-4xl);
+  line-height: 1;
+  font-weight: 600;
+  letter-spacing: var(--tracking-number);
+  font-variant-numeric: tabular-nums;
+}
+@utility type-stat {
+  font-size: var(--type-2xl);
+  line-height: 1;
+  font-weight: 600;
+  letter-spacing: var(--tracking-number);
+  font-variant-numeric: tabular-nums;
+}
+@utility type-stat-sm {
+  font-size: var(--type-xl);
+  line-height: 1;
+  font-weight: 600;
+  letter-spacing: var(--tracking-number);
+  font-variant-numeric: tabular-nums;
+}
+@utility type-code {
+  font-family: var(--font-family-code);
+  font-size: var(--type-xs);
+  line-height: var(--type-xs-leading);
+}

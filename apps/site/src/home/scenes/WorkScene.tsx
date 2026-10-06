@@ -15,25 +15,29 @@ export function WorkScene() {
       const ticks = q("[data-tick]");
       const rows = q("[data-item]");
       const pdf = q("[data-export=PDF]")[0];
+      const total = q("[data-total]")[0];
+      const many = q("[data-count]")[0];
+      const lines = (v: number) => `+${whole(v)}`;
+      tl.addLabel("shown", 0);
       tl.set(cursor ?? {}, { x: () => root.clientWidth * 0.3, y: () => root.clientHeight * 0.95, opacity: 0 }, 0);
-      tl.from(rows, { opacity: 0.35, duration: DURATION.base, stagger: DURATION.slow }, BEAT.short);
-      tl.from(ticks, { scale: 0, duration: DURATION.base, ease: GSAP_EASE.pop, stagger: DURATION.slow }, BEAT.short);
-      const reset = count(tl, q("[data-total]")[0], 0, TOTAL, BEAT.short, { duration: DURATION.slow * WORK.length, format: (v) => `+${whole(v)}`, suffix: " lines" });
-      const n = count(tl, q("[data-count]")[0], 0, WORK.length, BEAT.short, { duration: DURATION.slow * WORK.length });
+      tl.addLabel("out", BEAT.long);
+      tl.call(() => pdf?.toggleAttribute("data-on", false), undefined, "out");
+      tl.to(ticks, { scale: 0, duration: DURATION.fast, stagger: STAGGER.tight, ease: GSAP_EASE.in }, "out");
+      tl.to(rows, { opacity: 0.35, duration: DURATION.fast }, "out");
+      count(tl, total, TOTAL, 0, "out", { duration: DURATION.base, format: lines, suffix: " lines" });
+      count(tl, many, WORK.length, 0, "out", { duration: DURATION.base });
+      tl.addLabel("in", `out+=${DURATION.base + BEAT.short}`);
+      tl.to(rows, { opacity: 1, duration: DURATION.base, stagger: DURATION.slow }, "in");
+      tl.fromTo(ticks, { scale: 0 }, { scale: 1, duration: DURATION.base, ease: GSAP_EASE.pop, stagger: DURATION.slow, immediateRender: false }, "in");
+      count(tl, total, 0, TOTAL, "in", { duration: DURATION.slow * WORK.length, format: lines, suffix: " lines", prime: false });
+      count(tl, many, 0, WORK.length, "in", { duration: DURATION.slow * WORK.length, prime: false });
       point(tl, cursor, pdf, root, `+=${BEAT.short}`);
       press(tl, cursor, pdf, ">");
       tl.call(() => pdf?.toggleAttribute("data-on", true), undefined, ">");
       tl.to(cursor ?? {}, { opacity: 0, duration: DURATION.base }, `+=${BEAT.base}`);
-      tl.addLabel("shown");
-      tl.to([...ticks], { scale: 0, duration: DURATION.fast, stagger: STAGGER.tight, ease: GSAP_EASE.in }, `+=${BEAT.base}`);
-      tl.to(rows, { opacity: 0.35, duration: DURATION.fast }, "<");
-      tl.call(() => {
-        reset();
-        n();
-        pdf?.toggleAttribute("data-on", false);
-      });
+      tl.to({}, { duration: BEAT.hold });
     },
-    { still: "shown" },
+    { still: "shown", repeatDelay: 0 },
   );
   return (
     <div ref={ref} className="relative flex size-full items-center justify-center">
@@ -43,7 +47,7 @@ export function WorkScene() {
           end={
             <span className="flex gap-1">
               {EXPORTS.map((e) => (
-                <span key={e} data-export={e} className="rounded-[5px] border border-line px-1.5 py-px text-[0.6rem] transition-colors data-[on]:border-[var(--brand)] data-[on]:bg-brand-soft data-[on]:text-brand">
+                <span key={e} data-export={e} className="rounded-xs border border-line px-1.5 py-px text-2xs transition-colors data-[on]:border-brand-line data-[on]:bg-brand-soft data-[on]:text-brand">
                   {e}
                 </span>
               ))}
@@ -52,21 +56,21 @@ export function WorkScene() {
         />
         <ul className="m-0 flex list-none flex-col p-0">
           {WORK.map((w) => (
-            <li key={w.title} data-item className="flex items-center gap-2.5 border-b border-line px-3.5 py-[7px]">
-              <span className="relative flex size-[15px] flex-none items-center justify-center rounded-full border border-[var(--color-border-emphasized)]">
-                <span data-tick className="absolute inset-[-1px] flex items-center justify-center rounded-full bg-brand text-[var(--color-background-body)]">
+            <li key={w.title} data-item className="flex items-center gap-2.5 border-b border-line px-4 py-1.5">
+              <span className="relative flex size-4 flex-none items-center justify-center rounded-full border border-line-strong">
+                <span data-tick className="absolute inset-[-1px] flex items-center justify-center rounded-full bg-brand text-on-brand">
                   <Check size={9} strokeWidth={3.5} />
                 </span>
               </span>
-              <span className="flex min-w-0 flex-1 flex-col leading-tight">
-                <span className="truncate text-[0.72rem] text-primary">{w.title}</span>
-                <span className="text-[0.62rem] text-secondary">{w.repo}</span>
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className="truncate text-xs text-primary">{w.title}</span>
+                <span className="type-micro">{w.repo}</span>
               </span>
-              <span className="text-[0.66rem] text-added tnum">+{w.added}</span>
+              <span className="text-2xs text-added tnum">+{w.added}</span>
             </li>
           ))}
         </ul>
-        <div className="flex items-center justify-between px-3.5 py-2 text-[0.68rem] text-secondary">
+        <div className="flex h-10 items-center justify-between px-4 type-micro">
           <span>
             <span data-count className="font-semibold text-primary tnum">
               {WORK.length}

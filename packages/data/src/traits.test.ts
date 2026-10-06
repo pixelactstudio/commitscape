@@ -167,3 +167,18 @@ test("every rule's check says whether it is met and the numbers it was tried on"
   expect(checks[3]?.numbers).toBe("Commit times not read");
   expect(archetypeChecks(input({}, { reviews: 500, contributions: 49 })).some((c) => c.met)).toBe(false);
 });
+
+test("each rule's evidence is met exactly when the rule is, and fills toward its goal", () => {
+  const cases = [input({}, { reviews: 31, prsOpened: 12, longestStreak: 40 }), input({}, { reviews: 19, prsOpened: 2, longestStreak: 29 }), input({}, { prsMerged: 30, linesAdded: 9000, linesRemoved: 4000 }), input({}, { prsMerged: 30, linesAdded: 7000, linesRemoved: 4000 })];
+  for (const i of cases)
+    for (const c of archetypeChecks(i)) {
+      expect(c.evidence.length).toBeGreaterThan(0);
+      expect(c.evidence.every((e) => e.met)).toBe(c.met);
+      for (const e of c.evidence) {
+        expect(e.share).toBeGreaterThanOrEqual(0);
+        expect(e.share).toBeLessThanOrEqual(1);
+      }
+    }
+  const reviewer = archetypeChecks(input({}, { reviews: 10, prsOpened: 2 })).find((c) => c.id === "reviewer");
+  expect(reviewer?.evidence[0]).toMatchObject({ label: "Reviews given", value: "10", goal: "20 or more", share: 0.5, met: false });
+});

@@ -1,6 +1,7 @@
 import { useRef, useSyncExternalStore } from "react";
 import { Crown } from "lucide-react";
 import { CountUp, DURATION, EASE, motion, useInView, useReducedMotion } from "../motion";
+import { ICON } from "../design/tokens";
 import { toneOf, winnerOf, type Duel, type Side } from "./tone";
 
 const never = () => () => {};
@@ -21,7 +22,7 @@ export function GrowBar({ value, side, lead }: { value: number; side: Side; lead
   const hydrated = useHydrated();
   const scale = !hydrated || reduce || seen ? 1 : 0;
   return (
-    <span ref={ref} className={`flex h-2 w-full overflow-hidden rounded-full bg-[var(--color-track)] ${side === "a" ? "justify-end" : "justify-start"}`} style={toneOf(side)}>
+    <span ref={ref} className={`flex h-2 w-full overflow-hidden rounded-full bg-track ${side === "a" ? "justify-end" : "justify-start"}`} style={toneOf(side)}>
       <motion.span
         className="block h-full rounded-full bg-[var(--side)]"
         initial={false}
@@ -36,8 +37,8 @@ export function GrowBar({ value, side, lead }: { value: number; side: Side; lead
 function Value({ d, side, lead }: { d: Duel; side: Side; lead: boolean }) {
   const n = side === "a" ? d.a : d.b;
   return (
-    <span className={`inline-flex min-w-0 items-center gap-1.5 text-[1.02rem] leading-none whitespace-nowrap tnum sm:text-[1.2rem] ${lead ? "font-semibold text-primary" : "text-secondary"} ${side === "b" ? "flex-row-reverse" : ""}`}>
-      {lead && <Crown size={14} className="flex-none text-[var(--side)]" aria-label="leads this view" />}
+    <span className={`inline-flex min-w-0 items-center gap-1.5 text-lg leading-none tracking-number whitespace-nowrap tnum sm:text-xl ${lead ? "font-semibold text-primary" : "text-secondary"} ${side === "b" ? "flex-row-reverse" : ""}`}>
+      {lead && <Crown size={ICON.sm} className="flex-none text-[var(--side)]" aria-label="leads this view" />}
       {n === null ? <span title="not known">—</span> : <CountUp value={n} format={d.format} />}
     </span>
   );
@@ -52,9 +53,9 @@ export function DuelRow({ d }: { d: Duel }) {
   return (
     <li className="flex flex-col gap-2 px-4 py-3.5 sm:px-5">
       <div className="grid grid-cols-2 items-center gap-x-3 gap-y-1.5 sm:grid-cols-[1fr_auto_1fr]">
-        <span className="col-span-2 row-start-1 text-center text-[0.8rem] leading-tight font-medium text-secondary sm:col-span-1 sm:col-start-2">
+        <span className="col-span-2 row-start-1 text-center text-sm leading-tight font-medium text-secondary sm:col-span-1 sm:col-start-2">
           {d.label}
-          {win === "tie" && <span className="ms-1.5 text-[0.7rem] font-normal sm:ms-0 sm:block">a tie</span>}
+          {win === "tie" && <span className="ms-1.5 text-xs font-normal sm:ms-0 sm:block">a tie</span>}
         </span>
         <span className="row-start-2 flex min-w-0 justify-start sm:col-start-1 sm:row-start-1" style={toneOf("a")}>
           <Value d={d} side="a" lead={win === "a"} />
@@ -67,7 +68,7 @@ export function DuelRow({ d }: { d: Duel }) {
         <GrowBar value={width(d.a)} side="a" lead={win === "a" || win === "tie"} />
         <GrowBar value={width(d.b)} side="b" lead={win === "b" || win === "tie"} />
       </div>
-      {d.note && <p className="m-0 text-center text-xs text-secondary">{d.note}</p>}
+      {d.note && <p className="m-0 text-center type-caption">{d.note}</p>}
     </li>
   );
 }
@@ -75,7 +76,7 @@ export function DuelRow({ d }: { d: Duel }) {
 /** Views between two people, one row each, in a single surface. */
 export function DuelRows({ rows, label }: { rows: Duel[]; label?: string }) {
   return (
-    <ol aria-label={label} className="m-0 flex list-none flex-col divide-y divide-[var(--color-border)] overflow-hidden rounded-[var(--radius-container)] border border-line bg-surface p-0">
+    <ol aria-label={label} className="m-0 flex list-none flex-col divide-y divide-line overflow-hidden rounded-lg border border-line bg-surface p-0">
       {rows.map((d) => (
         <DuelRow key={d.key} d={d} />
       ))}

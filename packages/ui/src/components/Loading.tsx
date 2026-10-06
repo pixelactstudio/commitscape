@@ -13,7 +13,7 @@ function Cells({ labels }: { labels: string[] }) {
   return (
     <>
       {labels.map((l, i) => (
-        <NumberCell key={l} id={l} value={<Skeleton height={26} width="55%" radius={2} index={i} />} label={l} note={<span className="flex h-[19px] items-center">{line("70%", i, 12)}</span>} />
+        <NumberCell key={l} id={l} value={<Skeleton height={26} width="55%" radius={2} index={i} />} label={l} note={<span className="flex h-4 items-center">{line("70%", i, 12)}</span>} />
       ))}
     </>
   );
@@ -45,7 +45,7 @@ export function OverviewSkeleton() {
         <Panel padding={0} title="Who built it" description={"\u00a0"}>
           <div>
             {Array.from({ length: CONTRIBUTORS_SHOWN }, (_, i) => (
-              <div key={i} className="flex h-[60px] items-center gap-3 border-t border-line px-5">
+              <div key={i} className="flex h-15 items-center gap-3 border-t border-line px-5">
                 <span className="w-4" />
                 <Skeleton height={36} width={36} radius="rounded" index={i} />
                 <span className="flex flex-1 flex-col gap-2">
@@ -147,7 +147,7 @@ export function MapSkeleton() {
         <div className="flex h-[30px] items-center">{line(140, 0, 14)}</div>
         <Skeleton height={32} width={260} index={1} />
       </div>
-      <div className="flex min-w-0 flex-col gap-3 rounded-[var(--radius-container)] border border-line bg-surface p-3 sm:p-4">
+      <div className="flex min-w-0 flex-col gap-3 rounded-lg border border-line bg-surface p-3 sm:p-panel">
         <div className="flex h-5 items-center">{line(320, 0, 12)}</div>
         <div className="hidden md:block" style={{ aspectRatio: `${WIDE.w} / ${WIDE.h}` }}>
           <Skeleton height="100%" index={2} />

@@ -44,20 +44,20 @@ export function Footer() {
   ];
   return (
     <footer className="overflow-hidden border-t border-line">
-      <div className="mx-auto grid max-w-[var(--page)] gap-12 px-5 pt-14 pb-10 sm:px-10 lg:grid-cols-[1.1fr_2fr]">
+      <div className="mx-auto grid max-w-[var(--page)] gap-12 px-5 pt-section pb-10 sm:px-10 lg:grid-cols-[1.1fr_2fr]">
         <div className="flex max-w-sm flex-col gap-4">
-          <Link to="/" className="flex w-fit items-center gap-2 text-[1.02rem] font-semibold tracking-tight text-primary no-underline">
+          <Link to="/" className="flex w-fit items-center gap-2 type-panel text-primary no-underline">
             <Logo size={24} />
             {PRODUCT}
           </Link>
-          <p className="m-0 text-sm leading-relaxed text-secondary">What you have built on GitHub, where you stand among the people you build with, and Cards to share it. Every number says what it counts. Open source under MIT or Apache-2.0.</p>
-          <p className="m-0 text-sm text-secondary">
+          <p className="m-0 type-description">What you have built on GitHub, where you stand among the people you build with, and Cards to share it. Every number says what it counts. Open source under MIT or Apache-2.0.</p>
+          <p className="m-0 type-description">
             Built by{" "}
-            <a href="https://damnlabs.com" className="text-primary underline decoration-[var(--color-border-emphasized)] underline-offset-4 hover:decoration-current">
+            <a href="https://damnlabs.com" className="text-primary underline decoration-line-strong underline-offset-4 hover:decoration-current">
               Damn Labs
             </a>
             , a{" "}
-            <a href="https://pixelactstudio.com" className="text-primary underline decoration-[var(--color-border-emphasized)] underline-offset-4 hover:decoration-current">
+            <a href="https://pixelactstudio.com" className="text-primary underline decoration-line-strong underline-offset-4 hover:decoration-current">
               Pixelact Studio
             </a>{" "}
             product.
@@ -66,7 +66,7 @@ export function Footer() {
         <nav aria-label="Footer" className="grid grid-cols-2 gap-x-8 gap-y-10 text-sm sm:grid-cols-4">
           {columns.map((c) => (
             <div key={c.title} className="flex flex-col gap-2.5">
-              <span className="font-medium text-primary">{c.title}</span>
+              <span className="type-label">{c.title}</span>
               {c.links.map(([to, label]) =>
                 to.startsWith("http") ? (
                   <a key={label} href={to} className="w-fit text-secondary no-underline transition-colors hover:text-primary">
@@ -82,7 +82,7 @@ export function Footer() {
           ))}
         </nav>
       </div>
-      <div className="mx-auto flex max-w-[var(--page)] flex-wrap items-center justify-between gap-2 px-5 pb-6 text-xs text-secondary sm:px-10">
+      <div className="mx-auto flex max-w-[var(--page)] flex-wrap items-center justify-between gap-2 px-5 pb-6 type-micro sm:px-10">
         <span>
           © {YEAR} Dev Talan
         </span>

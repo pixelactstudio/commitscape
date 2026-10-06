@@ -46,50 +46,50 @@ export function TerminalScene() {
     { still: "ran" },
   );
   return (
-    <div ref={ref} className="overflow-hidden rounded-[var(--radius-container)] border border-line bg-[#0b0c0e] text-[#e7e7ea] shadow-[var(--shadow-high)]">
-      <div className="flex items-center gap-1.5 border-b border-white/10 px-4 py-2.5">
-        {["#ff5f57", "#febc2e", "#28c840"].map((c) => (
-          <span key={c} className="size-2.5 rounded-full" style={{ background: c }} />
+    <div ref={ref} className="terminal overflow-hidden rounded-xl border border-line shadow-lg">
+      <div className="flex items-center gap-1.5 border-b terminal-line px-4 py-2.5">
+        {["close", "min", "max"].map((c) => (
+          <span key={c} className={`terminal-light terminal-${c} size-2.5 rounded-full`} />
         ))}
-        <span className="ms-3 text-xs text-white/50">~/code/my-project</span>
+        <span className="terminal-dim ms-3 text-2xs">~/code/my-project</span>
       </div>
-      <div className="relative h-[16.5rem] font-mono sm:h-[18rem] text-[0.78rem] leading-relaxed sm:text-[0.82rem]">
+      <div className="relative h-66 font-mono text-xs leading-relaxed sm:h-72 sm:text-sm">
         <div data-first className="absolute inset-0 flex flex-col gap-3 p-4 sm:p-5">
           <div>
-            <span className="text-[#3ccf74]">$ </span>
+            <span className="terminal-go">$ </span>
             <span data-run>{RUN}</span>
             <span className="terminal-caret" />
           </div>
-          <div data-report className="flex flex-col overflow-hidden rounded-[8px] border border-white/15">
-            <div className="flex gap-3 overflow-hidden border-b border-white/10 px-3 py-1.5 text-[0.7rem] whitespace-nowrap text-white/45">
+          <div data-report className="flex flex-col overflow-hidden rounded-md border terminal-line">
+            <div className="flex gap-3 overflow-hidden border-b terminal-line px-3 py-1.5 text-2xs whitespace-nowrap terminal-dim">
               {TABS.map((t, i) => (
-                <span key={t} className={i === 0 ? "text-[#3ccf74]" : ""}>
+                <span key={t} className={i === 0 ? "terminal-go" : ""}>
                   {i + 1} {t}
                 </span>
               ))}
             </div>
             <div className="flex flex-col gap-1 px-3 py-2.5">
-              <div data-line className="text-white/45">
+              <div data-line className="terminal-dim">
                 my-project · last 90 days
               </div>
               {ROWS.map((r) => (
                 <div key={r.label} data-line className="flex items-baseline gap-3 whitespace-nowrap">
-                  <span className="w-[6.5rem] flex-none text-white/60">{r.label}</span>
+                  <span className="terminal-soft w-26 flex-none">{r.label}</span>
                   {r.value !== undefined ? (
-                    <span data-tnum className="w-8 flex-none text-end font-semibold text-white tnum">
+                    <span data-tnum className="terminal-bright w-8 flex-none text-end font-semibold tnum">
                       {r.value}
                     </span>
                   ) : (
-                    <span className="truncate text-[#f0b86e]">{r.text}</span>
+                    <span className="terminal-path truncate">{r.text}</span>
                   )}
                   {r.bars && (
-                    <span className="flex h-3 items-end gap-[2px]">
+                    <span className="flex h-3 items-end gap-0.5">
                       {WEEKS.map((h, i) => (
-                        <span key={i} data-week className="w-[5px] origin-bottom rounded-[1px] bg-[#3ccf74]" style={{ height: `${(h / PEAK) * 100}%` }} />
+                        <span key={i} data-week className="terminal-bar w-1.5 origin-bottom rounded-cell" style={{ height: `${(h / PEAK) * 100}%` }} />
                       ))}
                     </span>
                   )}
-                  {r.note && <span className="truncate text-white/40 max-sm:hidden">{r.note}</span>}
+                  {r.note && <span className="terminal-dim truncate max-sm:hidden">{r.note}</span>}
                 </div>
               ))}
             </div>
@@ -97,14 +97,14 @@ export function TerminalScene() {
         </div>
         <div data-second className="absolute inset-0 flex flex-col gap-1.5 p-4 opacity-0 sm:p-5">
           <div>
-            <span className="text-[#3ccf74]">$ </span>
+            <span className="terminal-go">$ </span>
             <span data-share>{SHARE}</span>
             <span className="terminal-caret" />
           </div>
-          <div data-out className="truncate text-[#7cc4ff]">
+          <div data-out className="terminal-link truncate">
             {LINK}
           </div>
-          <div data-out className="text-white/55">
+          <div data-out className="terminal-soft">
             It works in any browser and expires in 4 hours.
           </div>
         </div>

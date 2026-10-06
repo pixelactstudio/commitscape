@@ -4,7 +4,7 @@ import { STANDING_FOCUS, STANDING_PEOPLE, STANDING_VIEWS } from "./data";
 import { compact, count, point, press } from "./kit";
 import { Cursor, Mini } from "./parts";
 
-const ROW = 30;
+const ROW = 28;
 
 const ORDINAL = ["1st", "2nd", "3rd", "4th", "5th"];
 
@@ -17,6 +17,10 @@ function slots(view: number) {
 
 function widest(view: number) {
   return Math.max(...STANDING_PEOPLE.map((p) => p.values[view] ?? 0));
+}
+
+function share(value: number, view: number) {
+  return Math.max(12, (value / widest(view)) * 100);
 }
 
 const FIRST = slots(0);
@@ -32,7 +36,6 @@ export function StandingScene() {
       const nums = q("[data-num]");
       const bars = q("[data-bar]");
       const rank = q("[data-rank]")[0];
-      const unit = q("[data-unit]")[0];
       const focus = STANDING_PEOPLE.findIndex((p) => p.login === STANDING_FOCUS);
       const steps = [1, 2, 0];
       let from = 0;
@@ -45,7 +48,6 @@ export function StandingScene() {
         tl.to(pill ?? {}, { xPercent: view * 100, duration: DURATION.base, ease: GSAP_EASE.out }, `view${view}`);
         tl.call(() => {
           tabs.forEach((t, i) => t.toggleAttribute("data-on", i === view));
-          if (unit) unit.textContent = STANDING_VIEWS[view]?.unit ?? "";
           if (rank) rank.textContent = ORDINAL[slots(view)[focus] ?? 0] ?? "";
         }, undefined, `view${view}`);
         const to = slots(view);
@@ -54,7 +56,7 @@ export function StandingScene() {
           const a = STANDING_PEOPLE[i]?.values[from] ?? 0;
           const b = STANDING_PEOPLE[i]?.values[view] ?? 0;
           count(tl, nums[i], a, b, `view${view}`, { format: compact, duration: DURATION.slow, prime: false });
-          tl.to(bars[i] ?? {}, { scaleX: b / widest(view), duration: DURATION.slow, ease: GSAP_EASE.inOut }, `view${view}`);
+          tl.to(bars[i] ?? {}, { width: `${share(b, view)}%`, duration: DURATION.slow, ease: GSAP_EASE.inOut }, `view${view}`);
         });
         from = view;
       });
@@ -65,24 +67,24 @@ export function StandingScene() {
   return (
     <div ref={ref} className="relative flex size-full items-center justify-center">
       <Mini className="w-full max-w-[20rem] overflow-hidden">
-        <div className="flex items-center justify-between gap-2 px-3.5 pt-3 text-[0.72rem]">
+        <div className="flex items-center justify-between gap-2 px-4 pt-3.5 text-xs">
           <span className="font-medium text-primary">react/react</span>
           <span className="text-secondary">
             gaearon is <span data-rank className="font-semibold text-brand">5th</span>
           </span>
         </div>
-        <div className="relative mx-3.5 mt-2.5 grid grid-cols-3 rounded-[8px] bg-[var(--color-background-muted)] p-[3px] text-[0.7rem]">
-          <span data-pill className="absolute inset-y-[3px] start-[3px] w-[calc((100%-6px)/3)] rounded-[6px] bg-[var(--color-background-surface)] shadow-[0_1px_2px_rgb(0_0_0/0.18)]" />
+        <div className="relative mx-4 mt-3 grid h-7 grid-cols-3 rounded-md bg-sunken p-0.5 text-2xs">
+          <span data-pill className="absolute inset-y-0.5 start-0.5 w-[calc((100%-0.25rem)/3)] rounded-sm bg-surface shadow-xs" />
           {STANDING_VIEWS.map((v, i) => (
-            <span key={v.id} data-tab data-on={i === 0 ? "" : undefined} className="relative z-[1] py-1 text-center text-secondary transition-colors data-[on]:font-medium data-[on]:text-primary">
+            <span key={v.id} data-tab data-on={i === 0 ? "" : undefined} className="relative flex items-center justify-center text-secondary transition-colors data-[on]:font-medium data-[on]:text-primary">
               {v.label}
             </span>
           ))}
         </div>
-        <div className="relative mx-3.5 mt-2.5 mb-1 flex">
-          <ol className="m-0 flex w-5 flex-none list-none flex-col p-0 text-[0.68rem] text-secondary tnum">
+        <div className="flex gap-2 px-4 pt-2.5 pb-3">
+          <ol className="m-0 flex w-3 flex-none list-none flex-col p-0 text-2xs text-tertiary tnum">
             {STANDING_PEOPLE.map((_, i) => (
-              <li key={i} className="flex items-center" style={{ height: ROW }}>
+              <li key={i} className="flex items-center justify-end" style={{ height: ROW }}>
                 {i + 1}
               </li>
             ))}
@@ -91,26 +93,19 @@ export function StandingScene() {
             {STANDING_PEOPLE.map((p, i) => {
               const me = p.login === STANDING_FOCUS;
               return (
-                <div key={p.login} data-row className={`absolute inset-x-0 flex items-center gap-2 rounded-[7px] px-1.5 [will-change:transform] ${me ? "bg-brand-soft" : ""}`} style={{ top: (FIRST[i] ?? 0) * ROW, height: ROW }}>
-                  <span
-                    data-bar
-                    className={`absolute start-1.5 end-1.5 bottom-[2px] h-[2px] origin-left rounded-full ${me ? "bg-brand" : "bg-[var(--color-border-emphasized)]"}`}
-                    style={{ transform: `scaleX(${(p.values[0] ?? 0) / widest(0)})` }}
-                  />
-                  <span className="relative">
+                <div key={p.login} data-row className="absolute inset-x-0 flex items-center gap-2 px-1.5 [will-change:transform]" style={{ top: (FIRST[i] ?? 0) * ROW, height: ROW }}>
+                  <span data-bar className={`absolute inset-y-0.5 start-0 rounded-md ${me ? "bg-brand-soft" : "bg-sunken"}`} style={{ width: `${share(p.values[0] ?? 0, 0)}%` }} />
+                  <span className="relative flex">
                     <Face login={p.login} name={p.name} size={20} />
                   </span>
-                  <span className={`relative truncate text-[0.74rem] ${me ? "font-semibold text-primary" : "text-primary"}`}>{p.login}</span>
-                  <span data-num className={`relative ms-auto text-[0.72rem] tnum ${me ? "font-semibold text-primary" : "text-secondary"}`}>
+                  <span className={`relative min-w-0 truncate text-xs ${me ? "font-semibold text-primary" : "text-primary"}`}>{p.login}</span>
+                  <span data-num className={`relative ms-auto text-xs tnum ${me ? "font-semibold text-brand" : "text-secondary"}`}>
                     {compact(p.values[0] ?? 0)}
                   </span>
                 </div>
               );
             })}
           </div>
-        </div>
-        <div data-unit className="px-3.5 pb-3 text-end text-[0.66rem] text-secondary">
-          {STANDING_VIEWS[0].unit}
         </div>
       </Mini>
       <Cursor />

@@ -1,6 +1,7 @@
 import { Crown } from "lucide-react";
 import { BEAT, DURATION, GSAP_EASE, useScene } from "@commitscape/ui/motion";
-import { Face } from "@commitscape/ui";
+import { Chip, Face } from "@commitscape/ui";
+import { ICON } from "@commitscape/ui/design";
 import { RACERS } from "./data";
 import { count } from "./kit";
 import { Mini, MiniHead } from "./parts";
@@ -25,29 +26,26 @@ export function RaceScene() {
       const crowns = q("[data-crown]");
       const day = q("[data-day]")[0];
       const won = q("[data-won]")[0];
-      const resets: (() => void)[] = [];
-      tl.set(bars, { scaleX: 0 }, 0);
-      tl.set(crowns, { opacity: 0, scale: 0.6 }, 0);
-      tl.set(won ?? {}, { opacity: 0, scale: 0.8 }, 0);
+      tl.addLabel("shown", 0);
+      tl.addLabel("out", BEAT.hold);
+      tl.to([...bars, ...crowns, won], { opacity: 0, duration: DURATION.base, ease: GSAP_EASE.in }, "out");
+      RACERS.forEach((r, i) => count(tl, nums[i], r.days[DAYS - 1] ?? 0, 0, "out", { duration: DURATION.base }));
+      tl.set(bars, { opacity: 1, scaleX: 0 }, ">");
+      tl.set(crowns, { scale: 0.6 }, "<");
+      tl.set(won ?? {}, { scale: 0.8 }, "<");
       for (let d = 0; d < DAYS; d++) {
-        const at = d === 0 ? BEAT.short : `+=${DURATION.base}`;
-        tl.addLabel(`d${d}`, at);
+        tl.addLabel(`d${d}`, d === 0 ? `+=${BEAT.short}` : `+=${DURATION.base}`);
         tl.call(() => day && (day.textContent = `Day ${d + 1} of ${DAYS}`), undefined, `d${d}`);
         RACERS.forEach((r, i) => {
           tl.to(bars[i] ?? {}, { scaleX: (r.days[d] ?? 0) / MAX, duration: DURATION.slow, ease: GSAP_EASE.out }, `d${d}`);
-          const reset = count(tl, nums[i], d === 0 ? 0 : (r.days[d - 1] ?? 0), r.days[d] ?? 0, `d${d}`, { duration: DURATION.slow, prime: d === 0 });
-          if (d === 0) resets.push(reset);
+          count(tl, nums[i], d === 0 ? 0 : (r.days[d - 1] ?? 0), r.days[d] ?? 0, `d${d}`, { duration: DURATION.slow, prime: false });
         });
         const lead = leader(d);
         tl.to(crowns, { opacity: (i) => (i === lead ? 1 : 0), scale: (i) => (i === lead ? 1 : 0.6), duration: DURATION.base, ease: GSAP_EASE.pop }, `d${d}`);
       }
       tl.to(won ?? {}, { opacity: 1, scale: 1, duration: DURATION.base, ease: GSAP_EASE.pop }, `+=${DURATION.base}`);
-      tl.addLabel("shown");
-      tl.to([...bars, won], { opacity: 0, duration: DURATION.base, ease: GSAP_EASE.in }, `+=${BEAT.hold}`);
-      tl.call(() => resets.forEach((reset) => reset()));
-      tl.set(bars, { opacity: 1, scaleX: 0 });
     },
-    { still: "shown" },
+    { still: "shown", repeatDelay: BEAT.short },
   );
   const last = DAYS - 1;
   const lead = leader(last);
@@ -62,28 +60,30 @@ export function RaceScene() {
             </span>
           }
         />
-        <div className="flex flex-col gap-2.5 px-3.5 py-3">
+        <div className="flex flex-col gap-2.5 px-4 py-3">
           {RACERS.map((r, i) => (
             <div key={r.name} className="flex items-center gap-2.5">
               <Face login={null} name={r.name} size={24} />
               <div className="flex min-w-0 flex-1 flex-col gap-1">
-                <div className="flex items-center gap-1.5 text-[0.7rem]">
+                <div className="flex items-center gap-1.5 text-2xs">
                   <span className={r.you ? "font-semibold text-primary" : "text-primary"}>{r.name}</span>
-                  <Crown data-crown size={11} className="text-[var(--s4)]" style={{ opacity: i === lead ? 1 : 0 }} aria-hidden />
+                  <Crown data-crown size={ICON.xs} className="text-[var(--s4)]" style={{ opacity: i === lead ? 1 : 0 }} aria-hidden />
                   <span data-rnum className="ms-auto text-secondary tnum">
                     {r.days[last]}
                   </span>
                 </div>
-                <span className="block h-[5px] overflow-hidden rounded-full bg-[var(--color-background-muted)]">
-                  <span data-rbar className={`block h-full w-full origin-left rounded-full ${r.you ? "bg-brand" : "bg-[var(--color-border-emphasized)]"}`} style={{ transform: `scaleX(${(r.days[last] ?? 0) / MAX})` }} />
+                <span className="block h-1.5 overflow-hidden rounded-full bg-sunken">
+                  <span data-rbar className={`block h-full w-full origin-left rounded-full ${r.you ? "bg-brand" : "bg-line-strong"}`} style={{ transform: `scaleX(${(r.days[last] ?? 0) / MAX})` }} />
                 </span>
               </div>
             </div>
           ))}
         </div>
-        <div className="flex items-center justify-between border-t border-line px-3.5 py-2 text-[0.66rem] text-secondary">
+        <div className="flex h-10 items-center justify-between border-t border-line px-4 type-micro">
           <span>Ends Sunday at midnight</span>
-          <span data-won className="rounded-full bg-brand-soft px-2 py-px font-medium text-brand">You won</span>
+          <span data-won className="inline-flex">
+            <Chip tone="brand">You won</Chip>
+          </span>
         </div>
       </Mini>
     </div>

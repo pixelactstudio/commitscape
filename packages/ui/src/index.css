@@ -1,45 +1,15 @@
 @import "@astryxdesign/core/reset.css";
 @import "@astryxdesign/core/astryx.css";
+@import "./design/tokens.css";
 
 :root {
-  --surface: var(--color-background-surface);
   --surface-2: var(--color-background-muted);
   --text: var(--color-text-primary);
   --text-2: var(--color-text-secondary);
   --muted: var(--color-text-secondary);
-  --line: var(--color-border);
   --radius: var(--radius-element);
-  --empty: light-dark(#0c0d0f0f, #ffffff12);
-  --other: light-dark(#a6a8ad, #62656c);
-  --danger: light-dark(rgba(227, 73, 72, 0.08), rgba(230, 103, 103, 0.1));
-  --s1: light-dark(#2a78d6, #3987e5);
-  --s2: light-dark(#eb6834, #d95926);
-  --s3: light-dark(#1baf7a, #199e70);
-  --s4: light-dark(#eda100, #c98500);
-  --s5: light-dark(#e87ba4, #d55181);
-  --s6: light-dark(#008300, #008300);
-  --s7: light-dark(#4a3aa7, #9085e9);
-  --s8: light-dark(#e34948, #e66767);
-  --blue-1: light-dark(#86b6ef, #1c5cab);
-  --blue-2: light-dark(#3987e5, #3987e5);
-  --blue-3: light-dark(#1c5cab, #86b6ef);
-  --blue-4: light-dark(#0d366b, #cfe2fa);
-  --orange-1: light-dark(#fc7856, #a42602);
-  --orange-2: light-dark(#ce4e2f, #ce4e2f);
-  --orange-3: light-dark(#a42602, #fc7856);
-  --orange-4: light-dark(#6e1a00, #ffd2c2);
-  --green-1: light-dark(#62c387, #1c6b3e);
-  --green-2: light-dark(#31a15d, #26965a);
-  --green-3: light-dark(#1a7b42, #37c46e);
-  --green-4: light-dark(#0c5029, #79f0a6);
-  --brand: light-dark(#0f7a37, #3ccf74);
-  --brand-soft: light-dark(#0f7a371a, #3ccf741f);
-  --added: light-dark(#11733a, #4ac776);
-  --removed: light-dark(#c9303a, #f07178);
   --error: var(--color-error);
   --mono: var(--font-family-code);
-  --page: 76rem;
-  --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 
 html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility; scrollbar-gutter: stable; }
@@ -52,12 +22,12 @@ body { background: var(--color-background-body); color: var(--text); font-family
 code, .path { font-family: var(--mono); font-size: 0.88em; }
 .tnum { font-variant-numeric: tabular-nums; }
 .note { color: var(--muted); }
-.small { font-size: 0.82rem; }
+.small { font-size: var(--type-sm); line-height: var(--type-sm-leading); }
 .added { color: var(--added); }
 .removed { color: var(--removed); }
 
 @keyframes rise { from { opacity: 0; transform: translateY(6px); } }
 @keyframes fade { from { opacity: 0; } }
-.rise { animation: rise 0.5s var(--ease-out) backwards; }
-.fade { animation: fade 0.4s ease-out backwards; }
+.rise { animation: rise var(--duration-slow) var(--ease-out) backwards; }
+.fade { animation: fade var(--duration-base) var(--ease-out) backwards; }
 @media (prefers-reduced-motion: reduce) { .rise, .fade { animation: none; } }

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { schema } from "@commitscape/server";
 import { testDb } from "#/test/deps";
-import { checkAsk, repeats, sharedWork, shareWork, unshareWork, workOf } from "./work";
+import { checkAsk, monthsOf, repeats, sharedWork, shareWork, unshareWork, workOf } from "./work";
 
 const pr = (number: number, repo: string, isPrivate: boolean, mergedAt: string) => ({ number, title: `PR ${number}`, url: `https://github.com/${repo}/pull/${number}`, mergedAt, additions: 10 * number, deletions: number, repository: { nameWithOwner: repo, isPrivate } });
 const commit = (sha: string, repo: string, isPrivate: boolean, message: string, date: string) => ({ sha: sha.repeat(40).slice(0, 40), html_url: `https://github.com/${repo}/commit/${sha}`, commit: { message, author: { date } }, repository: { full_name: repo, private: isPrivate } });
@@ -70,6 +70,17 @@ describe("Proof of Work", () => {
     expect(() => checkAsk({ from: "2024-01-01", to: "2026-01-01" })).toThrow("a year at most");
     expect(() => checkAsk({ from: "2026-09-01", to: "2026-09-30", filter: "acme rocket" })).toThrow("organisation");
     expect(checkAsk({ from: "2026-09-01", to: "2026-09-30", filter: " acme/rocket " })).toEqual({ from: "2026-09-01", to: "2026-09-30", filter: "acme/rocket" });
+  });
+
+  test("a long period is read month by month, each month clipped to the period", () => {
+    expect(monthsOf("2026-09-05", "2026-09-20")).toEqual([["2026-09-05", "2026-09-20"]]);
+    expect(monthsOf("2025-11-15", "2026-02-10")).toEqual([
+      ["2025-11-15", "2025-11-30"],
+      ["2025-12-01", "2025-12-31"],
+      ["2026-01-01", "2026-01-31"],
+      ["2026-02-01", "2026-02-10"],
+    ]);
+    expect(monthsOf("2025-01-01", "2025-12-31")).toHaveLength(12);
   });
 
   test("a squash merge or GitHub's merge commit repeats its pull request; other commits do not", () => {

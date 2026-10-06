@@ -1,3 +1,5 @@
+import type { BuildFailure } from "./builds";
+
 export type Identity = {
   login: string;
   githubId: number;
@@ -108,4 +110,14 @@ export type EngineRepo = {
   surviving: { status: "counting" | "counted" | "over_budget" | "not_counted" | "failed" | "stale"; lines: number | null; added: number | null };
 };
 
-export type EngineView = { repos: EngineRepo[]; surviving: number | null; added: number | null; counting: number };
+export type UnreadRepo = {
+  owner: string;
+  name: string;
+  private: boolean;
+  commits: number;
+  state: "not_read" | "reading" | "failed" | "not_in_it";
+  reason: BuildFailure | null;
+  canRead: boolean;
+};
+
+export type EngineView = { repos: EngineRepo[]; surviving: number | null; added: number | null; counting: number; unread?: UnreadRepo[] };

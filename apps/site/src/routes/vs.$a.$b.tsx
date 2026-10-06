@@ -10,6 +10,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Award, LayoutList, Pencil, Rows3 } from "lucide-react";
 import { isLogin, PRODUCT, type Identity, type VersusFull, type VersusRow } from "@commitscape/data";
 import { Nothing } from "@commitscape/ui/motion";
+import { ICON } from "@commitscape/ui/design";
 import { avatarUrl, compact, DuelRows, grouped, hours, Page, TipLayer, toneOf, VersusSections, type Duel, type Side } from "@commitscape/ui";
 import { Section } from "#/components/Boundary";
 import { Missing } from "#/components/Missing";
@@ -64,17 +65,17 @@ function VersusPage() {
         <h1 className="sr-only">
           {left.identity.login} versus {right.identity.login}
         </h1>
-        <Page className="relative grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-start gap-2 py-8 sm:items-center sm:gap-6 sm:py-12">
+        <Page className="relative grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-start gap-2 py-8 sm:gap-6 sm:py-12">
           <Corner identity={left.identity} other={right.identity.login} side="a" />
-          <span className="vs-badge rise mt-5 grid size-11 place-items-center rounded-full text-sm font-bold tracking-tight sm:mt-0 sm:size-14 sm:text-base">VS</span>
+          <span className="vs-badge rise mt-5 grid size-11 place-items-center rounded-full text-xs font-bold tracking-tight sm:mt-10 sm:size-14 sm:text-base">VS</span>
           <Corner identity={right.identity} other={left.identity.login} side="b" />
         </Page>
       </section>
-      <Page width={full ? "default" : "narrow"} className="flex flex-col gap-5 py-8 sm:py-10">
+      <Page width={full ? "default" : "narrow"} className="flex flex-col gap-stack pt-page-top pb-16">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div className="flex flex-col gap-1">
-            <h2 className="m-0 text-xl font-semibold tracking-tight">View by view</h2>
-            <p className="m-0 text-sm text-secondary">A winner for each view and none overall: each counts something different.</p>
+            <h2 className="m-0 type-heading">View by view</h2>
+            <p className="m-0 type-description">A winner for each view and none overall: each counts something different.</p>
           </div>
           <div className="flex items-center gap-2">
             <ViewSwitch full={full} />
@@ -95,8 +96,8 @@ function ViewSwitch({ full }: { full: boolean }) {
   const navigate = useNavigate({ from: Route.fullPath });
   return (
     <SegmentedControl label="How much to show" size="sm" value={full ? "full" : "short"} onChange={(v) => void navigate({ search: v === "full" ? { view: "full" } : {}, resetScroll: false, replace: true })}>
-      <SegmentedControlItem value="short" label="Short" icon={<LayoutList size={14} />} />
-      <SegmentedControlItem value="full" label="Full" icon={<Rows3 size={14} />} />
+      <SegmentedControlItem value="short" label="Short" icon={<LayoutList size={ICON.sm} />} />
+      <SegmentedControlItem value="full" label="Full" icon={<Rows3 size={ICON.sm} />} />
     </SegmentedControl>
   );
 }
@@ -106,13 +107,13 @@ function Corner({ identity, other, side }: { identity: Pick<Identity, "login" | 
   return (
     <div className={`rise flex min-w-0 flex-col items-center gap-3 text-center sm:flex-row sm:gap-5 ${right ? "sm:flex-row-reverse sm:text-end" : "sm:text-start"}`} style={toneOf(side)}>
       <Link to="/u/$login" params={{ login: identity.login }} className="vs-face flex-none rounded-full" aria-label={`@${identity.login}'s Profile`}>
-        <img src={avatarUrl(identity.login, 128)} alt="" width={128} height={128} className="block size-[4.25rem] rounded-full bg-muted sm:size-[7rem]" />
+        <img src={avatarUrl(identity.login, 128)} alt="" width={128} height={128} className="block size-17 rounded-full bg-muted sm:size-28" />
       </Link>
       <div className={`flex min-w-0 max-w-full flex-col items-center gap-1.5 ${right ? "sm:items-end" : "sm:items-start"}`}>
-        <Link to="/u/$login" params={{ login: identity.login }} className="max-w-full text-[1.05rem] leading-tight font-semibold tracking-[-0.02em] text-balance break-words text-primary no-underline hover:underline sm:text-[clamp(1.5rem,2.6vw,2.1rem)]">
+        <Link to="/u/$login" params={{ login: identity.login }} className="max-w-full text-lg leading-tight font-semibold tracking-snug text-balance break-words text-primary no-underline hover:underline sm:text-3xl">
           {identity.name ?? identity.login}
         </Link>
-        <div className={`flex max-w-full items-center gap-0.5 text-sm text-secondary ${right ? "sm:flex-row-reverse" : ""}`}>
+        <div className={`flex max-w-full items-center gap-0.5 text-xs text-secondary ${right ? "sm:flex-row-reverse" : ""}`}>
           <span className="truncate font-medium">@{identity.login}</span>
           <Change side={side} other={other} />
         </div>
@@ -172,13 +173,13 @@ function Standout({ side }: { side: Side }) {
   return (
     <div className={`fade flex max-w-full flex-col items-center gap-2 ${side === "b" ? "sm:items-end" : "sm:items-start"}`}>
       {main && (
-        <span className="vs-archetype inline-flex max-w-full items-center gap-1.5 rounded-full px-2.5 py-1 text-[0.78rem] font-semibold" title={main.rule}>
-          <Award size={13} aria-hidden className="flex-none" />
+        <span className="vs-archetype inline-flex max-w-full items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold" title={main.rule}>
+          <Award size={ICON.xs} aria-hidden className="flex-none" />
           <span className="truncate">{main.title}</span>
         </span>
       )}
       {ahead.length > 0 && (
-        <p className="m-0 hidden max-w-[22rem] text-[0.8rem] text-pretty text-secondary sm:block">
+        <p className="m-0 hidden max-w-88 type-description sm:block">
           Ahead in <span className="text-primary">{ahead.join(", ").toLowerCase()}</span>
         </p>
       )}
@@ -213,8 +214,8 @@ function Share({ a, b }: { a: string; b: string }) {
 
 function BoardSkeleton({ full }: { full: boolean }) {
   return (
-    <div className="flex flex-col gap-5">
-      <div className="flex flex-col overflow-hidden rounded-[var(--radius-container)] border border-line">
+    <div className="flex flex-col gap-stack">
+      <div className="flex flex-col overflow-hidden rounded-lg border border-line">
         {Array.from({ length: 8 }, (_, i) => (
           <div key={i} className="flex flex-col gap-2 border-b border-line px-5 py-3.5 last:border-b-0">
             <div className="flex items-center justify-between gap-3">
@@ -238,7 +239,7 @@ function Board({ full }: { full: boolean }) {
       <div className={full ? "mx-auto w-full max-w-3xl" : ""}>
         <DuelRows rows={duels(v.rows)} label="View by view" />
       </div>
-      <p className="m-0 text-center text-xs text-secondary">— means not known for one of them. Lines that still run count only repositories commitscape has read.</p>
+      <p className="m-0 text-center type-caption">— means not known for one of them. Lines that still run count only repositories commitscape has read.</p>
       {full && <VersusSections v={v} />}
     </>
   );
@@ -253,12 +254,12 @@ function NoVersus({ words, kept, side }: { words: string; kept: Pick<Identity, "
     <Page width="narrow" className="flex flex-col items-center gap-6 py-16 text-center">
       <div className="flex items-center gap-4">
         <span className="vs-face rounded-full" style={toneOf(side)}>
-          <img src={avatarUrl(kept.login, 96)} alt="" width={72} height={72} className="block size-[4.5rem] rounded-full bg-muted" />
+          <img src={avatarUrl(kept.login, 96)} alt="" width={72} height={72} className="block size-18 rounded-full bg-muted" />
         </span>
-        <span className="vs-badge grid size-11 place-items-center rounded-full text-sm font-bold">VS</span>
-        <span className="grid size-[4.5rem] place-items-center rounded-full border-2 border-dashed border-strong text-2xl font-semibold text-secondary">?</span>
+        <span className="vs-badge grid size-11 place-items-center rounded-full text-xs font-bold">VS</span>
+        <span className="grid size-18 place-items-center rounded-full border-2 border-dashed border-line-strong text-2xl font-semibold text-secondary">?</span>
       </div>
-      <h1 className="m-0 text-2xl font-semibold tracking-tight">No Versus here</h1>
+      <h1 className="m-0 type-title">No Versus here</h1>
       <Nothing compact title={words} words={`Put someone else next to ${kept.name ?? `@${kept.login}`}.`} />
       <form
         className="flex w-full max-w-md items-end gap-2"
@@ -272,7 +273,7 @@ function NoVersus({ words, kept, side }: { words: string; kept: Pick<Identity, "
         </div>
         <Button label="Compare" variant="primary" type="submit" isDisabled={!valid} />
       </form>
-      <Link to="/vs" className="text-sm text-secondary no-underline hover:text-primary hover:underline">
+      <Link to="/vs" className="type-caption no-underline hover:text-primary hover:underline">
         Or pick two other people
       </Link>
     </Page>

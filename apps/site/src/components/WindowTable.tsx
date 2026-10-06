@@ -9,7 +9,7 @@ import { Face, grouped } from "@commitscape/ui";
 export function StateBadge({ state }: { state: RaceState }) {
   const label = { running: "Running", upcoming: "Upcoming", finished: "Finished" }[state];
   return (
-    <span className="inline-flex flex-none items-center gap-2 rounded-full border border-line bg-surface py-0.5 ps-2 pe-2.5 text-xs font-medium whitespace-nowrap">
+    <span className="inline-flex h-6 flex-none items-center gap-2 rounded-full border border-line bg-surface ps-2 pe-2.5 text-xs font-medium whitespace-nowrap">
       <StatusDot variant={state === "running" ? "success" : state === "upcoming" ? "accent" : "neutral"} label={label} isPulsing={state === "running"} />
       {label}
     </span>
@@ -20,12 +20,12 @@ export function StateBadge({ state }: { state: RaceState }) {
 export function Leaders({ standings }: { standings: WindowStandings }) {
   const leaders = leadersOf(standings.rows);
   return (
-    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+    <div className="grid grid-cols-2 gap-gutter lg:grid-cols-4">
       {WINDOW_VIEWS.map((v) => {
         const who = standings.rows.filter((r) => leaders[v.id].includes(r.login));
         const top = who[0];
         return (
-          <div key={v.id} className={`flex min-w-0 flex-col gap-3 rounded-[var(--radius-container)] border p-4 ${top ? "border-[color-mix(in_srgb,var(--brand)_35%,transparent)] bg-brand-soft" : "border-line bg-surface"}`}>
+          <div key={v.id} className={`flex min-w-0 flex-col gap-3 rounded-lg border p-4 ${top ? "border-brand-line bg-brand-soft" : "border-line bg-surface"}`}>
             <span className="flex items-center gap-1.5 text-xs font-medium text-secondary">
               {top && <Crown size={13} className="text-brand" aria-hidden />}
               {v.label}
@@ -35,7 +35,7 @@ export function Leaders({ standings }: { standings: WindowStandings }) {
                 <span className="flex items-center gap-2.5">
                   <span className="flex -space-x-2">
                     {who.slice(0, 3).map((r) => (
-                      <span key={r.login} className="rounded-full ring-2 ring-[var(--color-background-surface)]">
+                      <span key={r.login} className="flex flex-none rounded-full ring-2 ring-surface">
                         <Face login={r.login} name={r.name ?? r.login} size={32} />
                       </span>
                     ))}
@@ -46,14 +46,14 @@ export function Leaders({ standings }: { standings: WindowStandings }) {
                   </span>
                 </span>
                 <span className="flex flex-col gap-1">
-                  <span className="text-[1.6rem] leading-none font-semibold tracking-[-0.03em] tnum">{grouped(top[v.id])}</span>
-                  <span className="text-xs text-secondary">{top[v.id] === 1 ? v.unit[0] : v.unit[1]}</span>
+                  <span className="type-stat">{grouped(top[v.id])}</span>
+                  <span className="type-caption">{top[v.id] === 1 ? v.unit[0] : v.unit[1]}</span>
                 </span>
               </>
             ) : (
               <span className="flex flex-1 flex-col justify-end gap-1">
                 <span className="text-sm font-medium">No one yet</span>
-                <span className="text-xs text-secondary">The first to make one leads.</span>
+                <span className="type-caption">The first to make one leads.</span>
               </span>
             )}
           </div>
@@ -74,7 +74,7 @@ export function WindowTable({ standings, label = "Standings" }: { standings: Win
       <table aria-label={label} className="w-full min-w-[34rem] border-collapse text-sm">
         <thead>
           <tr className="text-xs text-secondary">
-            <th scope="col" className="sticky start-0 bg-surface py-2 ps-5 pe-3 text-start font-medium">
+            <th scope="col" className="sticky start-0 z-(--z-raised) bg-surface py-2 ps-5 pe-3 text-start font-medium">
               Person
             </th>
             {WINDOW_VIEWS.map((v) => (
@@ -90,7 +90,7 @@ export function WindowTable({ standings, label = "Standings" }: { standings: Win
         <tbody>
           {rows.map((r) => (
             <tr key={r.login} className="border-t border-line">
-              <th scope="row" className="sticky start-0 bg-surface py-2.5 ps-5 pe-3 text-start font-normal">
+              <th scope="row" className="sticky start-0 z-(--z-raised) bg-surface py-2.5 ps-5 pe-3 text-start font-normal">
                 <Link to="/u/$login" params={{ login: r.login }} className="flex min-w-0 items-center gap-2.5 text-primary no-underline hover:underline">
                   <Face login={r.login} name={r.name ?? r.login} size={32} />
                   <span className="flex min-w-0 flex-col">
@@ -108,8 +108,8 @@ export function WindowTable({ standings, label = "Standings" }: { standings: Win
                         {lead && <Crown size={12} aria-label={`leads ${v.label.toLowerCase()}`} />}
                         {r[v.id].toLocaleString("en-US")}
                       </span>
-                      <span className="block h-1 w-16 overflow-hidden rounded-full bg-[var(--color-track)]" aria-hidden>
-                        <span className={`block h-full rounded-full ${lead ? "bg-brand" : "bg-[var(--color-text-secondary)] opacity-50"}`} style={{ width: `${(r[v.id] / most[v.id]) * 100}%` }} />
+                      <span className="block h-1 w-16 overflow-hidden rounded-full bg-track" aria-hidden>
+                        <span className={`block h-full rounded-full ${lead ? "bg-brand" : "bg-secondary opacity-50"}`} style={{ width: `${(r[v.id] / most[v.id]) * 100}%` }} />
                       </span>
                     </span>
                   </td>

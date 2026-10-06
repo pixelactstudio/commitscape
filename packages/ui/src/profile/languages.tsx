@@ -21,7 +21,7 @@ function languagesOf(profile: Profile) {
 export function LanguagesOverTime({ profile }: { profile: Profile }) {
   const data = languagesOf(profile);
   return (
-    <Panel title="Languages over the years" description="Each repository's main language, weighted by their commits to it" className="h-full [&>*]:h-full">
+    <Panel title="Languages over the years" description="Each repository's main language, weighted by their commits to it" className="h-full [&>*]:h-full [&>*>*]:h-full">
       {data.years.length === 0 ? <Nothing title="No languages to tell yet" words="Commits to a repository with a main language show up here." compact /> : data.years.length < SHORT ? <Short data={data} /> : <Long data={data} />}
     </Panel>
   );
@@ -31,10 +31,10 @@ type Data = ReturnType<typeof languagesOf>;
 
 function Legend({ data }: { data: Data }) {
   return (
-    <ul className="m-0 flex list-none flex-wrap gap-x-4 gap-y-1 p-0 text-xs text-secondary">
+    <ul className="m-0 flex list-none flex-wrap gap-x-4 gap-y-1 p-0 type-micro">
       {[...data.named, ...(data.ranked.length > data.named.length ? ["Other"] : [])].map((n) => (
         <li key={n} className="flex items-center gap-1.5">
-          <span className="size-2.5 rounded-[3px]" style={{ background: n === "Other" ? "var(--other)" : data.colour(n) }} />
+          <span className="size-2.5 rounded-cell" style={{ background: n === "Other" ? "var(--other)" : data.colour(n) }} />
           {n}
         </li>
       ))}
@@ -52,19 +52,19 @@ function Long({ data }: { data: Data }) {
   const tip = useTip();
   const years = data.years.slice(-16);
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-1 flex-col gap-3">
       <Legend data={data} />
-      <ol className="m-0 flex list-none flex-col gap-2 p-0">
+      <ol className="m-0 flex flex-1 list-none flex-col p-0">
         {years.map((y) => {
           const { sum, parts } = partsOf(data, y);
           return (
-            <li key={y.year} className="grid grid-cols-[2.6rem_1fr] items-center gap-3">
-              <span className="text-xs text-secondary tnum">{y.year}</span>
-              <span className="flex h-3 gap-0.5">
+            <li key={y.year} className="grid min-h-5 flex-1 grid-cols-[2.6rem_1fr] items-center gap-3 py-1">
+              <span className="type-micro tnum">{y.year}</span>
+              <span className="flex h-full max-h-4 min-h-3 gap-0.5">
                 {parts.map((p, i) => (
                   <span
                     key={p.name}
-                    className={`block h-full min-w-[3px] ${i === 0 ? "rounded-s-[4px]" : ""} ${i === parts.length - 1 ? "rounded-e-[4px]" : ""}`}
+                    className={`block h-full min-w-0.75 ${i === 0 ? "rounded-s-xs" : ""} ${i === parts.length - 1 ? "rounded-e-xs" : ""}`}
                     style={{ width: `${(p.commits * 100) / Math.max(1, sum)}%`, background: p.name === "Other" ? "var(--other)" : data.colour(p.name) }}
                     {...tip(
                       <>
@@ -108,11 +108,12 @@ function Short({ data }: { data: Data }) {
     const { sum, parts } = partsOf(data, y);
     return (parts.find((p) => p.name === name)?.commits ?? 0) / Math.max(1, sum);
   };
+  const cols = `minmax(0,1fr) repeat(${data.years.length}, minmax(2.5rem, 3.5rem)) 2.5rem`;
   let at = 0;
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-1 flex-col gap-5">
       <div className="flex items-center gap-5">
-      <div className="relative size-[136px] flex-none">
+      <div className="relative size-34 flex-none">
         <svg viewBox="0 0 136 136" className="block size-full -rotate-90" role="img" aria-label={rows.map((r) => `${r.name} ${Math.round((r.commits * 100) / Math.max(1, all))}%`).join(", ")}>
           <circle cx={68} cy={68} r={R} fill="none" stroke="var(--color-track)" strokeWidth={STROKE} />
           {rows.map((r) => {
@@ -145,56 +146,50 @@ function Short({ data }: { data: Data }) {
         </svg>
         {top && (
           <span className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
-            <span className="text-[1.35rem] leading-none font-semibold tracking-[-0.03em] tnum">{Math.round((top.commits * 100) / Math.max(1, all))}%</span>
-            <span className="mt-1 max-w-[5.5rem] truncate text-xs text-secondary">{top.name}</span>
+            <span className="type-stat-sm">{Math.round((top.commits * 100) / Math.max(1, all))}%</span>
+            <span className="mt-1 max-w-22 truncate type-micro">{top.name}</span>
           </span>
         )}
       </div>
         <div className="flex min-w-0 flex-col gap-2">
           {top && <Lead name={top.name} years={data.years} />}
-          <p className="m-0 text-xs text-secondary">
+          <p className="m-0 type-caption">
             {grouped(all)} commits in repositories with a main language, {many(data.ranked.length, "language", "languages")} in all.
           </p>
         </div>
       </div>
-      <table className="w-full border-collapse text-sm">
-        <thead>
-          <tr className="text-[0.7rem] text-secondary">
-            <th className="pb-1.5 text-start font-medium">Language</th>
-            {data.years.map((y) => (
-              <th key={y.year} className="w-10 pb-1.5 sm:w-14 text-center font-medium tnum">
-                {y.year}
-              </th>
-            ))}
-            <th className="w-10 pb-1.5 text-end font-medium">All</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.name} className="border-t border-line">
-              <td className="max-w-0 py-2 pe-2">
-                <span className="flex min-w-0 items-center gap-2">
-                  <span className="size-2.5 flex-none rounded-[3px]" style={{ background: colour(r.name) }} />
-                  <span className="truncate">{r.name}</span>
-                </span>
-              </td>
-              {data.years.map((y) => {
-                const s = share(y, r.name);
-                return (
-                  <td key={y.year} className="py-2">
-                    <span className="mx-auto flex h-5 w-6 items-end sm:w-7 overflow-hidden rounded-[3px] bg-[var(--color-track)]" title={`${y.year}: ${Math.round(s * 100)}%`} aria-label={`${r.name} in ${y.year}: ${Math.round(s * 100)}%`} role="img">
-                      <span className="block w-full" style={{ height: `${s > 0 ? Math.max(8, s * 100) : 0}%`, background: colour(r.name) }} />
-                    </span>
-                  </td>
-                );
-              })}
-              <td className="py-2 text-end text-xs text-secondary tnum" title={many(r.commits, "commit", "commits")}>
-                {percent(r.commits, all)}
-              </td>
-            </tr>
+      <div role="table" aria-label="Each language's share, year by year" className="flex flex-1 flex-col text-sm">
+        <div role="row" className="grid pb-1.5 type-caption font-medium" style={{ gridTemplateColumns: cols }}>
+          <span role="columnheader">Language</span>
+          {data.years.map((y) => (
+            <span role="columnheader" key={y.year} className="text-center tnum">
+              {y.year}
+            </span>
           ))}
-        </tbody>
-      </table>
+          <span role="columnheader" className="text-end">All</span>
+        </div>
+        {rows.map((r) => (
+          <div role="row" key={r.name} className="grid min-h-10 flex-1 border-t border-line" style={{ gridTemplateColumns: cols }}>
+            <span role="cell" className="flex min-w-0 items-center gap-2 pe-2">
+              <span className="size-2.5 flex-none rounded-cell" style={{ background: colour(r.name) }} />
+              <span className="truncate">{r.name}</span>
+            </span>
+            {data.years.map((y) => {
+              const s = share(y, r.name);
+              return (
+                <span role="cell" key={y.year} className="flex items-stretch justify-center py-2">
+                  <span className="flex max-h-16 min-h-5 w-6 items-end overflow-hidden rounded-cell bg-[var(--color-track)] sm:w-7" title={`${y.year}: ${Math.round(s * 100)}%`} aria-label={`${r.name} in ${y.year}: ${Math.round(s * 100)}%`} role="img">
+                    <span className="block w-full" style={{ height: `${s > 0 ? Math.max(8, s * 100) : 0}%`, background: colour(r.name) }} />
+                  </span>
+                </span>
+              );
+            })}
+            <span role="cell" className="flex items-center justify-end type-caption tnum" title={many(r.commits, "commit", "commits")}>
+              {percent(r.commits, all)}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

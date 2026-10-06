@@ -10,6 +10,7 @@ import { Link, useRouteContext, useRouter, useRouterState } from "@tanstack/reac
 import { Briefcase, Flag, Image as ImageIcon, LogOut, Menu, Monitor, Moon, Search, Settings, Sparkles, Sun, Swords, Trophy, User, Users } from "lucide-react";
 import { PRODUCT } from "@commitscape/data";
 import { Logo, useMode, type Mode } from "@commitscape/ui";
+import { ICON } from "@commitscape/ui/design";
 import { signIn, signOut } from "#/lib/auth-client";
 import { Footer } from "#/components/Footer";
 import { SearchPalette } from "#/components/SearchPalette";
@@ -37,7 +38,7 @@ export function Frame({ children }: { children: ReactNode }) {
         <TopNav
           label={PRODUCT}
           heading={
-            <Link to="/" className="flex items-center gap-2 rounded-lg pe-2 text-[1.02rem] font-semibold tracking-tight text-primary no-underline" aria-label={`${PRODUCT}, home`}>
+            <Link to="/" className="flex items-center gap-2 rounded-lg pe-2 text-lg font-semibold tracking-tight text-primary no-underline" aria-label={`${PRODUCT}, home`}>
               <Logo size={26} />
               <span className="hidden sm:inline">{PRODUCT}</span>
             </Link>
@@ -63,7 +64,7 @@ export function Frame({ children }: { children: ReactNode }) {
       }
     >
       <Progress />
-      <div className="min-h-[calc(100dvh-57px)]">{children}</div>
+      <div className="min-h-[calc(100dvh-var(--header-height))]">{children}</div>
       <Footer />
       <SearchPalette isOpen={searching} onOpenChange={open} />
     </AppShell>
@@ -81,14 +82,14 @@ function SearchButton({ onOpen }: { onOpen: () => void }) {
       <button
         type="button"
         onClick={onOpen}
-        className="hidden h-8 w-64 cursor-pointer items-center gap-2 rounded-[var(--radius-element)] border border-line bg-muted px-2.5 text-sm text-secondary transition-colors hover:border-strong hover:text-primary md:flex"
+        className="hidden h-8 w-64 cursor-pointer items-center gap-2 rounded-md border border-line bg-muted px-2.5 text-sm text-secondary transition-colors hover:border-line-strong hover:text-primary md:flex"
       >
-        <Search size={15} aria-hidden />
+        <Search size={ICON.sm} aria-hidden />
         <span className="flex-1 text-start">Search people or repos</span>
         <Kbd keys="mod+k" />
       </button>
       <span className="md:hidden">
-        <Button label="Search" isIconOnly icon={<Search size={16} />} variant="ghost" size="md" onClick={onOpen} tooltip="Search (⌘K)" />
+        <Button label="Search" isIconOnly icon={<Search size={ICON.md} />} variant="ghost" size="md" onClick={onOpen} tooltip="Search (⌘K)" />
       </span>
     </>
   );
@@ -101,7 +102,7 @@ function ThemeMenu() {
   const Icon = MODE_ICON[mode];
   return (
     <DropdownMenu
-      button={{ label: "Theme", isIconOnly: true, icon: <Icon size={16} />, variant: "ghost", size: "md", tooltip: "Theme" }}
+      button={{ label: "Theme", isIconOnly: true, icon: <Icon size={ICON.md} />, variant: "ghost", size: "md", tooltip: "Theme" }}
       hasChevron={false}
       alignment="end"
       menuWidth={180}
@@ -158,7 +159,7 @@ function MobileMenu() {
   const router = useRouter();
   return (
     <DropdownMenu
-      button={{ label: "Menu", isIconOnly: true, icon: <Menu size={18} />, variant: "ghost", size: "md" }}
+      button={{ label: "Menu", isIconOnly: true, icon: <Menu size={ICON.md} />, variant: "ghost", size: "md" }}
       hasChevron={false}
       alignment="end"
       presentation="adaptive"

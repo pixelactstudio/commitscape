@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { CHART, COLOR } from "../design/tokens";
 import { day, grouped } from "../format";
 import { Legend, TableView, YAxis } from "./common";
 import { HALF, ticks } from "./scale";
@@ -26,7 +27,7 @@ export function Lines({ firstWeek, lines, unit }: { firstWeek: number; lines: Li
     <div className="flex min-w-0 flex-col gap-2">
       <Legend items={lines.map((l) => ({ label: l.label, colour: l.colour, mark: l.dashed ? "dash" : "line" }))} />
       {empty || weeks === 0 ? (
-        <p className="m-0 grid place-items-center text-sm text-secondary" style={{ aspectRatio: `${width} / ${HEIGHT}` }}>
+        <p className="m-0 grid place-items-center type-caption" style={{ aspectRatio: `${width} / ${HEIGHT}` }}>
           None in this Window.
         </p>
       ) : (
@@ -49,13 +50,13 @@ export function Lines({ firstWeek, lines, unit }: { firstWeek: number; lines: Li
             ))}
             {at !== null && (
               <g>
-                <line x1={x(at)} x2={x(at)} y1={TOP} y2={HEIGHT - BOTTOM} className="stroke-[var(--color-border-emphasized)]" />
+                <line x1={x(at)} x2={x(at)} y1={TOP} y2={HEIGHT - BOTTOM} stroke={COLOR.lineStrong} />
                 {lines.map((l) => (
-                  <circle key={l.label} cx={x(at)} cy={y(l.values[at] ?? 0)} r="4" fill={l.colour} stroke="var(--color-background-surface)" strokeWidth="2" />
+                  <circle key={l.label} cx={x(at)} cy={y(l.values[at] ?? 0)} r="4" fill={l.colour} stroke={COLOR.surface} strokeWidth="2" />
                 ))}
               </g>
             )}
-            <g className="fill-[var(--color-text-secondary)] text-[11px] tnum">
+            <g fontSize={CHART.tick.fontSize} fill={CHART.tick.fill} className="tnum">
               <text x={LEFT} y={HEIGHT - 6}>
                 {week(0)}
               </text>
@@ -65,7 +66,7 @@ export function Lines({ firstWeek, lines, unit }: { firstWeek: number; lines: Li
             </g>
           </svg>
           {at !== null && (
-            <div className="pointer-events-none absolute top-4 min-w-40 rounded-[var(--radius-element)] border border-line bg-popover px-3 py-2 text-[0.8rem] shadow-[var(--shadow-med)]" style={{ left: `${Math.min(((x(at) + 10) / width) * 100, 55)}%` }}>
+            <div className="pointer-events-none absolute top-4 min-w-40 rounded-md border border-line bg-raised px-3 py-2 text-sm shadow-lg" style={{ left: `${Math.min(((x(at) + 10) / width) * 100, 55)}%` }}>
               <div className="mb-1 font-medium">Week of {week(at)}</div>
               {lines.map((l) => (
                 <div key={l.label} className="flex justify-between gap-4 text-secondary">

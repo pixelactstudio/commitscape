@@ -6,6 +6,7 @@ import { createFileRoute, Link, useNavigate, useRouteContext } from "@tanstack/r
 import { ArrowRight, Swords } from "lucide-react";
 import { isLogin, PRODUCT } from "@commitscape/data";
 import { Face, Page } from "@commitscape/ui";
+import { ICON } from "@commitscape/ui/design";
 import { LookupRow, useLookupSource, type Item } from "#/lib/lookup";
 
 export const Route = createFileRoute("/vs/")({
@@ -26,12 +27,12 @@ function Person({ label, value, onChange, autoFocus = false }: { label: string; 
   const { user } = useRouteContext({ from: "__root__" });
   const source = useLookupSource(user?.login ?? null);
   return (
-    <div className="flex min-w-0 flex-1 flex-col gap-3 rounded-[var(--radius-container)] border border-line bg-surface p-5">
+    <div className="flex min-w-0 flex-1 flex-col gap-3 rounded-lg border border-line bg-surface p-panel">
       <div className="flex items-center gap-3">
-        {isLogin(value) ? <Face login={value} name={value} size={48} /> : <span className="size-12 rounded-full border border-dashed border-strong" />}
+        {isLogin(value) ? <Face login={value} name={value} size={48} /> : <span className="size-12 rounded-full border border-dashed border-line-strong" />}
         <div className="flex min-w-0 flex-col">
-          <span className="text-xs font-medium text-secondary">{label}</span>
-          <span className="truncate text-lg font-semibold">{isLogin(value) ? `@${value}` : "Someone"}</span>
+          <span className="type-caption font-medium">{label}</span>
+          <span className="truncate type-panel">{isLogin(value) ? `@${value}` : "Someone"}</span>
         </div>
       </div>
       <Typeahead<Item>
@@ -61,24 +62,24 @@ function Pick() {
   const [b, setB] = useState("");
   const ready = isLogin(a) && isLogin(b) && a.toLowerCase() !== b.toLowerCase();
   return (
-    <Page width="narrow" className="flex flex-col gap-12 py-14">
+    <Page width="narrow" className="flex flex-col gap-section pt-page-top pb-16">
       <div className="flex flex-col items-center gap-4 text-center">
         <span className="grid size-12 place-items-center rounded-2xl bg-brand-soft text-brand">
-          <Swords size={22} />
+          <Swords size={ICON.lg} />
         </span>
-        <h1 className="m-0 text-[clamp(2rem,5vw,3rem)] leading-[1.05] font-semibold tracking-[-0.04em]">Versus</h1>
-        <p className="m-0 max-w-lg text-pretty text-secondary">Put two developers side by side: pull requests, reviews, lines that still run, streaks and more. A winner for each view, never one overall.</p>
+        <h1 className="m-0 type-display">Versus</h1>
+        <p className="m-0 max-w-lg type-lead">Put two developers side by side: pull requests, reviews, lines that still run, streaks and more. A winner for each view, never one overall.</p>
       </div>
       <form
-        className="flex flex-col gap-4"
+        className="flex flex-col gap-gutter"
         onSubmit={(e) => {
           e.preventDefault();
           if (ready) void navigate({ to: "/vs/$a/$b", params: { a, b } });
         }}
       >
-        <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
+        <div className="flex flex-col items-stretch gap-cluster sm:flex-row sm:items-center">
           <Person label="On the left" value={a} onChange={setA} autoFocus={!user} />
-          <span className="vs-badge mx-auto grid size-11 flex-none place-items-center rounded-full text-sm font-bold">VS</span>
+          <span className="vs-badge mx-auto grid size-11 flex-none place-items-center rounded-full text-xs font-bold">VS</span>
           <Person label="On the right" value={b} onChange={setB} autoFocus={!!user} />
         </div>
         <div className="flex justify-center">
@@ -86,23 +87,23 @@ function Pick() {
         </div>
       </form>
       <section className="flex flex-col gap-3">
-        <h2 className="m-0 text-sm font-semibold text-secondary">Or start with one of these</h2>
-        <ul className="m-0 grid list-none gap-2 p-0 sm:grid-cols-2">
+        <h2 className="m-0 type-eyebrow">Or start with one of these</h2>
+        <ul className="m-0 grid list-none gap-cluster p-0 sm:grid-cols-2">
           {MATCHES.map(([x, y]) => (
             <li key={`${x}${y}`}>
-              <Link to="/vs/$a/$b" params={{ a: x, b: y }} className="group flex items-center gap-3 rounded-[var(--radius-container)] border border-line bg-surface px-4 py-3 text-primary no-underline transition-colors hover:border-strong">
+              <Link to="/vs/$a/$b" params={{ a: x, b: y }} className="group flex items-center gap-3 rounded-lg border border-line bg-surface px-4 py-3 text-primary no-underline transition-colors hover:border-line-strong">
                 <span className="flex -space-x-2">
-                  <span className="rounded-full ring-2 ring-[var(--color-background-surface)]">
+                  <span className="rounded-full ring-2 ring-surface">
                     <Face login={x} name={x} size={32} />
                   </span>
-                  <span className="rounded-full ring-2 ring-[var(--color-background-surface)]">
+                  <span className="rounded-full ring-2 ring-surface">
                     <Face login={y} name={y} size={32} />
                   </span>
                 </span>
-                <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                <span className="min-w-0 flex-1 truncate type-label">
                   {x} <span className="text-secondary">vs</span> {y}
                 </span>
-                <ArrowRight size={14} className="text-secondary transition-transform group-hover:translate-x-0.5" />
+                <ArrowRight size={ICON.sm} className="text-secondary transition-transform group-hover:translate-x-0.5" />
               </Link>
             </li>
           ))}

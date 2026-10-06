@@ -13,8 +13,8 @@ export const KIND_COLOURS: Record<WorkKind, string> = {
   docs: "var(--s4)",
   test: "var(--s5)",
   perf: "var(--s7)",
-  chore: "light-dark(#8d8c86, #85847d)",
-  other: "light-dark(#c9c8c0, #4d4c48)",
+  chore: "var(--ink-3)",
+  other: "var(--other)",
 };
 
 /** Two days as a short range: "1–30 Sep 2026", "28 Sep – 4 Oct 2026". */

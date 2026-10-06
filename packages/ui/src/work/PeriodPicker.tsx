@@ -4,6 +4,7 @@ import { Calendar, type DateRange, type ISODateString } from "@astryxdesign/core
 import { Popover } from "@astryxdesign/core/Popover";
 import { CalendarDays, CalendarRange, Check, ChevronDown, ChevronLeft } from "lucide-react";
 import { periodDates, PERIODS, type Period } from "@commitscape/data";
+import { ICON } from "../design/tokens";
 import { presetOf, shortRange } from "./helpers";
 
 const LABELS: Record<Period, string> = { "last-month": "Last month", "this-month": "This month", "last-3-months": "Last 3 months", "this-year": "This year", "last-year": "Last year" };
@@ -38,38 +39,37 @@ export function PeriodPicker({ from, to, onChange }: { from: string; to: string;
   };
   const content = (
     <div className="flex max-w-full flex-col sm:flex-row">
-      <ul className={`m-0 list-none flex-col gap-0.5 p-1.5 sm:flex sm:w-56 ${custom ? "hidden border-line sm:border-e" : "flex"}`} aria-label="Periods">
+      <ul className={`m-0 list-none flex-col gap-0.5 p-1.5 ${custom ? "hidden border-line sm:flex sm:w-56 sm:flex-none sm:border-e" : "flex w-full sm:min-w-64"}`} aria-label="Periods">
         {PERIODS.map(([p]) => {
           const d = periodDates(p);
           const on = p === preset;
           return (
             <li key={p}>
-              <button type="button" onClick={() => pick(d)} className={`flex w-full cursor-pointer items-center gap-2.5 rounded-[var(--radius-element)] border-0 px-2.5 py-2 text-start text-sm text-primary hover:bg-[var(--color-overlay-hover)] ${on ? "bg-[var(--color-overlay-hover)]" : "bg-transparent"}`}>
+              <button type="button" onClick={() => pick(d)} className={`flex w-full cursor-pointer items-center gap-2.5 rounded-md border-0 px-2.5 py-2 text-start text-primary transition-colors hover:bg-overlay-hover ${on ? "bg-overlay-hover" : "bg-transparent"}`}>
                 <span className="flex min-w-0 flex-1 flex-col">
-                  <span className="font-medium">{LABELS[p]}</span>
-                  <span className="text-xs text-secondary tnum">{shortRange(d.from, d.to)}</span>
+                  <span className="type-label">{LABELS[p]}</span>
+                  <span className="type-caption tnum">{shortRange(d.from, d.to)}</span>
                 </span>
-                {on && <Check size={15} className="flex-none text-brand" aria-label="Chosen" />}
+                {on && <Check size={ICON.md} className="flex-none text-brand" aria-label="Chosen" />}
               </button>
             </li>
           );
         })}
-        <li className="my-1 h-px bg-[var(--color-border)]" aria-hidden />
+        <li className="mx-1 my-1 h-px bg-line" aria-hidden />
         <li>
-          <button type="button" onClick={() => setCustom(true)} className={`flex w-full cursor-pointer items-center gap-2.5 rounded-[var(--radius-element)] border-0 px-2.5 py-2 text-start text-sm text-primary hover:bg-[var(--color-overlay-hover)] ${custom ? "bg-[var(--color-overlay-hover)]" : "bg-transparent"}`}>
-            <CalendarDays size={15} className="flex-none text-secondary" aria-hidden />
+          <button type="button" onClick={() => setCustom(true)} className={`flex w-full cursor-pointer items-center gap-2.5 rounded-md border-0 px-2.5 py-2 text-start text-primary transition-colors hover:bg-overlay-hover ${custom ? "bg-overlay-hover" : "bg-transparent"}`}>
             <span className="flex min-w-0 flex-1 flex-col">
-              <span className="font-medium">Custom</span>
-              <span className="text-xs text-secondary">Any days, up to a year</span>
+              <span className="type-label">Custom</span>
+              <span className="type-caption">Any days, up to a year</span>
             </span>
-            {!preset && <Check size={15} className="flex-none text-brand" aria-label="Chosen" />}
+            {preset ? <CalendarDays size={ICON.md} className="flex-none text-secondary" aria-hidden /> : <Check size={ICON.md} className="flex-none text-brand" aria-label="Chosen" />}
           </button>
         </li>
       </ul>
       {custom && (
         <div className="flex min-w-0 flex-col gap-3 p-3">
-          <button type="button" onClick={() => setCustom(false)} className="inline-flex w-fit cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-xs text-secondary hover:text-primary sm:hidden">
-            <ChevronLeft size={14} aria-hidden /> Named periods
+          <button type="button" onClick={() => setCustom(false)} className="inline-flex w-fit cursor-pointer items-center gap-1 border-0 bg-transparent p-0 type-caption hover:text-primary sm:hidden">
+            <ChevronLeft size={ICON.sm} aria-hidden /> Named periods
           </button>
           <Calendar mode="range" numberOfMonths={twoMonths ? 2 : 1} value={draft} onChange={setDraft} max={today} maxRangeSpan={366} weekStartsOn="mon" />
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-3">
@@ -88,11 +88,11 @@ export function PeriodPicker({ from, to, onChange }: { from: string; to: string;
   );
   return (
     <Popover label="Choose a period" isOpen={open} onOpenChange={toggle} content={content} padding={0} placement="below" alignment="start">
-      <button type="button" className="flex h-9 w-full cursor-pointer sm:w-auto items-center gap-2 rounded-[var(--radius-element)] border border-line bg-surface ps-2.5 pe-2 text-[0.9375rem] text-primary transition-colors hover:border-strong" aria-label={`Period: ${preset ? LABELS[preset] : "Custom"}, ${shortRange(from, to)}`}>
-        <CalendarRange size={15} className="flex-none text-secondary" aria-hidden />
+      <button type="button" className="flex h-9 w-full cursor-pointer items-center gap-2 rounded-md border border-line bg-surface ps-3 pe-2.5 text-base text-primary transition-colors hover:border-line-strong sm:w-auto" aria-label={`Period: ${preset ? LABELS[preset] : "Custom"}, ${shortRange(from, to)}`}>
+        <CalendarRange size={ICON.md} className="flex-none text-secondary" aria-hidden />
         <span className="font-medium whitespace-nowrap">{preset ? LABELS[preset] : "Custom"}</span>
-        <span className="truncate text-[0.875rem] text-secondary tnum">{shortRange(from, to)}</span>
-        <ChevronDown size={15} className="flex-none text-secondary" aria-hidden />
+        <span className="min-w-0 flex-1 truncate text-start text-sm text-secondary tnum">{shortRange(from, to)}</span>
+        <ChevronDown size={ICON.md} className="flex-none text-secondary" aria-hidden />
       </button>
     </Popover>
   );

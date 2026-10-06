@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { ICON } from "../design/tokens";
 import { Lock } from "lucide-react";
 import { squarify } from "../charts/treemap";
 import { useTip } from "../charts/tip";
@@ -62,10 +63,10 @@ export function Donut({ slices, unit, centre }: { slices: Slice[]; unit: string;
           <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
             {centre ?? (
               <>
-                <span className="text-[1.7rem] leading-none font-semibold tracking-[-0.03em]">
+                <span className="type-stat">
                   <CountUp value={pct(top.value, total)} format={(n) => `${Math.round(n)}%`} />
                 </span>
-                <span className="mt-1 max-w-[6.5rem] truncate text-xs text-secondary">{top.label}</span>
+                <span className="mt-1 max-w-26 truncate type-micro">{top.label}</span>
               </>
             )}
           </div>
@@ -73,7 +74,7 @@ export function Donut({ slices, unit, centre }: { slices: Slice[]; unit: string;
       </div>
       <ul className="m-0 flex w-full min-w-0 list-none flex-col gap-1 p-0">
         {list.map((s) => (
-          <li key={s.key} className={`flex items-center gap-2.5 rounded-[var(--radius-element)] px-2 py-1.5 text-sm transition-colors ${on === s.key ? "bg-[var(--color-overlay-hover)]" : ""}`} onMouseEnter={() => setOn(s.key)} onMouseLeave={() => setOn(null)}>
+          <li key={s.key} className={`flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm transition-colors ${on === s.key ? "bg-overlay-hover" : ""}`} onMouseEnter={() => setOn(s.key)} onMouseLeave={() => setOn(null)}>
             <span className="size-2.5 flex-none rounded-full" style={{ background: s.colour }} aria-hidden />
             <span className="min-w-0 flex-1 truncate">{s.label}</span>
             <span className="text-secondary tnum">{grouped(s.value)}</span>
@@ -96,7 +97,7 @@ export function WeekBars({ days, unit = "contributions" }: { days: number[]; uni
   const best = days.indexOf(Math.max(...days));
   return (
     <div className="flex flex-col gap-3">
-      <p className="m-0 text-sm text-secondary">
+      <p className="m-0 type-description">
         Most on <span className="font-medium text-primary">{WEEK_LONG[best]}</span>: {pct(days[best] ?? 0, total)}% of the year. Weekends hold {pct((days[5] ?? 0) + (days[6] ?? 0), total)}%.
       </p>
       <div className="grid h-[180px] grid-cols-7 items-end gap-2 sm:gap-3" role="img" aria-label={WEEK.map((d, i) => `${d} ${grouped(days[i] ?? 0)}`).join(", ")}>
@@ -109,12 +110,12 @@ export function WeekBars({ days, unit = "contributions" }: { days: number[]; uni
               <div className="note">on {WEEK_LONG[i]}</div>
             </>,
           )}>
-            <span className={`text-[11px] tnum ${i === best ? "font-semibold text-primary" : "text-secondary opacity-0 transition-opacity group-hover:opacity-100"}`}>{grouped(n)}</span>
-            <span className="w-full origin-bottom rounded-t-[5px] rounded-b-[2px] transition-[filter] group-hover:brightness-110" style={{ height: `${Math.max(2, (n / most) * 100)}%`, background: i === best ? "var(--brand)" : "color-mix(in srgb, var(--brand) 38%, transparent)" }} />
+            <span className={`text-2xs tnum ${i === best ? "font-semibold text-primary" : "text-secondary opacity-0 transition-opacity group-hover:opacity-100"}`}>{grouped(n)}</span>
+            <span className="w-full origin-bottom rounded-t-sm rounded-b-cell transition-[filter] group-hover:brightness-110" style={{ height: `${Math.max(2, (n / most) * 100)}%`, background: i === best ? "var(--brand)" : "color-mix(in srgb, var(--brand) 38%, transparent)" }} />
           </div>
         ))}
       </div>
-      <div className="grid grid-cols-7 gap-2 text-center text-xs text-secondary sm:gap-3">
+      <div className="grid grid-cols-7 gap-2 text-center type-micro sm:gap-3">
         {WEEK.map((d, i) => (
           <span key={d} className={i === best ? "font-medium text-primary" : ""}>
             {d}
@@ -137,12 +138,12 @@ export function Outcomes({ merged, closed, open }: { merged: number; closed: num
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-baseline gap-3">
-        <span className="text-[2.6rem] leading-none font-semibold tracking-[-0.04em]">
+        <span className="type-stat-lg">
           <CountUp value={pct(merged, total)} format={(n) => `${Math.round(n)}%`} />
         </span>
-        <span className="text-sm text-secondary">of the {many(total, "pull request", "pull requests")} opened were merged</span>
+        <span className="type-description">of the {many(total, "pull request", "pull requests")} opened were merged</span>
       </div>
-      <div className="flex h-3 w-full gap-[2px] overflow-hidden rounded-full" role="img" aria-label={parts.map((p) => `${p.label} ${p.value}`).join(", ")}>
+      <div className="flex h-3 w-full gap-0.5 overflow-hidden rounded-full" role="img" aria-label={parts.map((p) => `${p.label} ${p.value}`).join(", ")}>
         {parts
           .filter((p) => p.value > 0)
           .map((p) => (
@@ -159,11 +160,11 @@ export function Outcomes({ merged, closed, open }: { merged: number; closed: num
       <dl className="m-0 grid grid-cols-3 gap-3">
         {parts.map((p) => (
           <div key={p.key} className="flex flex-col gap-0.5">
-            <dt className="flex items-center gap-1.5 text-xs text-secondary">
+            <dt className="flex items-center gap-1.5 type-caption">
               <span className="size-2 rounded-full" style={{ background: p.colour }} aria-hidden />
               {p.label}
             </dt>
-            <dd className="m-0 text-lg font-semibold tnum">{grouped(p.value)}</dd>
+            <dd className="m-0 mt-1 type-stat-sm">{grouped(p.value)}</dd>
           </div>
         ))}
       </dl>
@@ -187,12 +188,12 @@ export function RepoTiles({ repositories, link, unit = ["commit", "commits"] }: 
   }, []);
   const top = repositories.slice(0, 8);
   const rest = repositories.slice(8).reduce((n, r) => n + r.commits, 0);
-  const items = [...top.map((r, i) => ({ ...r, colour: TILES[i] ?? "var(--s1)" })), ...(rest > 0 ? [{ repo: "", commits: rest, private: false, colour: "light-dark(#c9c8c0, #4d4c48)" }] : [])];
+  const items = [...top.map((r, i) => ({ ...r, colour: TILES[i] ?? "var(--s1)" })), ...(rest > 0 ? [{ repo: "", commits: rest, private: false, colour: "var(--other)" }] : [])];
   const height = width < 640 ? 360 : 280;
   const total = items.reduce((n, r) => n + r.commits, 0);
   const tiles = squarify(items, (r) => r.commits, { x: 0, y: 0, w: width, h: height });
   return (
-    <div ref={box} className="relative w-full overflow-hidden rounded-[var(--radius-element)]" style={{ height }}>
+    <div ref={box} className="relative w-full overflow-hidden rounded-md" style={{ height }}>
       {tiles.map((t) => {
         const r = t.item;
         const label = r.repo ? (r.private ? "A private repository" : r.repo) : `${many(repositories.length - 8, "more repository", "more repositories")}`;
@@ -201,11 +202,11 @@ export function RepoTiles({ repositories, link, unit = ["commit", "commits"] }: 
           <>
             {roomy && (
               <span className="flex min-w-0 flex-col gap-0.5">
-                <span className="flex min-w-0 items-center gap-1 truncate text-[0.8rem] font-semibold text-white [text-shadow:0_1px_2px_rgb(0_0_0/0.35)]">
-                  {r.private && <Lock size={11} aria-hidden />}
+                <span className="flex min-w-0 items-center gap-1 truncate text-sm font-semibold text-on-stage [text-shadow:0_1px_2px_rgb(0_0_0/0.35)]">
+                  {r.private && <Lock size={ICON.xs} aria-hidden />}
                   <span className="truncate">{r.repo ? (r.private ? "Private" : (r.repo.split("/")[1] ?? r.repo)) : "Others"}</span>
                 </span>
-                <span className="truncate text-[0.72rem] text-white/85 tnum">{many(r.commits, unit[0], unit[1])}</span>
+                <span className="truncate text-xs text-on-stage-2 tnum">{many(r.commits, unit[0], unit[1])}</span>
               </span>
             )}
           </>
@@ -219,7 +220,7 @@ export function RepoTiles({ repositories, link, unit = ["commit", "commits"] }: 
             </div>
           </>,
         );
-        const cls = "absolute flex items-start overflow-hidden rounded-[6px] p-2.5 no-underline transition-[filter] duration-150 hover:brightness-110";
+        const cls = "absolute flex items-start overflow-hidden rounded-sm p-2.5 no-underline transition-[filter] duration-[var(--duration-fast)] hover:brightness-110";
         return r.repo && !r.private ? (
           <a key={r.repo} href={link(r.repo)} className={cls} style={style} aria-label={`${label}, ${many(r.commits, unit[0], unit[1])}`} {...hover}>
             {body}

@@ -29,7 +29,7 @@ export function InviteField({ label, value, onChange, description }: { label: st
           {names.map((n) => {
             const ok = isLogin(n);
             return (
-              <li key={n} className={`inline-flex items-center gap-1.5 rounded-full border py-0.5 ps-0.5 pe-2.5 text-xs ${ok ? "border-line bg-surface" : "border-[var(--color-border-error,var(--removed))] text-removed"}`}>
+              <li key={n} className={`inline-flex items-center gap-1.5 rounded-full border py-0.5 ps-0.5 pe-2.5 text-2xs ${ok ? "border-line bg-surface" : "border-removed text-removed"}`}>
                 {ok ? <Face login={n} name={n} size={20} /> : <span className="w-1" />}
                 {ok ? `@${n}` : `${n} is not a GitHub username`}
               </li>
@@ -54,13 +54,13 @@ export function InvitationCallout({ kind, id, you }: { kind: Kind; id: string; y
   });
   if (you?.state !== "invited") return null;
   return (
-    <div role="region" aria-label="Your invitation" className="rise flex flex-col gap-4 rounded-[var(--radius-container)] border border-[color-mix(in_srgb,var(--brand)_35%,transparent)] bg-brand-soft p-4 sm:flex-row sm:items-center sm:p-5">
+    <div role="region" aria-label="Your invitation" className="rise flex flex-col gap-4 rounded-lg border border-brand-line bg-brand-soft p-4 sm:flex-row sm:items-center sm:p-panel">
       <div className="flex min-w-0 flex-1 items-center gap-3">
         <Face login={you.invitedBy} name={you.invitedBy} size={40} />
         <div className="flex min-w-0 flex-col">
           <span className="font-semibold">@{you.invitedBy} invited you to this {WORD[kind]}</span>
-          <span className="text-sm text-secondary">You appear in it only once you accept, and you can leave at any time.</span>
-          {reply.error && <span className="text-sm text-removed">{reply.error.message}</span>}
+          <span className="type-caption">You appear in it only once you accept, and you can leave at any time.</span>
+          {reply.error && <span className="text-xs text-removed">{reply.error.message}</span>}
         </div>
       </div>
       <div className="flex flex-none gap-2">
@@ -110,10 +110,10 @@ export function People({ kind, id, members, you, signedIn, createdBy }: { kind: 
             <Link to="/u/$login" params={{ login: m.login }} className="min-w-0 truncate text-sm font-medium text-primary no-underline hover:underline">
               @{m.login}
             </Link>
-            {m.login === createdBy && <span className="text-xs text-secondary">started it</span>}
+            {m.login === createdBy && <span className="type-caption">started it</span>}
             {you && m.login === you.login && <Badge label="you" variant="neutral" />}
             {m.state === "invited" && (
-              <span className="ms-auto inline-flex items-center gap-1.5 text-xs text-secondary">
+              <span className="ms-auto inline-flex items-center gap-1.5 type-caption">
                 <Mail size={12} aria-hidden /> invited by @{m.invitedBy}
               </span>
             )}
@@ -129,7 +129,7 @@ export function People({ kind, id, members, you, signedIn, createdBy }: { kind: 
           }}
         >
           <InviteField label="Invite people by GitHub username" value={names} onChange={setNames} />
-          {add.error && <p className="m-0 text-sm text-removed">{add.error.message}</p>}
+          {add.error && <p className="m-0 text-xs text-removed">{add.error.message}</p>}
           <div>
             <Button label="Invite" variant="secondary" type="submit" icon={<Icon icon={UserPlus} size="sm" />} isLoading={add.isPending} isDisabled={namesIn(names).length === 0} />
           </div>
@@ -137,7 +137,7 @@ export function People({ kind, id, members, you, signedIn, createdBy }: { kind: 
       )}
       {!signedIn && (
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4">
-          <span className="text-sm text-secondary">Invited? Sign in with GitHub to answer.</span>
+          <span className="type-caption">Invited? Sign in with GitHub to answer.</span>
           <Button label="Sign in with GitHub" variant="secondary" size="sm" onClick={() => signIn(`/${kind === "race" ? "races" : "crews"}/${id}`)} />
         </div>
       )}

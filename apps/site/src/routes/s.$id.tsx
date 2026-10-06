@@ -45,7 +45,7 @@ function Head({ title, chips, actions, attached = false }: { title: ReactNode; c
             </span>
           }
           actions={actions}
-          media={<span className="grid size-[4.5rem] flex-none place-items-center rounded-[20px] bg-brand-soft text-brand"><Lock size={28} aria-hidden /></span>}
+          media={<span className="grid size-18 flex-none place-items-center rounded-2xl bg-brand-soft text-brand"><Lock size={28} aria-hidden /></span>}
         />
       </Page>
     </section>
@@ -131,7 +131,7 @@ function SharedReport() {
           </Page>
         </div>
       )}
-      <Page className="flex flex-col gap-4 pt-6 pb-16 empty:hidden">
+      <Page className="flex flex-col gap-gutter pt-6 pb-16 empty:hidden">
         {state.kind === "deleted" && <Banner status="success" title="Deleted: this link no longer opens anything." />}
         {state.kind === "error" && <Banner status="warning" title={state.words} />}
       </Page>

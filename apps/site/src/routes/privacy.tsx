@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { PRODUCT } from "@commitscape/data";
-import { Page } from "@commitscape/ui";
+import { Eyebrow, Page } from "@commitscape/ui";
 
 export const Route = createFileRoute("/privacy")({
   head: () => ({ meta: [{ title: `What ${PRODUCT} keeps` }] }),
@@ -20,13 +20,13 @@ const PARTS = [
 
 function Privacy() {
   return (
-    <Page className="pt-10 pb-20">
+    <Page className="pt-page-top pb-16">
       <div className="grid gap-12 lg:grid-cols-[minmax(0,42rem)_14rem] lg:justify-between">
-        <article className="min-w-0 text-[1.02rem] leading-[1.75] text-pretty">
+        <article className="min-w-0 text-lg leading-[1.75] text-pretty">
           <header className="flex flex-col gap-4 border-b border-line pb-8">
-            <span className="text-sm font-medium text-brand">What we keep</span>
-            <h1 className="m-0 text-[clamp(1.9rem,4vw,2.6rem)] leading-[1.1] font-semibold tracking-[-0.03em] text-balance">What {PRODUCT} keeps, and who can read it</h1>
-            <p className="m-0 text-[1.1rem] leading-relaxed text-secondary">
+            <Eyebrow className="text-brand">What we keep</Eyebrow>
+            <h1 className="m-0 type-display">What {PRODUCT} keeps, and who can read it</h1>
+            <p className="m-0 text-lg text-secondary">
               The {PRODUCT} command reads repositories on your own machine and sends nothing anywhere unless you ask it to. This page is about the Site: what it shows about people, what it stores, and how to stay out.
             </p>
           </header>
@@ -90,7 +90,7 @@ function Privacy() {
             <Item>Errors in the Site are reported to Sentry, without the request's body or cookies. Pages viewed are counted with PostHog, which honours your browser's Do Not Track setting and is never told who you are. No advertising.</Item>
           </Part>
 
-          <p className="mt-12 mb-0 rounded-[var(--radius-container)] border border-line bg-surface px-5 py-4 text-sm text-secondary">
+          <p className="mt-12 mb-0 rounded-lg border border-line bg-surface px-panel py-4 type-description">
             The Site's code is open, so all of this can be checked:{" "}
             <a href="https://github.com/pixelactstudio/commitscape" className="font-medium text-primary">
               github.com/pixelactstudio/commitscape
@@ -101,9 +101,9 @@ function Privacy() {
 
         <nav aria-label="On this page" className="hidden lg:block">
           <div className="sticky top-24 flex flex-col gap-1 border-s border-line ps-4">
-            <span className="pb-2 text-xs font-medium tracking-[0.06em] text-secondary uppercase">On this page</span>
+            <Eyebrow className="pb-2">On this page</Eyebrow>
             {PARTS.map(([id, label]) => (
-              <a key={id} href={`#${id}`} className="py-1 text-sm text-secondary no-underline transition-colors hover:text-primary">
+              <a key={id} href={`#${id}`} className="py-1 type-description no-underline transition-colors hover:text-primary">
                 {label}
               </a>
             ))}
@@ -117,7 +117,7 @@ function Privacy() {
 function Part({ id, title, children }: { id: string; title: string; children: ReactNode }) {
   return (
     <section id={id} aria-labelledby={`${id}-title`} className="scroll-mt-24 pt-10">
-      <h2 id={`${id}-title`} className="m-0 pb-3 text-[1.35rem] leading-snug font-semibold tracking-[-0.015em]">
+      <h2 id={`${id}-title`} className="m-0 pb-3 type-heading">
         {title}
       </h2>
       <ul className="m-0 flex list-none flex-col gap-3 p-0">{children}</ul>
@@ -127,7 +127,7 @@ function Part({ id, title, children }: { id: string; title: string; children: Re
 
 function Item({ label, children }: { label?: string; children: ReactNode }) {
   return (
-    <li className="relative ps-5 text-[color-mix(in_srgb,var(--color-text-primary)_88%,transparent)] before:absolute before:start-0 before:top-[0.8em] before:h-1.5 before:w-1.5 before:rounded-full before:bg-[var(--color-border-emphasized,var(--color-border))] before:content-['']">
+    <li className="relative ps-5 text-primary before:absolute before:start-0 before:top-[0.8em] before:size-1.5 before:rounded-full before:bg-line-strong before:content-['']">
       {label && <strong className="font-semibold text-primary">{label}: </strong>}
       {children}
     </li>
@@ -135,12 +135,12 @@ function Item({ label, children }: { label?: string; children: ReactNode }) {
 }
 
 function Code({ children }: { children: ReactNode }) {
-  return <code className="rounded-md border border-line bg-surface px-1.5 py-0.5 font-mono text-[0.86em]">{children}</code>;
+  return <code className="rounded-md border border-line bg-surface px-1.5 py-0.5 font-mono">{children}</code>;
 }
 
 function Inline({ to, children }: { to: "/me"; children: ReactNode }) {
   return (
-    <Link to={to} className="font-medium text-primary underline decoration-[var(--color-border)] underline-offset-4 hover:decoration-current">
+    <Link to={to} className="font-medium text-primary underline decoration-line underline-offset-4 hover:decoration-current">
       {children}
     </Link>
   );

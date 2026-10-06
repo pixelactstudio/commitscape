@@ -8,7 +8,8 @@ import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-q
 import { createFileRoute, Link, redirect } from "@tanstack/react-router";
 import { ArrowRight, BookMarked, Hourglass, Play, Trophy, UserRound } from "lucide-react";
 import { FAILURE_WORDS, PRODUCT, type Lookup, type View } from "@commitscape/data";
-import { avatarUrl, compact, date, hallOfFameCardSize, Leaderboard, NextUp, Page, Panel, PlaceCards, STANDING_CARD_SIZE, topLine, placesFor, viewsOf } from "@commitscape/ui";
+import { avatarUrl, Chip, compact, date, hallOfFameCardSize, Leaderboard, NextUp, Page, Panel, PlaceCards, STANDING_CARD_SIZE, topLine, placesFor, viewsOf } from "@commitscape/ui";
+import { ICON } from "@commitscape/ui/design";
 import { Nothing } from "@commitscape/ui/motion";
 import { startBuild } from "#/functions/repos";
 import { Section } from "#/components/Boundary";
@@ -55,20 +56,20 @@ function PersonInRepository() {
   return (
     <>
       <section className="face-backdrop relative overflow-hidden border-b border-line" style={{ "--face": `url(${avatarUrl(where.login, 64)})` } as CSSProperties}>
-        <Page className="flex flex-col gap-6 pt-10 pb-8 md:flex-row md:items-end md:justify-between">
+        <Page className="flex flex-col gap-6 pt-page-top pb-8 md:flex-row md:items-end md:justify-between">
           <div className="flex min-w-0 items-center gap-5">
             <span className="relative flex-none">
-              <img src={avatarUrl(where.login, 96)} alt="" width={96} height={96} className="size-[5rem] rounded-full bg-muted shadow-[0_0_0_4px_var(--color-background-body)] sm:size-[6rem]" />
-              <img src={avatarUrl(owner, 48)} alt="" width={40} height={40} className="absolute -end-1 -bottom-1 size-9 rounded-lg bg-muted shadow-[0_0_0_3px_var(--color-background-body)] sm:size-10" />
+              <img src={avatarUrl(where.login, 96)} alt="" width={96} height={96} className="size-20 rounded-full bg-muted shadow-md ring-4 ring-[var(--color-background-body)] sm:size-24" />
+              <img src={avatarUrl(owner, 48)} alt="" width={40} height={40} className="absolute -end-1 -bottom-1 size-9 rounded-md bg-muted ring-3 ring-[var(--color-background-body)] sm:size-10" />
             </span>
             <div className="flex min-w-0 flex-col gap-1.5">
-              <span className="text-sm text-secondary">
+              <span className="type-caption">
                 <Link to="/u/$login" params={{ login: where.login }} className="font-medium text-secondary no-underline hover:text-primary">
                   {where.name}
                 </Link>{" "}
                 in
               </span>
-              <h1 className="m-0 truncate text-[clamp(1.6rem,3.6vw,2.4rem)] leading-tight font-semibold tracking-[-0.035em]">
+              <h1 className="m-0 truncate type-title">
                 <Link to="/gh/$owner/$repo" params={{ owner, repo }} className="text-primary no-underline hover:underline">
                   <span className="text-secondary">{owner}/</span>
                   {repo}
@@ -79,7 +80,7 @@ function PersonInRepository() {
               </Section>
             </div>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-cluster">
             <Section fallback={null}>
               <Share {...where} />
             </Section>
@@ -87,7 +88,7 @@ function PersonInRepository() {
           </div>
         </Page>
       </section>
-      <Page className="flex flex-col gap-4 py-8">
+      <Page className="flex flex-col gap-gutter pt-8 pb-section">
         <Section fallback={<BodySkeleton />}>
           <Standing {...where} />
         </Section>
@@ -105,15 +106,15 @@ function Headline(where: Where) {
   if (found.report) return <Place {...where} />;
   if (running(found))
     return (
-      <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-brand-soft px-3 py-1 text-sm font-medium text-brand">
-        <Spinner size="sm" /> Reading its history now
-      </span>
+      <Chip tone="brand" icon={<Spinner size="sm" />} className="w-fit">
+        Reading its history now
+      </Chip>
     );
   if (found.status !== "ok") return null;
   return (
-    <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-line px-3 py-1 text-sm text-secondary">
-      <Hourglass size={14} aria-hidden /> Not read by {PRODUCT} yet
-    </span>
+    <Chip tone="quiet" icon={<Hourglass size={ICON.xs} aria-hidden />} className="w-fit">
+      Not read by {PRODUCT} yet
+    </Chip>
   );
 }
 
@@ -123,9 +124,9 @@ function Place({ login, owner, repo }: Where) {
   const top = row ? topLine(standings, placesFor(standings, row.key)) : null;
   if (!top) return null;
   return (
-    <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-brand-soft px-3 py-1 text-sm font-medium text-brand">
-      <Trophy size={14} aria-hidden /> {top}
-    </span>
+    <Chip tone="brand" icon={<Trophy size={ICON.xs} aria-hidden />} className="w-fit">
+      {top}
+    </Chip>
   );
 }
 
@@ -154,7 +155,7 @@ function ShareStanding({ login, name, owner, repo }: Where) {
 function BodySkeleton() {
   return (
     <>
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-gutter md:grid-cols-3 lg:grid-cols-5">
         {[0, 1, 2, 3, 4].map((i) => (
           <Skeleton key={i} height={150} index={i} radius={4} />
         ))}
@@ -211,7 +212,7 @@ function NotRead({ found, ...where }: Where & { found: Lookup }) {
   if (running(found) && found.build) return <Building build={found.build} {...where} />;
   const failed = found.build?.state === "failed" && found.build.reason ? found.build.reason : null;
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-gutter">
       {build.error && <Banner status="error" title={build.error.message} />}
       {failed && !found.canBuild && <Banner status={failed === "paused" ? "info" : "warning"} title={FAILURE_WORDS[failed]} />}
       <Boxed>
@@ -231,11 +232,11 @@ function NotRead({ found, ...where }: Where & { found: Lookup }) {
 }
 
 function Boxed({ children }: { children: ReactNode }) {
-  return <div className="rounded-[var(--radius-container)] border border-line px-4">{children}</div>;
+  return <div className="rounded-lg border border-line bg-surface px-4">{children}</div>;
 }
 
 function Actions({ children }: { children: ReactNode }) {
-  return <div className="flex flex-wrap justify-center gap-2 pt-1">{children}</div>;
+  return <div className="flex flex-wrap justify-center gap-cluster pt-1">{children}</div>;
 }
 
 function useSince(from: number): number | null {
@@ -257,17 +258,16 @@ function Building({ build, ...where }: Where & { build: NonNullable<Lookup["buil
       title={`Reading ${owner}/${repo}`}
       description={`${name}'s place in it shows here by itself when it is done; you can leave this page open.`}
       actions={
-        <span className="inline-flex h-7 items-center gap-2 rounded-full border border-line px-3 text-sm tnum" aria-live="off">
-          <Spinner size="sm" />
-          <span className="text-secondary">{since === null ? " " : since >= 60 ? `${Math.floor(since / 60)} min ${String(since % 60).padStart(2, "0")} s` : `${since} s`}</span>
-        </span>
+        <Chip icon={<Spinner size="sm" />} className="tnum">
+          <span className="text-secondary" aria-live="off">{since === null ? " " : since >= 60 ? `${Math.floor(since / 60)} min ${String(since % 60).padStart(2, "0")} s` : `${since} s`}</span>
+        </Chip>
       }
     >
-      <div className="flex flex-col gap-4">
-        <p className="m-0 flex items-center gap-2 text-sm text-primary" aria-live="polite">
+      <div className="flex flex-col gap-stack">
+        <p className="m-0 flex items-center gap-2 type-body" aria-live="polite">
           {STEP_WORDS[step] ?? STEP_WORDS.reading}
         </p>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-cluster">
           <Button label="Watch it on the repository page" variant="secondary" icon={<Icon icon={ArrowRight} size="sm" />} href={`/gh/${owner}/${repo}`} />
           <Button label={`${name}'s profile`} variant="ghost" icon={<Icon icon={UserRound} size="sm" />} href={`/u/${where.login}`} />
         </div>
@@ -287,7 +287,7 @@ function Body(where: Where) {
         <>
           <PlaceCards standings={standings} row={row} />
           <NextUp standings={standings} row={row} view={view} />
-          <p className="m-0 text-xs text-secondary">
+          <p className="m-0 type-caption">
             {row.first ? `First commit ${date(row.first)}, last ${date(row.last ?? row.first)}. ` : ""}
             {row.linesAdded !== null ? `+${compact(row.linesAdded)} −${compact(row.linesRemoved ?? 0)} lines changed, lockfiles, generated files and bulk commits left out.` : ""}
           </p>

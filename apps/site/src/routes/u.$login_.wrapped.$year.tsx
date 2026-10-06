@@ -9,6 +9,7 @@ import { ChevronLeft, ChevronRight, GitMerge, Lock } from "lucide-react";
 import { PRODUCT, type Wrapped } from "@commitscape/data";
 import { AreaTrend, avatarUrl, compact, Donut, grouped, many, Outcomes, Page, Panel, RepoTiles, StackedColumns, Stat, TipLayer, WeekBars, WRAPPED_CALENDAR_CARD_SIZE, WRAPPED_CARD_SIZE, YearGrid, type Slice } from "@commitscape/ui";
 import { Nothing, Reveal } from "@commitscape/ui/motion";
+import { ICON } from "@commitscape/ui/design";
 import { Section } from "#/components/Boundary";
 import { Missing } from "#/components/Missing";
 import { ShareButton } from "#/components/ShareDialog";
@@ -47,10 +48,10 @@ function WrappedPage() {
         <Page className="relative flex flex-col gap-8 pt-10 pb-12">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <Link to="/u/$login" params={{ login: id.login }} className="flex items-center gap-3 text-white no-underline">
-              <img src={avatarUrl(id.login, 56)} alt="" width={56} height={56} className="size-14 rounded-full shadow-[0_0_0_3px_rgb(255_255_255/0.25)]" />
+              <img src={avatarUrl(id.login, 56)} alt="" width={56} height={56} className="size-14 rounded-full ring-3 ring-white/25" />
               <span className="flex flex-col">
-                <span className="text-lg font-semibold">{name}</span>
-                <span className="text-sm text-white/70">@{id.login}'s year on GitHub</span>
+                <span className="type-panel">{name}</span>
+                <span className="text-xs text-on-stage-2">@{id.login}'s year on GitHub</span>
               </span>
             </Link>
             <div className="flex items-center gap-1">
@@ -60,14 +61,14 @@ function WrappedPage() {
           </div>
           <div className="flex flex-col gap-2">
             <span className="text-[clamp(5rem,18vw,12rem)] leading-[0.82] font-bold tracking-[-0.07em]">{y}</span>
-            <span className="text-lg text-white/80">{y === THIS_YEAR ? "So far, and still going." : "The whole year, day by day."}</span>
+            <span className="text-lg text-on-stage-2">{y === THIS_YEAR ? "So far, and still going." : "The whole year, day by day."}</span>
           </div>
           <Section fallback={<Skeleton height={36} width={360} radius={4} />}>
             <Headline login={id.login} year={y} />
           </Section>
         </Page>
       </section>
-      <Page className="flex flex-col gap-4 py-8">
+      <Page className="flex flex-col gap-gutter pt-10 pb-16">
         <Section fallback={<BodySkeleton />}>
           <Body login={id.login} year={y} name={name} origin={origin} joined={joined} />
         </Section>
@@ -78,9 +79,9 @@ function WrappedPage() {
 
 function Headline({ login, year }: { login: string; year: number }) {
   const { data: w } = useSuspenseQuery(wrappedQuery(login, year));
-  if (w.contributions === 0) return <p className="m-0 max-w-3xl text-[clamp(1.2rem,2.4vw,1.6rem)] leading-snug font-medium text-pretty text-white">A quiet year on GitHub: nothing public to count.</p>;
+  if (w.contributions === 0) return <p className="m-0 max-w-3xl text-2xl leading-snug font-medium text-pretty text-white">A quiet year on GitHub: nothing public to count.</p>;
   return (
-    <p className="m-0 max-w-3xl text-[clamp(1.2rem,2.4vw,1.6rem)] leading-snug font-medium text-pretty text-white">
+    <p className="m-0 max-w-3xl text-2xl leading-snug font-medium text-pretty text-white">
       {grouped(w.contributions)} contributions on {many(w.activeDays, "day", "days")}, {grouped(w.prsMerged)} pull requests merged and {grouped(w.reviews)} reviews given{w.languages[0] ? `, mostly in ${w.languages[0].name}` : ""}.
     </p>
   );
@@ -92,7 +93,7 @@ function BodySkeleton() {
       <Skeleton height={36} width={240} radius={2} />
       <Skeleton height={250} radius={4} />
       <Skeleton height={230} radius={4} />
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-gutter lg:grid-cols-2">
         <Skeleton height={300} radius={4} />
         <Skeleton height={300} radius={4} />
       </div>
@@ -102,7 +103,7 @@ function BodySkeleton() {
 
 const DAY = 86_400_000;
 const TINTS = ["var(--s1)", "var(--s2)", "var(--s3)", "var(--s4)", "var(--s5)"];
-const OTHER = "light-dark(#c9c8c0, #4d4c48)";
+const OTHER = "var(--other)";
 const when = (iso: string, o: Intl.DateTimeFormatOptions = { day: "numeric", month: "long" }) => new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-GB", { ...o, timeZone: "UTC" });
 
 function Body({ login, year, name, origin, joined }: { login: string; year: number; name: string; origin: string; joined: number }) {
@@ -122,7 +123,7 @@ function Body({ login, year, name, origin, joined }: { login: string; year: numb
   return (
     <>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="m-0 text-lg font-semibold tracking-tight">The numbers</h2>
+        <h2 className="m-0 type-heading">The numbers</h2>
         <ShareButton
           origin={origin}
           label="Share my year"
@@ -133,7 +134,7 @@ function Body({ login, year, name, origin, joined }: { login: string; year: numb
           ]}
         />
       </div>
-      <div className="grid grid-cols-2 gap-px overflow-hidden rounded-[var(--radius-container)] border border-line bg-[var(--color-border)] lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line bg-line lg:grid-cols-4">
         {[
           <Stat key="c" size="lg" tone="brand" value={grouped(w.contributions)} label="Contributions" note={`on ${many(w.activeDays, "day", "days")}`} />,
           <Stat key="p" size="lg" value={grouped(w.prsMerged)} label="Pull requests merged" note={`of ${grouped(w.prsOpened)} opened`} />,
@@ -144,12 +145,12 @@ function Body({ login, year, name, origin, joined }: { login: string; year: numb
           <Stat key="b" size="md" value={busiest ?? "—"} label="Busiest day" note={w.busiest ? many(w.busiest.contributions, "contribution", "contributions") : "no contributions"} />,
           <Stat key="g" size="md" value={w.languages[0]?.name ?? "—"} label="Most written in" note={w.languages[0] ? `${Math.round((w.languages[0].commits * 100) / Math.max(1, languages))}% of commits` : "no commits"} />,
         ].map((s, i) => (
-          <div key={i} className="min-w-0 bg-surface px-5 py-5">
+          <div key={i} className="min-w-0 bg-surface p-panel">
             {s}
           </div>
         ))}
       </div>
-      {!w.complete && <p className="m-0 text-xs text-secondary">Merged pull requests and their lines come from the pull requests read so far; the other totals are GitHub's.</p>}
+      {!w.complete && <p className="m-0 type-caption">Merged pull requests and their lines come from the pull requests read so far; the other totals are GitHub's.</p>}
       <Story w={w} year={year} />
     </>
   );
@@ -182,7 +183,7 @@ function Story({ w, year }: { w: Wrapped; year: number }) {
           <YearGrid firstDay={w.calendar.firstDay} days={w.calendar.days} unit="contributions" label={`Contributions a day in ${year}`} table={false} />
         </Panel>
       </Reveal>
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-gutter lg:grid-cols-2">
         <Reveal>
           <Months w={w} busiest={busiestMonth} />
         </Reveal>
@@ -192,7 +193,7 @@ function Story({ w, year }: { w: Wrapped; year: number }) {
           </Panel>
         </Reveal>
       </div>
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-gutter lg:grid-cols-2">
         <Reveal>
           <Panel title="What it was made of" description="The year's contributions by kind, as GitHub counts them">
             <Donut slices={mix} unit="contributions" />
@@ -204,7 +205,7 @@ function Story({ w, year }: { w: Wrapped; year: number }) {
           </Panel>
         </Reveal>
       </div>
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-gutter lg:grid-cols-2">
         <Reveal>
           <Panel title="The week" description="Contributions on each day of the week, all year">
             <WeekBars days={w.weekdays} />
@@ -269,22 +270,22 @@ function Months({ w, busiest }: { w: Wrapped; busiest: number }) {
 
 function Biggest({ b }: { b: NonNullable<Wrapped["biggest"]> }) {
   return (
-    <div className="flex items-start gap-3 rounded-[var(--radius-element)] border border-line p-3">
-      <span className="mt-0.5 flex size-[28px] flex-none items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--s7)_18%,transparent)] text-[var(--s7)]">
-        <GitMerge size={15} aria-hidden />
+    <div className="flex items-start gap-3 rounded-md border border-line p-3">
+      <span className="mt-0.5 flex size-7 flex-none items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--s7)_18%,transparent)] text-[var(--s7)]">
+        <GitMerge size={ICON.sm} aria-hidden />
       </span>
       <div className="flex min-w-0 flex-col gap-0.5">
-        <span className="text-xs text-secondary">The biggest merged pull request</span>
+        <span className="type-caption">The biggest merged pull request</span>
         {b.private ? (
-          <span className="inline-flex items-center gap-1.5 text-sm font-medium">
-            <Lock size={12} aria-hidden /> In a private repository
+          <span className="inline-flex items-center gap-1.5 type-label">
+            <Lock size={ICON.xs} aria-hidden /> In a private repository
           </span>
         ) : (
-          <a href={`https://github.com/${b.repo}/pull/${b.number}`} className="text-sm font-medium text-primary no-underline [overflow-wrap:anywhere] hover:underline">
+          <a href={`https://github.com/${b.repo}/pull/${b.number}`} className="type-label no-underline [overflow-wrap:anywhere] hover:underline">
             {b.title}
           </a>
         )}
-        <span className="text-xs text-secondary tnum">
+        <span className="type-caption tnum">
           {b.private ? "" : `${b.repo} #${b.number} · `}
           <span className="text-added">+{compact(b.additions)}</span> <span className="text-removed">−{compact(b.deletions)}</span>
         </span>

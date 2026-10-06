@@ -62,11 +62,11 @@ export function LastYear({ profile }: { profile: Profile }) {
       title="The last year"
       description={`${many(total, "contribution", "contributions")} on GitHub: commits, pull requests, reviews and issues`}
       actions={
-        <div className="flex items-center gap-4 text-sm">
+        <div className="flex items-center gap-4">
           {best.i >= 0 && (
-            <span className="flex flex-col items-end">
-              <span className="font-semibold tnum">{grouped(best.n)}</span>
-              <span className="text-xs text-secondary">best day, {day(year.firstDay + best.i)}</span>
+            <span className="flex flex-col items-end gap-0.5">
+              <span className="type-stat-sm">{grouped(best.n)}</span>
+              <span className="type-micro">best day, {day(year.firstDay + best.i)}</span>
             </span>
           )}
           {total > 0 && <IconButton label="The last year in numbers" tooltip="The last year in numbers" variant="secondary" size="sm" icon={<Icon icon={Eye} size="sm" />} onClick={() => setOpen(true)} />}
@@ -81,12 +81,12 @@ export function LastYear({ profile }: { profile: Profile }) {
 
 function Tile({ label, value, note, tone }: { label: string; value: ReactNode; note?: ReactNode; tone?: string }) {
   return (
-    <div className="flex min-w-0 flex-col gap-1 rounded-[var(--radius-element)] border border-line bg-[var(--color-background-body)] px-3.5 py-3">
-      <span className="text-xs font-medium text-secondary">{label}</span>
-      <span className="text-[1.3rem] leading-none font-semibold tracking-[-0.02em] tnum" style={tone ? { color: tone } : undefined}>
+    <div className="flex min-w-0 flex-col gap-1 rounded-md border border-line bg-body px-3.5 py-3">
+      <span className="type-caption font-medium">{label}</span>
+      <span className="type-stat-sm" style={tone ? { color: tone } : undefined}>
         {value}
       </span>
-      {note && <span className="truncate text-xs text-secondary">{note}</span>}
+      {note && <span className="truncate type-micro">{note}</span>}
     </div>
   );
 }
@@ -95,7 +95,7 @@ function Heading({ children, note }: { children: ReactNode; note?: ReactNode }) 
   return (
     <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
       <h3 className="m-0 text-sm font-semibold">{children}</h3>
-      {note && <span className="text-xs text-secondary">{note}</span>}
+      {note && <span className="type-micro">{note}</span>}
     </div>
   );
 }
@@ -129,9 +129,9 @@ function YearDialog({ profile, open, onOpenChange }: { profile: Profile; open: b
               const top = m.key === b.bestMonth.key && m.n > 0;
               return (
                 <li key={m.key} className="flex h-full min-w-0 flex-col items-center justify-end gap-1" aria-label={`${monthName(m.key)}: ${many(m.n, "contribution", "contributions")}`}>
-                  <span className={`text-[0.65rem] tnum ${top ? "font-semibold text-primary" : "text-secondary"}`}>{m.n > 0 ? grouped(m.n) : ""}</span>
-                  <span className={`block w-full rounded-t-[4px] ${top ? "bg-brand" : "bg-[var(--green-2)] opacity-70"}`} style={{ height: `${Math.max(m.n > 0 ? 3 : 1, (m.n * 100) / mostMonth)}%` }} />
-                  <span className="text-[0.65rem] text-secondary">{MONTHS[Number(mm) - 1]?.slice(0, 1)}</span>
+                  <span className={`text-2xs tnum ${top ? "font-semibold text-primary" : "text-secondary"}`}>{m.n > 0 ? grouped(m.n) : ""}</span>
+                  <span className={`block w-full rounded-t-xs ${top ? "bg-brand" : "bg-heat-2"}`} style={{ height: `${Math.max(m.n > 0 ? 3 : 1, (m.n * 100) / mostMonth)}%` }} />
+                  <span className="text-2xs text-secondary">{MONTHS[Number(mm) - 1]?.slice(0, 1)}</span>
                 </li>
               );
             })}
@@ -143,12 +143,12 @@ function YearDialog({ profile, open, onOpenChange }: { profile: Profile; open: b
             <Heading note={`most on ${WEEKDAYS[topWeekday]}s`}>Day of the week</Heading>
             <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
               {b.weekdays.map((w, i) => (
-                <li key={WEEKDAYS[i]} className="grid grid-cols-[2.4rem_1fr_auto] items-center gap-2.5 text-xs">
+                <li key={WEEKDAYS[i]} className="grid grid-cols-[2.4rem_1fr_auto] items-center gap-2.5 text-2xs">
                   <span className="text-secondary">{WEEKDAYS[i]?.slice(0, 3)}</span>
                   <span className="block h-2 overflow-hidden rounded-full bg-[var(--color-track)]">
                     <span className={`block h-full rounded-full ${i >= 5 ? "bg-[var(--s7)]" : "bg-[var(--s1)]"}`} style={{ width: `${(w.n * 100) / mostWeekday}%` }} />
                   </span>
-                  <span className="w-[7.5rem] text-end text-secondary tnum">
+                  <span className="w-30 text-end text-secondary tnum">
                     <strong className="font-medium text-primary">{grouped(w.n)}</strong> · active {Math.round((w.active * 100) / Math.max(1, w.days))}%
                   </span>
                 </li>
@@ -159,24 +159,24 @@ function YearDialog({ profile, open, onOpenChange }: { profile: Profile; open: b
           <section className="flex flex-col gap-3">
             <Heading note="per calendar year">By kind</Heading>
             {b.kinds.length === 0 ? (
-              <p className="m-0 text-sm text-secondary">GitHub has no counts by kind for these years.</p>
+              <p className="m-0 type-caption">GitHub has no counts by kind for these years.</p>
             ) : (
               <ul className="m-0 flex list-none flex-col gap-3.5 p-0">
                 {b.kinds.map((y) => {
                   const sum = Math.max(1, y.commits + y.prs + y.reviews + y.issues + y.hidden);
                   return (
                     <li key={y.year} className="flex flex-col gap-1.5">
-                      <span className="flex justify-between text-xs">
+                      <span className="flex justify-between text-2xs">
                         <span className="font-medium">{y.year === b.thisYear ? `${y.year} so far` : y.year}</span>
                         <span className="text-secondary tnum">{grouped(y.commits + y.prs + y.reviews + y.issues + y.hidden)}</span>
                       </span>
                       <span className="flex h-2 gap-0.5 overflow-hidden rounded-full">
                         {KINDS.map((k) => (y[k.key] > 0 ? <span key={k.key} className="block h-full" style={{ width: `${(y[k.key] * 100) / sum}%`, background: k.colour }} /> : null))}
                       </span>
-                      <span className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-secondary">
+                      <span className="flex flex-wrap gap-x-3 gap-y-0.5 text-2xs text-secondary">
                         {KINDS.filter((k) => k.key !== "hidden" || y.hidden > 0).map((k) => (
                           <span key={k.key} className="inline-flex items-center gap-1">
-                            <span className="size-2 rounded-[2px]" style={{ background: k.colour }} />
+                            <span className="size-2 rounded-cell" style={{ background: k.colour }} />
                             {k.label} <strong className="font-medium text-primary tnum">{grouped(y[k.key])}</strong>
                           </span>
                         ))}
@@ -186,7 +186,7 @@ function YearDialog({ profile, open, onOpenChange }: { profile: Profile; open: b
                 })}
               </ul>
             )}
-            <p className="m-0 text-xs text-pretty text-secondary">GitHub splits contributions by kind per calendar year, so these cover the whole years the last 12 months touch. Private ones are counted, never split.</p>
+            <p className="m-0 type-micro text-pretty">GitHub splits contributions by kind per calendar year, so these cover the whole years the last 12 months touch. Private ones are counted, never split.</p>
           </section>
         </div>
       </div>

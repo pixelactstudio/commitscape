@@ -1,6 +1,7 @@
 import { Flame } from "lucide-react";
-import { BEAT, DISTANCE, DURATION, GSAP_EASE, STAGGER, useScene } from "@commitscape/ui/motion";
-import { Face } from "@commitscape/ui";
+import { Chip, Face } from "@commitscape/ui";
+import { heat, ICON } from "@commitscape/ui/design";
+import { BEAT, DURATION, GSAP_EASE, useScene } from "@commitscape/ui/motion";
 import { CALENDAR_WEEKS, DAN, levels } from "./data";
 import { compact, count, whole } from "./kit";
 import { Mini } from "./parts";
@@ -13,52 +14,65 @@ const STATS = [
 
 const CELLS = levels(CALENDAR_WEEKS * 7, 3);
 
-/** A Profile filling in: the numbers count up and the last year lights up week by week. */
+/**
+ * A Profile filling in. It opens finished; then the year empties back to grey days, and the numbers count up again as
+ * the year lights up week by week.
+ */
 export function ProfileScene() {
   const ref = useScene(
     (tl, q) => {
-      const stats = q("[data-stat]");
       const lit = q("[data-lit]");
       const streak = q("[data-streak]");
-      tl.from(stats, { opacity: 0, y: DISTANCE.nudge, duration: DURATION.slow, stagger: STAGGER.loose }, 0);
-      const resets = q("[data-num]").map((el, i) => count(tl, el, 0, STATS[i]?.value ?? 0, i * STAGGER.loose, { format: STATS[i]?.format, duration: BEAT.long }));
-      tl.from(lit, { opacity: 0, scale: 0.3, duration: DURATION.base, ease: GSAP_EASE.pop, stagger: { amount: BEAT.long } }, DURATION.fast);
-      tl.from(streak, { opacity: 0, scale: 0.85, duration: DURATION.base, ease: GSAP_EASE.pop }, `>-${DURATION.base}`);
-      tl.addLabel("shown");
-      tl.to([...stats, ...lit, ...streak], { opacity: 0, duration: DURATION.base, ease: GSAP_EASE.in }, `+=${BEAT.hold}`);
-      tl.call(() => resets.forEach((reset) => reset()));
+      const nums = q("[data-num]");
+      tl.addLabel("shown", 0);
+      tl.addLabel("empty", BEAT.hold);
+      tl.to(lit, { opacity: 0, duration: DURATION.base, ease: GSAP_EASE.in, stagger: { amount: DURATION.slow, from: "end" } }, "empty");
+      nums.forEach((el, i) => {
+        const s = STATS[i];
+        if (s) count(tl, el, s.value, 0, "empty", { format: s.format, duration: DURATION.slow + DURATION.base });
+      });
+      tl.addLabel("fill", `empty+=${DURATION.slow + DURATION.base + BEAT.short}`);
+      tl.fromTo(lit, { opacity: 0, scale: 0.4 }, { opacity: 1, scale: 1, duration: DURATION.base, ease: GSAP_EASE.pop, stagger: { amount: BEAT.long }, immediateRender: false }, "fill");
+      nums.forEach((el, i) => {
+        const s = STATS[i];
+        if (s) count(tl, el, 0, s.value, "fill", { format: s.format, duration: BEAT.long + DURATION.base, prime: false });
+      });
+      tl.fromTo(streak, { scale: 1 }, { scale: 1.08, duration: DURATION.fast, yoyo: true, repeat: 1, ease: GSAP_EASE.inOut, immediateRender: false }, `fill+=${BEAT.long}`);
     },
-    { still: "shown" },
+    { still: "shown", repeatDelay: 0 },
   );
   return (
     <div ref={ref} className="flex size-full items-center justify-center">
       <Mini className="w-full max-w-[38rem] p-4 sm:p-5">
         <div className="flex items-center gap-3">
           <Face login={DAN.login} name={DAN.name} size={36} />
-          <div className="flex min-w-0 flex-col leading-tight">
-            <span className="text-[0.9rem] font-semibold text-primary">{DAN.name}</span>
-            <span className="text-[0.75rem] text-secondary">@{DAN.login}</span>
+          <div className="flex min-w-0 flex-col">
+            <span className="type-label">{DAN.name}</span>
+            <span className="type-caption">@{DAN.login}</span>
           </div>
-          <span data-streak className="ms-auto inline-flex items-center gap-1 rounded-full bg-brand-soft px-2.5 py-1 text-[0.72rem] font-medium text-brand">
-            <Flame size={12} aria-hidden />
-            {DAN.streak}-day streak
+          <span data-streak className="ms-auto flex">
+            <Chip tone="brand" icon={<Flame size={ICON.xs} aria-hidden />}>
+              {DAN.streak}-day streak
+            </Chip>
           </span>
         </div>
         <div className="mt-4 grid grid-cols-3 gap-3">
           {STATS.map((s) => (
-            <div key={s.label} data-stat className="flex min-w-0 flex-col gap-0.5">
-              <span data-num className="text-[1.3rem] leading-none font-semibold tracking-[-0.03em] text-primary tnum sm:text-[1.5rem]">
+            <div key={s.label} className="flex min-w-0 flex-col gap-1">
+              <span data-num className="type-stat-sm text-primary sm:type-stat">
                 {s.format(s.value)}
               </span>
-              <span className="text-[0.7rem] leading-snug text-secondary">{s.label}</span>
+              <span className="type-micro">{s.label}</span>
             </div>
           ))}
         </div>
         <div className="mt-4 flex justify-end overflow-hidden">
           <div className="grid flex-none grid-flow-col grid-rows-7 gap-[3px]">
-            {CELLS.map((v, i) =>
-              v ? <span key={i} data-lit className="size-[9px] rounded-[2px]" style={{ background: `var(--green-${v})` }} /> : <span key={i} className="size-[9px] rounded-[2px] bg-[var(--empty)]" />,
-            )}
+            {CELLS.map((v, i) => (
+              <span key={i} className="relative size-[9px] rounded-cell bg-heat-0">
+                {v > 0 && <span data-lit className="absolute inset-0 rounded-cell" style={{ background: heat(v) }} />}
+              </span>
+            ))}
           </div>
         </div>
       </Mini>

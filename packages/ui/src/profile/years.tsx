@@ -4,6 +4,7 @@ import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { Profile } from "@commitscape/data";
 import { StackedColumns, type Point } from "../charts/Trend";
+import { CHART } from "../design/tokens";
 import { compact, grouped, many } from "../format";
 import { Panel } from "../kit/layout";
 import { Nothing } from "../motion";
@@ -18,7 +19,6 @@ const OUTCOMES = [
 type Outcome = (typeof OUTCOMES)[number]["key"];
 type Month = { key: string; label: string; tick?: string; contributions: number; merged: number; open: number; closed: number; read: boolean };
 
-const axis = { fontSize: 11, fill: "var(--color-text-secondary)" };
 const Y_WIDTH = 38;
 
 function monthsOf(profile: Profile, full: Profile | null): { list: Month[]; since: string | null } {
@@ -54,7 +54,7 @@ function MonthTip({ active, payload, unit }: { active?: boolean; payload?: { nam
   if (!m) return null;
   const prs = m.merged + m.open + m.closed;
   return (
-    <div className="min-w-44 rounded-[var(--radius-element)] border border-line bg-popover px-3 py-2 text-[0.8rem] shadow-[var(--shadow-med)]">
+    <div className="min-w-44 rounded-md border border-line bg-popover px-3 py-2 text-sm shadow-lg">
       <div className="mb-1 font-medium text-primary">{m.label}</div>
       <div className="flex justify-between gap-4 text-secondary">
         <span>Contributions</span>
@@ -95,9 +95,9 @@ function coverage(full: Profile | null, given: Profile | null, since: string | n
 function Fact({ label, value, note }: { label: string; value: ReactNode; note?: ReactNode }) {
   return (
     <div className="flex min-w-0 flex-col gap-0.5">
-      <span className="text-xs text-secondary">{label}</span>
-      <span className="truncate text-[0.95rem] font-semibold tracking-[-0.01em] tnum">{value}</span>
-      {note && <span className="truncate text-xs text-secondary">{note}</span>}
+      <span className="type-caption">{label}</span>
+      <span className="truncate type-stat-sm">{value}</span>
+      {note && <span className="truncate type-micro">{note}</span>}
     </div>
   );
 }
@@ -149,7 +149,7 @@ export function OverTheYears({ profile, full: given = null }: { profile: Profile
           </div>
           {contributed && (
           <div className="flex flex-col gap-1">
-            <span className="text-xs font-medium text-secondary">Contributions a month</span>
+            <span className="type-caption font-medium">Contributions a month</span>
             <div className="fade -mx-1 h-[140px]">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={months} syncId={sync} margin={{ top: 6, right: 8, bottom: 0, left: 0 }}>
@@ -159,9 +159,9 @@ export function OverTheYears({ profile, full: given = null }: { profile: Profile
                       <stop offset="100%" stopColor="var(--brand)" stopOpacity={0.02} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid vertical={false} stroke="var(--color-border)" />
+                  <CartesianGrid vertical={false} stroke={CHART.grid} />
                   <XAxis dataKey="key" hide />
-                  <YAxis tickFormatter={(v: number) => compact(v)} tick={axis} tickLine={false} axisLine={false} width={Y_WIDTH} allowDecimals={false} tickCount={3} />
+                  <YAxis tickFormatter={(v: number) => compact(v)} tick={CHART.tick} tickLine={false} axisLine={false} width={Y_WIDTH} allowDecimals={false} tickCount={3} />
                   <Tooltip content={<MonthTip unit="contributions" />} cursor={{ stroke: "var(--color-border-emphasized)" }} />
                   <Area type="monotone" dataKey="contributions" name="Contributions" stroke="var(--brand)" strokeWidth={2} fill={`url(#c${id})`} activeDot={{ r: 4, strokeWidth: 2, stroke: "var(--color-background-surface)" }} isAnimationActive={false} />
                 </AreaChart>
@@ -171,7 +171,7 @@ export function OverTheYears({ profile, full: given = null }: { profile: Profile
           )}
           <div className="flex flex-col gap-1.5">
             <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
-              <span className="text-xs font-medium text-secondary">Pull requests opened a month, by how they ended</span>
+              <span className="type-caption font-medium">Pull requests opened a month, by how they ended</span>
               {(!full || opened > 0) && <span className="flex flex-wrap gap-1" role="group" aria-label="Show pull requests that were">
                 {OUTCOMES.map((o) => {
                   const on = !hidden.includes(o.key);
@@ -181,7 +181,7 @@ export function OverTheYears({ profile, full: given = null }: { profile: Profile
                       type="button"
                       aria-pressed={on}
                       onClick={() => setHidden(on ? [...hidden, o.key] : hidden.filter((h) => h !== o.key))}
-                      className={`inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs transition-colors ${on ? "border-line bg-[var(--color-background-body)] text-primary" : "border-dashed border-line bg-transparent text-secondary line-through"}`}
+                      className={`inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-2 py-0.5 text-2xs transition-colors ${on ? "border-line bg-body text-primary" : "border-dashed border-line bg-transparent text-secondary line-through"}`}
                     >
                       <span className="size-2 rounded-full" style={{ background: on ? o.colour : "var(--color-track)" }} />
                       {o.label}
@@ -191,17 +191,17 @@ export function OverTheYears({ profile, full: given = null }: { profile: Profile
               </span>}
             </div>
             {full && opened === 0 ? (
-              <p className="m-0 rounded-[var(--radius-element)] border border-dashed border-line px-4 py-5 text-center text-sm text-secondary">No pull requests opened yet. Each one they open lands here, in its month.</p>
+              <p className="m-0 rounded-md border border-dashed border-line px-4 py-5 text-center type-caption">No pull requests opened yet. Each one they open lands here, in its month.</p>
             ) : full ? (
               <div className="fade -mx-1 h-[124px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={months} syncId={sync} margin={{ top: 6, right: 8, bottom: 0, left: 0 }} barCategoryGap="12%">
-                    <CartesianGrid vertical={false} stroke="var(--color-border)" />
-                    <XAxis dataKey="key" ticks={ticks} tickFormatter={(k: string) => months.find((m) => m.key === k)?.tick ?? ""} interval="preserveStartEnd" tick={axis} tickLine={false} axisLine={false} minTickGap={14} />
-                    <YAxis tickFormatter={(v: number) => compact(v)} tick={axis} tickLine={false} axisLine={false} width={Y_WIDTH} allowDecimals={false} tickCount={3} />
-                    <Tooltip content={<MonthTip />} cursor={{ fill: "var(--color-overlay-hover)" }} />
+                    <CartesianGrid vertical={false} stroke={CHART.grid} />
+                    <XAxis dataKey="key" ticks={ticks} tickFormatter={(k: string) => months.find((m) => m.key === k)?.tick ?? ""} interval="preserveStartEnd" tick={CHART.tick} tickLine={false} axisLine={false} minTickGap={14} />
+                    <YAxis tickFormatter={(v: number) => compact(v)} tick={CHART.tick} tickLine={false} axisLine={false} width={Y_WIDTH} allowDecimals={false} tickCount={3} />
+                    <Tooltip content={<MonthTip />} cursor={{ fill: CHART.cursor }} />
                     {shown.map((o, i) => (
-                      <Bar key={o.key} dataKey={o.key} name={o.label} stackId="prs" fill={o.colour} maxBarSize={18} radius={i === shown.length - 1 ? [3, 3, 0, 0] : 0} isAnimationActive={false} />
+                      <Bar key={o.key} dataKey={o.key} name={o.label} stackId="prs" fill={o.colour} maxBarSize={18} radius={i === shown.length - 1 ? [CHART.barRadius, CHART.barRadius, 0, 0] : 0} isAnimationActive={false} />
                     ))}
                   </BarChart>
                 </ResponsiveContainer>
@@ -209,7 +209,7 @@ export function OverTheYears({ profile, full: given = null }: { profile: Profile
             ) : (
               <Skeleton height={124} radius={2} />
             )}
-            {(!full || opened > 0) && <span className="text-xs text-pretty text-secondary">
+            {(!full || opened > 0) && <span className="type-micro text-pretty">
               {coverage(full, given, since)}
             </span>}
           </div>

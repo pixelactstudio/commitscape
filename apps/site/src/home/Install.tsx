@@ -4,7 +4,7 @@ import { Icon } from "@astryxdesign/core/Icon";
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
 import { Check, Copy, SquareTerminal } from "lucide-react";
 import { Reveal, STAGGER } from "@commitscape/ui/motion";
-import { Band } from "./layout";
+import { Band, Kicker } from "./layout";
 import { TerminalScene } from "./scenes/TerminalScene";
 
 const INSTALL: Record<string, { label: string; command: string; note: string }> = {
@@ -21,18 +21,15 @@ export function Install() {
   const pick = INSTALL[tab] ?? INSTALL.npm;
   return (
     <Band label="The command line">
-      <div className="grid items-center gap-12 px-5 py-20 sm:px-10 lg:grid-cols-[1fr_1.15fr] lg:py-28">
+      <div className="grid items-center gap-12 px-5 py-20 sm:px-10 sm:py-band lg:grid-cols-[1fr_1.15fr]">
         <div className="flex min-w-0 flex-col gap-6">
           <Reveal blur={false} y={0}>
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-[var(--color-background-surface)] px-3 py-1 text-[0.78rem] font-medium text-secondary">
-              <SquareTerminal size={13} className="text-brand" aria-hidden />
-              Or keep it on your machine
-            </span>
+            <Kicker icon={SquareTerminal}>Or keep it on your machine</Kicker>
           </Reveal>
-          <Reveal as="h2" delay={STAGGER.base} className="m-0 text-[clamp(1.85rem,4vw,2.9rem)] leading-[1.06] font-semibold tracking-[-0.04em] text-balance">
+          <Reveal as="h2" delay={STAGGER.base} className="m-0 type-display">
             The same numbers, from your terminal
           </Reveal>
-          <Reveal as="p" delay={STAGGER.loose} className="m-0 max-w-lg text-[1.02rem] leading-relaxed text-pretty text-secondary">
+          <Reveal as="p" delay={STAGGER.loose} className="m-0 max-w-lg type-lead">
             Run it in any git repository. Nothing leaves your machine, and a link shares a Report from a server without holding the terminal open.
           </Reveal>
           <Reveal delay={STAGGER.loose} className="flex max-w-lg flex-col gap-3">
@@ -49,7 +46,7 @@ export function Install() {
                 <SegmentedControlItem key={k} value={k} label={v.label} />
               ))}
             </SegmentedControl>
-            <div className="flex items-center gap-3 rounded-[var(--radius-element)] border border-line bg-[var(--color-background-surface)] py-1.5 ps-4 pe-1.5 font-mono text-[0.86rem]">
+            <div className="flex items-center gap-3 rounded-md border border-line bg-surface py-1.5 ps-4 pe-1.5 font-mono text-sm">
               <span className="text-brand" aria-hidden>
                 $
               </span>
@@ -63,7 +60,7 @@ export function Install() {
                 onClick={() => void navigator.clipboard?.writeText(pick?.command ?? "").then(() => setCopied(true))}
               />
             </div>
-            <p className="m-0 text-sm text-secondary">{pick?.note}</p>
+            <p className="m-0 type-caption">{pick?.note}</p>
           </Reveal>
         </div>
         <div aria-hidden className="min-w-0">

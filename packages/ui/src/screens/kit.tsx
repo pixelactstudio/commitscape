@@ -14,7 +14,7 @@ export function within(window: string): string {
 /** A screen's column of Panels, faded while a new Window's numbers are on their way. */
 export function ScreenFrame({ stale = false, children, label }: { stale?: boolean; children: ReactNode; label?: string }) {
   return (
-    <div className={`flex min-w-0 flex-col gap-4 pt-5 transition-opacity duration-200 ${stale ? "opacity-60" : ""}`} aria-busy={stale || undefined} aria-label={label}>
+    <div className={`flex min-w-0 flex-col gap-gutter pt-5 transition-opacity duration-(--duration-fast) ${stale ? "opacity-60" : ""}`} aria-busy={stale || undefined} aria-label={label}>
       {children}
     </div>
   );
@@ -22,14 +22,14 @@ export function ScreenFrame({ stale = false, children, label }: { stale?: boolea
 
 /** A plain line saying there is nothing to show, and why. */
 export function Quiet({ children }: { children: ReactNode }) {
-  return <p className="m-0 py-6 text-center text-sm text-pretty text-secondary">{children}</p>;
+  return <p className="m-0 py-6 text-center type-caption text-pretty">{children}</p>;
 }
 
 /** What went wrong reading an answer, in place of the screen. */
 export function Failed({ words, action }: { words: string | null; action?: ReactNode }) {
   return (
     <ScreenFrame>
-      <div className="flex flex-col items-center gap-4 rounded-[var(--radius-container)] border border-line bg-surface px-5 py-10 text-center text-sm text-pretty text-secondary">
+      <div className="flex flex-col items-center gap-4 rounded-lg border border-line bg-surface px-5 py-10 text-center type-description">
         {words ?? "This part of the Report could not be read."}
         {action}
       </div>
@@ -40,18 +40,18 @@ export function Failed({ words, action }: { words: string | null; action?: React
 /** A row of numbers in one bordered strip, each saying what it counts. */
 export function NumberStrip({ children, columns = 5 }: { children: ReactNode; columns?: 4 | 5 | 6 | 7 }) {
   const lg = { 4: "lg:grid-cols-4", 5: "lg:grid-cols-5", 6: "lg:grid-cols-6", 7: "lg:grid-cols-7" }[columns];
-  return <div className={`grid grid-cols-2 gap-px overflow-hidden rounded-[var(--radius-container)] border border-line bg-[var(--color-border)] sm:grid-cols-3 ${lg}`}>{children}</div>;
+  return <div className={`grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line bg-line sm:grid-cols-3 ${lg}`}>{children}</div>;
 }
 
 /** One number of a NumberStrip. */
 export function NumberCell({ id, value, label, note, tone }: { id: string; value: ReactNode; label: string; note?: ReactNode; tone?: "brand" }) {
   return (
     <div data-stat={id} className="flex min-w-0 flex-col gap-1 bg-surface px-4 py-4 sm:px-5">
-      <span data-value className={`truncate text-[1.6rem] leading-none font-semibold tracking-[-0.03em] ${tone === "brand" ? "text-brand" : "text-primary"}`}>
+      <span data-value className={`truncate type-stat ${tone === "brand" ? "text-brand" : "text-primary"}`}>
         {value}
       </span>
-      <span className="mt-1 truncate text-sm font-medium text-primary">{label}</span>
-      <span className="truncate text-[0.8rem] text-secondary">{note ?? " "}</span>
+      <span className="mt-1 truncate type-label">{label}</span>
+      <span className="truncate type-caption">{note ?? " "}</span>
     </div>
   );
 }
@@ -70,17 +70,17 @@ export function BarList({ items, label, max }: { items: BarItem[]; label: string
               {i.lead}
               <span className="truncate text-sm text-primary">{i.label}</span>
             </span>
-            <span className="text-end text-[0.8rem] whitespace-nowrap text-secondary tnum">{i.shown}</span>
-            <span className="col-span-2 block h-1.5 overflow-hidden rounded-full bg-[var(--color-track)]" aria-hidden>
+            <span className="text-end text-xs whitespace-nowrap text-secondary tnum">{i.shown}</span>
+            <span className="col-span-2 block h-1.5 overflow-hidden rounded-full bg-track" aria-hidden>
               <span className="block h-full rounded-full" style={{ width: `${Math.max(i.value > 0 ? 1.5 : 0, (i.value * 100) / most)}%`, background: i.colour ?? "var(--s1)" }} />
             </span>
           </>
         );
-        const grid = "grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 rounded-[var(--radius-element)] px-2 py-2 text-start";
+        const grid = "grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 rounded-md px-2 py-2 text-start";
         return (
           <li key={i.key}>
             {i.onClick ? (
-              <button type="button" onClick={i.onClick} title={i.title} className={`${grid} cursor-pointer border-0 bg-transparent font-[inherit] transition-colors hover:bg-[var(--color-overlay-hover)]`}>
+              <button type="button" onClick={i.onClick} title={i.title} className={`${grid} cursor-pointer border-0 bg-transparent font-[inherit] transition-colors hover:bg-sunken`}>
                 {body}
               </button>
             ) : (
@@ -124,11 +124,11 @@ function ReleaseRug({ releases, buckets: starts, firstDay, days }: { releases: R
   };
   return (
     <div className="relative ms-[34px] me-1 h-5" aria-label={`${grouped(inside.length)} releases`} role="img">
-      {inside.length > 0 && <span className="absolute inset-x-0 top-2 h-px bg-[var(--color-border)]" aria-hidden />}
+      {inside.length > 0 && <span className="absolute inset-x-0 top-2 h-px bg-line" aria-hidden />}
       {inside.map((r) => (
         <span
           key={`${r.label}${r.day}`}
-          className="absolute top-0.5 h-3.5 w-2 -translate-x-1/2 cursor-default before:absolute before:inset-y-0 before:left-1/2 before:w-px before:bg-[var(--color-text-secondary)] before:opacity-70 hover:before:bg-[var(--brand)] hover:before:opacity-100"
+          className="absolute top-0.5 h-3.5 w-2 -translate-x-1/2 cursor-default before:absolute before:inset-y-0 before:left-1/2 before:w-px before:bg-secondary before:opacity-70 hover:before:bg-brand hover:before:opacity-100"
           style={{ left: `${at(r.day) * 100}%` }}
           {...tip(
             <>

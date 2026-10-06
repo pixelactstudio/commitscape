@@ -10,7 +10,7 @@ import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { ChevronDown, CircleHelp, Star } from "lucide-react";
 import { monthName, PRODUCT, type Board } from "@commitscape/data";
-import { compact, date, Face, grouped, many, Page, PageHead } from "@commitscape/ui";
+import { compact, date, Face, grouped, many, MEDAL, Page, PageHead } from "@commitscape/ui";
 import { CountUp, Nothing } from "@commitscape/ui/motion";
 import { Section } from "#/components/Boundary";
 import { boardsQuery, peopleBoardsQuery } from "#/lib/queries";
@@ -128,7 +128,7 @@ function HowItWorks({ label = "How these boards work", variant = "secondary" }: 
 function Explain({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="flex flex-col gap-1.5">
-      <h3 className="m-0 text-[0.95rem] font-semibold">{title}</h3>
+      <h3 className="m-0 type-label">{title}</h3>
       <div className="text-pretty text-secondary [&_strong]:font-medium [&_strong]:text-primary">{children}</div>
     </section>
   );
@@ -136,14 +136,14 @@ function Explain({ title, children }: { title: string; children: ReactNode }) {
 
 function RepoChip({ r, wide = false }: { r: SeedRepo; wide?: boolean }) {
   return (
-    <Link to="/gh/$owner/$repo" params={{ owner: r.owner, repo: r.name }} className={`group flex min-w-0 items-center gap-2.5 rounded-[var(--radius-element)] border border-line bg-surface px-2.5 py-2 text-primary no-underline transition-colors hover:border-strong ${wide ? "" : "pe-3"}`}>
+    <Link to="/gh/$owner/$repo" params={{ owner: r.owner, repo: r.name }} className={`group flex min-w-0 items-center gap-2.5 rounded-md border border-line bg-surface px-2.5 py-2 text-primary no-underline transition-colors hover:border-line-strong ${wide ? "" : "pe-3"}`}>
       <Face login={r.owner} name={r.owner} size={24} shape="rounded" />
       <span className="flex min-w-0 flex-col leading-tight">
-        <span className="truncate text-[0.82rem] font-medium group-hover:underline">
+        <span className="truncate text-sm font-medium group-hover:underline">
           <span className="text-secondary">{r.owner}/</span>
           {r.name}
         </span>
-        <span className="flex items-center gap-2 text-[0.72rem] text-secondary">
+        <span className="flex items-center gap-2 text-xs text-secondary">
           <span className="inline-flex items-center gap-0.5 tnum">
             <Star size={10} aria-hidden /> {compact(r.stars)}
           </span>
@@ -163,7 +163,7 @@ function PeopleSkeleton() {
         <Skeleton height={32} width={480} radius={3} />
       </div>
       <Skeleton height={64} radius={4} />
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-gutter lg:grid-cols-3">
         {[0, 1, 2].map((i) => (
           <Skeleton key={i} height={ROW_PLACES * ROW_HEIGHT + 340} index={i} radius={4} />
         ))}
@@ -174,7 +174,7 @@ function PeopleSkeleton() {
 
 function RepositoriesSkeleton() {
   return (
-    <div className="grid gap-4 md:grid-cols-2">
+    <div className="grid gap-gutter md:grid-cols-2">
       {[0, 1, 2, 3].map((i) => (
         <Skeleton key={i} height={REPO_ROWS * 52 + 110} index={i} radius={4} />
       ))}
@@ -196,8 +196,8 @@ function People({ window, repo }: { window: Window; repo: string | null }) {
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex flex-col">
-          <span className="text-lg font-semibold tracking-tight">{span.title}</span>
-          <span className="text-sm text-secondary">{span.dates ? `${span.dates}${data.window === "all" ? "" : ", UTC"}` : "Every pull request read so far"}</span>
+          <span className="type-heading">{span.title}</span>
+          <span className="type-caption">{span.dates ? `${span.dates}${data.window === "all" ? "" : ", UTC"}` : "Every pull request read so far"}</span>
         </div>
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
           <div className="max-w-full overflow-x-auto">
@@ -219,7 +219,7 @@ function People({ window, repo }: { window: Window; repo: string | null }) {
         </div>
       </div>
       <Counted data={data} />
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-gutter lg:grid-cols-3">
         {data.boards.map((b) => (
           <PersonBoard key={b.id} board={b} repo={data.repo} places={places} />
         ))}
@@ -236,16 +236,16 @@ function People({ window, repo }: { window: Window; repo: string | null }) {
 function Counted({ data }: { data: PeopleBoards }) {
   const shown = data.repo ? data.repositories.filter((r) => `${r.owner}/${r.name}` === data.repo) : data.repositories;
   return (
-    <section aria-label="Repositories counted" className="flex flex-col gap-3 rounded-[var(--radius-container)] border border-line bg-[var(--color-background-surface)] p-4">
+    <section aria-label="Repositories counted" className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4">
       <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
-        <p className="m-0 max-w-3xl text-sm text-pretty text-secondary">
+        <p className="m-0 max-w-3xl type-caption text-pretty">
           <strong className="font-semibold text-primary">{data.repo ? `Counting ${data.repo} only.` : `Counting ${many(data.repositories.length, "repository", "repositories")}:`}</strong> {data.repo ? "Pick All repositories to count every one." : "the most starred on GitHub in each language, read by commitscape every night. Work elsewhere on GitHub is not on these boards, so a dozen pull requests here can lead."}
           {!data.repo && data.waiting > 0 && ` ${many(data.waiting, "more waits", "more wait")} for a first read.`}
         </p>
         <HowItWorks label="Read more" variant="ghost" />
       </div>
       {shown.length === 0 ? (
-        <span className="text-sm text-secondary">No repository has been read yet: the boards fill after the first night.</span>
+        <span className="type-caption">No repository has been read yet: the boards fill after the first night.</span>
       ) : (
         <ul className="-mx-4 m-0 flex list-none gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:thin] sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0">
           {shown.map((r) => (
@@ -259,7 +259,7 @@ function Counted({ data }: { data: PeopleBoards }) {
   );
 }
 
-const MEDALS = ["#e8b931", "#b8bec7", "#c98a54"];
+const MEDALS = MEDAL;
 
 function PersonBoard({ board, repo, places }: { board: PeopleBoard; repo: string | null; places: number }) {
   const podium = board.rows.slice(0, 3);
@@ -267,10 +267,10 @@ function PersonBoard({ board, repo, places }: { board: PeopleBoard; repo: string
   const href = (login: string) => (repo ? `/u/${login}/${repo}` : `/u/${login}`);
   const order = ["order-2", "order-1", "order-3"];
   return (
-    <section aria-label={board.title} className="grid min-w-0 grid-rows-[auto_auto_1fr] overflow-hidden rounded-[var(--radius-container)] border border-line bg-surface lg:row-span-3 lg:grid-rows-subgrid lg:gap-y-0">
+    <section aria-label={board.title} className="grid min-w-0 grid-rows-[auto_auto_1fr] overflow-hidden rounded-lg border border-line bg-surface lg:row-span-3 lg:grid-rows-subgrid lg:gap-y-0">
       <header className="flex flex-col gap-1 px-5 pt-5 pb-2">
-        <h2 className="m-0 text-[1.02rem] font-semibold tracking-[-0.01em]">{board.title}</h2>
-        <p className="m-0 text-[0.8rem] text-pretty text-secondary">{board.how}</p>
+        <h2 className="m-0 type-panel">{board.title}</h2>
+        <p className="m-0 type-description">{board.how}</p>
       </header>
       {board.rows.length === 0 ? (
         <div className="row-span-2 flex items-center justify-center px-5 pb-6">
@@ -278,7 +278,7 @@ function PersonBoard({ board, repo, places }: { board: PeopleBoard; repo: string
         </div>
       ) : (
         <>
-          <div className="grid h-[12.5rem] grid-cols-3 items-end gap-2 self-end px-5 pb-0">
+          <div className="grid h-50 grid-cols-3 items-end gap-2 self-end px-5 pb-0">
             {[0, 1, 2].map((place) => {
               const r = podium[place];
               if (!r) return <span key={place} className={order[place]} />;
@@ -287,14 +287,14 @@ function PersonBoard({ board, repo, places }: { board: PeopleBoard; repo: string
                 <Link key={r.login} to={href(r.login) as "/"} className={`group flex min-w-0 flex-col items-center gap-2 text-primary no-underline ${order[place]}`}>
                   <span className="relative">
                     <Face login={r.login} name={r.login} size={place === 0 ? 64 : 48} />
-                    <span className="absolute -end-1 -bottom-1 grid size-5 place-items-center rounded-full text-[0.65rem] font-bold text-[#141416] shadow-[0_0_0_2px_var(--color-background-surface)]" style={{ background: MEDALS[r.place - 1] ?? "var(--color-border-emphasized)" }}>
+                    <span className="absolute -end-1 -bottom-1 grid size-5 place-items-center rounded-full text-2xs font-bold text-on-medal ring-2 ring-surface" style={{ background: MEDALS[r.place - 1] ?? "var(--color-border-emphasized)" }}>
                       {r.place}
                     </span>
                   </span>
-                  <span className="w-full truncate text-center text-xs font-medium group-hover:underline">{r.login}</span>
-                  <span className="podium flex w-full flex-col items-center justify-start rounded-t-[10px] pt-2 text-sm font-semibold tnum" style={{ height }} title={many(r.value, ...board.unit)}>
+                  <span className="w-full truncate text-center text-2xs font-medium group-hover:underline">{r.login}</span>
+                  <span className="podium flex w-full flex-col items-center justify-start rounded-t-lg pt-2 text-xs font-semibold tnum" style={{ height }} title={many(r.value, ...board.unit)}>
                     <CountUp value={r.value} format={(n) => compact(Math.round(n))} />
-                    <span className="text-[0.68rem] font-normal text-secondary">{r.value === 1 ? board.short[0] : board.short[1]}</span>
+                    <span className="text-2xs font-normal text-secondary">{r.value === 1 ? board.short[0] : board.short[1]}</span>
                   </span>
                 </Link>
               );
@@ -303,18 +303,18 @@ function PersonBoard({ board, repo, places }: { board: PeopleBoard; repo: string
           <ol className="m-0 flex list-none flex-col border-t border-line p-0" style={{ minHeight: places * ROW_HEIGHT }}>
             {rest.map((r) => (
               <li key={r.login} className="border-b border-line last:border-b-0" style={{ height: ROW_HEIGHT }}>
-                <Link to={href(r.login) as "/"} className="flex h-full items-center gap-3 px-5 text-sm text-primary no-underline transition-colors hover:bg-[var(--color-overlay-hover)]">
-                  <span className="w-5 text-end text-xs text-secondary tnum">{r.place}</span>
+                <Link to={href(r.login) as "/"} className="flex h-full items-center gap-3 px-5 text-xs text-primary no-underline transition-colors hover:bg-overlay-hover">
+                  <span className="w-5 text-end type-micro tnum">{r.place}</span>
                   <Face login={r.login} name={r.login} size={24} />
                   <span className="min-w-0 flex-1 truncate font-medium">{r.login}</span>
                   <span className="text-secondary tnum" title={many(r.value, ...board.unit)}>
-                    {!repo && r.repositories > 1 && <span className="me-2 text-xs">in {r.repositories}</span>}
+                    {!repo && r.repositories > 1 && <span className="me-2 text-2xs">in {r.repositories}</span>}
                     {grouped(r.value)}
                   </span>
                 </Link>
               </li>
             ))}
-            {rest.length < places && <li className="flex flex-1 items-center justify-center px-5 py-3 text-xs text-secondary">{board.rows.length <= 3 ? "Nobody else in this window." : "Nobody else yet."}</li>}
+            {rest.length < places && <li className="flex flex-1 items-center justify-center px-5 py-3 type-micro">{board.rows.length <= 3 ? "Nobody else in this window." : "Nobody else yet."}</li>}
           </ol>
         </>
       )}
@@ -334,11 +334,11 @@ function Repositories() {
   const rows = all ? longest : REPO_ROWS;
   return (
     <div className="flex flex-col gap-4">
-      <p className="m-0 max-w-3xl text-sm text-pretty text-secondary">
+      <p className="m-0 max-w-3xl type-caption text-pretty">
         The people boards count {many(boards.from, "repository", "repositories")}; here {boards.from === 1 ? "it is" : "they are"} ranked by what commitscape measures in their history. Updated {date(boards.builtAt)}.
         {empty.length > 0 && ` No repository qualifies for ${empty.map((b) => `"${b.title}"`).join(" or ")} yet, so ${empty.length === 1 ? "it is" : "they are"} left out.`}
       </p>
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-gutter md:grid-cols-2">
         {filled.map((b, i) => (
           <RepoBoard key={b.id} board={b} rows={rows} wide={filled.length % 2 === 1 && i === filled.length - 1} />
         ))}
@@ -358,16 +358,16 @@ function RepoBoard({ board, rows, wide }: { board: Board; rows: number; wide: bo
   const best = lower ? Math.min(...values) : Math.max(...values);
   const width = (v: number) => (lower ? best / Math.max(v, 0.001) : v / Math.max(best, 0.001));
   return (
-    <section aria-label={board.title} id={board.id} className={`grid min-w-0 grid-rows-[auto_1fr] overflow-hidden rounded-[var(--radius-container)] border border-line bg-surface md:row-span-2 md:grid-rows-subgrid md:gap-y-0 ${wide ? "md:col-span-2" : ""}`}>
+    <section aria-label={board.title} id={board.id} className={`grid min-w-0 grid-rows-[auto_1fr] overflow-hidden rounded-lg border border-line bg-surface md:row-span-2 md:grid-rows-subgrid md:gap-y-0 ${wide ? "md:col-span-2" : ""}`}>
       <header className="flex flex-col gap-1 px-5 pt-5 pb-3">
-        <h2 className="m-0 text-[1.02rem] font-semibold tracking-[-0.01em]">{board.title}</h2>
-        <p className="m-0 text-[0.8rem] text-pretty text-secondary">{board.how}</p>
+        <h2 className="m-0 type-panel">{board.title}</h2>
+        <p className="m-0 type-description">{board.how}</p>
       </header>
       <ol className="m-0 flex flex-1 list-none flex-col border-t border-line p-0">
         {board.rows.slice(0, rows).map((r, i) => (
           <li key={`${r.owner}/${r.name}`} className="border-b border-line last:border-b-0">
-            <Link to="/gh/$owner/$repo" params={{ owner: r.owner, repo: r.name }} className="group flex h-[52px] items-center gap-3 px-5 text-sm text-primary no-underline transition-colors hover:bg-[var(--color-overlay-hover)]">
-              <span className={`grid size-6 flex-none place-items-center rounded-full text-[0.7rem] font-bold tnum ${i < 3 ? "text-[#141416]" : "text-secondary"}`} style={i < 3 ? { background: MEDALS[i] } : undefined}>
+            <Link to="/gh/$owner/$repo" params={{ owner: r.owner, repo: r.name }} className="group flex h-13 items-center gap-3 px-5 text-xs text-primary no-underline transition-colors hover:bg-overlay-hover">
+              <span className={`grid size-6 flex-none place-items-center rounded-full text-2xs font-bold tnum ${i < 3 ? "text-on-medal" : "text-secondary"}`} style={i < 3 ? { background: MEDALS[i] } : undefined}>
                 {i + 1}
               </span>
               <Face login={r.owner} name={r.owner} size={32} shape="rounded" />
@@ -377,10 +377,10 @@ function RepoBoard({ board, rows, wide }: { board: Board; rows: number; wide: bo
                     <span className="text-secondary">{r.owner}/</span>
                     {r.name}
                   </span>
-                  <span className="flex-none text-[0.8rem] font-medium tnum">{r.shown}</span>
+                  <span className="flex-none text-sm font-medium tnum">{r.shown}</span>
                 </span>
                 <span className="flex items-center gap-3">
-                  <span className="flex flex-none items-center gap-2 text-[0.72rem] text-secondary">
+                  <span className="flex flex-none items-center gap-2 text-xs text-secondary">
                     {r.language && <span>{r.language}</span>}
                     {r.stars > 0 && (
                       <span className="inline-flex items-center gap-0.5 tnum">
@@ -388,7 +388,7 @@ function RepoBoard({ board, rows, wide }: { board: Board; rows: number; wide: bo
                       </span>
                     )}
                   </span>
-                  <span className="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-[var(--color-track)]" aria-hidden>
+                  <span className="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-track" aria-hidden>
                     <span className="block h-full rounded-full bg-brand" style={{ width: `${Math.max(3, width(r.value) * 100)}%`, opacity: i === 0 ? 1 : 0.55 }} />
                   </span>
                 </span>
@@ -396,7 +396,7 @@ function RepoBoard({ board, rows, wide }: { board: Board; rows: number; wide: bo
             </Link>
           </li>
         ))}
-        {board.rows.length < rows && <li className="flex flex-1 items-center justify-center px-5 py-3 text-xs text-secondary">No other repository qualifies.</li>}
+        {board.rows.length < rows && <li className="flex flex-1 items-center justify-center px-5 py-3 type-micro">No other repository qualifies.</li>}
       </ol>
     </section>
   );

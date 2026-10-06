@@ -19,7 +19,7 @@ export function RepoPicker({ items, value, onChange, disabled = false }: { items
   ];
   const match = value ? ([...organisations, ...repositories].find((p) => p.name.toLowerCase() === value.toLowerCase())?.name ?? value) : ALL;
   return (
-    <div className="w-full sm:w-[260px]">
+    <div className="w-full sm:w-64">
     <Selector
       label="Only in"
       isLabelHidden

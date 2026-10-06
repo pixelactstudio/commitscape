@@ -8,9 +8,10 @@ import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { Switch } from "@astryxdesign/core/Switch";
 import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
-import { EyeOff, Flag, FolderGit2, Image as ImageIcon, Lock, LogIn, LogOut, Plus, Swords, Trash2, User, Users, X } from "lucide-react";
+import { Briefcase, EyeOff, Flag, FolderGit2, Image as ImageIcon, Lock, LogIn, LogOut, Plus, Swords, Trash2, User, Users, X } from "lucide-react";
 import { PRODUCT } from "@commitscape/data";
 import { Face, Page, PageHead, Panel } from "@commitscape/ui";
+import { ICON } from "@commitscape/ui/design";
 import { Section } from "#/components/Boundary";
 import { deleteMe } from "#/functions/account";
 import { saveMyChoices } from "#/functions/standings";
@@ -61,24 +62,25 @@ function Me() {
         <div className="grid items-start gap-8 lg:grid-cols-[13rem_minmax(0,1fr)]">
           <nav aria-label="Settings sections" className="hidden lg:sticky lg:top-20 lg:flex lg:flex-col lg:gap-0.5">
             {SECTIONS.map(([id, label]) => (
-              <a key={id} href={`#${id}`} className={`rounded-[var(--radius-element)] px-3 py-1.5 text-sm no-underline transition-colors hover:bg-[var(--color-overlay-hover)] ${id === "danger" ? "text-removed" : "text-secondary hover:text-primary"}`}>
+              <a key={id} href={`#${id}`} className={`rounded-md px-3 py-1.5 text-sm no-underline transition-colors hover:bg-overlay-hover ${id === "danger" ? "text-removed" : "text-secondary hover:text-primary"}`}>
                 {label}
               </a>
             ))}
           </nav>
-          <div className="flex min-w-0 flex-col gap-4">
+          <div className="flex min-w-0 flex-col gap-gutter">
             <Panel id="profile" title="Profile" description="Who you are signed in as.">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
                 <div className="flex min-w-0 flex-1 items-center gap-4">
                   <Face login={mine.user.login} name={mine.user.name ?? mine.user.login} size={60} />
                   <div className="flex min-w-0 flex-col">
-                    <span className="truncate text-lg font-semibold">{mine.user.name ?? mine.user.login}</span>
-                    <span className="text-sm text-secondary">@{mine.user.login} on GitHub</span>
+                    <span className="truncate type-panel">{mine.user.name ?? mine.user.login}</span>
+                    <span className="type-caption">@{mine.user.login} on GitHub</span>
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Button label="Your Profile" variant="secondary" icon={<Icon icon={User} size="sm" />} href={`/u/${mine.user.login}`} />
                   <Button label="Your Cards" variant="secondary" icon={<Icon icon={ImageIcon} size="sm" />} href={`/u/${mine.user.login}/cards`} />
+                  <Button label="Proof of Work" variant="secondary" icon={<Icon icon={Briefcase} size="sm" />} href={`/u/${mine.user.login}/work`} />
                   <Button label="Sign out" variant="ghost" icon={<Icon icon={LogOut} size="sm" />} onClick={() => signOut.mutate()} isLoading={signOut.isPending} />
                 </div>
               </div>
@@ -107,24 +109,24 @@ function SignedOut() {
     [FolderGit2, "Connect private repositories", "Let the GitHub App read them, and see their Reports. Only people GitHub lets see them can."],
   ];
   return (
-    <div className="flex flex-col gap-4">
-      <div className="grid gap-3 sm:grid-cols-2">
+    <div className="flex flex-col gap-gutter">
+      <div className="grid gap-gutter sm:grid-cols-2">
         {perks.map(([Glyph, title, words]) => (
-          <div key={title} className="flex gap-3 rounded-[var(--radius-container)] border border-line bg-surface p-5">
-            <span className="grid h-8 w-8 flex-none place-items-center rounded-[var(--radius-element)] bg-brand-soft text-brand">
-              <Glyph size={16} aria-hidden />
+          <div key={title} className="flex gap-3 rounded-lg border border-line bg-surface p-panel">
+            <span className="grid h-8 w-8 flex-none place-items-center rounded-md bg-brand-soft text-brand">
+              <Glyph size={ICON.md} aria-hidden />
             </span>
             <span className="flex flex-col gap-1">
-              <span className="font-semibold">{title}</span>
-              <span className="text-sm text-pretty text-secondary">{words}</span>
+              <span className="type-label">{title}</span>
+              <span className="type-description">{words}</span>
             </span>
           </div>
         ))}
       </div>
-      <div className="cta-backdrop flex flex-col items-start gap-4 rounded-[var(--radius-container)] border border-line p-6 sm:flex-row sm:items-center sm:justify-between">
+      <div className="cta-backdrop flex flex-col items-start gap-4 rounded-lg border border-line p-panel sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-col gap-1">
-          <span className="text-lg font-semibold tracking-[-0.01em]">Sign in with GitHub to see your settings</span>
-          <span className="text-sm text-secondary">
+          <span className="type-panel">Sign in with GitHub to see your settings</span>
+          <span className="type-description">
             Read-only. What is kept, and for how long, is on{" "}
             <Link to="/privacy" className="text-primary">
               What we keep
@@ -216,7 +218,7 @@ function RivalList() {
           {mine.logins.map((l) => (
             <li key={l} className="flex items-center gap-3 border-t border-line py-2.5 first:border-t-0 first:pt-0">
               <Face login={l} name={l} size={32} />
-              <Link to="/u/$login" params={{ login: l }} className="min-w-0 flex-1 truncate text-sm font-medium text-primary no-underline hover:underline">
+              <Link to="/u/$login" params={{ login: l }} className="min-w-0 flex-1 truncate type-label no-underline hover:underline">
                 @{l}
               </Link>
               <Button label="Versus" variant="ghost" size="sm" icon={<Icon icon={Swords} size="sm" />} href={`/vs/${mine.login}/${l}`} />
@@ -238,13 +240,13 @@ function Competing() {
   ];
   return (
     <Panel id="competing" title="Races and Crews" description="Where you compare yourself with friends. You join only by accepting, and leave at any time.">
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-gutter sm:grid-cols-2">
         {links.map(([Glyph, to, label, n, waiting]) => (
-          <Link key={to} to={to as "/races"} className="flex items-center gap-3 rounded-[var(--radius-element)] border border-line p-4 text-primary no-underline transition-colors hover:border-strong">
-            <Glyph size={18} className="text-brand" aria-hidden />
+          <Link key={to} to={to as "/races"} className="flex items-center gap-3 rounded-md border border-line p-4 text-primary no-underline transition-colors hover:border-line-strong">
+            <Glyph size={ICON.md} className="text-brand" aria-hidden />
             <span className="flex flex-1 flex-col">
-              <span className="font-medium">{label}</span>
-              <span className="text-sm text-secondary tnum">{n === 0 ? "none yet" : `in ${n}`}</span>
+              <span className="type-label">{label}</span>
+              <span className="type-caption tnum">{n === 0 ? "none yet" : `in ${n}`}</span>
             </span>
             {waiting > 0 && <Badge label={waiting === 1 ? "1 invitation" : `${waiting} invitations`} variant="success" />}
           </Link>
@@ -269,7 +271,7 @@ function Repositories({ installations, install, tokenLost }: { installations: In
       {count === 0 && !tokenLost && <Quiet icon={FolderGit2} words="None yet. Choose repositories in the GitHub App to see their Reports here." />}
       {installations.map((i) => (
         <div key={i.id} className="flex flex-col gap-2">
-          <span className="flex items-center gap-2 text-xs font-medium text-secondary">
+          <span className="flex items-center gap-2 type-caption font-medium">
             <Face login={i.account} name={i.account} size={16} shape="rounded" />
             {i.account}
           </span>
@@ -280,13 +282,13 @@ function Repositories({ installations, install, tokenLost }: { installations: In
                 <li key={r.name} className="border-t border-line first:border-t-0">
                   <Link to="/gh/$owner/$repo" params={{ owner, repo: name }} className="flex items-center gap-3 py-2.5 text-primary no-underline hover:underline">
                     <span className="flex min-w-0 flex-1 flex-col">
-                      <span className="truncate text-sm font-medium">
+                      <span className="truncate type-label">
                         <span className="font-normal text-secondary">{owner}/</span>
                         {name}
                       </span>
-                      {r.description && <span className="truncate text-xs text-secondary">{r.description}</span>}
+                      {r.description && <span className="truncate type-caption">{r.description}</span>}
                     </span>
-                    {r.private && <Badge label="private" icon={<Lock size={11} aria-hidden />} variant="neutral" />}
+                    {r.private && <Badge label="private" icon={<Lock size={ICON.xs} aria-hidden />} variant="neutral" />}
                   </Link>
                 </li>
               );
@@ -308,11 +310,11 @@ function Danger({ onDone }: { onDone: () => void }) {
     },
   });
   return (
-    <section id="danger" className="scroll-mt-20 rounded-[var(--radius-container)] border border-[color-mix(in_srgb,var(--removed)_45%,transparent)] p-5">
+    <section id="danger" className="scroll-mt-20 rounded-lg border border-removed/45 p-panel">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex max-w-2xl flex-col gap-1">
-          <h2 className="m-0 text-[1.02rem] font-semibold text-removed">Delete my data</h2>
-          <p className="m-0 text-sm text-pretty text-secondary">
+          <h2 className="m-0 type-panel text-removed">Delete my data</h2>
+          <p className="m-0 type-description">
             Removes your account, every session, your choices (so you are no longer hidden), your own copy of your Profile, and the Reports of the repositories you connected, at once. Removing the App on GitHub deletes those Reports too.
           </p>
         </div>
@@ -338,8 +340,8 @@ function List({ children }: { children: ReactNode }) {
 
 function Quiet({ icon: Glyph, words }: { icon: typeof Flag; words: string }) {
   return (
-    <p className="m-0 flex items-center gap-2.5 rounded-[var(--radius-element)] border border-dashed border-line px-4 py-3 text-sm text-secondary">
-      <Glyph size={16} aria-hidden className="flex-none" />
+    <p className="m-0 flex items-center gap-2.5 rounded-md border border-dashed border-line px-4 py-3 type-description">
+      <Glyph size={ICON.md} aria-hidden className="flex-none" />
       {words}
     </p>
   );

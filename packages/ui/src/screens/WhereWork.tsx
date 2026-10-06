@@ -83,7 +83,7 @@ export function WhereWork({ root, name, params, span, commits, onFile, onFolder 
           inside: rings > 1 && !b.file ? nodesOf(b.path, rings - 1, () => colour) : null,
           tip: (
             <>
-              <strong className="font-mono text-[0.78rem]">{b.path}</strong>
+              <strong className="font-mono text-xs">{b.path}</strong>
               <div>
                 {amount(value(b))} · {share(value(b), whole)} {inside}
               </div>
@@ -154,17 +154,17 @@ export function WhereWork({ root, name, params, span, commits, onFile, onFolder 
       }
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <nav aria-label="Folder of the sunburst" className="flex min-w-0 flex-wrap items-center gap-0.5 text-sm">
+        <nav aria-label="Folder of the sunburst" className="flex min-w-0 flex-wrap items-center gap-0.5 text-xs">
           {crumbs.map((c, i) => (
             <span key={c.path} className="flex min-w-0 items-center gap-0.5">
               {i > 0 && <ChevronRight size={14} className="flex-none text-secondary" aria-hidden />}
               {i === crumbs.length - 1 ? (
-                <span aria-current="location" className="inline-flex items-center gap-1.5 truncate rounded-[var(--radius-element)] px-2 py-1 font-mono text-[0.82rem] font-semibold">
+                <span aria-current="location" className="inline-flex items-center gap-1.5 truncate rounded-md px-2 py-1 font-mono text-sm font-semibold">
                   {i === 0 && <House size={14} aria-hidden />}
                   {c.name}
                 </span>
               ) : (
-                <button type="button" onClick={() => go(c.path)} className="inline-flex cursor-pointer items-center gap-1.5 truncate rounded-[var(--radius-element)] border-0 bg-transparent px-2 py-1 font-mono text-[0.82rem] text-secondary transition-colors hover:bg-[var(--color-overlay-hover)] hover:text-primary">
+                <button type="button" onClick={() => go(c.path)} className="inline-flex cursor-pointer items-center gap-1.5 truncate rounded-md border-0 bg-transparent px-2 py-1 font-mono text-sm text-secondary transition-colors hover:bg-sunken hover:text-primary">
                   {i === 0 && <House size={14} aria-hidden />}
                   {c.name}
                 </button>
@@ -173,7 +173,7 @@ export function WhereWork({ root, name, params, span, commits, onFile, onFolder 
           ))}
         </nav>
         {depthOf(focus) <= 1 && (
-          <button type="button" onClick={() => onFolder(focus)} className="inline-flex cursor-pointer items-center gap-1.5 rounded-[var(--radius-element)] border-0 bg-transparent px-2 py-1 font-[inherit] text-[0.82rem] text-secondary transition-colors hover:bg-[var(--color-overlay-hover)] hover:text-primary">
+          <button type="button" onClick={() => onFolder(focus)} className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border-0 bg-transparent px-2 py-1 font-[inherit] text-sm text-secondary transition-colors hover:bg-sunken hover:text-primary">
             <MapIcon size={14} aria-hidden />
             {focus ? "This folder on the Map" : "Everything on the Map"}
           </button>
@@ -202,16 +202,16 @@ export function WhereWork({ root, name, params, span, commits, onFile, onFolder 
               centre={
                 lit ? (
                   <>
-                    <span className="max-w-full truncate font-mono text-[0.78rem] font-semibold">{lit.name}</span>
-                    <span className="text-[1.15rem] leading-tight font-semibold tracking-[-0.02em] tnum">{share(lit.value, whole)}</span>
-                    <span className="max-w-full truncate text-[0.72rem] text-secondary">{amount(lit.value)}</span>
+                    <span className="max-w-full truncate font-mono text-xs font-semibold">{lit.name}</span>
+                    <span className="type-stat-sm my-0.5">{share(lit.value, whole)}</span>
+                    <span className="max-w-full truncate type-caption">{amount(lit.value)}</span>
                   </>
                 ) : (
                   <>
-                    <span className="max-w-full truncate font-mono text-[0.78rem] font-semibold">{focus ? crumbs.at(-1)?.name : name}</span>
-                    <span className="text-[1.15rem] leading-tight font-semibold tracking-[-0.02em] tnum">{by === "churn" ? grouped(whole) : compact(whole)}</span>
-                    <span className="text-[0.72rem] text-secondary">{by === "churn" ? (whole === 1 ? "commit" : "commits") : "lines"}</span>
-                    {focus && <span className="mt-0.5 text-[0.68rem] text-secondary">click to go up</span>}
+                    <span className="max-w-full truncate font-mono text-xs font-semibold">{focus ? crumbs.at(-1)?.name : name}</span>
+                    <span className="type-stat-sm my-0.5">{by === "churn" ? grouped(whole) : compact(whole)}</span>
+                    <span className="type-caption">{by === "churn" ? (whole === 1 ? "commit" : "commits") : "lines"}</span>
+                    {focus && <span className="mt-0.5 type-micro">click to go up</span>}
                   </>
                 )
               }
@@ -225,7 +225,7 @@ export function WhereWork({ root, name, params, span, commits, onFile, onFolder 
                 <Row key={n.key} node={n} block={blocks.get(n.key) ?? null} whole={whole} amount={amount} lit={hover === n.key || block?.path === n.key} dim={hover !== null && hover !== n.key && !hover.startsWith(n.key)} onHover={setHover} onPick={pick} />
               ))}
               {rest.length > 0 && (
-                <li className="flex items-center justify-between gap-3 px-2 pt-2 text-xs text-secondary">
+                <li className="flex items-center justify-between gap-3 px-2 pt-2 type-micro">
                   <span>and {many(rest.length, "more", "more")}</span>
                   <span className="tnum">{amount(rest.reduce((n, r) => n + r.value, 0))}</span>
                 </li>
@@ -248,19 +248,19 @@ function Row({ node, block, whole, amount, lit, dim, onHover, onPick }: { node: 
   const can = node.file || node.open;
   const body = (
     <>
-      <span aria-hidden className="size-2.5 flex-none rounded-[3px]" style={{ background: node.file ? `color-mix(in srgb, ${node.colour} 62%, var(--color-background-surface))` : node.colour }} />
+      <span aria-hidden className="size-2.5 flex-none rounded-cell" style={{ background: node.file ? `color-mix(in srgb, ${node.colour} 62%, var(--surface))` : node.colour }} />
       {node.file ? <File size={14} className="flex-none text-secondary" aria-hidden /> : <Folder size={14} className="flex-none text-secondary" aria-hidden />}
-      <span className="min-w-0 flex-1 truncate font-mono text-[0.82rem] text-primary">{node.name}</span>
+      <span className="min-w-0 flex-1 truncate font-mono text-sm text-primary">{node.name}</span>
       {block?.owner && <Owner p={block.owner} />}
-      <span className="w-[5.5rem] flex-none text-end text-[0.8rem] whitespace-nowrap text-secondary tnum">{amount(node.value)}</span>
-      <span className="w-10 flex-none text-end text-[0.8rem] font-medium tnum">{share(node.value, whole)}</span>
+      <span className="hidden w-[5.5rem] flex-none text-end text-sm whitespace-nowrap text-secondary tnum sm:block">{amount(node.value)}</span>
+      <span className="w-10 flex-none text-end text-sm font-medium tnum">{share(node.value, whole)}</span>
     </>
   );
-  const cls = `flex w-full items-center gap-2.5 rounded-[var(--radius-element)] px-2 py-1.5 text-start transition-[background-color,opacity] duration-200 ${lit ? "bg-[var(--color-overlay-hover)]" : ""} ${dim ? "opacity-55" : ""}`;
+  const cls = `flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-start transition-[background-color,opacity] duration-(--duration-fast) ${lit ? "bg-sunken" : ""} ${dim ? "opacity-55" : ""}`;
   return (
     <li onMouseEnter={() => onHover(node.key)}>
       {can ? (
-        <button type="button" onClick={() => onPick(node)} onFocus={() => onHover(node.key)} onBlur={() => onHover(null)} title={node.file ? "Open it on the Map" : "Go inside"} className={`${cls} cursor-pointer border-0 bg-transparent font-[inherit] hover:bg-[var(--color-overlay-hover)]`}>
+        <button type="button" onClick={() => onPick(node)} onFocus={() => onHover(node.key)} onBlur={() => onHover(null)} title={node.file ? "Open it on the Map" : "Go inside"} className={`${cls} cursor-pointer border-0 bg-transparent font-[inherit] hover:bg-sunken`}>
           {body}
         </button>
       ) : (

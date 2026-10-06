@@ -6,7 +6,7 @@ import { HelpContext } from "../help";
 export function Key({ keys }: { keys: string }) {
   const help = useContext(HelpContext);
   return (
-    <span className={`inline-flex rounded-[var(--radius-inner)] transition-shadow ${help ? "bg-[var(--color-accent-muted)] shadow-[0_0_0_2px_var(--color-accent)]" : ""}`}>
+    <span className={`inline-flex rounded-xs transition-shadow ${help ? "bg-accent-muted ring-2 ring-accent-bg" : ""}`}>
       <Kbd keys={keys} />
     </span>
   );

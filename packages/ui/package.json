@@ -9,6 +9,7 @@
     "./styles.css": "./src/index.css",
     "./mode": "./src/mode.ts",
     "./motion": "./src/motion/index.ts",
+    "./design": "./src/design/tokens.ts",
     "./cards/render": "./src/cards/render.tsx",
     "./cards/fonts": "./src/cards/fonts.ts"
   },

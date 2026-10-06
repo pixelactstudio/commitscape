@@ -55,11 +55,11 @@ export function Commits({ meta, route, params, go }: ScreenProps) {
   for (let k = first; k < last; k++) drawn.push(found.rows[k] ?? 0);
   return (
     <ScreenFrame>
-      <section aria-label="Commits" className="flex min-w-0 flex-col overflow-hidden rounded-[var(--radius-container)] border border-line bg-surface">
-        <div className="flex flex-col gap-3 px-4 pt-4 pb-3 sm:px-5">
+      <section aria-label="Commits" className="flex min-w-0 flex-col overflow-hidden rounded-lg border border-line bg-surface">
+        <div className="flex flex-col gap-3 px-4 pt-5 pb-4 sm:px-5">
           <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-            <h2 className="m-0 text-[1.02rem] font-semibold tracking-[-0.01em]">Commits</h2>
-            <p className="m-0 text-sm text-secondary tnum">
+            <h2 className="m-0 type-panel">Commits</h2>
+            <p className="m-0 type-caption tnum">
               {grouped(found.rows.length)} of {many(list.ids.length, "commit", "commits")}, over {span}. Newest first.
             </p>
           </div>
@@ -67,7 +67,7 @@ export function Commits({ meta, route, params, go }: ScreenProps) {
             <SearchBox initial={route.q ?? ""} onAsk={setAsked} go={go} />
             <Selector label="Kind" isLabelHidden size="md" hasClear placeholder="Every kind" value={kind} onChange={(v: string | null) => setKind(v)} options={list.kinds.map((k, i) => ({ value: String(i), label: k }))} width={200} />
           </div>
-          {route.folder && <p className="m-0 text-xs text-secondary">The folder filter is left out here: the Commit List does not keep each commit's files.</p>}
+          {route.folder && <p className="m-0 type-micro">The folder filter is left out here: the Commit List does not keep each commit's files.</p>}
         </div>
         <div className={`${GRID} border-t border-line px-4 py-2 text-xs font-medium text-secondary sm:px-5`} aria-hidden>
           <span className="hidden md:block">When</span>
@@ -82,7 +82,7 @@ export function Commits({ meta, route, params, go }: ScreenProps) {
               <CommitRow key={i} list={list} i={i} y={(first + k) * ROW} onPerson={onPerson} />
             ))}
           </div>
-          {found.rows.length === 0 && <p className="absolute inset-x-0 top-10 m-0 text-center text-sm text-secondary">No commit matches. Try fewer words, or a longer Window.</p>}
+          {found.rows.length === 0 && <p className="absolute inset-x-0 top-10 m-0 text-center type-caption">No commit matches. Try fewer words, or a longer Window.</p>}
         </div>
       </section>
       <Explain>
@@ -155,20 +155,20 @@ const CommitRow = memo(function CommitRow({ list, i, y, onPerson }: { list: Comm
   const when = (list.times[i] ?? 0) + (list.offsets[i] ?? 0) * 60;
   const subject = list.subjects[i];
   return (
-    <div role="listitem" data-commit className={`${GRID} absolute inset-x-0 border-b border-line px-4 text-sm transition-colors hover:bg-[var(--color-overlay-hover)] sm:px-5`} style={{ top: y, height: ROW }}>
+    <div role="listitem" data-commit className={`${GRID} absolute inset-x-0 border-b border-line px-4 text-sm transition-colors hover:bg-sunken sm:px-5`} style={{ top: y, height: ROW }}>
       <span className="hidden text-xs text-secondary tnum md:block">{date(when)}</span>
       <span className="hidden min-w-0 md:block">{who && who.id !== 0xffffffff ? <Name p={who} onOpen={onPerson} /> : <Name p={who} />}</span>
       <span className="flex min-w-0 flex-col gap-0.5 md:flex-row md:items-center md:gap-2">
         <span className="flex min-w-0 items-center gap-2">
           {list.merge[i] && <GitMerge size={14} className="flex-none text-secondary" aria-label="merge" />}
           {kind && kind !== "other" && (
-            <span className={`hidden flex-none rounded-full px-2 py-px text-[0.7rem] font-medium sm:inline ${KIND_TONE[KIND_COLOURS[kind] ?? "gray"]}`}>{kind}</span>
+            <span className={`hidden flex-none rounded-full px-2 py-px text-xs font-medium sm:inline ${KIND_TONE[KIND_COLOURS[kind] ?? "gray"]}`}>{kind}</span>
           )}
           <span className="truncate" title={subject}>
             {subject || <span className="text-secondary">(no subject)</span>}
           </span>
         </span>
-        <span className="truncate text-xs text-secondary md:hidden">
+        <span className="truncate type-micro md:hidden">
           {who?.name ?? "someone unknown"} · {date(when)}
         </span>
       </span>
@@ -193,25 +193,25 @@ const CommitRow = memo(function CommitRow({ list, i, y, onPerson }: { list: Comm
 });
 
 const KIND_TONE: Record<string, string> = {
-  green: "bg-[color-mix(in_srgb,var(--s3)_16%,transparent)] text-[color-mix(in_srgb,var(--s3)_62%,var(--color-text-primary))]",
-  red: "bg-[color-mix(in_srgb,var(--s8)_16%,transparent)] text-[color-mix(in_srgb,var(--s8)_62%,var(--color-text-primary))]",
-  blue: "bg-[color-mix(in_srgb,var(--s1)_16%,transparent)] text-[color-mix(in_srgb,var(--s1)_62%,var(--color-text-primary))]",
-  purple: "bg-[color-mix(in_srgb,var(--s7)_16%,transparent)] text-[color-mix(in_srgb,var(--s7)_62%,var(--color-text-primary))]",
-  teal: "bg-[color-mix(in_srgb,var(--s6)_16%,transparent)] text-[color-mix(in_srgb,var(--s6)_62%,var(--color-text-primary))]",
-  orange: "bg-[color-mix(in_srgb,var(--s2)_16%,transparent)] text-[color-mix(in_srgb,var(--s2)_62%,var(--color-text-primary))]",
-  yellow: "bg-[color-mix(in_srgb,var(--s4)_16%,transparent)] text-[color-mix(in_srgb,var(--s4)_62%,var(--color-text-primary))]",
-  pink: "bg-[color-mix(in_srgb,var(--s5)_16%,transparent)] text-[color-mix(in_srgb,var(--s5)_62%,var(--color-text-primary))]",
-  gray: "bg-[var(--color-background-muted)] text-secondary",
+  green: "bg-green-subtle text-green-vivid",
+  red: "bg-red-subtle text-red-vivid",
+  blue: "bg-blue-subtle text-blue-vivid",
+  purple: "bg-purple-subtle text-purple-vivid",
+  teal: "bg-teal-subtle text-teal-vivid",
+  orange: "bg-orange-subtle text-orange-vivid",
+  yellow: "bg-yellow-subtle text-yellow-vivid",
+  pink: "bg-pink-subtle text-pink-vivid",
+  gray: "bg-sunken text-secondary",
 };
 
 /** The Commits screen while its list is fetched, the same size as the screen. */
 export function CommitsLoading() {
   return (
     <ScreenFrame label="Loading">
-      <section className="flex min-w-0 flex-col overflow-hidden rounded-[var(--radius-container)] border border-line bg-surface" aria-busy="true">
-        <div className="flex flex-col gap-3 px-4 pt-4 pb-3 sm:px-5">
+      <section className="flex min-w-0 flex-col overflow-hidden rounded-lg border border-line bg-surface" aria-busy="true">
+        <div className="flex flex-col gap-3 px-4 pt-5 pb-4 sm:px-5">
           <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-            <h2 className="m-0 text-[1.02rem] font-semibold tracking-[-0.01em]">Commits</h2>
+            <h2 className="m-0 type-panel">Commits</h2>
             <Skeleton height={14} width={240} radius={1} />
           </div>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">

@@ -2,6 +2,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { Button } from "@astryxdesign/core/Button";
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
 import { Award, Flame, Lock, MessagesSquare } from "lucide-react";
+import { ICON } from "../design/tokens";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { Achievement, SharedRepo, SharedWork, VersusFull, VersusPerson } from "@commitscape/data";
 import { useTip } from "../charts/tip";
@@ -21,10 +22,10 @@ const at = (h: number) => `${String(h).padStart(2, "0")}:00`;
 function Who({ p, side, size = 24 }: { p: VersusPerson; side: Side; size?: 20 | 24 | 32 }) {
   return (
     <span className="inline-flex min-w-0 items-center gap-2" style={toneOf(side)}>
-      <span className="flex-none rounded-full p-[2px] shadow-[0_0_0_2px_var(--side)]">
+      <span className="flex-none rounded-full p-0.5 ring-2 ring-[var(--side)]">
         <Face login={p.identity.login} name={p.identity.login} size={size} />
       </span>
-      <span className="truncate text-sm font-semibold">@{p.identity.login}</span>
+      <span className="truncate text-xs font-semibold">@{p.identity.login}</span>
     </span>
   );
 }
@@ -44,8 +45,8 @@ function Pair({ a, b, children }: { a: ReactNode; b: ReactNode; children?: React
 function Fact({ value, label }: { value: ReactNode; label: string }) {
   return (
     <span className="flex flex-col">
-      <span className="text-[0.95rem] font-semibold tnum">{value}</span>
-      <span className="text-xs text-secondary">{label}</span>
+      <span className="text-md font-semibold tnum">{value}</span>
+      <span className="type-micro">{label}</span>
     </span>
   );
 }
@@ -71,7 +72,7 @@ function Calendar({ p, side }: { p: VersusPerson; side: Side }) {
           <Fact
             value={
               <span className="inline-flex items-center gap-1">
-                {p.totals.currentStreak > 0 && <Flame size={13} className="text-[var(--s2)]" aria-hidden />}
+                {p.totals.currentStreak > 0 && <Flame size={ICON.xs} className="text-[var(--s2)]" aria-hidden />}
                 {days(p.totals.currentStreak)}
               </span>
             }
@@ -79,14 +80,14 @@ function Calendar({ p, side }: { p: VersusPerson; side: Side }) {
           />
         </div>
       </div>
-      <div role="img" aria-label={`@${p.identity.login}: ${many(total, "contribution", "contributions")} over the last year`} className="grid grid-flow-col grid-rows-7 gap-[2px] sm:gap-[3px]" style={{ gridAutoColumns: "minmax(0, 1fr)" }}>
+      <div role="img" aria-label={`@${p.identity.login}: ${many(total, "contribution", "contributions")} over the last year`} className="grid grid-flow-col grid-rows-7 gap-0.5 sm:gap-0.75" style={{ gridAutoColumns: "minmax(0, 1fr)" }}>
         {cells.map((n, i) =>
           n < 0 ? (
             <span key={`pad${i}`} />
           ) : (
             <span
               key={i}
-              className="aspect-square rounded-[2px]"
+              className="aspect-square rounded-cell"
               style={{ background: n > 0 ? `color-mix(in oklab, var(--side) ${level(n) * 100}%, var(--empty))` : "var(--empty)" }}
               {...tip(
                 <>
@@ -143,7 +144,7 @@ function Years({ v }: { v: VersusFull }) {
         <Who p={a} side="a" size={20} />
         <Who p={b} side="b" size={20} />
       </div>
-      <div className="-mx-1 h-[260px]">
+      <div className="-mx-1 h-65">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={points} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
             <CartesianGrid vertical={false} stroke="var(--color-border)" />
@@ -163,7 +164,7 @@ function YearTip({ active, payload, label, a, b, unit }: { active?: boolean; pay
   if (!active || !payload?.length) return null;
   const of = (k: string) => payload.find((p) => p.dataKey === k)?.value;
   return (
-    <div className="min-w-40 rounded-[var(--radius-element)] border border-line bg-popover px-3 py-2 text-[0.8rem] shadow-[var(--shadow-med)]">
+    <div className="min-w-40 rounded-md border border-line bg-popover px-3 py-2 text-sm shadow-md">
       <div className="mb-1 font-medium text-primary">
         {label} · {unit}
       </div>
@@ -226,14 +227,14 @@ function Languages({ p, side, shared }: { p: VersusPerson; side: Side; shared: S
     <>
       <Who p={p} side={side} />
       {sum === 0 ? (
-        <p className="m-0 text-sm text-secondary">No commits on GitHub to tell their languages from.</p>
+        <p className="m-0 type-caption">No commits on GitHub to tell their languages from.</p>
       ) : (
         <>
-          <span className="flex h-3 gap-0.5 overflow-hidden rounded-[4px]">
+          <span className="flex h-3 gap-0.5 overflow-hidden rounded-xs">
             {parts.map((l) => (
               <span
                 key={l.name}
-                className="block h-full min-w-[3px]"
+                className="block h-full min-w-0.75"
                 style={{ width: `${(l.commits * 100) / sum}%`, background: l.colour ?? "var(--other)" }}
                 {...tip(
                   <>
@@ -244,15 +245,15 @@ function Languages({ p, side, shared }: { p: VersusPerson; side: Side; shared: S
               />
             ))}
           </span>
-          <ul className="m-0 flex list-none flex-col gap-1.5 p-0 text-sm">
+          <ul className="m-0 flex list-none flex-col gap-1.5 p-0 text-xs">
             {parts.map((l) => (
               <li key={l.name} className="flex items-center gap-2">
                 <LangDot colour={l.colour} />
                 <span className="min-w-0 flex-1 truncate">
                   {l.name}
-                  {shared.has(l.name) && <span className="ms-2 rounded-full border border-line px-1.5 py-px text-[0.68rem] text-secondary">both</span>}
+                  {shared.has(l.name) && <span className="ms-2 rounded-full border border-line px-1.5 py-px type-micro">both</span>}
                 </span>
-                <span className="text-xs text-secondary tnum">{(l.commits * 100) / sum < 1 ? "<1%" : `${Math.round((l.commits * 100) / sum)}%`}</span>
+                <span className="type-micro tnum">{(l.commits * 100) / sum < 1 ? "<1%" : `${Math.round((l.commits * 100) / sum)}%`}</span>
               </li>
             ))}
           </ul>
@@ -269,7 +270,7 @@ function Hours({ p, side }: { p: VersusPerson; side: Side }) {
     return (
       <div className="flex flex-col gap-2">
         <Who p={p} side={side} size={20} />
-        <p className="m-0 text-sm text-secondary">GitHub gave no commit times to read for @{p.identity.login}.</p>
+        <p className="m-0 type-caption">GitHub gave no commit times to read for @{p.identity.login}.</p>
       </div>
     );
   const most = Math.max(1, ...clock.hours);
@@ -279,15 +280,15 @@ function Hours({ p, side }: { p: VersusPerson; side: Side }) {
     <div className="flex flex-col gap-2" style={toneOf(side)}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Who p={p} side={side} size={20} />
-        <span className="text-xs text-secondary">
+        <span className="type-micro">
           busiest at <strong className="text-primary">{at(peak)}</strong> · {Math.round((night * 100) / clock.sampled)}% at night
         </span>
       </div>
-      <div className="grid grid-cols-[repeat(24,minmax(0,1fr))] gap-[3px]" role="img" aria-label={`@${p.identity.login} commits most at ${at(peak)}`}>
+      <div className="grid grid-cols-[repeat(24,minmax(0,1fr))] gap-0.75" role="img" aria-label={`@${p.identity.login} commits most at ${at(peak)}`}>
         {clock.hours.map((n, h) => (
           <span
             key={h}
-            className="h-8 rounded-[3px]"
+            className="h-8 rounded-cell"
             style={{ background: n > 0 ? `color-mix(in oklab, var(--side) ${Math.round(18 + (n / most) * 82)}%, var(--empty))` : "var(--empty)" }}
             {...tip(
               <>
@@ -306,7 +307,7 @@ function Hours({ p, side }: { p: VersusPerson; side: Side }) {
 
 function HourScale() {
   return (
-    <div className="grid grid-cols-4 text-[0.7rem] text-secondary tnum">
+    <div className="grid grid-cols-4 type-micro tnum">
       {[0, 6, 12, 18].map((h) => (
         <span key={h}>{at(h)}</span>
       ))}
@@ -329,11 +330,11 @@ function SharedRow({ r, a, b }: { r: SharedRepo; a: string; b: string }) {
     return (
       <div className={`flex min-w-0 flex-col gap-1.5 ${s === "a" ? "md:items-end md:text-end" : ""}`}>
         <div className={`flex w-full items-center justify-between gap-2 md:justify-start ${s === "a" ? "md:flex-row-reverse" : ""}`}>
-          <span className="truncate text-xs text-secondary tnum">
+          <span className="truncate type-micro tnum">
             <span className="font-medium text-primary md:hidden">@{login} </span>
             {workWords(w)}
           </span>
-          <A href={`/u/${login}/${r.owner}/${r.name}`} className="flex-none text-xs font-medium text-brand no-underline hover:underline" aria-label={`@${login}'s Standing in ${r.owner}/${r.name}`}>
+          <A href={`/u/${login}/${r.owner}/${r.name}`} className="flex-none text-2xs font-medium text-brand no-underline hover:underline" aria-label={`@${login}'s Standing in ${r.owner}/${r.name}`}>
             Standing →
           </A>
         </div>
@@ -346,11 +347,11 @@ function SharedRow({ r, a, b }: { r: SharedRepo; a: string; b: string }) {
       <A href={`/gh/${r.owner}/${r.name}`} className="flex min-w-0 items-center gap-3 text-primary no-underline hover:underline">
         <Face login={r.owner} name={r.owner} size={32} shape="rounded" />
         <span className="flex min-w-0 flex-col">
-          <span className="truncate text-sm font-medium">
+          <span className="truncate text-xs font-medium">
             <span className="text-secondary">{r.owner}/</span>
             {r.name}
           </span>
-          <span className="flex items-center gap-3 text-xs text-secondary">
+          <span className="flex items-center gap-3 type-micro">
             {r.language && (
               <span className="inline-flex items-center gap-1.5">
                 <LangDot colour={r.colour} />
@@ -377,8 +378,8 @@ function Shared({ v }: { v: VersusFull }) {
   return (
     <Panel padding={0} title="Where both work" description="Public repositories with work from each of them, by merged pull requests, commits and reviews. Open a Standing to see where each stands there.">
       {v.between && (
-        <p className="m-0 mx-5 flex items-start gap-2 rounded-[var(--radius-element)] bg-[var(--color-overlay-hover)] px-3 py-2 text-sm">
-          <MessagesSquare size={15} className="mt-0.5 flex-none text-secondary" aria-hidden />
+        <p className="m-0 mx-5 flex items-start gap-2 rounded-md bg-overlay-hover px-3 py-2 text-xs">
+          <MessagesSquare size={ICON.md} className="mt-0.5 flex-none text-secondary" aria-hidden />
           <span>
             {[v.between.aReviewedB > 0 && `@${la} reviewed @${lb}'s pull requests ${many(v.between.aReviewedB, "time", "times")}`, v.between.bReviewedA > 0 && `@${lb} reviewed @${la}'s ${many(v.between.bReviewedA, "time", "times")}`].filter(Boolean).join("; ")}
             <span className="text-secondary">, as far as their newest reviews show.</span>
@@ -389,12 +390,12 @@ function Shared({ v }: { v: VersusFull }) {
         <Nothing compact title="No repository in common yet." words={`@${la} and @${lb} have no public repository where both have merged, committed or reviewed.`} />
       ) : (
         <>
-          <div className="hidden grid-cols-[minmax(0,1fr)_minmax(0,17rem)_minmax(0,17rem)] gap-6 border-b border-line px-5 pb-2 text-xs font-medium text-secondary md:grid">
+          <div className="hidden grid-cols-[minmax(0,1fr)_minmax(0,17rem)_minmax(0,17rem)] gap-6 border-b border-line px-5 pb-2 text-2xs font-medium text-secondary md:grid">
             <span>{many(v.shared.length, "repository", "repositories")}</span>
             <span className="text-end">@{la}</span>
             <span>@{lb}</span>
           </div>
-          <ol className="m-0 list-none divide-y divide-[var(--color-border)] p-0 pb-2">
+          <ol className="m-0 list-none divide-y divide-line p-0 pb-2">
             {(all ? v.shared : v.shared.slice(0, SHARED_SHOWN)).map((r) => (
               <SharedRow key={`${r.owner}/${r.name}`} r={r} a={la} b={lb} />
             ))}
@@ -412,13 +413,13 @@ function Shared({ v }: { v: VersusFull }) {
 
 function Medal({ a }: { a: Achievement }) {
   return (
-    <li className="flex items-start gap-3 rounded-[var(--radius-element)] border border-line bg-[var(--color-background-body)] p-2.5">
+    <li className="flex items-start gap-3 rounded-md border border-line bg-body p-2.5">
       <span className="medal-earned grid size-8 flex-none place-items-center rounded-full">
-        <Award size={15} aria-hidden />
+        <Award size={ICON.md} aria-hidden />
       </span>
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="text-sm font-semibold">{a.title}</span>
-        <span className="text-xs text-pretty text-secondary">{[a.detail, a.at ? `reached ${a.at}` : null].filter(Boolean).join(" · ") || a.rule}</span>
+        <span className="text-xs font-semibold">{a.title}</span>
+        <span className="type-micro text-pretty">{[a.detail, a.at ? `reached ${a.at}` : null].filter(Boolean).join(" · ") || a.rule}</span>
       </span>
     </li>
   );
@@ -429,11 +430,11 @@ function Archetype({ p, side }: { p: VersusPerson; side: Side }) {
   return (
     <>
       <Who p={p} side={side} />
-      <div className="relative flex min-h-32 flex-1 flex-col justify-end gap-1.5 overflow-hidden rounded-[var(--radius-element)] border border-line p-4" style={{ ...toneOf(side), background: "linear-gradient(135deg, var(--side-soft), transparent 70%), var(--color-background-body)" }}>
-        <span className="text-[0.7rem] font-medium tracking-[0.12em] text-secondary uppercase">{main ? "Archetype" : "No Archetype yet"}</span>
-        <span className="text-[1.5rem] leading-none font-semibold tracking-[-0.02em]">{main ? main.title : "Not decided"}</span>
-        <span className="text-sm text-pretty text-secondary">{main ? main.rule : p.totals.contributions < 50 ? "Rules start at 50 contributions." : "None of the written rules fits their numbers."}</span>
-        {p.archetypes.length > 1 && <span className="text-xs text-secondary">Also {p.archetypes.slice(1).map((x) => x.title).join(", ")}</span>}
+      <div className="relative flex min-h-32 flex-1 flex-col justify-end gap-1.5 overflow-hidden rounded-md border border-line p-4" style={{ ...toneOf(side), background: "linear-gradient(135deg, var(--side-soft), transparent 70%), var(--color-background-body)" }}>
+        <span className="type-eyebrow">{main ? "Archetype" : "No Archetype yet"}</span>
+        <span className="text-2xl leading-none font-semibold tracking-snug">{main ? main.title : "Not decided"}</span>
+        <span className="type-caption text-pretty">{main ? main.rule : p.totals.contributions < 50 ? "Rules start at 50 contributions." : "None of the written rules fits their numbers."}</span>
+        {p.archetypes.length > 1 && <span className="type-micro">Also {p.archetypes.slice(1).map((x) => x.title).join(", ")}</span>}
       </div>
     </>
   );
@@ -444,10 +445,10 @@ function Only({ p, side, other }: { p: VersusPerson; side: Side; other: VersusPe
   const only = p.achievements.filter((x) => x.earned && !theirs.has(x.id));
   return (
     <div className="flex flex-col gap-2" style={toneOf(side)}>
-      <span className="text-xs font-medium text-secondary">Only @{p.identity.login}</span>
+      <span className="text-2xs font-medium text-secondary">Only @{p.identity.login}</span>
       {only.length === 0 ? (
-        <p className="m-0 flex items-center gap-2 text-sm text-secondary">
-          <Lock size={13} aria-hidden /> {p.achievements.some((x) => x.earned) ? "Nothing the other has not reached too." : `No Achievement reached yet, of ${p.achievements.length}.`}
+        <p className="m-0 flex items-center gap-2 type-caption">
+          <Lock size={ICON.xs} aria-hidden /> {p.achievements.some((x) => x.earned) ? "Nothing the other has not reached too." : `No Achievement reached yet, of ${p.achievements.length}.`}
         </p>
       ) : (
         <ul className="m-0 flex list-none flex-col gap-2 p-0">
@@ -468,12 +469,12 @@ function Traits({ a, b }: { a: VersusPerson; b: VersusPerson }) {
       <Pair a={<Archetype p={a} side="a" />} b={<Archetype p={b} side="b" />} />
       {both.length > 0 && (
         <div className="flex flex-col gap-2">
-          <span className="text-xs font-medium text-secondary">Reached by both</span>
+          <span className="text-2xs font-medium text-secondary">Reached by both</span>
           <ul className="m-0 flex list-none flex-wrap gap-2 p-0">
             {both.map((x) => (
-              <li key={x.id} className="inline-flex items-center gap-1.5 rounded-full border border-line bg-[var(--color-background-body)] py-1 ps-1 pe-3 text-[0.8rem] font-medium" title={x.rule}>
+              <li key={x.id} className="inline-flex items-center gap-1.5 rounded-full border border-line bg-body py-1 ps-1 pe-3 text-sm font-medium" title={x.rule}>
                 <span className="medal-earned grid size-5 place-items-center rounded-full">
-                  <Award size={11} aria-hidden />
+                  <Award size={ICON.xs} aria-hidden />
                 </span>
                 {x.title}
               </li>
@@ -517,7 +518,7 @@ export function VersusSections({ v }: { v: VersusFull }) {
         <Reveal>
           <Panel title="Languages" description="Each repository's main language, weighted by their commits to it, over every year">
             <Pair a={<Languages p={a} side="a" shared={shared} />} b={<Languages p={b} side="b" shared={shared} />}>
-              {shared.size > 0 && <p className="m-0 text-sm text-secondary">Both write {[...shared].join(", ")}.</p>}
+              {shared.size > 0 && <p className="m-0 type-caption">Both write {[...shared].join(", ")}.</p>}
             </Pair>
           </Panel>
         </Reveal>
@@ -539,7 +540,7 @@ export function VersusSections({ v }: { v: VersusFull }) {
       <Reveal>
         <Traits a={a} b={b} />
       </Reveal>
-      <p className="m-0 text-center text-xs text-secondary">
+      <p className="m-0 text-center type-micro">
         Numbers come from GitHub's public record and the repositories commitscape has read.
       </p>
     </div>
@@ -549,8 +550,8 @@ export function VersusSections({ v }: { v: VersusFull }) {
 function SectionHead({ title, words }: { title: string; words: string }) {
   return (
     <div className="flex flex-col gap-0.5 px-1">
-      <h2 className="m-0 text-[1.02rem] font-semibold tracking-[-0.01em]">{title}</h2>
-      <p className="m-0 text-sm text-secondary">{words}</p>
+      <h2 className="m-0 type-panel">{title}</h2>
+      <p className="m-0 type-caption">{words}</p>
     </div>
   );
 }

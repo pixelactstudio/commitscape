@@ -1,5 +1,6 @@
 import { type ReactNode } from "react";
 import { AnimatePresence, motion } from "../motion";
+import { COLOR } from "../design/tokens";
 import { DURATION, EASE } from "../motion/constants";
 import { useTip } from "./tip";
 
@@ -38,7 +39,7 @@ export function arcsOf(children: SunNode[], more: (count: number, value: number,
         restCount += 1;
         continue;
       }
-      const fill = ring === 0 ? (c.file ? `color-mix(in srgb, ${c.colour} 62%, var(--color-background-surface))` : c.colour) : `color-mix(in srgb, ${parent?.colour ?? c.colour} ${c.file ? 42 : 72}%, var(--color-background-surface))`;
+      const fill = ring === 0 ? (c.file ? `color-mix(in srgb, ${c.colour} 62%, var(--surface))` : c.colour) : `color-mix(in srgb, ${parent?.colour ?? c.colour} ${c.file ? 42 : 72}%, var(--surface))`;
       out.push({ node: c, parent, ring, from: at, to: at + angle, fill });
       shown += 1;
       if (ring === 0 && c.inside && c.inside.length > 0) place(c.inside, at, angle, 1, c);
@@ -46,7 +47,7 @@ export function arcsOf(children: SunNode[], more: (count: number, value: number,
     }
     if (restCount > 0) {
       const node = more(restCount, rest, parent);
-      out.push({ node, parent, ring, from: at, to: from + span, fill: ring === 0 ? "var(--other)" : "color-mix(in srgb, var(--other) 55%, var(--color-background-surface))" });
+      out.push({ node, parent, ring, from: at, to: from + span, fill: ring === 0 ? "var(--other)" : "color-mix(in srgb, var(--other) 55%, var(--surface))" });
     }
   };
   place(children, 0, Math.PI * 2, 0, null);
@@ -116,10 +117,10 @@ export function Sunburst({
                   key={`${a.ring}${a.node.key}`}
                   d={sector(r0, r1, a.from, a.to)}
                   fill={a.fill}
-                  stroke="var(--color-background-surface)"
+                  stroke={COLOR.surface}
                   strokeWidth={1.5}
                   strokeLinejoin="round"
-                  className={`transition-opacity duration-200 ${can ? "cursor-pointer" : ""}`}
+                  className={`transition-opacity duration-(--duration-fast) ${can ? "cursor-pointer" : ""}`}
                   style={{ opacity: lit(a) ? 1 : 0.32 }}
                   onClick={can ? () => onPick(a.node) : undefined}
                   onMouseEnter={() => onHover(a.node.key)}
@@ -127,7 +128,7 @@ export function Sunburst({
                 />
               );
             })}
-            <circle r={SUN.hole - SUN.gap} fill="var(--color-background-surface)" className={onUp ? "cursor-pointer" : undefined} onClick={onUp} onMouseEnter={() => onHover(null)} />
+            <circle r={SUN.hole - SUN.gap} fill={COLOR.surface} className={onUp ? "cursor-pointer" : undefined} onClick={onUp} onMouseEnter={() => onHover(null)} />
           </svg>
         </motion.div>
       </AnimatePresence>

@@ -87,7 +87,7 @@ function Repository() {
         updating…
       </Chip>
     ) : (
-      <Chip icon={<History size={13} aria-hidden />} title="When this Report was built">
+      <Chip icon={<History size={12} aria-hidden />} title="When this Report was built">
         built {built(lookup.report.at)}
       </Chip>
     )
@@ -228,7 +228,7 @@ function HallOfFame({ owner, repo }: { owner: string; repo: string }) {
       description="What it is, its stars, forks and language, and the people who built it with their faces and numbers; light and dark, refreshed every six hours."
       actions={
         <>
-          <a href={`${src}.png`} download={`${owner}-${repo}-hall-of-fame.png`} className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-element)] px-2.5 text-sm font-medium text-primary no-underline transition-colors hover:bg-[var(--color-overlay-hover)]">
+          <a href={`${src}.png`} download={`${owner}-${repo}-hall-of-fame.png`} className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium text-primary no-underline transition-colors hover:bg-sunken">
             <Download size={14} aria-hidden />
             Download PNG
           </a>
@@ -236,7 +236,7 @@ function HallOfFame({ owner, repo }: { owner: string; repo: string }) {
         </>
       }
     >
-      <div className="studio-stage flex justify-center rounded-[var(--radius-element)] border border-line px-4 py-8 sm:px-8">
+      <div className="studio-stage flex justify-center rounded-md border border-line px-4 py-8 sm:px-8">
         <div className="w-full drop-shadow-[0_18px_40px_rgb(0_0_0/0.22)]" style={{ maxWidth: size.width }}>
           <ThemedCard src={src} alt={`The people who built ${owner}/${repo}`} width={size.width} height={size.height} />
         </div>
@@ -250,7 +250,7 @@ function NotFound({ lookup, owner, repo }: { lookup: Lookup; owner: string; repo
     <>
       <Missing title={`Nothing at ${owner}/${repo}`} words={FAILURE_WORDS.not_found} />
       {lookup.access === "signed_out" && (
-        <p className="-mt-12 pb-16 text-center text-sm text-secondary">
+        <p className="-mt-12 pb-16 text-center type-caption">
           If it is a private repository of yours,{" "}
           <button type="button" className="cursor-pointer border-0 bg-transparent p-0 font-[inherit] font-medium text-primary underline underline-offset-[3px]" onClick={() => signIn(`/gh/${owner}/${repo}`)}>
             sign in with GitHub
@@ -266,7 +266,7 @@ function Waiting({ lookup, owner, repo, error }: { lookup: Lookup; owner: string
   const busy = running(lookup);
   const failed = lookup.status === "ok" && lookup.build?.state === "failed" && lookup.build.reason;
   return (
-    <div className="flex flex-col gap-4 pt-6">
+    <div className="flex flex-col gap-gutter pt-5">
       {error && <Banner status="error" title={error} />}
       {lookup.status === "not_found" && (
         <Banner
@@ -292,7 +292,7 @@ function Waiting({ lookup, owner, repo, error }: { lookup: Lookup; owner: string
       {failed && lookup.build?.reason && <Banner status={lookup.build.reason === "paused" ? "info" : "warning"} title={FAILURE_WORDS[lookup.build.reason]} />}
       {lookup.facts && (
         <section aria-label="What GitHub says" className="flex flex-col gap-3">
-          {busy && <h2 className="m-0 pt-2 text-sm font-medium text-secondary">Meanwhile, what GitHub says of it</h2>}
+          {busy && <h2 className="m-0 pt-2 type-label text-secondary">Meanwhile, what GitHub says of it</h2>}
           <GitHubFacts facts={lookup.facts} />
         </section>
       )}
@@ -326,7 +326,7 @@ function BuildProgress({ build, name }: { build: NonNullable<Lookup["build"]>; n
       title={`Building ${name}'s Report`}
       description="This page fills in by itself when it is done; you can leave it open, or come back later."
       actions={
-        <span className="inline-flex h-7 items-center gap-2 rounded-full border border-line px-3 text-sm tnum" aria-live="off">
+        <span className="inline-flex h-6 items-center gap-2 rounded-full border border-line px-2.5 text-xs font-medium tnum" aria-live="off">
           <Spinner size="sm" />
           <span className="text-secondary">{since === null ? " " : elapsed(since)}</span>
         </span>
@@ -338,8 +338,8 @@ function BuildProgress({ build, name }: { build: NonNullable<Lookup["build"]>; n
           const now = i === current;
           return (
             <li key={s.id} className="relative flex gap-3 pb-4 last:pb-0" aria-current={now ? "step" : undefined}>
-              {i < STEPS.length - 1 && <span className={`absolute start-[11px] top-7 bottom-1 w-px ${done ? "bg-brand" : "bg-[var(--color-border)]"}`} aria-hidden />}
-              <span className={`relative grid size-6 flex-none place-items-center rounded-full ${done ? "bg-brand text-[var(--color-background-body)]" : now ? "bg-brand-soft" : "border border-line"}`}>
+              {i < STEPS.length - 1 && <span className={`absolute start-[11px] top-7 bottom-1 w-px ${done ? "bg-brand" : "bg-line"}`} aria-hidden />}
+              <span className={`relative grid size-6 flex-none place-items-center rounded-full ${done ? "bg-brand text-on-brand" : now ? "bg-brand-soft" : "border border-line"}`}>
                 {done ? <Check size={14} strokeWidth={3} aria-hidden /> : now ? <Spinner size="sm" /> : null}
               </span>
               <span className="flex min-w-0 flex-col gap-0.5 pt-0.5">
@@ -347,13 +347,13 @@ function BuildProgress({ build, name }: { build: NonNullable<Lookup["build"]>; n
                   {s.title}
                   {done && <span className="sr-only">, done</span>}
                 </span>
-                {now && <span className="text-sm text-secondary">{s.doing}</span>}
+                {now && <span className="type-caption">{s.doing}</span>}
               </span>
             </li>
           );
         })}
       </ol>
-      <p className="m-0 rounded-[var(--radius-element)] bg-[var(--color-background-muted)] px-3 py-2.5 text-sm text-pretty text-secondary">
+      <p className="m-0 rounded-md bg-sunken px-3 py-2.5 type-description">
         Most repositories take under a minute. A big one can take several minutes the first time, since every line of its history is now counted: each person's lines added and removed, merges, lockfiles and generated files left out.
       </p>
     </Panel>

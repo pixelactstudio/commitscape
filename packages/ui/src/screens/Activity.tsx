@@ -7,6 +7,7 @@ import { Lines } from "../charts/Lines";
 import { Explain } from "../explain";
 import { grouped, many, share } from "../format";
 import { Panel } from "../kit/layout";
+import { COLOR, ICON, SERIES } from "../design/tokens";
 import { personColour } from "../theme";
 import { Failed, Quiet, ScreenFrame, StacksOverTime, type Stack, within } from "./kit";
 import type { ScreenProps } from "./props";
@@ -41,7 +42,7 @@ export function Activity({ params }: ScreenProps) {
       <Panel
         title="Commits over time, by person"
         description={`${many(commits, "commit", "commits")} ${span}: the five who made most, then everyone else`}
-        actions={releases.length > 0 ? <span className="text-xs text-secondary">{many(releases.length, "release", "releases")} in this Window</span> : undefined}
+        actions={releases.length > 0 ? <span className="type-micro">{many(releases.length, "release", "releases")} in this Window</span> : undefined}
       >
         {commits === 0 ? <Quiet>No commits in this Window. Choose a longer one above.</Quiet> : <StacksOverTime firstDay={a.first_day} stacks={stacks} unit="commits" height={280} />}
         <Explain>Commits that are not merges, stacked by who made them. Each person keeps one colour on every screen, fixed by their commits over all of history.</Explain>
@@ -71,7 +72,7 @@ export function Activity({ params }: ScreenProps) {
         </Panel>
       )}
 
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-gutter">
         <Panel
           title="When the work happens"
           description={peak ? `Busiest on ${WEEKDAYS[peak.day]} from ${hh(peak.hour)} to ${hh(peak.hour + 1)}: ${many(peak.commits, "commit", "commits")}, ${peak.times.toFixed(peak.times >= 10 ? 0 : 1)}× a typical hour` : "Commits by weekday and hour"}
@@ -117,9 +118,9 @@ function Rhythm({ week }: { week: number[][] }) {
   return (
     <dl className="m-0 grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4 lg:w-52 lg:flex-none lg:grid-cols-1 lg:border-s lg:border-line lg:ps-6">
       {facts.map(([value, label]) => (
-        <div key={label} className="flex flex-col gap-0.5">
-          <dt className="order-2 text-xs text-pretty text-secondary">{label}</dt>
-          <dd className="order-1 m-0 text-[1.3rem] leading-tight font-semibold tracking-[-0.02em]">{value}</dd>
+        <div key={label} className="flex flex-col gap-1.5">
+          <dt className="order-2 type-caption text-pretty">{label}</dt>
+          <dd className="order-1 m-0 type-stat-sm">{value}</dd>
         </div>
       ))}
     </dl>
@@ -128,13 +129,13 @@ function Rhythm({ week }: { week: number[][] }) {
 
 function KindsBar({ kinds, all }: { kinds: Data["kinds"]; all: number }) {
   const tip = useTip();
-  const parts = kinds.map((k, i) => ({ ...k, colour: `var(--s${(i % 8) + 1})` }));
+  const parts = kinds.map((k, i) => ({ ...k, colour: SERIES[i] ?? COLOR.other }));
   const told = kinds.reduce((n, k) => n + k.commits, 0);
   return (
     <div className="flex flex-col gap-4">
       <div className="flex h-3 gap-0.5 overflow-hidden rounded-full" role="img" aria-label="Commits by kind of work">
         {parts.map((p) => (
-          <span key={p.kind} className="block h-full min-w-[3px] transition-opacity hover:opacity-80" style={{ width: `${(p.commits * 100) / Math.max(1, told)}%`, background: p.colour }} {...tip(<><strong>{p.kind}</strong><div className="note">{many(p.commits, "commit", "commits")} · {share(p.commits, all)} of all</div></>)} />
+          <span key={p.kind} className="block h-full min-w-0.75 transition-opacity hover:opacity-80" style={{ width: `${(p.commits * 100) / Math.max(1, told)}%`, background: p.colour }} {...tip(<><strong>{p.kind}</strong><div className="note">{many(p.commits, "commit", "commits")} · {share(p.commits, all)} of all</div></>)} />
         ))}
       </div>
       <ul className="m-0 grid list-none grid-cols-2 gap-x-8 gap-y-2 p-0 sm:grid-cols-3 lg:grid-cols-4" aria-label="Kinds of work">
@@ -157,7 +158,7 @@ function ClockNote() {
   return (
     <span
       tabIndex={0}
-      className="inline-flex h-7 cursor-help items-center gap-1.5 rounded-full border border-line px-2.5 text-xs whitespace-nowrap text-secondary outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
+      className="inline-flex h-6 cursor-help items-center gap-1.5 rounded-full border border-line px-2.5 text-xs font-medium whitespace-nowrap text-secondary outline-none focus-visible:ring-2 focus-visible:ring-accent-bg"
       {...tip(
         <>
           <strong>On each author's own clock</strong>
@@ -165,7 +166,7 @@ function ClockNote() {
         </>,
       )}
     >
-      <Clock size={13} aria-hidden />
+      <Clock size={ICON.xs} aria-hidden />
       Authors' local time
     </span>
   );

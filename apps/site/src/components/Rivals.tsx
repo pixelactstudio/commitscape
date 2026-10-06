@@ -55,7 +55,7 @@ export function RivalGaps() {
               </span>
             </Link>
             {"hidden" in r ? (
-              <span className="inline-flex items-center gap-1.5 text-sm text-secondary">
+              <span className="inline-flex items-center gap-1.5 type-description">
                 <EyeOff size={14} aria-hidden /> has chosen to stay out of comparisons
               </span>
             ) : (
@@ -64,8 +64,8 @@ export function RivalGaps() {
                   const d = g.mine - g.theirs;
                   const Glyph = d > 0 ? ArrowUpRight : d < 0 ? ArrowDownRight : Minus;
                   return (
-                    <span key={g.label} className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs ${d > 0 ? "border-[color-mix(in_srgb,var(--added)_35%,transparent)] text-added" : d < 0 ? "border-[color-mix(in_srgb,var(--removed)_35%,transparent)] text-removed" : "border-line text-secondary"}`}>
-                      <Glyph size={13} aria-hidden />
+                    <span key={g.label} className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 h-6 text-xs ${d > 0 ? "border-added/35 text-added" : d < 0 ? "border-removed/35 text-removed" : "border-line text-secondary"}`}>
+                      <Glyph size={12} aria-hidden />
                       <span className="text-primary">{d === 0 ? `level on ${g.label}` : <><span className="font-semibold tnum">{grouped(Math.abs(d))}</span> {d > 0 ? "ahead" : "behind"} on {g.label}</>}</span>
                     </span>
                   );

@@ -3,7 +3,7 @@ import { Card } from "@astryxdesign/core/Card";
 import { Heading } from "@astryxdesign/core/Heading";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
 
-const WIDTHS = { default: "max-w-[var(--page)]", narrow: "max-w-3xl", wide: "max-w-[88rem]" } as const;
+const WIDTHS = { default: "max-w-[var(--page)]", narrow: "max-w-[var(--page-narrow)]", wide: "max-w-[var(--page-wide)]" } as const;
 
 /** A page's column: centred, padded, and as wide as its kind of page. */
 export function Page({ children, width = "default", className = "" }: { children: ReactNode; width?: keyof typeof WIDTHS; className?: string }) {
@@ -13,15 +13,15 @@ export function Page({ children, width = "default", className = "" }: { children
 /** A page's title block: what it is, a line about it, and what can be done from it. */
 export function PageHead({ eyebrow, title, description, actions, media }: { eyebrow?: ReactNode; title: ReactNode; description?: ReactNode; actions?: ReactNode; media?: ReactNode }) {
   return (
-    <header className="flex flex-col gap-5 pt-10 pb-6 md:flex-row md:items-end md:justify-between">
+    <header className="flex flex-col gap-5 pt-page-top pb-6 md:flex-row md:items-end md:justify-between">
       <div className="flex min-w-0 items-center gap-4">
         {media}
         <div className="flex min-w-0 flex-col gap-1.5">
-          {eyebrow && <div className="text-sm font-medium text-secondary">{eyebrow}</div>}
+          {eyebrow && <div className="type-label text-secondary">{eyebrow}</div>}
           <Heading level={1} textWrap="balance">
-            <span className="block text-[clamp(1.6rem,3.2vw,2.25rem)] leading-[1.1] font-semibold tracking-[-0.025em]">{title}</span>
+            <span className="block type-title">{title}</span>
           </Heading>
-          {description && <p className="m-0 max-w-2xl text-[0.95rem] text-pretty text-secondary">{description}</p>}
+          {description && <p className="m-0 max-w-2xl type-lead">{description}</p>}
         </div>
       </div>
       {actions && <div className="flex flex-none flex-wrap items-center gap-2">{actions}</div>}
@@ -36,17 +36,17 @@ export function Panel({ title, description, actions, children, id, className = "
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         {title && (
           <Heading level={2}>
-            <span className="block text-[1.02rem] font-semibold tracking-[-0.01em]">{title}</span>
+            <span className="block type-panel">{title}</span>
           </Heading>
         )}
-        {description && <div className="text-sm text-pretty text-secondary">{description}</div>}
+        {description && <div className="type-description">{description}</div>}
       </div>
       {actions && <div className="flex max-w-full flex-none flex-wrap items-center gap-2">{actions}</div>}
     </div>
   );
   if (bare)
     return (
-      <section id={id} aria-label={typeof title === "string" ? title : undefined} className={`flex min-w-0 scroll-mt-20 flex-col gap-4 ${className}`}>
+      <section id={id} aria-label={typeof title === "string" ? title : undefined} className={`flex min-w-0 scroll-mt-20 flex-col gap-stack ${className}`}>
         {head}
         {children}
       </section>
@@ -54,7 +54,7 @@ export function Panel({ title, description, actions, children, id, className = "
   return (
     <section id={id} aria-label={typeof title === "string" ? title : undefined} className={`min-w-0 scroll-mt-20 ${className}`}>
       <Card padding={padding}>
-        <div className="flex min-w-0 flex-col gap-4">
+        <div className="flex min-w-0 flex-col gap-stack">
           {head}
           {children}
         </div>
@@ -74,12 +74,12 @@ export function PanelSkeleton({ title, height, className = "" }: { title?: strin
 
 /** A number with what it counts beneath it; the large ones lead a page. */
 export function Stat({ value, label, note, size = "md", tone, children }: { value: ReactNode; label: ReactNode; note?: ReactNode; size?: "lg" | "md" | "sm"; tone?: "brand"; children?: ReactNode }) {
-  const big = size === "lg" ? "text-[clamp(1.9rem,3.6vw,2.6rem)]" : size === "md" ? "text-[1.6rem]" : "text-[1.25rem]";
+  const big = size === "lg" ? "type-stat-lg" : size === "md" ? "type-stat" : "type-stat-sm";
   return (
     <div role="group" aria-label={typeof label === "string" ? label : undefined} className="flex min-w-0 flex-col gap-1">
-      <span className={`${big} leading-none font-semibold tracking-[-0.03em] ${tone === "brand" ? "text-brand" : "text-primary"}`}>{value}</span>
-      <span className="mt-1 text-sm font-medium text-primary">{label}</span>
-      {note && <span className="text-[0.8rem] text-secondary">{note}</span>}
+      <span className={`${big} ${tone === "brand" ? "text-brand" : "text-primary"}`}>{value}</span>
+      <span className="mt-1 type-label">{label}</span>
+      {note && <span className="type-caption">{note}</span>}
       {children}
     </div>
   );
@@ -109,4 +109,25 @@ export function AddedRemoved({ added, removed, className = "" }: { added: number
 /** A coloured dot for a programming language, as GitHub colours it. */
 export function LangDot({ colour }: { colour: string | null }) {
   return <span aria-hidden className="inline-block size-2.5 flex-none rounded-full" style={{ background: colour ?? "var(--other)" }} />;
+}
+
+const CHIP_TONES = {
+  neutral: "border-line bg-surface text-primary",
+  brand: "border-brand-line bg-brand-soft text-brand",
+  quiet: "border-transparent bg-sunken text-secondary",
+} as const;
+
+/** A small rounded label: a status, a tag, or where something goes. */
+export function Chip({ children, icon, tone = "neutral", className = "" }: { children: ReactNode; icon?: ReactNode; tone?: keyof typeof CHIP_TONES; className?: string }) {
+  return (
+    <span className={`inline-flex h-6 flex-none items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium whitespace-nowrap ${CHIP_TONES[tone]} ${className}`}>
+      {icon}
+      {children}
+    </span>
+  );
+}
+
+/** The short uppercase line above a heading that says what kind of thing follows. */
+export function Eyebrow({ children, className = "" }: { children: ReactNode; className?: string }) {
+  return <span className={`type-eyebrow ${className}`}>{children}</span>;
 }

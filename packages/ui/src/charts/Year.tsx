@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { day, grouped } from "../format";
 import { TableView } from "./common";
 import { useTip } from "./tip";
+import { heat, RADIUS } from "../design/tokens";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const DAYS = ["Mon", "", "Wed", "", "Fri", "", ""];
@@ -25,7 +26,7 @@ function step(n: number, b: number[]): number {
   return i === -1 ? 4 : i + 1;
 }
 
-const fill = (s: number) => (s === 0 ? "var(--empty)" : `var(--green-${s})`);
+const fill = (s: number) => heat(s);
 
 /** A year of days as a grid of squares, a column a week from Monday, shaded by how much happened each day. */
 export function YearGrid({ firstDay, days, unit = "contributions", label, table = true }: { firstDay: number; days: number[]; unit?: string; label?: string; table?: boolean }) {
@@ -55,13 +56,13 @@ export function YearGrid({ firstDay, days, unit = "contributions", label, table 
       <div ref={scroller} className="overflow-x-auto pb-1 [scrollbar-width:thin]">
         <svg viewBox={`0 0 ${width} ${height}`} className="block h-auto w-full" style={{ minWidth: Math.round(width * 0.8) }} role="img" aria-label={label ?? `${unit} a day`}>
           {months.map((m) => (
-            <text key={`${m.x}${m.label}`} x={m.x} y={10} className="fill-[var(--color-text-secondary)] text-[10px]">
+            <text key={`${m.x}${m.label}`} x={m.x} y={10} className="fill-[var(--ink-2)] text-2xs">
               {m.label}
             </text>
           ))}
           {DAYS.map((d, i) =>
             d ? (
-              <text key={d} x={0} y={TOP + i * (CELL + GAP) + CELL - 3} className="fill-[var(--color-text-secondary)] text-[10px]">
+              <text key={d} x={0} y={TOP + i * (CELL + GAP) + CELL - 3} className="fill-[var(--ink-2)] text-2xs">
                 {d}
               </text>
             ) : null,
@@ -76,7 +77,7 @@ export function YearGrid({ firstDay, days, unit = "contributions", label, table 
                 y={TOP + weekday(d) * (CELL + GAP)}
                 width={CELL}
                 height={CELL}
-                rx={3}
+                rx={RADIUS.cell}
                 fill={fill(step(n, b))}
                 className="transition-opacity hover:opacity-80"
                 {...tip(
@@ -92,12 +93,12 @@ export function YearGrid({ firstDay, days, unit = "contributions", label, table 
           })}
         </svg>
       </div>
-      <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-secondary">
+      <div className="flex flex-wrap items-center justify-between gap-3 type-micro">
         {table ? <TableView head={["Day", unit]} rows={days.flatMap((n, i) => (n > 0 ? [[day(firstDay + i), n]] : []))} /> : <span />}
         <span className="flex items-center gap-1.5">
           Less
           {[0, 1, 2, 3, 4].map((s) => (
-            <span key={s} className="inline-block size-[11px] rounded-[3px]" style={{ background: fill(s) }} />
+            <span key={s} className="inline-block size-2.75 rounded-cell" style={{ background: fill(s) }} />
           ))}
           More
         </span>

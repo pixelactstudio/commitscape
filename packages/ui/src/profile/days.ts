@@ -1,4 +1,5 @@
 import type { Profile } from "@commitscape/data";
+import { COLOR, FLAME } from "../design/tokens";
 
 export const DAY = 86_400;
 export const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -47,17 +48,17 @@ export function longestRun(days: number[]): { length: number; start: number } {
 }
 
 const HEAT = [
-  { from: 100, colour: "light-dark(#c2185b, #ff5fa2)", word: "Legendary" },
-  { from: 30, colour: "light-dark(#d32f2f, #ff6b5e)", word: "On fire" },
-  { from: 14, colour: "light-dark(#d9480f, #ff8a3d)", word: "Blazing" },
-  { from: 7, colour: "light-dark(#b7791f, #f5b83d)", word: "Heating up" },
-  { from: 3, colour: "light-dark(#0f8a6a, #3ccfa4)", word: "Warming up" },
-  { from: 1, colour: "light-dark(#2a6fd6, #5aa2f0)", word: "Just lit" },
+  { from: 100, colour: FLAME[4], word: "Legendary" },
+  { from: 30, colour: FLAME[4], word: "On fire" },
+  { from: 14, colour: FLAME[3], word: "Blazing" },
+  { from: 7, colour: FLAME[2], word: "Heating up" },
+  { from: 3, colour: FLAME[1], word: "Warming up" },
+  { from: 1, colour: FLAME[0], word: "Just lit" },
 ];
 
 /** The colour and word for a streak of this many days, cool for short ones and hot for long ones. */
 export function streakHeat(days: number): { colour: string; word: string } {
-  return HEAT.find((h) => days >= h.from) ?? { colour: "var(--color-text-secondary)", word: "Not lit" };
+  return HEAT.find((h) => days >= h.from) ?? { colour: COLOR.ink2, word: "Not lit" };
 }
 
 /** What a person's commit clock can show: their commit times, nothing because they have no commits, or nothing because GitHub did not answer. */

@@ -20,11 +20,11 @@ export function ThemedCard({ src, alt, width, height, query = "", className = ""
       ref={(el) => {
         if (el?.complete && el.naturalWidth > 0) setLoaded(true);
       }}
-      className={`block h-auto w-full transition-opacity duration-300 ${loaded ? "opacity-100" : "opacity-0"}`}
+      className={`block h-auto w-full transition-opacity duration-(--duration-base) ${loaded ? "opacity-100" : "opacity-0"}`}
     />
   );
   return (
-    <span className={`relative block overflow-hidden rounded-[18px] ${loaded ? "" : "bg-[var(--color-skeleton)]"} ${className}`} style={{ aspectRatio: `${width} / ${height}` }}>
+    <span className={`relative block overflow-hidden rounded-2xl ${loaded ? "" : "bg-[var(--color-skeleton)]"} ${className}`} style={{ aspectRatio: `${width} / ${height}` }}>
       {mode === "light" ? (
         img(light)
       ) : mode === "dark" ? (

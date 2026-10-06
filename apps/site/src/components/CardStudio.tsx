@@ -41,7 +41,7 @@ export function SteadyImage({ src, alt, width, height, className = "", eager = f
   return (
     <span className={`relative block ${className}`} style={{ aspectRatio: `${width} / ${height}` }}>
       <img src={shown} alt={alt} width={width} height={height} loading={eager ? "eager" : "lazy"} decoding="async" className="block h-full w-full" />
-      <span className={`pointer-events-none absolute end-2 top-2 rounded-full bg-[var(--color-background-popover)] p-1.5 shadow-[var(--shadow-low)] transition-opacity duration-200 ${loading ? "opacity-100" : "opacity-0"}`}>
+      <span className={`pointer-events-none absolute end-2 top-2 rounded-full bg-raised p-1.5 shadow-sm transition-opacity duration-[var(--duration-fast)] ${loading ? "opacity-100" : "opacity-0"}`}>
         <Spinner size="sm" />
       </span>
     </span>
@@ -57,8 +57,8 @@ export function CardStudio({ choices, state, onChange, origin, pinned = true }: 
   return (
     <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
       <div className={`flex min-w-0 flex-col gap-4 ${pinned ? "lg:sticky lg:top-20" : ""}`}>
-        <div className="studio-stage relative flex min-h-[22rem] items-center justify-center overflow-hidden rounded-[var(--radius-container)] border border-line px-4 py-10 sm:px-10">
-          <div className="absolute end-3 top-3 z-10">
+        <div className="studio-stage relative flex min-h-88 items-center justify-center overflow-hidden rounded-lg border border-line px-4 py-10 sm:px-10">
+          <div className="absolute end-3 top-3 z-[var(--z-raised)]">
             <SegmentedControl label="Preview in" size="sm" value={state.mode} onChange={(m) => onChange({ ...state, mode: m as "light" | "dark" })}>
               <SegmentedControlItem value="light" label="Light" icon={<Icon icon={Sun} size="sm" />} />
               <SegmentedControlItem value="dark" label="Dark" icon={<Icon icon={Moon} size="sm" />} />
@@ -86,12 +86,12 @@ function Picker({ choices, value, query, mode, onPick }: { choices: CardChoice[]
   }, [choices]);
   if (choices.length < 2) return null;
   return (
-    <section className="rounded-[var(--radius-container)] border border-line bg-surface p-4">
-      <h2 className="m-0 mb-3 text-sm font-semibold">Card</h2>
-      <div className="flex max-h-[26rem] flex-col gap-4 overflow-y-auto pe-1 [scrollbar-width:thin]">
+    <section className="rounded-lg border border-line bg-surface p-4">
+      <h2 className="m-0 mb-3 type-label">Card</h2>
+      <div className="flex max-h-104 flex-col gap-4 overflow-y-auto pe-1 [scrollbar-width:thin]">
         {groups.map(([group, list]) => (
           <div key={group} className="flex flex-col gap-2">
-            {groups.length > 1 && <span className="text-xs font-medium text-secondary">{group}</span>}
+            {groups.length > 1 && <span className="type-micro font-medium">{group}</span>}
             <div className="grid grid-cols-2 gap-2">
               {list.map((c) => (
                 <button
@@ -99,12 +99,12 @@ function Picker({ choices, value, query, mode, onPick }: { choices: CardChoice[]
                   type="button"
                   onClick={() => onPick(c.id)}
                   aria-pressed={c.id === value}
-                  className={`group flex cursor-pointer flex-col gap-1.5 rounded-[var(--radius-element)] border bg-transparent p-1.5 text-start transition-colors ${c.id === value ? "border-[var(--color-accent)] ring-2 ring-[var(--brand-soft)]" : "border-line hover:border-strong"}`}
+                  className={`group flex cursor-pointer flex-col gap-1.5 rounded-md border bg-transparent p-1.5 text-start transition-colors ${c.id === value ? "border-brand ring-2 ring-brand-soft" : "border-line hover:border-line-strong"}`}
                 >
-                  <span className="flex h-16 items-center justify-center overflow-hidden rounded-md bg-[var(--color-background-body)]">
-                    <img src={cardSrc(c.url, "svg", mode, query)} alt="" loading="lazy" className="max-h-14 max-w-[92%] rounded-[4px]" />
+                  <span className="flex h-16 items-center justify-center overflow-hidden rounded-md bg-body">
+                    <img src={cardSrc(c.url, "svg", mode, query)} alt="" loading="lazy" className="max-h-14 max-w-[92%] rounded-xs" />
                   </span>
-                  <span className="truncate px-0.5 text-xs font-medium text-primary">{c.title}</span>
+                  <span className="truncate px-0.5 text-2xs font-medium text-primary">{c.title}</span>
                 </button>
               ))}
             </div>
@@ -119,9 +119,9 @@ function Styler({ style, mode, set, reset }: { style: CardStyle; mode: "light" |
   const accent = style.accent ?? PRESETS[style.preset][mode].accent;
   const changed = styleQuery(style) !== "";
   return (
-    <section className="flex flex-col gap-5 rounded-[var(--radius-container)] border border-line bg-surface p-4">
+    <section className="flex flex-col gap-5 rounded-lg border border-line bg-surface p-4">
       <div className="flex items-center justify-between">
-        <h2 className="m-0 text-sm font-semibold">Style</h2>
+        <h2 className="m-0 type-label">Style</h2>
         <Button label="Reset" variant="ghost" size="sm" icon={<Icon icon={RotateCcw} size="sm" />} onClick={reset} isDisabled={!changed} />
       </div>
       <Field label="Preset">
@@ -135,17 +135,17 @@ function Styler({ style, mode, set, reset }: { style: CardStyle; mode: "light" |
                 type="button"
                 aria-pressed={style.preset === id}
                 onClick={() => set({ preset: id, accent: null, background: null })}
-                className={`flex cursor-pointer flex-col gap-1 rounded-[var(--radius-element)] border bg-transparent p-1 text-start ${style.preset === id ? "border-[var(--color-accent)] ring-2 ring-[var(--brand-soft)]" : "border-line hover:border-strong"}`}
+                className={`flex cursor-pointer flex-col gap-1 rounded-md border bg-transparent p-1 text-start ${style.preset === id ? "border-brand ring-2 ring-brand-soft" : "border-line hover:border-line-strong"}`}
               >
                 <span className="flex h-11 flex-col justify-between rounded-md p-1.5" style={{ backgroundColor: p.bg, backgroundImage: look.backgroundImage, backgroundSize: look.backgroundSize, boxShadow: `inset 0 0 0 1px ${p.border}` }}>
                   <span className="h-1.5 w-8 rounded-full" style={{ background: p.text, opacity: 0.85 }} />
                   <span className="flex items-end gap-0.5">
                     {[0.5, 0.9, 0.7].map((h) => (
-                      <span key={h} className="w-2 rounded-t-[2px]" style={{ height: h * 14, background: p.accent }} />
+                      <span key={h} className="w-2 rounded-t-cell" style={{ height: h * 14, background: p.accent }} />
                     ))}
                   </span>
                 </span>
-                <span className="px-0.5 text-[0.7rem] font-medium text-primary">{PRESETS[id].label}</span>
+                <span className="px-0.5 text-2xs font-medium text-primary">{PRESETS[id].label}</span>
               </button>
             );
           })}
@@ -158,12 +158,12 @@ function Styler({ style, mode, set, reset }: { style: CardStyle; mode: "light" |
               {style.accent === s && <Check size={14} color="#fff" strokeWidth={3} />}
             </button>
           ))}
-          <label className="relative grid size-7 cursor-pointer place-items-center overflow-hidden rounded-full border border-dashed border-strong" title="Any colour" style={{ background: style.accent && !SWATCHES.includes(style.accent) ? style.accent : "conic-gradient(#f43f5e, #eab308, #22c55e, #0ea5e9, #8b5cf6, #f43f5e)" }}>
+          <label className="relative grid size-7 cursor-pointer place-items-center overflow-hidden rounded-full border border-dashed border-line-strong" title="Any colour" style={{ background: style.accent && !SWATCHES.includes(style.accent) ? style.accent : "conic-gradient(#f43f5e, #eab308, #22c55e, #0ea5e9, #8b5cf6, #f43f5e)" }}>
             <input type="color" value={accent} onChange={(e) => set({ accent: e.target.value })} className="absolute inset-0 cursor-pointer opacity-0" aria-label="Any accent colour" />
           </label>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-xs text-secondary">#</span>
+          <span className="type-micro">#</span>
           <HexInput key={style.accent ?? "preset"} value={style.accent} placeholder={accent} onHex={(hex) => set({ accent: hex })} />
           {style.accent && <Button label="Preset's colour" variant="ghost" size="sm" onClick={() => set({ accent: null })} />}
         </div>
@@ -174,9 +174,9 @@ function Styler({ style, mode, set, reset }: { style: CardStyle; mode: "light" |
             const look = lookOf(mode, { ...style, background: b.id });
             const on = (style.background ?? PRESETS[style.preset].background) === b.id;
             return (
-              <button key={b.id} type="button" aria-pressed={on} onClick={() => set({ background: b.id })} className={`flex cursor-pointer flex-col gap-1 rounded-[var(--radius-element)] border bg-transparent p-1 ${on ? "border-[var(--color-accent)] ring-2 ring-[var(--brand-soft)]" : "border-line hover:border-strong"}`}>
+              <button key={b.id} type="button" aria-pressed={on} onClick={() => set({ background: b.id })} className={`flex cursor-pointer flex-col gap-1 rounded-md border bg-transparent p-1 ${on ? "border-brand ring-2 ring-brand-soft" : "border-line hover:border-line-strong"}`}>
                 <span className="block h-9 rounded-md" style={{ backgroundColor: look.t.bg, backgroundImage: look.backgroundImage, backgroundSize: look.backgroundSize, boxShadow: `inset 0 0 0 1px ${look.t.border}` }} />
-                <span className="text-[0.7rem] font-medium text-primary">{b.label}</span>
+                <span className="text-2xs font-medium text-primary">{b.label}</span>
               </button>
             );
           })}
@@ -207,7 +207,7 @@ function HexInput({ value, placeholder, onHex }: { value: string | null; placeho
         const hex = hexOf(e.target.value);
         if (hex) onHex(hex);
       }}
-      className="h-7 w-24 rounded-md border border-line bg-[var(--color-background-body)] px-2 font-mono text-xs text-primary uppercase outline-none focus:border-[var(--color-accent)]"
+      className="h-7 w-24 rounded-md border border-line bg-body px-2 font-mono text-2xs text-primary uppercase outline-none focus:border-brand"
     />
   );
 }
@@ -215,7 +215,7 @@ function HexInput({ value, placeholder, onHex }: { value: string | null; placeho
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-2">
-      <span className="text-xs font-medium text-secondary">{label}</span>
+      <span className="type-micro font-medium">{label}</span>
       {children}
     </div>
   );
@@ -230,7 +230,7 @@ function Outputs({ choice, query, origin }: { choice: CardChoice; query: string;
   const link = absolute(choice.link);
   const markdown = markdownOf(url, choice.alt, link, query);
   return (
-    <section className="rounded-[var(--radius-container)] border border-line bg-surface">
+    <section className="rounded-lg border border-line bg-surface">
       <div className="flex flex-wrap items-center justify-between gap-3 px-4 pt-3">
         <TabList value={tab} onChange={setTab} size="sm" role="tablist">
           <Tab value="readme" panelId="studio-output" label="README" />
@@ -245,7 +245,7 @@ function Outputs({ choice, query, origin }: { choice: CardChoice; query: string;
       <div id="studio-output" role="tabpanel" className="border-t border-line p-4">
         {tab === "readme" && (
           <div className="flex flex-col gap-2">
-            <p className="m-0 text-sm text-secondary">Paste into a README. GitHub shows the dark Card to readers in dark mode, animated, and it refreshes every six hours.</p>
+            <p className="m-0 type-caption">Paste into a README. GitHub shows the dark Card to readers in dark mode, animated, and it refreshes every six hours.</p>
             <CodeBlock code={markdown} language="html" width="100%" size="sm" isWrapped onCopy={() => toast("Markdown copied")} />
           </div>
         )}
@@ -258,8 +258,8 @@ function Outputs({ choice, query, origin }: { choice: CardChoice; query: string;
               ["As a PNG", absolute(cardSrc(choice.url, "png", "light", query))],
             ].map(([label, link]) => (
               <div key={label} className="flex items-center gap-3">
-                <span className="w-36 flex-none text-xs text-secondary">{label}</span>
-                <code className="min-w-0 flex-1 truncate rounded-md bg-muted px-2 py-1.5 text-xs">{link}</code>
+                <span className="w-36 flex-none type-micro">{label}</span>
+                <code className="min-w-0 flex-1 truncate rounded-md bg-muted px-2 py-1.5 text-2xs">{link}</code>
                 <Button label="Copy" isIconOnly size="sm" variant="ghost" icon={<Icon icon={Link2} size="sm" />} onClick={() => copy(link ?? "", "Link copied")} />
               </div>
             ))}
@@ -267,7 +267,7 @@ function Outputs({ choice, query, origin }: { choice: CardChoice; query: string;
         )}
         {tab === "post" && (
           <div className="flex flex-col gap-3">
-            <p className="m-0 text-sm text-secondary">The post links to the page; X and LinkedIn show its preview image. Download the PNG to attach the Card itself.</p>
+            <p className="m-0 type-caption">The post links to the page; X and LinkedIn show its preview image. Download the PNG to attach the Card itself.</p>
             <div className="flex flex-wrap gap-2">
               <Button label="Post on X" variant="primary" href={`https://x.com/intent/post?text=${encodeURIComponent(choice.share)}&url=${encodeURIComponent(link)}`} target="_blank" rel="noopener noreferrer" />
               <Button label="Share on LinkedIn" variant="secondary" href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(link)}`} target="_blank" rel="noopener noreferrer" />

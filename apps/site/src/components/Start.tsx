@@ -46,9 +46,9 @@ export function Start({ kind }: { kind: Kind }) {
   if (!mine) return <SignedOut kind={kind} />;
   const invitations = mine.invitations.filter((i) => i.kind === kind);
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-gutter">
       {invitations.length > 0 && <Invitations kind={kind} invitations={invitations} />}
-      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_26rem]">
+      <div className="grid items-start gap-gutter lg:grid-cols-[minmax(0,1fr)_26rem]">
         {kind === "race" ? <RaceList races={mine.races} /> : <CrewList crews={mine.crews} />}
         <div className="lg:sticky lg:top-20">
           <StartForm kind={kind} />
@@ -61,25 +61,25 @@ export function Start({ kind }: { kind: Kind }) {
 
 function SignedOut({ kind }: { kind: Kind }) {
   return (
-    <div className="flex flex-col gap-4">
-      <div className="grid gap-3 md:grid-cols-3">
+    <div className="flex flex-col gap-gutter">
+      <div className="grid gap-gutter md:grid-cols-3">
         {STEPS[kind].map((s, n) => (
-          <div key={s.title} className={`rise flex flex-col gap-3 rounded-[var(--radius-container)] border border-line bg-surface p-5 ${DELAYS[n] ?? ""}`}>
+          <div key={s.title} className={`rise flex flex-col gap-3 rounded-lg border border-line bg-surface p-panel ${DELAYS[n] ?? ""}`}>
             <span className="flex items-center gap-2">
-              <span className="grid h-8 w-8 place-items-center rounded-[var(--radius-element)] bg-brand-soft text-brand">
+              <span className="grid size-8 place-items-center rounded-md bg-brand-soft text-brand">
                 <s.icon size={16} aria-hidden />
               </span>
-              <span className="text-xs font-medium text-secondary tnum">Step {n + 1}</span>
+              <span className="type-eyebrow tnum">Step {n + 1}</span>
             </span>
             <span className="font-semibold">{s.title}</span>
-            <span className="text-sm text-pretty text-secondary">{s.words}</span>
+            <span className="type-description">{s.words}</span>
           </div>
         ))}
       </div>
-      <div className="cta-backdrop flex flex-col items-start gap-4 rounded-[var(--radius-container)] border border-line p-6 sm:flex-row sm:items-center sm:justify-between">
+      <div className="cta-backdrop flex flex-col items-start gap-4 rounded-lg border border-line p-6 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-col gap-1">
-          <span className="text-lg font-semibold tracking-[-0.01em]">Sign in to start a {WORD[kind]}, or to answer an invitation</span>
-          <span className="text-sm text-secondary">With GitHub. Read-only, and you can stay out of every comparison in Settings.</span>
+          <span className="type-panel">Sign in to start a {WORD[kind]}, or to answer an invitation</span>
+          <span className="type-description">With GitHub. Read-only, and you can stay out of every comparison in Settings.</span>
         </div>
         <Button label="Sign in with GitHub" variant="primary" icon={<Icon icon={LogIn} size="sm" />} onClick={() => signIn(PATH[kind])} />
       </div>
@@ -99,15 +99,15 @@ function Invitations({ kind, invitations }: { kind: Kind; invitations: { id: str
     },
   });
   return (
-    <section aria-label="Invitations" className="rise flex flex-col gap-3 rounded-[var(--radius-container)] border border-[color-mix(in_srgb,var(--brand)_35%,transparent)] bg-brand-soft p-4 sm:p-5">
+    <section aria-label="Invitations" className="rise flex flex-col gap-3 rounded-lg border border-brand-line bg-brand-soft p-4 sm:p-panel">
       <div className="flex flex-col gap-0.5">
-        <h2 className="m-0 text-[1.02rem] font-semibold">{invitations.length === 1 ? "An invitation is waiting" : `${invitations.length} invitations are waiting`}</h2>
-        <p className="m-0 text-sm text-secondary">You appear in a {WORD[kind]} only once you accept.</p>
+        <h2 className="m-0 type-panel">{invitations.length === 1 ? "An invitation is waiting" : `${invitations.length} invitations are waiting`}</h2>
+        <p className="m-0 type-description">You appear in a {WORD[kind]} only once you accept.</p>
       </div>
-      {reply.error && <p className="m-0 text-sm text-removed">{reply.error.message}</p>}
+      {reply.error && <p className="m-0 text-xs text-removed">{reply.error.message}</p>}
       <ul className="m-0 flex list-none flex-col gap-2 p-0">
         {invitations.map((i) => (
-          <li key={i.id} className="flex flex-col gap-3 rounded-[var(--radius-element)] bg-surface p-3 sm:flex-row sm:items-center">
+          <li key={i.id} className="flex flex-col gap-3 rounded-md bg-surface p-3 sm:flex-row sm:items-center">
             <span className="flex min-w-0 flex-1 items-center gap-3">
               <Face login={i.invitedBy} name={i.invitedBy} size={32} />
               <span className="min-w-0 text-sm">
@@ -139,7 +139,7 @@ function RaceList({ races }: { races: { id: string; name: string; from: string; 
           {sorted.map((r) => {
             const state = raceState(r.from, r.to);
             return (
-              <Row key={r.id} to="/races/$id" id={r.id} title={r.name} sub={shortRange(r.from, r.to)} end={<span className="text-xs text-secondary">{windowClock(r.from, r.to).words}</span>} badge={<StateBadge state={state} />} />
+              <Row key={r.id} to="/races/$id" id={r.id} title={r.name} sub={shortRange(r.from, r.to)} end={<span className="text-2xs text-secondary">{windowClock(r.from, r.to).words}</span>} badge={<StateBadge state={state} />} />
             );
           })}
         </ul>
@@ -161,7 +161,7 @@ function CrewList({ crews }: { crews: { id: string; name: string }[] }) {
       ) : (
         <ul className="m-0 mt-1 flex list-none flex-col p-0">
           {crews.map((c) => (
-            <Row key={c.id} to="/crews/$id" id={c.id} title={c.name} sub={`Season ${monthName(season)}`} end={<span className="text-xs text-secondary">{windowClock(`${season}-01`, lastDay(season)).words}</span>} />
+            <Row key={c.id} to="/crews/$id" id={c.id} title={c.name} sub={`Season ${monthName(season)}`} end={<span className="text-2xs text-secondary">{windowClock(`${season}-01`, lastDay(season)).words}</span>} />
           ))}
         </ul>
       )}
@@ -177,13 +177,13 @@ const lastDay = (season: string) => {
 function Row({ to, id, title, sub, end, badge }: { to: "/races/$id" | "/crews/$id"; id: string; title: string; sub: string; end: ReactNode; badge?: ReactNode }) {
   return (
     <li className="border-t border-line">
-      <Link to={to} params={{ id }} className="group flex items-center gap-4 px-5 py-3.5 text-primary no-underline transition-colors hover:bg-[var(--color-overlay-hover)]">
+      <Link to={to} params={{ id }} className="group flex items-center gap-4 px-5 py-3.5 text-primary no-underline transition-colors hover:bg-sunken">
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="flex items-center gap-2.5">
             <span className="truncate font-semibold">{title}</span>
             {badge}
           </span>
-          <span className="text-sm text-secondary tnum">{sub}</span>
+          <span className="type-caption tnum">{sub}</span>
         </span>
         <span className="hidden flex-none sm:block">{end}</span>
         <ChevronRight size={16} className="flex-none text-secondary transition-transform group-hover:translate-x-0.5" aria-hidden />
@@ -195,11 +195,11 @@ function Row({ to, id, title, sub, end, badge }: { to: "/races/$id" | "/crews/$i
 function Empty({ icon: Glyph, title, words }: { icon: typeof Flag; title: string; words: string }) {
   return (
     <div className="flex flex-col items-center gap-2 px-6 pt-6 pb-10 text-center">
-      <span className="grid h-10 w-10 place-items-center rounded-full bg-brand-soft text-brand">
+      <span className="grid size-10 place-items-center rounded-full bg-brand-soft text-brand">
         <Glyph size={18} aria-hidden />
       </span>
       <span className="font-medium">{title}</span>
-      <span className="max-w-sm text-sm text-pretty text-secondary">{words}</span>
+      <span className="max-w-sm type-description">{words}</span>
     </div>
   );
 }
@@ -249,7 +249,7 @@ function StartForm({ kind }: { kind: Kind }) {
                     type="button"
                     aria-pressed={on}
                     onClick={() => setTo(plus(from, n - 1))}
-                    className={`cursor-pointer rounded-full border px-2.5 py-0.5 text-xs transition-colors ${on ? "border-transparent bg-brand-soft text-brand" : "border-line bg-transparent text-secondary hover:border-strong hover:text-primary"}`}
+                    className={`cursor-pointer rounded-full border px-2.5 py-0.5 text-2xs transition-colors ${on ? "border-transparent bg-brand-soft text-brand" : "border-line bg-transparent text-secondary hover:border-strong hover:text-primary"}`}
                   >
                     {label}
                   </button>
@@ -259,7 +259,7 @@ function StartForm({ kind }: { kind: Kind }) {
           </div>
         )}
         <InviteField label="Invite, by GitHub username" description="Separate names with commas or spaces. They join only when they accept." value={invite} onChange={setInvite} />
-        {start.error && <p className="m-0 text-sm text-removed">{start.error.message}</p>}
+        {start.error && <p className="m-0 text-xs text-removed">{start.error.message}</p>}
         <Button label={`Start the ${WORD[kind]}`} variant="primary" type="submit" isLoading={start.isPending} endContent={<Icon icon={ArrowRight} size="sm" />} width="100%" />
       </form>
     </Panel>
@@ -269,7 +269,7 @@ function StartForm({ kind }: { kind: Kind }) {
 function Other({ kind }: { kind: Kind }) {
   const other = kind === "race" ? { to: "/crews" as const, words: "Want something that never ends? A Crew compares itself every month.", cta: "Crews" } : { to: "/races" as const, words: "Want a fixed window instead? A Race runs between two days you choose.", cta: "Races" };
   return (
-    <p className="m-0 pt-2 text-sm text-secondary">
+    <p className="m-0 pt-2 type-description">
       {other.words}{" "}
       <Link to={other.to} className="font-medium text-primary">
         {other.cta}

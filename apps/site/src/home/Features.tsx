@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
+import { ICON } from "@commitscape/ui/design";
 import { ArrowRight, Briefcase, Image as ImageIcon, LayoutDashboard, Layers, Sparkles, Swords, Trophy, Users, type LucideIcon } from "lucide-react";
 import { Band, Heading } from "./layout";
 import { CardsScene } from "./scenes/CardsScene";
@@ -26,9 +27,9 @@ const TILES: Tile[] = [
 /** The bento of everything commitscape makes, each tile a small live scene that links to a real example. */
 export function Features() {
   return (
-    <Band label="What it makes" className="pt-24 sm:pt-28">
+    <Band label="What it makes" className="pt-16 sm:pt-band">
       <Heading icon={Layers} eyebrow="One link" title="Everything you've built, on one page" words="Every number says what it counts, comes from GitHub or the repository's own history, and is never folded into one score." />
-      <div className="tiles mt-16 grid grid-cols-1 gap-px border-t border-line bg-[var(--color-border)] md:grid-cols-3">
+      <div className="tiles mt-section grid grid-cols-1 gap-px border-t border-line bg-line sm:mt-16 md:grid-cols-3">
         {TILES.map((t) => (
           <FeatureTile key={t.title} {...t} />
         ))}
@@ -39,19 +40,19 @@ export function Features() {
 
 function FeatureTile({ icon: Glyph, title, words, to, cta, scene, wide, bleed }: Tile) {
   return (
-    <Link to={to as "/"} className={`tile group relative flex min-w-0 flex-col bg-[var(--color-background-body)] text-primary no-underline outline-offset-[-2px] ${wide ? "md:col-span-2" : ""}`}>
-      <div aria-hidden className={`relative h-[17rem] overflow-hidden ${bleed ? "" : "scene-stage px-5 sm:px-8"}`}>
+    <Link to={to as "/"} className={`tile group relative flex min-w-0 flex-col bg-body text-primary no-underline outline-offset-[-2px] ${wide ? "md:col-span-2" : ""}`}>
+      <div aria-hidden className={`relative h-72 overflow-hidden ${bleed ? "" : "scene-stage px-6 py-6 sm:px-8"}`}>
         {scene}
       </div>
-      <div className="flex flex-1 flex-col gap-1.5 px-6 pt-5 pb-6 sm:px-8">
-        <span className="flex items-center gap-2 text-[1.02rem] font-semibold tracking-[-0.01em]">
-          <Glyph size={16} className="text-brand" aria-hidden />
+      <div className="flex flex-1 flex-col gap-1.5 px-6 pt-5 pb-7 sm:px-8">
+        <span className="flex items-center gap-2 type-panel">
+          <Glyph size={ICON.md} className="flex-none text-brand" aria-hidden />
           {title}
         </span>
-        <span className="max-w-[34rem] text-sm leading-relaxed text-pretty text-secondary">{words}</span>
-        <span className="mt-auto inline-flex items-center gap-1 pt-3 text-sm font-medium">
+        <span className="max-w-[34rem] type-description">{words}</span>
+        <span className="mt-auto inline-flex items-center gap-1 pt-4 type-label">
           {cta}
-          <ArrowRight size={14} className="transition-transform duration-200 group-hover:translate-x-0.5" aria-hidden />
+          <ArrowRight size={ICON.sm} className="transition-transform duration-(--duration-fast) group-hover:translate-x-0.5" aria-hidden />
         </span>
       </div>
     </Link>

@@ -49,7 +49,7 @@ export const engineQuery = (login: string) =>
   });
 
 export const liveEngineQuery = (login: string) =>
-  queryOptions({ queryKey: ["engine-live", login.toLowerCase()], queryFn: () => getEngine({ data: { login } }), refetchInterval: (q) => ((q.state.data?.counting ?? 1) > 0 ? 3000 : false) });
+  queryOptions({ queryKey: ["engine-live", login.toLowerCase()], queryFn: () => getEngine({ data: { login } }), refetchInterval: (q) => (!q.state.data || q.state.data.counting > 0 || q.state.data.unread?.some((r) => r.state === "reading") ? 3000 : false) });
 
 export const standingsQuery = (owner: string, repo: string, focus?: string) =>
   queryOptions({

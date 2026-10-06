@@ -1,0 +1,163 @@
+:root {
+  --type-2xs: 0.6875rem;
+  --type-2xs-leading: 1rem;
+  --type-xs: 0.75rem;
+  --type-xs-leading: 1rem;
+  --type-sm: 0.8125rem;
+  --type-sm-leading: 1.25rem;
+  --type-base: 0.875rem;
+  --type-base-leading: 1.375rem;
+  --type-md: 0.9375rem;
+  --type-md-leading: 1.5rem;
+  --type-lg: 1rem;
+  --type-lg-leading: 1.5rem;
+  --type-xl: 1.25rem;
+  --type-xl-leading: 1.75rem;
+  --type-2xl: 1.625rem;
+  --type-2xl-leading: 2rem;
+  --type-3xl: clamp(1.75rem, 1.25rem + 1.5vw, 2.25rem);
+  --type-3xl-leading: 1.1;
+  --type-4xl: clamp(2.125rem, 1.45rem + 2.2vw, 2.75rem);
+  --type-4xl-leading: 1.05;
+  --type-5xl: clamp(2.75rem, 1.6rem + 4.2vw, 4.75rem);
+  --type-5xl-leading: 0.98;
+
+  --tracking-tight: -0.01em;
+  --tracking-snug: -0.02em;
+  --tracking-heading: -0.025em;
+  --tracking-display: -0.035em;
+  --tracking-number: -0.03em;
+  --tracking-wide: 0.06em;
+
+  --space-cluster: 0.5rem;
+  --space-stack: 1rem;
+  --space-gutter: 1rem;
+  --space-panel: 1.25rem;
+  --space-page-top: 2.5rem;
+  --space-section: 3rem;
+  --space-band: 6rem;
+
+  --radius-cell: 3px;
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 20px;
+
+  --page: 76rem;
+  --page-narrow: 48rem;
+  --page-wide: 88rem;
+  --header-height: 53px;
+
+  --z-raised: 1;
+  --z-sticky: 20;
+  --z-header: 30;
+  --z-overlay: 40;
+  --z-toast: 50;
+  --z-progress: 100;
+
+  --duration-instant: 120ms;
+  --duration-fast: 200ms;
+  --duration-base: 360ms;
+  --duration-slow: 600ms;
+  --duration-reveal: 800ms;
+  --duration-scene: 1200ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-in: cubic-bezier(0.55, 0, 1, 0.45);
+  --ease-emphasized: cubic-bezier(0.2, 0, 0, 1);
+
+  --ink-1: var(--color-text-primary);
+  --ink-2: var(--color-text-secondary);
+  --ink-3: light-dark(#868990, #6c6f77);
+  --ink-quiet: color-mix(in oklab, var(--color-text-primary) 50%, var(--color-background-body));
+  --surface-body: var(--color-background-body);
+  --surface: var(--color-background-surface);
+  --surface-raised: var(--color-background-popover);
+  --surface-sunken: var(--color-background-muted);
+  --surface-hover: color-mix(in oklab, var(--color-background-body) 96%, var(--color-text-primary));
+  --line: var(--color-border);
+  --line-strong: var(--color-border-emphasized);
+
+  --brand: light-dark(#0f7a37, #3ccf74);
+  --brand-strong: light-dark(#0b5f2a, #6ff2a1);
+  --brand-soft: light-dark(#0f7a371a, #3ccf741f);
+  --brand-line: light-dark(#0f7a3759, #3ccf7459);
+  --on-brand: light-dark(#ffffff, #04210f);
+
+  --added: light-dark(#11733a, #4ac776);
+  --removed: light-dark(#c9303a, #f07178);
+  --other: light-dark(#a6a8ad, #62656c);
+  --danger: light-dark(rgba(227, 73, 72, 0.08), rgba(230, 103, 103, 0.1));
+
+  --s1: light-dark(#2a78d6, #3987e5);
+  --s2: light-dark(#eb6834, #d95926);
+  --s3: light-dark(#1baf7a, #199e70);
+  --s4: light-dark(#eda100, #c98500);
+  --s5: light-dark(#e87ba4, #d55181);
+  --s6: light-dark(#008300, #008300);
+  --s7: light-dark(#4a3aa7, #9085e9);
+  --s8: light-dark(#e34948, #e66767);
+  --side-a: var(--s1);
+  --side-b: var(--s2);
+
+  --blue-1: light-dark(#86b6ef, #1c5cab);
+  --blue-2: light-dark(#3987e5, #3987e5);
+  --blue-3: light-dark(#1c5cab, #86b6ef);
+  --blue-4: light-dark(#0d366b, #cfe2fa);
+  --orange-1: light-dark(#fc7856, #a42602);
+  --orange-2: light-dark(#ce4e2f, #ce4e2f);
+  --orange-3: light-dark(#a42602, #fc7856);
+  --orange-4: light-dark(#6e1a00, #ffd2c2);
+  --green-1: light-dark(#62c387, #1c6b3e);
+  --green-2: light-dark(#31a15d, #26965a);
+  --green-3: light-dark(#1a7b42, #37c46e);
+  --green-4: light-dark(#0c5029, #79f0a6);
+
+  --heat-0: light-dark(#0c0d0f0d, #ffffff0f);
+  --heat-1: var(--green-1);
+  --heat-2: var(--green-2);
+  --heat-3: var(--green-3);
+  --heat-4: var(--green-4);
+  --empty: var(--heat-0);
+
+  --flame-1: #4f8cff;
+  --flame-2: #22b8cf;
+  --flame-3: #f5b400;
+  --flame-4: #ff6a1a;
+  --flame-5: #e83e8c;
+
+  --medal-1: light-dark(#d9a514, #e8b931);
+  --medal-2: light-dark(#a3aab4, #b8bec7);
+  --medal-3: light-dark(#b9773f, #c98a54);
+  --on-medal: #141416;
+
+  --on-stage: #ffffff;
+  --on-stage-2: #ffffffb3;
+  --stage-cell-0: #ffffff1f;
+  --stage-cell-1: #ffffff59;
+  --stage-cell-2: #ffffff8c;
+  --stage-cell-3: #ffffffbf;
+  --stage-cell-4: #ffffff;
+
+  --gradient-wrapped:
+    radial-gradient(100% 85% at 0% 0%, #22c55eb3, transparent 65%),
+    radial-gradient(95% 85% at 100% 100%, #6366f1cc, transparent 65%),
+    radial-gradient(70% 60% at 100% 0%, #0ea5e980, transparent 62%),
+    linear-gradient(140deg, #0c3b2a, #13254a 55%, #1e1b4b);
+  --gradient-archetype:
+    radial-gradient(90% 75% at 100% 0%, #5b6cffcc, transparent 62%),
+    radial-gradient(95% 85% at 0% 100%, #12893fd9, transparent 62%),
+    radial-gradient(55% 45% at 85% 100%, #db277766, transparent 70%),
+    linear-gradient(165deg, #11141c, #0b0d10);
+  --glow-brand: radial-gradient(40rem 30rem at 50% 50%, light-dark(#0f7a3712, #3ccf7417), transparent 70%);
+  --dots: radial-gradient(circle, var(--color-border-emphasized) 1px, transparent 1.3px);
+
+  --shadow-xs: 0 1px 2px light-dark(#0c0d0f0d, #0000004d);
+  --shadow-sm: 0 1px 2px light-dark(#0c0d0f0f, #00000059), 0 2px 8px light-dark(#0c0d0f0d, #00000040);
+  --shadow-md: 0 1px 2px light-dark(#0c0d0f0d, #0000004d), 0 16px 36px -20px light-dark(#0c0d0f33, #000000b3);
+  --shadow-lg: 0 2px 4px light-dark(#0c0d0f0f, #00000059), 0 24px 48px -16px light-dark(#0c0d0f33, #000000cc);
+  --shadow-float: 0 18px 40px light-dark(#0c0d0f24, #00000080);
+  --ring-brand: 0 0 0 3px var(--brand-soft);
+}

@@ -8,6 +8,7 @@ import { groupWork, kindOf, monthName, percent, workSummary, type Work, type Wor
 import { Face } from "../components/Face";
 import { Nothing } from "../motion";
 import { Stat } from "../kit/layout";
+import { ICON } from "../design/tokens";
 import { compact, grouped, many } from "../format";
 import { KIND_COLOURS, periodWords } from "./helpers";
 
@@ -15,7 +16,7 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 const LONG = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
 const FIRST = 40;
 const STEP = 60;
-const STICK = "sticky top-[53px] z-[2]";
+const STICK = "sticky top-header z-[var(--z-sticky)]";
 
 const day = (iso: string) => `${Number(iso.slice(8, 10))} ${MONTHS[Number(iso.slice(5, 7)) - 1] ?? ""}`;
 const longDay = (iso: string) => LONG.format(new Date(`${iso.slice(0, 10)}T00:00:00Z`));
@@ -36,7 +37,7 @@ export function WorkView({ work, look, onLook, footer }: { work: Work; look?: Wo
   const items = useMemo(() => (kind ? work.items.filter((i) => kindOf(i.title) === kind) : work.items), [work.items, kind]);
   const days = span(work.from, work.to);
   return (
-    <article className="overflow-clip rounded-[var(--radius-container)] border border-line bg-surface" aria-label={`${name}'s Proof of Work`}>
+    <article className="overflow-clip rounded-lg border border-line bg-surface" aria-label={`${name}'s Proof of Work`}>
       <div className="grid grid-cols-2 lg:grid-cols-4">
         <Cell>
           <Stat value={grouped(t.prs)} label="Pull requests merged" note={`in ${many(t.repositories, "repository", "repositories")}`} />
@@ -44,7 +45,7 @@ export function WorkView({ work, look, onLook, footer }: { work: Work; look?: Wo
         <Cell>
           <Stat
             value={
-              <span className="text-[1.15rem] whitespace-nowrap tnum sm:text-[1.6rem]">
+              <span className="whitespace-nowrap max-sm:text-xl">
                 <span className="text-added">+{compact(t.additions)}</span> <span className="text-secondary">/</span> <span className="text-removed">−{compact(t.deletions)}</span>
               </span>
             }
@@ -61,12 +62,12 @@ export function WorkView({ work, look, onLook, footer }: { work: Work; look?: Wo
       </div>
       {summary.kinds.length > 0 && <Kinds kinds={summary.kinds} active={kind} onPick={(k) => change({ kind: k === kind ? null : k })} />}
       {work.truncated && (
-        <div className="border-t border-line px-5 py-4 sm:px-7">
+        <div className="border-t border-line px-5 py-4 sm:px-6">
           <Banner status="info" title="GitHub returns at most 1,000 pull requests and 1,000 commits for one search. Narrow the period to see everything." />
         </div>
       )}
       {work.items.length === 0 ? (
-        <div className="border-t border-line px-6 py-6">
+        <div className="border-t border-line px-5 py-6 sm:px-6">
           <Nothing
             title="Nothing merged or committed in this period"
             words={`${work.scope === "public" ? "Only public repositories count here. " : ""}Try a longer period${work.filter ? `, or look beyond ${work.filter}` : ""}.`}
@@ -74,13 +75,13 @@ export function WorkView({ work, look, onLook, footer }: { work: Work; look?: Wo
         </div>
       ) : (
         <>
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-5 py-3 sm:px-7">
-            <div className="flex min-w-0 flex-wrap items-center gap-2 text-sm">
-              <span className="font-semibold">{kind ? `${summary.kinds.find((k) => k.kind === kind)?.label}` : "Everything"}</span>
-              <span className="text-secondary tnum">{many(items.length, "item", "items")}</span>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-5 py-3 sm:px-6">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <span className="type-label">{kind ? `${summary.kinds.find((k) => k.kind === kind)?.label}` : "Everything"}</span>
+              <span className="type-caption tnum">{many(items.length, "item", "items")}</span>
               {kind && (
-                <button type="button" onClick={() => change({ kind: null })} className="inline-flex cursor-pointer items-center gap-1 rounded-full border border-line bg-transparent px-2 py-0.5 text-xs text-secondary hover:border-strong hover:text-primary">
-                  <X size={12} aria-hidden /> Show every kind
+                <button type="button" onClick={() => change({ kind: null })} className="inline-flex h-6 cursor-pointer items-center gap-1 rounded-full border border-line bg-transparent px-2.5 text-xs text-secondary transition-colors hover:border-line-strong hover:text-primary">
+                  <X size={ICON.xs} aria-hidden /> Show every kind
                 </button>
               )}
             </div>
@@ -92,7 +93,7 @@ export function WorkView({ work, look, onLook, footer }: { work: Work; look?: Wo
           <List key={`${view.group}${kind ?? ""}${work.items.length}${work.filter ?? ""}`} items={items} group={view.group} work={work} />
         </>
       )}
-      {footer && <footer className="border-t border-line px-5 py-4 text-xs text-secondary sm:px-7">{footer}</footer>}
+      {footer && <footer className="border-t border-line px-5 py-4 type-caption sm:px-6">{footer}</footer>}
     </article>
   );
 }
@@ -103,14 +104,14 @@ function Cell({ children }: { children: ReactNode }) {
 
 function Kinds({ kinds, active, onPick }: { kinds: ReturnType<typeof workSummary>["kinds"]; active: WorkKind | null; onPick: (k: WorkKind) => void }) {
   return (
-    <section aria-label="Kind of work" className="flex flex-col gap-3 border-t border-line px-5 py-4 sm:px-7">
+    <section aria-label="Kind of work" className="flex flex-col gap-3 border-t border-line px-5 py-4 sm:px-6">
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <h2 className="m-0 text-sm font-semibold">Kind of work</h2>
-        <span className="text-xs text-secondary">From conventional prefixes and the words of each title. Pick one to list only it.</span>
+        <h2 className="m-0 type-label">Kind of work</h2>
+        <span className="type-caption">From conventional prefixes and the words of each title. Pick one to list only it.</span>
       </div>
-      <div className="flex h-2.5 w-full gap-[2px] overflow-hidden rounded-full" aria-hidden>
+      <div className="flex h-2.5 w-full gap-0.5 overflow-hidden rounded-full" aria-hidden>
         {kinds.map((k) => (
-          <span key={k.kind} className="h-full min-w-[3px] transition-opacity duration-200" style={{ flexGrow: k.count, background: KIND_COLOURS[k.kind], opacity: active && active !== k.kind ? 0.25 : 1 }} />
+          <span key={k.kind} className="h-full min-w-1 transition-opacity duration-[var(--duration-fast)]" style={{ flexGrow: k.count, background: KIND_COLOURS[k.kind], opacity: active && active !== k.kind ? 0.25 : 1 }} />
         ))}
       </div>
       <ul className="m-0 flex list-none flex-wrap gap-1.5 p-0">
@@ -120,11 +121,11 @@ function Kinds({ kinds, active, onPick }: { kinds: ReturnType<typeof workSummary
               type="button"
               aria-pressed={active === k.kind}
               onClick={() => onPick(k.kind)}
-              className={`inline-flex cursor-pointer items-center gap-2 rounded-full border px-2.5 py-1 text-xs transition-colors ${active === k.kind ? "border-[var(--color-text-primary)] bg-[var(--color-overlay-hover)] text-primary" : "border-line bg-transparent text-primary hover:border-strong"}`}
+              className={`inline-flex h-6 cursor-pointer items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors ${active === k.kind ? "border-primary bg-overlay-hover text-primary" : "border-line bg-transparent text-primary hover:border-line-strong"}`}
             >
               <span className="size-2 rounded-full" style={{ background: KIND_COLOURS[k.kind] }} aria-hidden />
               {k.short}
-              <span className="text-secondary tnum">
+              <span className="font-normal text-secondary tnum">
                 {grouped(k.count)} · {percent(k.share)}
               </span>
             </button>
@@ -192,23 +193,23 @@ function List({ items, group, work }: { items: WorkItem[]; group: WorkGroup; wor
     <div>
       {shown.map((b) => (
         <section key={b.key} className="border-t border-line" aria-labelledby={`g-${b.key}`}>
-          <div className={`${STICK} flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-line bg-[color-mix(in_srgb,var(--color-background-surface)_88%,transparent)] px-5 py-2.5 backdrop-blur-md sm:px-7`}>
+          <div className={`${STICK} flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-line bg-[color-mix(in_srgb,var(--surface)_88%,transparent)] px-5 py-2.5 backdrop-blur-md sm:px-6`}>
             {b.repo ? (
               <RepoTitle id={`g-${b.key}`} repo={b.repo.repo} isPrivate={b.repo.private} work={work} level={2} />
             ) : (
-              <h2 id={`g-${b.key}`} className="m-0 text-[0.95rem] font-semibold tracking-[-0.01em]">
+              <h2 id={`g-${b.key}`} className="m-0 type-panel">
                 {b.title}
               </h2>
             )}
-            <span className="text-xs text-secondary tnum">{b.meta}</span>
+            <span className="type-caption tnum">{b.meta}</span>
           </div>
-          <div className="flex flex-col gap-5 px-5 pt-3 pb-5 sm:px-7">
+          <div className="flex flex-col gap-5 px-5 pt-3 pb-5 sm:px-6">
             {b.rows.map((r) => (
               <div key={r.repo} className="flex min-w-0 flex-col gap-1">
                 {!b.repo && (
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-1">
                     <RepoTitle repo={r.repo} isPrivate={r.private} work={work} level={3} />
-                    <span className="ms-auto text-xs text-secondary tnum">{r.meta}</span>
+                    <span className="ms-auto type-caption tnum">{r.meta}</span>
                   </div>
                 )}
                 <ul className={`m-0 flex list-none flex-col p-0 ${b.repo ? "" : "sm:ps-8"}`}>
@@ -221,10 +222,10 @@ function List({ items, group, work }: { items: WorkItem[]; group: WorkGroup; wor
           </div>
         </section>
       ))}
-      <div ref={end} className="border-t border-line px-5 py-5 sm:px-7" aria-live="polite">
+      <div ref={end} className="border-t border-line px-5 py-5 sm:px-6" aria-live="polite">
         {more ? (
           <div className="flex flex-col gap-2">
-            <span className="text-xs text-secondary tnum">
+            <span className="type-caption tnum">
               Showing {grouped(Math.min(limit, items.length))} of {grouped(items.length)}. More appear as you scroll.
             </span>
             {[0, 1, 2].map((i) => (
@@ -232,13 +233,13 @@ function List({ items, group, work }: { items: WorkItem[]; group: WorkGroup; wor
             ))}
           </div>
         ) : (
-          <div className="flex items-center justify-center gap-3 text-xs text-secondary">
-            <span className="h-px flex-1 bg-[var(--color-border)]" />
+          <div className="flex items-center justify-center gap-3 type-caption">
+            <span className="h-px flex-1 bg-line" />
             <span className="inline-flex items-center gap-1.5">
-              <CircleCheck size={13} aria-hidden className="text-brand" />
+              <CircleCheck size={ICON.sm} aria-hidden className="text-brand" />
               {items.length === 1 ? "That is the one item" : `That is all ${grouped(items.length)}`}, {periodWords(work.from, work.to)}
             </span>
-            <span className="h-px flex-1 bg-[var(--color-border)]" />
+            <span className="h-px flex-1 bg-line" />
           </div>
         )}
       </div>
@@ -252,13 +253,13 @@ function RepoTitle({ id, repo, isPrivate, work, level }: { id?: string; repo: st
   return (
     <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
       <Face login={owner} name={owner} size={20} shape="rounded" />
-      <H id={id} className="m-0 min-w-0 text-[0.95rem] font-semibold [overflow-wrap:anywhere]">
+      <H id={id} className="m-0 min-w-0 text-md font-semibold tracking-tight [overflow-wrap:anywhere]">
         <a href={`https://github.com/${repo}`} className="text-primary no-underline hover:underline">
           <span className="font-normal text-secondary">{owner}/</span>
           {name}
         </a>
       </H>
-      {isPrivate && <Badge label={work.shared ? "private, shared by choice" : work.scope === "self" ? "private: only you see this" : "private"} icon={<Lock size={11} aria-hidden />} variant="neutral" />}
+      {isPrivate && <Badge label={work.shared ? "private, shared by choice" : work.scope === "self" ? "private: only you see this" : "private"} icon={<Lock size={ICON.xs} aria-hidden />} variant="neutral" />}
     </span>
   );
 }
@@ -272,22 +273,22 @@ function Row({ item }: { item: WorkItem }) {
     </span>
   );
   return (
-    <li className="flex items-start gap-3 border-b border-line py-2 text-[0.875rem] last:border-b-0">
+    <li className="flex items-start gap-3 border-b border-line py-2 text-base last:border-b-0">
       <span className={`mt-0.5 flex-none ${pr ? "text-brand" : "text-secondary"}`} title={pr ? "Pull request, merged" : "Commit"}>
-        {pr ? <GitMerge size={15} aria-label="Pull request, merged" /> : <GitCommitHorizontal size={15} aria-label="Commit" />}
+        {pr ? <GitMerge size={ICON.md} aria-label="Pull request, merged" /> : <GitCommitHorizontal size={ICON.md} aria-label="Commit" />}
       </span>
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <a href={item.url} className="text-primary no-underline [overflow-wrap:anywhere] hover:underline">
           {item.title}
         </a>
-        <span className="flex flex-wrap gap-x-2 text-xs text-secondary sm:hidden">
+        <span className="flex flex-wrap gap-x-2 type-caption sm:hidden">
           <span className={pr ? "tnum" : "font-mono"}>{ref}</span>
           <span>{pr ? `merged ${day(item.at)}` : day(item.at)}</span>
           {lines}
         </span>
       </span>
-      <span className={`mt-0.5 hidden w-16 flex-none text-end text-xs text-secondary sm:block ${pr ? "tnum" : "font-mono"}`}>{ref}</span>
-      <time dateTime={item.at} title={longDay(item.at)} className="mt-0.5 hidden w-14 flex-none text-end text-xs text-secondary tnum sm:block">
+      <span className={`mt-0.5 hidden w-16 flex-none text-end type-caption sm:block ${pr ? "tnum" : "font-mono"}`}>{ref}</span>
+      <time dateTime={item.at} title={longDay(item.at)} className="mt-0.5 hidden w-14 flex-none text-end type-caption tnum sm:block">
         {day(item.at)}
       </time>
       <span className="mt-0.5 hidden w-24 flex-none text-end text-xs sm:block">{lines}</span>
@@ -298,7 +299,7 @@ function Row({ item }: { item: WorkItem }) {
 /** A Proof of Work's stand-in while it is read from GitHub, the same shape as the document. */
 export function WorkSkeleton() {
   return (
-    <div className="overflow-hidden rounded-[var(--radius-container)] border border-line bg-surface">
+    <div className="overflow-hidden rounded-lg border border-line bg-surface">
       <div className="grid grid-cols-2 lg:grid-cols-4">
         {[0, 1, 2, 3].map((i) => (
           <Cell key={i}>
@@ -310,7 +311,7 @@ export function WorkSkeleton() {
           </Cell>
         ))}
       </div>
-      <div className="flex flex-col gap-3 border-t border-line px-5 py-4 sm:px-7">
+      <div className="flex flex-col gap-3 border-t border-line px-5 py-4 sm:px-6">
         <Skeleton height={14} width={110} radius={1} />
         <Skeleton height={10} radius="rounded" />
         <div className="flex flex-wrap gap-1.5">
@@ -319,14 +320,14 @@ export function WorkSkeleton() {
           ))}
         </div>
       </div>
-      <div className="flex items-center justify-between border-t border-line px-5 py-3 sm:px-7">
+      <div className="flex items-center justify-between border-t border-line px-5 py-3 sm:px-6">
         <Skeleton height={16} width={140} radius={1} />
         <Skeleton height={28} width={200} radius={2} />
       </div>
-      <div className="border-t border-line px-5 py-3 sm:px-7">
+      <div className="border-t border-line px-5 py-3 sm:px-6">
         <Skeleton height={18} width={140} radius={1} />
       </div>
-      <div className="flex flex-col gap-3 border-t border-line px-5 py-5 sm:px-7">
+      <div className="flex flex-col gap-3 border-t border-line px-5 py-5 sm:px-6">
         {Array.from({ length: 8 }, (_, i) => (
           <Skeleton key={i} height={22} index={i} radius={1} />
         ))}

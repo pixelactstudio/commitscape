@@ -6,6 +6,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { ArrowLeft } from "lucide-react";
 import { PRODUCT } from "@commitscape/data";
 import { ACHIEVEMENT_CARD_SIZE, ARCHETYPE_CARD_SIZE, CARDS, compact, Face, grouped, Page, PageHead, parseStyle, PERSON_CARDS, STANDING_CARD_SIZE, styleQuery } from "@commitscape/ui";
+import { ICON } from "@commitscape/ui/design";
 import { Section } from "#/components/Boundary";
 import { CardStudio, type CardChoice, type StudioState } from "#/components/CardStudio";
 import { Missing } from "#/components/Missing";
@@ -38,12 +39,12 @@ function Gallery() {
   if (lookup.status !== "ok") return <Missing title={`No one called @${login}`} words="GitHub has no person by that name." />;
   const name = lookup.identity.name ?? lookup.identity.login;
   return (
-    <Page className="pb-16">
+    <Page className="pb-section">
       <PageHead
         media={<Face login={lookup.identity.login} name={name} size={48} />}
         eyebrow={
           <a href={`/u/${lookup.identity.login}`} className="inline-flex items-center gap-1 text-secondary no-underline hover:text-primary">
-            <ArrowLeft size={14} /> {name}
+            <ArrowLeft size={ICON.sm} aria-hidden /> {name}
           </a>
         }
         title={lookup.self ? "Your Cards" : `${name}'s Cards`}
@@ -58,12 +59,12 @@ function Gallery() {
 
 function StudioSkeleton() {
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
-      <div className="flex flex-col gap-4">
+    <div className="grid gap-gutter lg:grid-cols-[minmax(0,1fr)_22rem]">
+      <div className="flex flex-col gap-gutter">
         <Skeleton height={380} radius={4} />
         <Skeleton height={190} radius={4} />
       </div>
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-gutter">
         <Skeleton height={300} radius={4} />
         <Skeleton height={420} radius={4} />
       </div>
@@ -80,10 +81,10 @@ function Studio({ login, name }: { login: string; name: string }) {
   const data = live.data ?? first;
   if (!data.card)
     return (
-      <div className="flex flex-col items-center gap-3 rounded-[var(--radius-container)] border border-line bg-surface px-6 py-20 text-center">
+      <div className="flex flex-col items-center gap-3 rounded-lg border border-line bg-surface px-6 py-band text-center">
         <Spinner size="md" />
-        <p className="m-0 font-medium">Reading @{login} from GitHub</p>
-        <p className="m-0 text-sm text-secondary">Their Cards appear here on their own within a minute.</p>
+        <p className="m-0 type-panel">Reading @{login} from GitHub</p>
+        <p className="m-0 type-description">Their Cards appear here on their own within a minute.</p>
       </div>
     );
   const card = data.card;

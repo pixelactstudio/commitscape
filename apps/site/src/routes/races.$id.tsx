@@ -3,7 +3,9 @@ import { Icon } from "@astryxdesign/core/Icon";
 import { ProgressBar } from "@astryxdesign/core/ProgressBar";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, useRouteContext, type ErrorComponentProps } from "@tanstack/react-router";
-import { CalendarClock, Flag, Link2 } from "lucide-react";
+import { Flag, Link2 } from "lucide-react";
+import { Nothing } from "@commitscape/ui/motion";
+import { ICON } from "@commitscape/ui/design";
 import { PRODUCT, type RaceView } from "@commitscape/data";
 import { Page, PageHead, Panel, periodWords } from "@commitscape/ui";
 import { InvitationCallout, People } from "#/components/Membership";
@@ -46,12 +48,12 @@ function RacePage() {
   const accepted = race.members.filter((m) => m.state === "accepted").length;
   const card = race.standings && race.standings.rows.length > 0 ? { id: "race", title: race.state === "finished" ? "The finish Card" : "The Race Card", about: "Its people, view by view, with a leader for each.", url: `/api/cards/races/${id}/race`, width: 720, height: cardHeight(race.standings.rows.length), link: `/races/${id}`, share: `${race.name}: a ${PRODUCT} Race.`, alt: race.name } : null;
   return (
-    <Page className="flex flex-col gap-4 pb-16">
+    <Page className="flex flex-col gap-gutter pb-16">
       <PageHead
         eyebrow={
           <span className="flex flex-wrap items-center gap-2.5">
             <Link to="/races" className="inline-flex items-center gap-1.5 text-secondary no-underline hover:text-primary">
-              <Flag size={14} aria-hidden /> Race
+              <Flag size={ICON.sm} aria-hidden /> Race
             </Link>
             <StateBadge state={race.state} />
           </span>
@@ -78,14 +80,10 @@ function RacePage() {
         </>
       ) : (
         <Panel>
-          <div className="flex flex-col items-center gap-2 py-8 text-center">
-            <CalendarClock size={28} className="text-secondary" aria-hidden />
-            <span className="font-medium">{race.state === "upcoming" ? "The Standings start on the Race's first day" : "Nobody has accepted yet"}</span>
-            <span className="max-w-md text-sm text-pretty text-secondary">Each view gets its own leader: pull requests merged, reviews given, commits and contributions, from GitHub, over the Race's days only.</span>
-          </div>
+          <Nothing compact title={race.state === "upcoming" ? "The Standings start on the Race's first day" : "Nobody has accepted yet"} words="Each view gets its own leader: pull requests merged, reviews given, commits and contributions, from GitHub, over the Race's days only." />
         </Panel>
       )}
-      <div className={`grid items-start gap-4 ${card ? "lg:grid-cols-[1fr_1.15fr]" : ""}`}>
+      <div className={`grid items-start gap-gutter ${card ? "lg:grid-cols-[1fr_1.15fr]" : ""}`}>
         <People kind="race" id={id} members={race.members} you={race.you} signedIn={!!user} createdBy={race.createdBy} />
         {card && (
           <Panel title={card.title} description={race.state === "finished" ? "How it ended, view by view. Post it, or put it in a README." : "The Race so far, as an image. It follows the Standings until the last day."} actions={<ShareButton choices={[card]} origin={origin} title={card.title} label="Share the Card" variant="secondary" />}>
@@ -100,15 +98,15 @@ function RacePage() {
 function Clock({ race }: { race: RaceView }) {
   const c = windowClock(race.from, race.to);
   return (
-    <div className="flex flex-col gap-3 rounded-[var(--radius-container)] border border-line bg-surface px-5 py-4 sm:flex-row sm:items-center sm:gap-6">
-      <div className="flex flex-none items-baseline gap-3">
-        <span className="text-[1.6rem] leading-none font-semibold tracking-[-0.03em]">{c.words}</span>
-        {race.state === "running" && <span className="text-sm text-secondary tnum">day {c.day} of {c.total}</span>}
+    <div className="flex flex-col gap-3 rounded-lg border border-line bg-surface px-panel py-4 sm:flex-row sm:items-center sm:gap-6">
+      <div className="flex flex-none flex-col gap-1.5">
+        <span className="type-caption font-medium">This Race</span>
+        <span className="type-stat">{c.words}</span>
       </div>
       <div className="min-w-0 flex-1">
         <ProgressBar label="How far through the Race" isLabelHidden value={c.day} max={c.total} variant={race.state === "finished" ? "neutral" : "success"} />
       </div>
-      <span className="flex-none text-sm text-secondary tnum">{c.total === 1 ? "1 day" : `${c.total} days`} in all</span>
+      <span className="flex-none type-caption tnum">{race.state === "running" ? `day ${c.day} of ${c.total}` : c.total === 1 ? "1 day in all" : `${c.total} days in all`}</span>
     </div>
   );
 }
