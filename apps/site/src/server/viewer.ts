@@ -3,6 +3,8 @@ import { auth, githubTokenOf } from "./auth";
 import { builds, db, githubApp, reports } from "./context";
 import { env } from "./env";
 import { clientAddress, sameOrigin } from "./http";
+import type { ProfileDeps, ProfileViewer } from "./profiles";
+import { loginOf } from "./profiles";
 import type { Deps, Viewer } from "./repos";
 
 export function deps(): Deps {
@@ -24,4 +26,26 @@ export function viewerOf(request: Request): Viewer {
     session: who,
     token: () => (token ??= who().then((s) => (s ? githubTokenOf(s.userId, request.headers) : null))),
   };
+}
+
+export function profileDeps(): ProfileDeps {
+  return { db: db(), github: { api: env.GITHUB_API, token: env.GITHUB_TOKEN } };
+}
+
+/** The viewer as a Profile sees them: their GitHub login and token, when signed in. */
+export function profileViewer(request: Request): ProfileViewer & Viewer {
+  const viewer = viewerOf(request);
+  let login: Promise<string | null> | undefined;
+  return {
+    ...viewer,
+    login: () => (login ??= viewer.session().then((s) => (s ? loginOf(db(), s.userId) : null))),
+  };
+}
+
+/** The signed-in person's account id and GitHub login, or null. */
+export async function personOf(request: Request): Promise<{ userId: string; login: string } | null> {
+  const s = await auth.api.getSession({ headers: request.headers }).catch(() => null);
+  if (!s) return null;
+  const login = await loginOf(db(), s.user.id);
+  return login ? { userId: s.user.id, login } : null;
 }

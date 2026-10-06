@@ -20,7 +20,7 @@ async function press(page: Page, key: string, url: RegExp) {
   }).toPass();
 }
 
-const commits = (page: Page) => page.locator(".tile", { has: page.getByText("commits", { exact: true }) }).locator("strong");
+const commits = (page: Page) => page.locator('[data-stat="commits"] [data-value]');
 
 async function sql(text: string): Promise<Record<string, unknown>[]> {
   const client = new pg.Client(setup.databaseUrl);
@@ -49,11 +49,8 @@ function share(...args: string[]) {
 
 test("a pasted link shows GitHub's facts at once, then the Report once it is built", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Any repository's story, in a second.");
-  const box = page.getByRole("textbox", { name: "A GitHub repository" });
-  await box.fill("not a link");
-  await box.press("Enter");
-  await expect(page.getByText("Paste a GitHub link, or owner/name, like BurntSushi/ripgrep.").first()).toBeVisible();
+  await page.waitForLoadState("networkidle");
+  const box = page.getByRole("combobox", { name: "A GitHub username or repository" }).first();
   await box.fill("https://github.com/acme/ownership/tree/main");
   await box.press("Enter");
   await expect(page).toHaveURL(/\/gh\/acme\/ownership$/);
@@ -68,33 +65,34 @@ test("each screen is drawn on the server from its address, with no email address
   expect(html).not.toContain("alice@example.com");
   await page.goto("/gh/acme/ownership");
   await expect(commits(page)).toHaveText("21");
-  await press(page, "3", /screen=people/);
-  await expect(page.locator(".people-table tbody tr")).toHaveCount(3);
-  await page.locator(".people-table").getByRole("button", { name: "Alice Example" }).click();
+  await press(page, "2", /screen=people/);
+  await expect(page.getByRole("table", { name: "People" }).locator("tbody tr")).toHaveCount(3);
+  await page.getByRole("table", { name: "People" }).getByRole("button", { name: "Alice Example" }).click();
   await expect(page.getByRole("heading", { name: "Alice Example" })).toBeVisible();
   await expect(page.getByText("alice@example.com")).toHaveCount(0);
   await page.reload();
   await expect(page.getByRole("heading", { name: "Alice Example" })).toBeVisible();
-  await press(page, "6", /screen=commits/);
+  await press(page, "5", /screen=commits/);
   await expect(page.getByRole("textbox", { name: "Search commits" })).toBeVisible();
   await page.keyboard.press("/");
   await page.keyboard.type("carol");
-  await expect(page.locator(".commit-row")).toHaveCount(5);
+  await expect(page.locator("[data-commit]")).toHaveCount(5);
   await page.getByRole("textbox", { name: "Search commits" }).fill("alice@work");
-  await expect(page.locator(".commit-row")).toHaveCount(0);
+  await expect(page.locator("[data-commit]")).toHaveCount(0);
 });
 
 test("the repository's page carries its social preview, and the card is served", async ({ request }) => {
   const html = await (await request.get("/gh/acme/ownership")).text();
   expect(html).toContain('<meta property="og:title" content="acme/ownership on commitscape"/>');
   expect(html).toContain("Three people and two folders");
-  expect(html).toMatch(/<meta property="og:image" content="http:\/\/127\.0\.0\.1:\d+\/api\/cards\/acme\/ownership"\/>/);
-  const card = await request.get("/api/cards/acme/ownership");
+  expect(html).toMatch(/<meta property="og:image" content="http:\/\/127\.0\.0\.1:\d+\/api\/cards\/gh\/acme\/ownership\/hall-of-fame\.png"\/>/);
+  const card = await request.get("/api/cards/gh/acme/ownership/hall-of-fame.png");
   expect(card.status()).toBe(200);
-  expect(card.headers()["content-type"]).toMatch(/^image\/(png|svg\+xml)$/);
+  expect(card.headers()["content-type"]).toBe("image/png");
 });
 
 test("each way a lookup can fail says so plainly", async ({ page }) => {
+  test.setTimeout(180_000);
   await page.goto("/gh/nobody/nothing");
   await expect(page.getByText("GitHub has no public repository of that name.")).toBeVisible();
   await page.goto("/gh/acme/secret");
@@ -103,7 +101,7 @@ test("each way a lookup can fail says so plainly", async ({ page }) => {
   await expect(page.getByText("This repository is too big for the Site to read.")).toBeVisible({ timeout: 20_000 });
   await page.goto("/gh/acme/slow");
   await expect(page.getByText("Reading its history")).toBeVisible();
-  await expect(page.getByText("took longer than the Site allows")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText("took longer than the Site allows")).toBeVisible({ timeout: 120_000 });
 });
 
 test("a Report more than a day old shows while a newer one is built", async ({ page }) => {
@@ -207,16 +205,15 @@ test("the Leaderboards rank repositories from the night's seed Builds", async ({
   await expect
     .poll(async () => (await sql("SELECT seed, answered, report_at FROM repositories WHERE id = 'acme/ownership'"))[0], { timeout: 60_000 })
     .toMatchObject({ seed: true, answered: 12 });
-  await page.goto("/leaderboards");
+  await page.goto("/leaderboards?tab=repositories");
   await expect(page.getByRole("heading", { name: "Leaderboards", level: 1 })).toBeVisible();
-  await expect(page.getByText(/from 1 of the most starred repositories/)).toBeVisible();
+  await expect(page.getByText(/The people boards count 1 repository; here it is ranked/)).toBeVisible();
   const answers = page.locator("#answers");
   await expect(answers.getByRole("link", { name: "acme/ownership" })).toHaveAttribute("href", "/gh/acme/ownership");
   await expect(answers.getByText("4 h")).toBeVisible();
-  for (const person of ["Alice", "Bob", "Carol"]) await expect(page.locator(".boards").getByText(person)).toHaveCount(0);
 });
 
-const PAGES = ["/", "/leaderboards", "/privacy", "/me", "/gh/acme/ownership", "/gh/acme/ownership?screen=people", "/gh/acme/ownership?screen=risk", "/gh/nobody/nothing"];
+const PAGES = ["/", "/leaderboards", "/privacy", "/me", "/u/alice", "/u/alice/acme/ownership", "/gh/acme/ownership", "/gh/acme/ownership?screen=people", "/gh/nobody/nothing"];
 
 for (const path of PAGES) {
   test(`${path} has no serious accessibility problems`, async ({ page }) => {

@@ -1,40 +1,40 @@
-import { useEffect, useMemo, useRef } from "react";
-import { Badge } from "@astryxdesign/core/Badge";
+import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Banner } from "@astryxdesign/core/Banner";
-import { Heading } from "@astryxdesign/core/Heading";
+import { Button } from "@astryxdesign/core/Button";
+import { Icon } from "@astryxdesign/core/Icon";
+import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { Spinner } from "@astryxdesign/core/Spinner";
-import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { FAILURE_WORDS, PRODUCT, type Lookup } from "@commitscape/data";
-import { App, dataQuery, paramsOf, primaryRequest, SourceContext, toRoute, toSearch, type Route as Where } from "@commitscape/ui";
+import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { createFileRoute, Link, redirect, useNavigate } from "@tanstack/react-router";
+import { Check, Download, ExternalLink, History, Share2 } from "lucide-react";
+import { FAILURE_WORDS, PRODUCT, type Lookup, type View } from "@commitscape/data";
+import { App, hallOfFameCardSize, Leaderboard, Page, Panel, SCREEN_SKELETONS, ScreenBar, SourceContext, toRoute, toSearch, type Route as Where } from "@commitscape/ui";
 import { startBuild } from "#/functions/repos";
-import { lookupQuery, reportHeadQuery, running } from "#/lib/queries";
+import { lookupQuery, reportHeadQuery, running, standingsQuery } from "#/lib/queries";
 import { siteSource } from "#/lib/source";
-import { Connect } from "#/components/Connect";
 import { signIn } from "#/lib/auth-client";
-import { Facts } from "#/components/Facts";
-import { Frame } from "#/components/Frame";
-import { RepoSkeleton } from "#/components/States";
+import { useHydrated } from "#/lib/hydrated";
+import { useRemember } from "#/lib/recent";
+import { Section } from "#/components/Boundary";
+import { Chip, GitHubFacts, RepoHero } from "#/components/Facts";
+import { Missing } from "#/components/Missing";
+import { ShareButton } from "#/components/ShareDialog";
+import { ThemedCard } from "#/components/ThemedCard";
 
-const STEPS: Record<string, string> = {
-  queued: "Waiting for its turn to be read",
-  reading: "Reading its history",
-  uploading: "Storing its Report",
-};
+const STEPS = [
+  { id: "queued", title: "Waiting for its turn", doing: "Builds run one at a time; it starts as soon as the one before it ends." },
+  { id: "cloning", title: "Fetching it from GitHub", doing: "Copying every commit of its history to the Builder." },
+  { id: "reading", title: "Reading its history", doing: "Every commit, who made it, and every line each one added and removed." },
+  { id: "uploading", title: "Storing its Report", doing: "Writing every screen, for every Window, ahead of time." },
+] as const;
+
+const built = (at: number) => new Date(at * 1000).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
 
 export const Route = createFileRoute("/gh/$owner/$repo")({
   validateSearch: (search: Record<string, unknown>) => toSearch(search),
-  loaderDeps: ({ search }) => search,
-  loader: async ({ params, deps, context }) => {
-    const { queryClient } = context;
-    const lookup = await queryClient.ensureQueryData(lookupQuery(params.owner, params.repo));
-    if (lookup.report) {
-      const head = await queryClient.ensureQueryData(reportHeadQuery(params.owner, params.repo, lookup.report.at));
-      const source = siteSource(params.owner, params.repo, head.at, head.meta);
-      const route = toRoute(deps);
-      const first = primaryRequest(route, paramsOf(route, head.meta));
-      if (first) await queryClient.ensureQueryData(dataQuery(source, first[0], first[1])).catch(() => null);
-    }
+  loader: async ({ params, context }) => {
+    const lookup = await context.queryClient.ensureQueryData(lookupQuery(params.owner, params.repo));
+    if (lookup.id !== `${params.owner}/${params.repo}`.toLowerCase()) throw redirect({ to: "/gh/$owner/$repo", params: { owner: lookup.owner, repo: lookup.name }, search: true, replace: true });
     return {
       name: `${lookup.owner}/${lookup.name}`,
       description: lookup.facts?.description ?? null,
@@ -44,7 +44,7 @@ export const Route = createFileRoute("/gh/$owner/$repo")({
   },
   head: ({ loaderData, params }) => {
     const title = `${loaderData?.name ?? `${params.owner}/${params.repo}`} on ${PRODUCT}`;
-    const words = loaderData?.description || "Who built it, who knows which part, what is fragile, and what changes together.";
+    const words = loaderData?.description || "Who built it, and how each of them stands.";
     return {
       meta: [
         { title },
@@ -52,20 +52,18 @@ export const Route = createFileRoute("/gh/$owner/$repo")({
         { property: "og:title", content: title },
         { property: "og:description", content: words },
         { property: "og:type", content: "website" },
-        { name: "twitter:card", content: loaderData?.card ? "summary_large_image" : "summary" },
+        { name: "twitter:card", content: "summary_large_image" },
         { property: "og:url", content: `${loaderData?.origin ?? ""}/gh/${params.owner}/${params.repo}` },
-        ...(loaderData?.card ? [{ property: "og:image", content: `${loaderData.origin}/api/cards/${params.owner}/${params.repo}` }] : []),
+        ...(loaderData?.card ? [{ property: "og:image", content: `${loaderData.origin}/api/cards/gh/${params.owner}/${params.repo}/hall-of-fame.png` }] : []),
       ],
     };
   },
-  pendingComponent: RepoSkeleton,
   component: Repository,
 });
 
 function Repository() {
   const { owner, repo } = Route.useParams();
-  const where = toRoute(Route.useSearch());
-  const navigate = useNavigate({ from: Route.fullPath });
+  const { card } = Route.useLoaderData();
   const queryClient = useQueryClient();
   const { data: lookup } = useSuspenseQuery(lookupQuery(owner, repo));
   const build = useMutation({
@@ -79,79 +77,285 @@ function Repository() {
       build.mutate();
     }
   }, [lookup.canBuild, build]);
-  const head = useQuery({ ...reportHeadQuery(owner, repo, lookup.report?.at ?? 0), enabled: !!lookup.report });
-  const source = useMemo(() => (head.data ? siteSource(owner, repo, head.data.at, head.data.meta) : null), [owner, repo, head.data]);
-  const go = (change: Partial<Where>, replace = false) => void navigate({ search: (prev) => toSearch({ ...prev, ...change }), replace });
+  useRemember(lookup.status === "ok" ? { kind: "repo", id: `${lookup.owner}/${lookup.name}` } : null);
 
-  if (source && lookup.report) {
-    const built = new Date(lookup.report.at * 1000).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-    return (
-      <SourceContext value={source}>
-        <App
-          route={where}
-          go={go}
-          home="/"
-          nav={
-            <>
-              {running(lookup) ? <Badge label="updating…" variant="info" /> : <span className="note small">built {built}</span>}
-              {!lookup.report.lines && <Badge label="lines not counted" variant="neutral" />}
-              <Connect />
-            </>
-          }
-        />
-      </SourceContext>
-    );
-  }
-  if (lookup.report) return <RepoSkeleton />;
-  return <Waiting lookup={lookup} owner={owner} repo={repo} error={build.error?.message ?? null} />;
+  if (lookup.status === "not_found" && !lookup.facts) return <NotFound lookup={lookup} owner={owner} repo={repo} />;
+  const busy = running(lookup);
+  const status = lookup.report ? (
+    busy ? (
+      <Chip icon={<Spinner size="sm" />} tone="brand" title="A newer Report is being built; this one shows meanwhile">
+        updating…
+      </Chip>
+    ) : (
+      <Chip icon={<History size={12} aria-hidden />} title="When this Report was built">
+        built {built(lookup.report.at)}
+      </Chip>
+    )
+  ) : busy ? (
+    <Chip icon={<Spinner size="sm" />} tone="brand" title="Its first Report is being built">
+      building…
+    </Chip>
+  ) : null;
+  const github = `https://github.com/${lookup.owner}/${lookup.name}`;
+  return (
+    <>
+      <RepoHero
+        attached={!!lookup.report}
+        owner={lookup.owner}
+        name={lookup.name}
+        facts={lookup.facts}
+        status={status}
+        actions={
+          <>
+            {card && (
+              <Section fallback={<Button label="Share" variant="primary" icon={<Icon icon={Share2} size="sm" />} isDisabled />}>
+                <HallShare owner={lookup.owner} repo={lookup.name} label="Share" variant="primary" />
+              </Section>
+            )}
+            <Button label="View on GitHub" variant="secondary" icon={<Icon icon={ExternalLink} size="sm" />} href={github} target="_blank" rel="noopener noreferrer" />
+          </>
+        }
+      />
+      {lookup.report ? (
+        <Suspense fallback={<ReportSkeleton />}>
+          <Report
+            owner={owner}
+            repo={repo}
+            at={lookup.report.at}
+            notice={
+              !lookup.report.lines && (
+                <div className="pt-5">
+                  <Banner
+                    status="info"
+                    title={busy ? "A fresh read that counts every line is under way." : "A fresh read with line counts is on its way."}
+                    description="This Report was written before every line was counted, so lines added, removed and still running are left out below until the new one lands. The page updates by itself."
+                  />
+                </div>
+              )
+            }
+          />
+        </Suspense>
+      ) : (
+        <Page className="pb-6">
+          <Waiting lookup={lookup} owner={owner} repo={repo} error={build.error?.message ?? null} />
+        </Page>
+      )}
+    </>
+  );
+}
+
+function ReportSkeleton() {
+  const where = toRoute(Route.useSearch());
+  const Screen = SCREEN_SKELETONS[where.screen];
+  return (
+    <div aria-busy="true" aria-label="Loading the Report" className="pb-16">
+      <ScreenBar route={where} />
+      <Page>
+        <Screen />
+      </Page>
+    </div>
+  );
+}
+
+function Report({ owner, repo, at, notice }: { owner: string; repo: string; at: number; notice?: ReactNode }) {
+  const where = toRoute(Route.useSearch());
+  const navigate = useNavigate({ from: Route.fullPath });
+  const { card } = Route.useLoaderData();
+  const { data: head } = useSuspenseQuery(reportHeadQuery(owner, repo, at));
+  const source = useMemo(() => siteSource(owner, repo, head.at, head.meta), [owner, repo, head.at, head.meta]);
+  const logins = useMemo(() => new Map(head.logins), [head.logins]);
+  const standing = useMemo(() => (login: string) => `/u/${login}/${owner}/${repo}`, [owner, repo]);
+  const go = (change: Partial<Where>, replace = false) => void navigate({ search: (prev) => toSearch({ ...prev, ...change }), replace, resetScroll: false });
+  const extras = {
+    people: (
+      <Section fallback={<Fallback title="Leaderboard" height={10 * 53} />}>
+        <Standings owner={owner} repo={repo} />
+      </Section>
+    ),
+    overview:
+      card && !head.private ? (
+        <Section fallback={<Fallback title="Its Card, for a README or a post" height={360} />}>
+          <HallOfFame owner={owner} repo={repo} />
+        </Section>
+      ) : undefined,
+  };
+  return (
+    <SourceContext value={source}>
+      <App route={where} go={go} logins={logins} standing={standing} extras={extras} notice={notice} />
+    </SourceContext>
+  );
+}
+
+function Fallback({ title, height }: { title: string; height: number }) {
+  return (
+    <Panel title={title} description={"\u00a0"}>
+      <Skeleton height={height} />
+    </Panel>
+  );
+}
+
+function Standings({ owner, repo }: { owner: string; repo: string }) {
+  const { data } = useSuspenseQuery(standingsQuery(owner, repo));
+  const [view, setView] = useState<View>("surviving");
+  if (data.people.length === 0) return null;
+  return <Leaderboard standings={data} view={view} onView={setView} />;
+}
+
+function HallShare({ owner, repo, label, variant }: { owner: string; repo: string; label: string; variant: "primary" | "secondary" }) {
+  const { origin } = Route.useLoaderData();
+  const { data } = useSuspenseQuery(standingsQuery(owner, repo));
+  const choice = {
+    id: "hall-of-fame",
+    title: "Repository card",
+    about: "What it is, its stars and forks, and the people who built it, with their faces and numbers.",
+    url: `/api/cards/gh/${owner}/${repo}/hall-of-fame`,
+    ...hallOfFameCardSize(data.people.length),
+    link: `/gh/${owner}/${repo}`,
+    share: `The people who built ${owner}/${repo}.`,
+    alt: `The people who built ${owner}/${repo}`,
+  };
+  return <ShareButton choices={[choice]} origin={origin} label={label} title={`Share ${owner}/${repo}'s hall of fame`} variant={variant} />;
+}
+
+function HallOfFame({ owner, repo }: { owner: string; repo: string }) {
+  const { data } = useSuspenseQuery(standingsQuery(owner, repo));
+  if (data.people.length === 0) return null;
+  const size = hallOfFameCardSize(data.people.length);
+  const src = `/api/cards/gh/${owner}/${repo}/hall-of-fame`;
+  return (
+    <Panel
+      title="Its Card, for a README or a post"
+      description="What it is, its stars, forks and language, and the people who built it with their faces and numbers; light and dark, refreshed every six hours."
+      actions={
+        <>
+          <a href={`${src}.png`} download={`${owner}-${repo}-hall-of-fame.png`} className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium text-primary no-underline transition-colors hover:bg-sunken">
+            <Download size={14} aria-hidden />
+            Download PNG
+          </a>
+          <HallShare owner={owner} repo={repo} label="Put it in a README" variant="secondary" />
+        </>
+      }
+    >
+      <div className="studio-stage flex justify-center rounded-md border border-line px-4 py-8 sm:px-8">
+        <div className="w-full drop-shadow-[0_18px_40px_rgb(0_0_0/0.22)]" style={{ maxWidth: size.width }}>
+          <ThemedCard src={src} alt={`The people who built ${owner}/${repo}`} width={size.width} height={size.height} />
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+function NotFound({ lookup, owner, repo }: { lookup: Lookup; owner: string; repo: string }) {
+  return (
+    <>
+      <Missing title={`Nothing at ${owner}/${repo}`} words={FAILURE_WORDS.not_found} />
+      {lookup.access === "signed_out" && (
+        <p className="-mt-12 pb-16 text-center type-caption">
+          If it is a private repository of yours,{" "}
+          <button type="button" className="cursor-pointer border-0 bg-transparent p-0 font-[inherit] font-medium text-primary underline underline-offset-[3px]" onClick={() => signIn(`/gh/${owner}/${repo}`)}>
+            sign in with GitHub
+          </button>{" "}
+          to see it.
+        </p>
+      )}
+    </>
+  );
 }
 
 function Waiting({ lookup, owner, repo, error }: { lookup: Lookup; owner: string; repo: string; error: string | null }) {
   const busy = running(lookup);
+  const failed = lookup.status === "ok" && lookup.build?.state === "failed" && lookup.build.reason;
   return (
-    <Frame>
-      <section className="repo-waiting">
-        <Heading level={1}>
-          <a href={`https://github.com/${owner}/${repo}`}>
-            {lookup.owner}/{lookup.name}
-          </a>
-        </Heading>
-        {error && <Banner status="error" title={error} />}
-        {lookup.status === "not_found" && (
-          <>
-            <Banner status="warning" title={FAILURE_WORDS.not_found} />
-            {lookup.access === "signed_out" && (
-              <p>
-                If it is a private repository of yours,{" "}
-                <button type="button" className="link" onClick={() => signIn(`/gh/${owner}/${repo}`)}>
-                  sign in with GitHub
-                </button>{" "}
-                to see it.
-              </p>
-            )}
-          </>
-        )}
-        {lookup.status === "private" && (
-          <>
-            <Banner status="info" title={FAILURE_WORDS.private} />
-            {lookup.access === "not_connected" && (
-              <p>
-                You can see it on GitHub; <a href="/me">add it through commitscape's GitHub App</a> to let the Site read it.
-              </p>
-            )}
-          </>
-        )}
-        {lookup.status === "ok" && busy && (
-          <p className="build-step">
-            <Spinner size="sm" /> {STEPS[lookup.build?.step ?? lookup.build?.state ?? "queued"] ?? "Reading its history"}… Most
-            repositories take seconds; a large one up to a minute, the first time.
-          </p>
-        )}
-        {lookup.status === "ok" && lookup.build?.state === "failed" && lookup.build.reason && (
-          <Banner status={lookup.build.reason === "paused" ? "info" : "warning"} title={FAILURE_WORDS[lookup.build.reason]} />
-        )}
-        {lookup.facts && <Facts facts={lookup.facts} />}
-      </section>
-    </Frame>
+    <div className="flex flex-col gap-gutter pt-5">
+      {error && <Banner status="error" title={error} />}
+      {lookup.status === "not_found" && (
+        <Banner
+          status="warning"
+          title={FAILURE_WORDS.not_found}
+          endContent={lookup.access === "signed_out" ? <Button label="Sign in with GitHub" variant="secondary" size="sm" onClick={() => signIn(`/gh/${owner}/${repo}`)} /> : undefined}
+        />
+      )}
+      {lookup.status === "private" && (
+        <Banner
+          status="info"
+          title={FAILURE_WORDS.private}
+          description={
+            lookup.access === "not_connected" ? (
+              <span>
+                You can see it on GitHub; <Link to="/me">add it through commitscape's GitHub App</Link> to let the Site read it.
+              </span>
+            ) : undefined
+          }
+        />
+      )}
+      {lookup.status === "ok" && busy && lookup.build && <BuildProgress build={lookup.build} name={`${lookup.owner}/${lookup.name}`} />}
+      {failed && lookup.build?.reason && <Banner status={lookup.build.reason === "paused" ? "info" : "warning"} title={FAILURE_WORDS[lookup.build.reason]} />}
+      {lookup.facts && (
+        <section aria-label="What GitHub says" className="flex flex-col gap-3">
+          {busy && <h2 className="m-0 pt-2 type-label text-secondary">Meanwhile, what GitHub says of it</h2>}
+          <GitHubFacts facts={lookup.facts} />
+        </section>
+      )}
+    </div>
+  );
+}
+
+function useNow(on: boolean): number | null {
+  const hydrated = useHydrated();
+  const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
+  useEffect(() => {
+    if (!on) return;
+    const t = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 1000);
+    return () => clearInterval(t);
+  }, [on]);
+  return hydrated ? now : null;
+}
+
+function elapsed(s: number): string {
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return m > 0 ? `${m} min ${String(r).padStart(2, "0")} s` : `${r} s`;
+}
+
+function BuildProgress({ build, name }: { build: NonNullable<Lookup["build"]>; name: string }) {
+  const now = useNow(true);
+  const current = build.state === "queued" ? 0 : Math.max(1, STEPS.findIndex((s) => s.id === (build.step ?? "reading")));
+  const since = now === null ? null : Math.max(0, now - build.requestedAt);
+  return (
+    <Panel
+      title={`Building ${name}'s Report`}
+      description="This page fills in by itself when it is done; you can leave it open, or come back later."
+      actions={
+        <span className="inline-flex h-6 items-center gap-2 rounded-full border border-line px-2.5 text-xs font-medium tnum" aria-live="off">
+          <Spinner size="sm" />
+          <span className="text-secondary">{since === null ? " " : elapsed(since)}</span>
+        </span>
+      }
+    >
+      <ol className="m-0 flex list-none flex-col p-0" aria-label="Steps">
+        {STEPS.map((s, i) => {
+          const done = i < current;
+          const now = i === current;
+          return (
+            <li key={s.id} className="relative flex gap-3 pb-4 last:pb-0" aria-current={now ? "step" : undefined}>
+              {i < STEPS.length - 1 && <span className={`absolute start-[11px] top-7 bottom-1 w-px ${done ? "bg-brand" : "bg-line"}`} aria-hidden />}
+              <span className={`relative grid size-6 flex-none place-items-center rounded-full ${done ? "bg-brand text-on-brand" : now ? "bg-brand-soft" : "border border-line"}`}>
+                {done ? <Check size={14} strokeWidth={3} aria-hidden /> : now ? <Spinner size="sm" /> : null}
+              </span>
+              <span className="flex min-w-0 flex-col gap-0.5 pt-0.5">
+                <span className={`text-sm font-medium ${done || now ? "text-primary" : "text-secondary"}`}>
+                  {s.title}
+                  {done && <span className="sr-only">, done</span>}
+                </span>
+                {now && <span className="type-caption">{s.doing}</span>}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+      <p className="m-0 rounded-md bg-sunken px-3 py-2.5 type-description">
+        Most repositories take under a minute. A big one can take several minutes the first time, since every line of its history is now counted: each person's lines added and removed, merges, lockfiles and generated files left out.
+      </p>
+    </Panel>
   );
 }

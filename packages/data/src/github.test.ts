@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { parseGitHub } from "./github";
+import { parseGitHub, parseTarget } from "./github";
 
 test("a GitHub link or owner/name, in the forms people paste", () => {
   const rg = { owner: "BurntSushi", name: "ripgrep" };
@@ -15,4 +15,16 @@ test("anything else is not a repository", () => {
   expect(parseGitHub("ripgrep")).toBeNull();
   expect(parseGitHub("a/..")).toBeNull();
   expect(parseGitHub("a b/c")).toBeNull();
+});
+
+test("a person or a repository, from what someone types", () => {
+  expect(parseTarget("torvalds")).toEqual({ kind: "person", login: "torvalds" });
+  expect(parseTarget(" @gaearon ")).toEqual({ kind: "person", login: "gaearon" });
+  expect(parseTarget("https://github.com/BurntSushi")).toEqual({ kind: "person", login: "BurntSushi" });
+  expect(parseTarget("github.com/BurntSushi/")).toEqual({ kind: "person", login: "BurntSushi" });
+  expect(parseTarget("BurntSushi/ripgrep")).toEqual({ kind: "repository", owner: "BurntSushi", name: "ripgrep" });
+  expect(parseTarget("https://github.com/facebook/react/pulls")).toEqual({ kind: "repository", owner: "facebook", name: "react" });
+  expect(parseTarget("-bad")).toBeNull();
+  expect(parseTarget("a--b")).toBeNull();
+  expect(parseTarget("")).toBeNull();
 });

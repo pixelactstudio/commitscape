@@ -10,24 +10,52 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as DesignRouteImport } from './routes/design'
 import { Route as LeaderboardsRouteImport } from './routes/leaderboards'
 import { Route as McpRouteImport } from './routes/mcp'
 import { Route as MeRouteImport } from './routes/me'
 import { Route as PrivacyRouteImport } from './routes/privacy'
+import { Route as YouRouteImport } from './routes/you'
 import { Route as ApiSplatRouteImport } from './routes/api/$'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
+import { Route as CrewsIndexRouteImport } from './routes/crews.index'
+import { Route as CrewsIdRouteImport } from './routes/crews.$id'
+import { Route as RacesIndexRouteImport } from './routes/races.index'
+import { Route as RacesIdRouteImport } from './routes/races.$id'
 import { Route as SIdRouteImport } from './routes/s.$id'
+import { Route as ULoginRouteImport } from './routes/u.$login'
+import { Route as VsIndexRouteImport } from './routes/vs.index'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiGithubWebhooksRouteImport } from './routes/api/github/webhooks'
 import { Route as ApiSharesIndexRouteImport } from './routes/api/shares/index'
 import { Route as ApiSharesIdRouteImport } from './routes/api/shares/$id'
 import { Route as GhOwnerRepoRouteImport } from './routes/gh.$owner.$repo'
-import { Route as ApiCardsOwnerRepoRouteImport } from './routes/api/cards/$owner/$repo'
+import { Route as ULoginCardsRouteImport } from './routes/u.$login_.cards'
+import { Route as ULoginWorkRouteImport } from './routes/u.$login_.work'
+import { Route as VsABRouteImport } from './routes/vs.$a.$b'
+import { Route as ApiCardsSiteFileRouteImport } from './routes/api/cards/site/$file'
+import { Route as ULoginOwnerRepoRouteImport } from './routes/u.$login_.$owner.$repo'
+import { Route as ULoginWorkIdRouteImport } from './routes/u.$login_.work_.$id'
+import { Route as ULoginWrappedYearRouteImport } from './routes/u.$login_.wrapped.$year'
+import { Route as ApiCardsCrewsIdFileRouteImport } from './routes/api/cards/crews/$id/$file'
+import { Route as ApiCardsRacesIdFileRouteImport } from './routes/api/cards/races/$id/$file'
+import { Route as ApiCardsULoginFileRouteImport } from './routes/api/cards/u/$login/$file'
 import { Route as ApiReportsOwnerRepoCommitsRouteImport } from './routes/api/reports/$owner/$repo/commits'
+import { Route as ApiWorkSIdFileRouteImport } from './routes/api/work/s/$id/$file'
+import { Route as ApiWorkULoginFileRouteImport } from './routes/api/work/u/$login/$file'
+import { Route as ApiCardsGhOwnerRepoFileRouteImport } from './routes/api/cards/gh/$owner/$repo/$file'
+import { Route as ApiCardsVsABFileRouteImport } from './routes/api/cards/vs/$a/$b/$file'
+import { Route as ApiCardsULoginOwnerRepoFileRouteImport } from './routes/api/cards/u/$login/$owner/$repo/$file'
+import { Route as ApiCardsULoginWrappedYearFileRouteImport } from './routes/api/cards/u/$login/wrapped/$year/$file'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DesignRoute = DesignRouteImport.update({
+  id: '/design',
+  path: '/design',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LeaderboardsRoute = LeaderboardsRouteImport.update({
@@ -50,6 +78,11 @@ const PrivacyRoute = PrivacyRouteImport.update({
   path: '/privacy',
   getParentRoute: () => rootRouteImport,
 } as any)
+const YouRoute = YouRouteImport.update({
+  id: '/you',
+  path: '/you',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiSplatRoute = ApiSplatRouteImport.update({
   id: '/api/$',
   path: '/api/$',
@@ -60,9 +93,39 @@ const ApiHealthRoute = ApiHealthRouteImport.update({
   path: '/api/health',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CrewsIndexRoute = CrewsIndexRouteImport.update({
+  id: '/crews/',
+  path: '/crews/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CrewsIdRoute = CrewsIdRouteImport.update({
+  id: '/crews/$id',
+  path: '/crews/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RacesIndexRoute = RacesIndexRouteImport.update({
+  id: '/races/',
+  path: '/races/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RacesIdRoute = RacesIdRouteImport.update({
+  id: '/races/$id',
+  path: '/races/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SIdRoute = SIdRouteImport.update({
   id: '/s/$id',
   path: '/s/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ULoginRoute = ULoginRouteImport.update({
+  id: '/u/$login',
+  path: '/u/$login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const VsIndexRoute = VsIndexRouteImport.update({
+  id: '/vs/',
+  path: '/vs/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
@@ -90,9 +153,54 @@ const GhOwnerRepoRoute = GhOwnerRepoRouteImport.update({
   path: '/gh/$owner/$repo',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiCardsOwnerRepoRoute = ApiCardsOwnerRepoRouteImport.update({
-  id: '/api/cards/$owner/$repo',
-  path: '/api/cards/$owner/$repo',
+const ULoginCardsRoute = ULoginCardsRouteImport.update({
+  id: '/u/$login_/cards',
+  path: '/u/$login/cards',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ULoginWorkRoute = ULoginWorkRouteImport.update({
+  id: '/u/$login_/work',
+  path: '/u/$login/work',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const VsABRoute = VsABRouteImport.update({
+  id: '/vs/$a/$b',
+  path: '/vs/$a/$b',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCardsSiteFileRoute = ApiCardsSiteFileRouteImport.update({
+  id: '/api/cards/site/$file',
+  path: '/api/cards/site/$file',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ULoginOwnerRepoRoute = ULoginOwnerRepoRouteImport.update({
+  id: '/u/$login_/$owner/$repo',
+  path: '/u/$login/$owner/$repo',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ULoginWorkIdRoute = ULoginWorkIdRouteImport.update({
+  id: '/u/$login_/work_/$id',
+  path: '/u/$login/work/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ULoginWrappedYearRoute = ULoginWrappedYearRouteImport.update({
+  id: '/u/$login_/wrapped/$year',
+  path: '/u/$login/wrapped/$year',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCardsCrewsIdFileRoute = ApiCardsCrewsIdFileRouteImport.update({
+  id: '/api/cards/crews/$id/$file',
+  path: '/api/cards/crews/$id/$file',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCardsRacesIdFileRoute = ApiCardsRacesIdFileRouteImport.update({
+  id: '/api/cards/races/$id/$file',
+  path: '/api/cards/races/$id/$file',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCardsULoginFileRoute = ApiCardsULoginFileRouteImport.update({
+  id: '/api/cards/u/$login/$file',
+  path: '/api/cards/u/$login/$file',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiReportsOwnerRepoCommitsRoute =
@@ -101,129 +209,322 @@ const ApiReportsOwnerRepoCommitsRoute =
     path: '/api/reports/$owner/$repo/commits',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiWorkSIdFileRoute = ApiWorkSIdFileRouteImport.update({
+  id: '/api/work/s/$id/$file',
+  path: '/api/work/s/$id/$file',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiWorkULoginFileRoute = ApiWorkULoginFileRouteImport.update({
+  id: '/api/work/u/$login/$file',
+  path: '/api/work/u/$login/$file',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCardsGhOwnerRepoFileRoute = ApiCardsGhOwnerRepoFileRouteImport.update({
+  id: '/api/cards/gh/$owner/$repo/$file',
+  path: '/api/cards/gh/$owner/$repo/$file',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCardsVsABFileRoute = ApiCardsVsABFileRouteImport.update({
+  id: '/api/cards/vs/$a/$b/$file',
+  path: '/api/cards/vs/$a/$b/$file',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCardsULoginOwnerRepoFileRoute =
+  ApiCardsULoginOwnerRepoFileRouteImport.update({
+    id: '/api/cards/u/$login/$owner/$repo/$file',
+    path: '/api/cards/u/$login/$owner/$repo/$file',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiCardsULoginWrappedYearFileRoute =
+  ApiCardsULoginWrappedYearFileRouteImport.update({
+    id: '/api/cards/u/$login/wrapped/$year/$file',
+    path: '/api/cards/u/$login/wrapped/$year/$file',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/design': typeof DesignRoute
   '/leaderboards': typeof LeaderboardsRoute
   '/mcp': typeof McpRoute
   '/me': typeof MeRoute
   '/privacy': typeof PrivacyRoute
+  '/you': typeof YouRoute
   '/api/$': typeof ApiSplatRoute
   '/api/health': typeof ApiHealthRoute
+  '/crews/$id': typeof CrewsIdRoute
+  '/races/$id': typeof RacesIdRoute
   '/s/$id': typeof SIdRoute
+  '/u/$login': typeof ULoginRoute
+  '/crews/': typeof CrewsIndexRoute
+  '/races/': typeof RacesIndexRoute
+  '/vs/': typeof VsIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/github/webhooks': typeof ApiGithubWebhooksRoute
   '/api/shares/$id': typeof ApiSharesIdRoute
   '/gh/$owner/$repo': typeof GhOwnerRepoRoute
+  '/u/$login/cards': typeof ULoginCardsRoute
+  '/u/$login/work': typeof ULoginWorkRoute
+  '/vs/$a/$b': typeof VsABRoute
   '/api/shares/': typeof ApiSharesIndexRoute
-  '/api/cards/$owner/$repo': typeof ApiCardsOwnerRepoRoute
+  '/api/cards/site/$file': typeof ApiCardsSiteFileRoute
+  '/u/$login/$owner/$repo': typeof ULoginOwnerRepoRoute
+  '/u/$login/work/$id': typeof ULoginWorkIdRoute
+  '/u/$login/wrapped/$year': typeof ULoginWrappedYearRoute
+  '/api/cards/crews/$id/$file': typeof ApiCardsCrewsIdFileRoute
+  '/api/cards/races/$id/$file': typeof ApiCardsRacesIdFileRoute
+  '/api/cards/u/$login/$file': typeof ApiCardsULoginFileRoute
   '/api/reports/$owner/$repo/commits': typeof ApiReportsOwnerRepoCommitsRoute
+  '/api/work/s/$id/$file': typeof ApiWorkSIdFileRoute
+  '/api/work/u/$login/$file': typeof ApiWorkULoginFileRoute
+  '/api/cards/gh/$owner/$repo/$file': typeof ApiCardsGhOwnerRepoFileRoute
+  '/api/cards/vs/$a/$b/$file': typeof ApiCardsVsABFileRoute
+  '/api/cards/u/$login/$owner/$repo/$file': typeof ApiCardsULoginOwnerRepoFileRoute
+  '/api/cards/u/$login/wrapped/$year/$file': typeof ApiCardsULoginWrappedYearFileRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/design': typeof DesignRoute
   '/leaderboards': typeof LeaderboardsRoute
   '/mcp': typeof McpRoute
   '/me': typeof MeRoute
   '/privacy': typeof PrivacyRoute
+  '/you': typeof YouRoute
   '/api/$': typeof ApiSplatRoute
   '/api/health': typeof ApiHealthRoute
+  '/crews/$id': typeof CrewsIdRoute
+  '/races/$id': typeof RacesIdRoute
   '/s/$id': typeof SIdRoute
+  '/u/$login': typeof ULoginRoute
+  '/crews': typeof CrewsIndexRoute
+  '/races': typeof RacesIndexRoute
+  '/vs': typeof VsIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/github/webhooks': typeof ApiGithubWebhooksRoute
   '/api/shares/$id': typeof ApiSharesIdRoute
   '/gh/$owner/$repo': typeof GhOwnerRepoRoute
+  '/u/$login/cards': typeof ULoginCardsRoute
+  '/u/$login/work': typeof ULoginWorkRoute
+  '/vs/$a/$b': typeof VsABRoute
   '/api/shares': typeof ApiSharesIndexRoute
-  '/api/cards/$owner/$repo': typeof ApiCardsOwnerRepoRoute
+  '/api/cards/site/$file': typeof ApiCardsSiteFileRoute
+  '/u/$login/$owner/$repo': typeof ULoginOwnerRepoRoute
+  '/u/$login/work/$id': typeof ULoginWorkIdRoute
+  '/u/$login/wrapped/$year': typeof ULoginWrappedYearRoute
+  '/api/cards/crews/$id/$file': typeof ApiCardsCrewsIdFileRoute
+  '/api/cards/races/$id/$file': typeof ApiCardsRacesIdFileRoute
+  '/api/cards/u/$login/$file': typeof ApiCardsULoginFileRoute
   '/api/reports/$owner/$repo/commits': typeof ApiReportsOwnerRepoCommitsRoute
+  '/api/work/s/$id/$file': typeof ApiWorkSIdFileRoute
+  '/api/work/u/$login/$file': typeof ApiWorkULoginFileRoute
+  '/api/cards/gh/$owner/$repo/$file': typeof ApiCardsGhOwnerRepoFileRoute
+  '/api/cards/vs/$a/$b/$file': typeof ApiCardsVsABFileRoute
+  '/api/cards/u/$login/$owner/$repo/$file': typeof ApiCardsULoginOwnerRepoFileRoute
+  '/api/cards/u/$login/wrapped/$year/$file': typeof ApiCardsULoginWrappedYearFileRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/design': typeof DesignRoute
   '/leaderboards': typeof LeaderboardsRoute
   '/mcp': typeof McpRoute
   '/me': typeof MeRoute
   '/privacy': typeof PrivacyRoute
+  '/you': typeof YouRoute
   '/api/$': typeof ApiSplatRoute
   '/api/health': typeof ApiHealthRoute
+  '/crews/$id': typeof CrewsIdRoute
+  '/races/$id': typeof RacesIdRoute
   '/s/$id': typeof SIdRoute
+  '/u/$login': typeof ULoginRoute
+  '/crews/': typeof CrewsIndexRoute
+  '/races/': typeof RacesIndexRoute
+  '/vs/': typeof VsIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/github/webhooks': typeof ApiGithubWebhooksRoute
   '/api/shares/$id': typeof ApiSharesIdRoute
   '/gh/$owner/$repo': typeof GhOwnerRepoRoute
+  '/u/$login_/cards': typeof ULoginCardsRoute
+  '/u/$login_/work': typeof ULoginWorkRoute
+  '/vs/$a/$b': typeof VsABRoute
   '/api/shares/': typeof ApiSharesIndexRoute
-  '/api/cards/$owner/$repo': typeof ApiCardsOwnerRepoRoute
+  '/api/cards/site/$file': typeof ApiCardsSiteFileRoute
+  '/u/$login_/$owner/$repo': typeof ULoginOwnerRepoRoute
+  '/u/$login_/work_/$id': typeof ULoginWorkIdRoute
+  '/u/$login_/wrapped/$year': typeof ULoginWrappedYearRoute
+  '/api/cards/crews/$id/$file': typeof ApiCardsCrewsIdFileRoute
+  '/api/cards/races/$id/$file': typeof ApiCardsRacesIdFileRoute
+  '/api/cards/u/$login/$file': typeof ApiCardsULoginFileRoute
   '/api/reports/$owner/$repo/commits': typeof ApiReportsOwnerRepoCommitsRoute
+  '/api/work/s/$id/$file': typeof ApiWorkSIdFileRoute
+  '/api/work/u/$login/$file': typeof ApiWorkULoginFileRoute
+  '/api/cards/gh/$owner/$repo/$file': typeof ApiCardsGhOwnerRepoFileRoute
+  '/api/cards/vs/$a/$b/$file': typeof ApiCardsVsABFileRoute
+  '/api/cards/u/$login/$owner/$repo/$file': typeof ApiCardsULoginOwnerRepoFileRoute
+  '/api/cards/u/$login/wrapped/$year/$file': typeof ApiCardsULoginWrappedYearFileRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/design'
     | '/leaderboards'
     | '/mcp'
     | '/me'
     | '/privacy'
+    | '/you'
     | '/api/$'
     | '/api/health'
+    | '/crews/$id'
+    | '/races/$id'
     | '/s/$id'
+    | '/u/$login'
+    | '/crews/'
+    | '/races/'
+    | '/vs/'
     | '/api/auth/$'
     | '/api/github/webhooks'
     | '/api/shares/$id'
     | '/gh/$owner/$repo'
+    | '/u/$login/cards'
+    | '/u/$login/work'
+    | '/vs/$a/$b'
     | '/api/shares/'
-    | '/api/cards/$owner/$repo'
+    | '/api/cards/site/$file'
+    | '/u/$login/$owner/$repo'
+    | '/u/$login/work/$id'
+    | '/u/$login/wrapped/$year'
+    | '/api/cards/crews/$id/$file'
+    | '/api/cards/races/$id/$file'
+    | '/api/cards/u/$login/$file'
     | '/api/reports/$owner/$repo/commits'
+    | '/api/work/s/$id/$file'
+    | '/api/work/u/$login/$file'
+    | '/api/cards/gh/$owner/$repo/$file'
+    | '/api/cards/vs/$a/$b/$file'
+    | '/api/cards/u/$login/$owner/$repo/$file'
+    | '/api/cards/u/$login/wrapped/$year/$file'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/design'
     | '/leaderboards'
     | '/mcp'
     | '/me'
     | '/privacy'
+    | '/you'
     | '/api/$'
     | '/api/health'
+    | '/crews/$id'
+    | '/races/$id'
     | '/s/$id'
+    | '/u/$login'
+    | '/crews'
+    | '/races'
+    | '/vs'
     | '/api/auth/$'
     | '/api/github/webhooks'
     | '/api/shares/$id'
     | '/gh/$owner/$repo'
+    | '/u/$login/cards'
+    | '/u/$login/work'
+    | '/vs/$a/$b'
     | '/api/shares'
-    | '/api/cards/$owner/$repo'
+    | '/api/cards/site/$file'
+    | '/u/$login/$owner/$repo'
+    | '/u/$login/work/$id'
+    | '/u/$login/wrapped/$year'
+    | '/api/cards/crews/$id/$file'
+    | '/api/cards/races/$id/$file'
+    | '/api/cards/u/$login/$file'
     | '/api/reports/$owner/$repo/commits'
+    | '/api/work/s/$id/$file'
+    | '/api/work/u/$login/$file'
+    | '/api/cards/gh/$owner/$repo/$file'
+    | '/api/cards/vs/$a/$b/$file'
+    | '/api/cards/u/$login/$owner/$repo/$file'
+    | '/api/cards/u/$login/wrapped/$year/$file'
   id:
     | '__root__'
     | '/'
+    | '/design'
     | '/leaderboards'
     | '/mcp'
     | '/me'
     | '/privacy'
+    | '/you'
     | '/api/$'
     | '/api/health'
+    | '/crews/$id'
+    | '/races/$id'
     | '/s/$id'
+    | '/u/$login'
+    | '/crews/'
+    | '/races/'
+    | '/vs/'
     | '/api/auth/$'
     | '/api/github/webhooks'
     | '/api/shares/$id'
     | '/gh/$owner/$repo'
+    | '/u/$login_/cards'
+    | '/u/$login_/work'
+    | '/vs/$a/$b'
     | '/api/shares/'
-    | '/api/cards/$owner/$repo'
+    | '/api/cards/site/$file'
+    | '/u/$login_/$owner/$repo'
+    | '/u/$login_/work_/$id'
+    | '/u/$login_/wrapped/$year'
+    | '/api/cards/crews/$id/$file'
+    | '/api/cards/races/$id/$file'
+    | '/api/cards/u/$login/$file'
     | '/api/reports/$owner/$repo/commits'
+    | '/api/work/s/$id/$file'
+    | '/api/work/u/$login/$file'
+    | '/api/cards/gh/$owner/$repo/$file'
+    | '/api/cards/vs/$a/$b/$file'
+    | '/api/cards/u/$login/$owner/$repo/$file'
+    | '/api/cards/u/$login/wrapped/$year/$file'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  DesignRoute: typeof DesignRoute
   LeaderboardsRoute: typeof LeaderboardsRoute
   McpRoute: typeof McpRoute
   MeRoute: typeof MeRoute
   PrivacyRoute: typeof PrivacyRoute
+  YouRoute: typeof YouRoute
   ApiSplatRoute: typeof ApiSplatRoute
   ApiHealthRoute: typeof ApiHealthRoute
+  CrewsIdRoute: typeof CrewsIdRoute
+  RacesIdRoute: typeof RacesIdRoute
   SIdRoute: typeof SIdRoute
+  ULoginRoute: typeof ULoginRoute
+  CrewsIndexRoute: typeof CrewsIndexRoute
+  RacesIndexRoute: typeof RacesIndexRoute
+  VsIndexRoute: typeof VsIndexRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiGithubWebhooksRoute: typeof ApiGithubWebhooksRoute
   ApiSharesIdRoute: typeof ApiSharesIdRoute
   GhOwnerRepoRoute: typeof GhOwnerRepoRoute
+  ULoginCardsRoute: typeof ULoginCardsRoute
+  ULoginWorkRoute: typeof ULoginWorkRoute
+  VsABRoute: typeof VsABRoute
   ApiSharesIndexRoute: typeof ApiSharesIndexRoute
-  ApiCardsOwnerRepoRoute: typeof ApiCardsOwnerRepoRoute
+  ApiCardsSiteFileRoute: typeof ApiCardsSiteFileRoute
+  ULoginOwnerRepoRoute: typeof ULoginOwnerRepoRoute
+  ULoginWorkIdRoute: typeof ULoginWorkIdRoute
+  ULoginWrappedYearRoute: typeof ULoginWrappedYearRoute
+  ApiCardsCrewsIdFileRoute: typeof ApiCardsCrewsIdFileRoute
+  ApiCardsRacesIdFileRoute: typeof ApiCardsRacesIdFileRoute
+  ApiCardsULoginFileRoute: typeof ApiCardsULoginFileRoute
   ApiReportsOwnerRepoCommitsRoute: typeof ApiReportsOwnerRepoCommitsRoute
+  ApiWorkSIdFileRoute: typeof ApiWorkSIdFileRoute
+  ApiWorkULoginFileRoute: typeof ApiWorkULoginFileRoute
+  ApiCardsGhOwnerRepoFileRoute: typeof ApiCardsGhOwnerRepoFileRoute
+  ApiCardsVsABFileRoute: typeof ApiCardsVsABFileRoute
+  ApiCardsULoginOwnerRepoFileRoute: typeof ApiCardsULoginOwnerRepoFileRoute
+  ApiCardsULoginWrappedYearFileRoute: typeof ApiCardsULoginWrappedYearFileRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -233,6 +534,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/design': {
+      id: '/design'
+      path: '/design'
+      fullPath: '/design'
+      preLoaderRoute: typeof DesignRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/leaderboards': {
@@ -263,6 +571,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PrivacyRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/you': {
+      id: '/you'
+      path: '/you'
+      fullPath: '/you'
+      preLoaderRoute: typeof YouRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/$': {
       id: '/api/$'
       path: '/api/$'
@@ -277,11 +592,53 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiHealthRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/crews/': {
+      id: '/crews/'
+      path: '/crews'
+      fullPath: '/crews/'
+      preLoaderRoute: typeof CrewsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/crews/$id': {
+      id: '/crews/$id'
+      path: '/crews/$id'
+      fullPath: '/crews/$id'
+      preLoaderRoute: typeof CrewsIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/races/': {
+      id: '/races/'
+      path: '/races'
+      fullPath: '/races/'
+      preLoaderRoute: typeof RacesIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/races/$id': {
+      id: '/races/$id'
+      path: '/races/$id'
+      fullPath: '/races/$id'
+      preLoaderRoute: typeof RacesIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/s/$id': {
       id: '/s/$id'
       path: '/s/$id'
       fullPath: '/s/$id'
       preLoaderRoute: typeof SIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/u/$login': {
+      id: '/u/$login'
+      path: '/u/$login'
+      fullPath: '/u/$login'
+      preLoaderRoute: typeof ULoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/vs/': {
+      id: '/vs/'
+      path: '/vs'
+      fullPath: '/vs/'
+      preLoaderRoute: typeof VsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/auth/$': {
@@ -319,11 +676,74 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof GhOwnerRepoRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/cards/$owner/$repo': {
-      id: '/api/cards/$owner/$repo'
-      path: '/api/cards/$owner/$repo'
-      fullPath: '/api/cards/$owner/$repo'
-      preLoaderRoute: typeof ApiCardsOwnerRepoRouteImport
+    '/u/$login_/cards': {
+      id: '/u/$login_/cards'
+      path: '/u/$login/cards'
+      fullPath: '/u/$login/cards'
+      preLoaderRoute: typeof ULoginCardsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/u/$login_/work': {
+      id: '/u/$login_/work'
+      path: '/u/$login/work'
+      fullPath: '/u/$login/work'
+      preLoaderRoute: typeof ULoginWorkRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/vs/$a/$b': {
+      id: '/vs/$a/$b'
+      path: '/vs/$a/$b'
+      fullPath: '/vs/$a/$b'
+      preLoaderRoute: typeof VsABRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/cards/site/$file': {
+      id: '/api/cards/site/$file'
+      path: '/api/cards/site/$file'
+      fullPath: '/api/cards/site/$file'
+      preLoaderRoute: typeof ApiCardsSiteFileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/u/$login_/$owner/$repo': {
+      id: '/u/$login_/$owner/$repo'
+      path: '/u/$login/$owner/$repo'
+      fullPath: '/u/$login/$owner/$repo'
+      preLoaderRoute: typeof ULoginOwnerRepoRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/u/$login_/work_/$id': {
+      id: '/u/$login_/work_/$id'
+      path: '/u/$login/work/$id'
+      fullPath: '/u/$login/work/$id'
+      preLoaderRoute: typeof ULoginWorkIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/u/$login_/wrapped/$year': {
+      id: '/u/$login_/wrapped/$year'
+      path: '/u/$login/wrapped/$year'
+      fullPath: '/u/$login/wrapped/$year'
+      preLoaderRoute: typeof ULoginWrappedYearRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/cards/crews/$id/$file': {
+      id: '/api/cards/crews/$id/$file'
+      path: '/api/cards/crews/$id/$file'
+      fullPath: '/api/cards/crews/$id/$file'
+      preLoaderRoute: typeof ApiCardsCrewsIdFileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/cards/races/$id/$file': {
+      id: '/api/cards/races/$id/$file'
+      path: '/api/cards/races/$id/$file'
+      fullPath: '/api/cards/races/$id/$file'
+      preLoaderRoute: typeof ApiCardsRacesIdFileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/cards/u/$login/$file': {
+      id: '/api/cards/u/$login/$file'
+      path: '/api/cards/u/$login/$file'
+      fullPath: '/api/cards/u/$login/$file'
+      preLoaderRoute: typeof ApiCardsULoginFileRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/reports/$owner/$repo/commits': {
@@ -333,25 +753,90 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiReportsOwnerRepoCommitsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/work/s/$id/$file': {
+      id: '/api/work/s/$id/$file'
+      path: '/api/work/s/$id/$file'
+      fullPath: '/api/work/s/$id/$file'
+      preLoaderRoute: typeof ApiWorkSIdFileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/work/u/$login/$file': {
+      id: '/api/work/u/$login/$file'
+      path: '/api/work/u/$login/$file'
+      fullPath: '/api/work/u/$login/$file'
+      preLoaderRoute: typeof ApiWorkULoginFileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/cards/gh/$owner/$repo/$file': {
+      id: '/api/cards/gh/$owner/$repo/$file'
+      path: '/api/cards/gh/$owner/$repo/$file'
+      fullPath: '/api/cards/gh/$owner/$repo/$file'
+      preLoaderRoute: typeof ApiCardsGhOwnerRepoFileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/cards/vs/$a/$b/$file': {
+      id: '/api/cards/vs/$a/$b/$file'
+      path: '/api/cards/vs/$a/$b/$file'
+      fullPath: '/api/cards/vs/$a/$b/$file'
+      preLoaderRoute: typeof ApiCardsVsABFileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/cards/u/$login/$owner/$repo/$file': {
+      id: '/api/cards/u/$login/$owner/$repo/$file'
+      path: '/api/cards/u/$login/$owner/$repo/$file'
+      fullPath: '/api/cards/u/$login/$owner/$repo/$file'
+      preLoaderRoute: typeof ApiCardsULoginOwnerRepoFileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/cards/u/$login/wrapped/$year/$file': {
+      id: '/api/cards/u/$login/wrapped/$year/$file'
+      path: '/api/cards/u/$login/wrapped/$year/$file'
+      fullPath: '/api/cards/u/$login/wrapped/$year/$file'
+      preLoaderRoute: typeof ApiCardsULoginWrappedYearFileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  DesignRoute: DesignRoute,
   LeaderboardsRoute: LeaderboardsRoute,
   McpRoute: McpRoute,
   MeRoute: MeRoute,
   PrivacyRoute: PrivacyRoute,
+  YouRoute: YouRoute,
   ApiSplatRoute: ApiSplatRoute,
   ApiHealthRoute: ApiHealthRoute,
+  CrewsIdRoute: CrewsIdRoute,
+  RacesIdRoute: RacesIdRoute,
   SIdRoute: SIdRoute,
+  ULoginRoute: ULoginRoute,
+  CrewsIndexRoute: CrewsIndexRoute,
+  RacesIndexRoute: RacesIndexRoute,
+  VsIndexRoute: VsIndexRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiGithubWebhooksRoute: ApiGithubWebhooksRoute,
   ApiSharesIdRoute: ApiSharesIdRoute,
   GhOwnerRepoRoute: GhOwnerRepoRoute,
+  ULoginCardsRoute: ULoginCardsRoute,
+  ULoginWorkRoute: ULoginWorkRoute,
+  VsABRoute: VsABRoute,
   ApiSharesIndexRoute: ApiSharesIndexRoute,
-  ApiCardsOwnerRepoRoute: ApiCardsOwnerRepoRoute,
+  ApiCardsSiteFileRoute: ApiCardsSiteFileRoute,
+  ULoginOwnerRepoRoute: ULoginOwnerRepoRoute,
+  ULoginWorkIdRoute: ULoginWorkIdRoute,
+  ULoginWrappedYearRoute: ULoginWrappedYearRoute,
+  ApiCardsCrewsIdFileRoute: ApiCardsCrewsIdFileRoute,
+  ApiCardsRacesIdFileRoute: ApiCardsRacesIdFileRoute,
+  ApiCardsULoginFileRoute: ApiCardsULoginFileRoute,
   ApiReportsOwnerRepoCommitsRoute: ApiReportsOwnerRepoCommitsRoute,
+  ApiWorkSIdFileRoute: ApiWorkSIdFileRoute,
+  ApiWorkULoginFileRoute: ApiWorkULoginFileRoute,
+  ApiCardsGhOwnerRepoFileRoute: ApiCardsGhOwnerRepoFileRoute,
+  ApiCardsVsABFileRoute: ApiCardsVsABFileRoute,
+  ApiCardsULoginOwnerRepoFileRoute: ApiCardsULoginOwnerRepoFileRoute,
+  ApiCardsULoginWrappedYearFileRoute: ApiCardsULoginWrappedYearFileRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -91,7 +91,6 @@ export const repositories = pgTable(
     reportAt: seconds("report_at"),
     reportBytes: integer("report_bytes"),
     reportLines: boolean("report_lines"),
-    cardKey: text("card_key"),
     viewedAt: seconds("viewed_at"),
     installationId: bigint("installation_id", { mode: "number" }),
     connectedBy: text("connected_by").references(() => user.id, { onDelete: "set null" }),
@@ -106,8 +105,22 @@ export const repositories = pgTable(
     untouched5y: integer("untouched_5y"),
     answered: integer("answered"),
     answerHours: real("answer_hours"),
+    pullsAt: text("pulls_at"),
+    pullsReadAt: seconds("pulls_read_at"),
   },
-  (t) => [index("repositories_installation").on(t.installationId), index("repositories_seed").on(t.seed, t.reportAt)],
+  (t) => [index("repositories_installation").on(t.installationId), index("repositories_seed").on(t.seed, t.reportAt), index("repositories_github_id").on(t.githubId)],
+);
+
+export const repoNames = pgTable(
+  "repo_names",
+  {
+    id: text("id").primaryKey(),
+    repoId: text("repo_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    at: seconds("at").notNull(),
+  },
+  (t) => [index("repo_names_repo").on(t.repoId)],
 );
 
 export const builds = pgTable(
@@ -161,4 +174,196 @@ export const access = pgTable(
     until: seconds("until").notNull(),
   },
   (t) => [primaryKey({ columns: [t.sessionId, t.repoId] })],
+);
+
+export const repoPeople = pgTable(
+  "repo_people",
+  {
+    repoId: text("repo_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    personId: integer("person_id").notNull(),
+    name: text("name").notNull(),
+    login: text("login"),
+    commits: integer("commits").notNull(),
+    linesAdded: integer("lines_added"),
+    linesRemoved: integer("lines_removed"),
+    first: seconds("first"),
+    last: seconds("last"),
+    reportKey: text("report_key").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.repoId, t.personId] }), index("repo_people_login").on(t.login)],
+);
+
+export const profiles = pgTable(
+  "profiles",
+  {
+    login: text("login").notNull(),
+    scope: text("scope").notNull(),
+    githubId: bigint("github_id", { mode: "number" }),
+    identity: text("identity").notNull(),
+    identityAt: seconds("identity_at").notNull(),
+    data: text("data"),
+    raw: text("raw"),
+    fetchedAt: seconds("fetched_at"),
+  },
+  (t) => [primaryKey({ columns: [t.login, t.scope] }), index("profiles_github_id").on(t.githubId)],
+);
+
+export const surviving = pgTable(
+  "surviving",
+  {
+    repoId: text("repo_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    reportKey: text("report_key").notNull(),
+    personId: integer("person_id").notNull(),
+    status: text("status").notNull(),
+    lines: integer("lines"),
+    added: integer("added"),
+    files: integer("files"),
+    seconds: real("seconds"),
+    head: text("head"),
+    oldest: seconds("oldest"),
+    askedAt: seconds("asked_at").notNull(),
+    countedAt: seconds("counted_at"),
+  },
+  (t) => [primaryKey({ columns: [t.repoId, t.reportKey, t.personId] }), index("surviving_status").on(t.status, t.askedAt)],
+);
+
+export const pullRequests = pgTable(
+  "pull_requests",
+  {
+    repoId: text("repo_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    number: integer("number").notNull(),
+    author: text("author"),
+    state: text("state").notNull(),
+    title: text("title").notNull(),
+    createdAt: seconds("created_at").notNull(),
+    mergedAt: seconds("merged_at"),
+    updatedAt: seconds("updated_at").notNull(),
+    additions: integer("additions").notNull(),
+    deletions: integer("deletions").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.repoId, t.number] }), index("pull_requests_author").on(t.author, t.mergedAt)],
+);
+
+export const pullReviews = pgTable(
+  "pull_reviews",
+  {
+    repoId: text("repo_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    number: integer("number").notNull(),
+    reviewer: text("reviewer").notNull(),
+    reviews: integer("reviews").notNull(),
+    firstAt: seconds("first_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.repoId, t.number, t.reviewer] }), index("pull_reviews_reviewer").on(t.reviewer, t.firstAt)],
+);
+
+export const people = pgTable(
+  "people",
+  {
+    login: text("login").primaryKey(),
+    userId: text("user_id").references(() => user.id, { onDelete: "cascade" }),
+    hidden: boolean("hidden").notNull().default(false),
+    namePrivate: boolean("name_private").notNull().default(false),
+    updatedAt: seconds("updated_at").notNull(),
+  },
+  (t) => [index("people_user").on(t.userId)],
+);
+
+export const proofs = pgTable(
+  "proofs",
+  {
+    id: text("id").primaryKey(),
+    login: text("login").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    data: text("data").notNull(),
+    createdAt: seconds("created_at").notNull(),
+  },
+  (t) => [index("proofs_login").on(t.login)],
+);
+
+export const rivals = pgTable(
+  "rivals",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    rival: text("rival").notNull(),
+    createdAt: seconds("created_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.rival] })],
+);
+
+const membership = {
+  login: text("login").notNull(),
+  userId: text("user_id").references(() => user.id, { onDelete: "set null" }),
+  state: text("state").notNull(),
+  invitedBy: text("invited_by").notNull(),
+  invitedAt: seconds("invited_at").notNull(),
+  answeredAt: seconds("answered_at"),
+};
+
+export const races = pgTable("races", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  createdBy: text("created_by")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  from: text("from").notNull(),
+  to: text("to").notNull(),
+  createdAt: seconds("created_at").notNull(),
+  standings: text("standings"),
+  standingsAt: seconds("standings_at"),
+});
+
+export const raceMembers = pgTable(
+  "race_members",
+  {
+    raceId: text("race_id")
+      .notNull()
+      .references(() => races.id, { onDelete: "cascade" }),
+    ...membership,
+  },
+  (t) => [primaryKey({ columns: [t.raceId, t.login] }), index("race_members_login").on(t.login)],
+);
+
+export const crews = pgTable("crews", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  createdBy: text("created_by")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  createdAt: seconds("created_at").notNull(),
+});
+
+export const crewMembers = pgTable(
+  "crew_members",
+  {
+    crewId: text("crew_id")
+      .notNull()
+      .references(() => crews.id, { onDelete: "cascade" }),
+    ...membership,
+  },
+  (t) => [primaryKey({ columns: [t.crewId, t.login] }), index("crew_members_login").on(t.login)],
+);
+
+export const seasonStandings = pgTable(
+  "season_standings",
+  {
+    crewId: text("crew_id")
+      .notNull()
+      .references(() => crews.id, { onDelete: "cascade" }),
+    season: text("season").notNull(),
+    data: text("data").notNull(),
+    at: seconds("at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.crewId, t.season] })],
 );

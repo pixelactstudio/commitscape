@@ -21,7 +21,7 @@ export const getReportHead = createServerFn({ method: "GET" })
   .validator(repo)
   .handler(async ({ data }) => {
     const head = await reportHead(deps(), viewerOf(getRequest()), data.owner, data.repo);
-    return { at: head.at, meta: head.index.meta, cards: head.index.cards };
+    return { at: head.at, meta: head.index.meta, cards: head.index.cards, logins: head.logins, private: head.private };
   });
 
 /** One answer of a Report. */

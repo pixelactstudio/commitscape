@@ -49,8 +49,10 @@ const builderEnv = {
   WORK_DIR: work,
   GIT_BASE: `file://${remotes}`,
   TIME_LIMIT_SECONDS: "4",
+  MAX_REPOSITORY_MB: "3000",
   SEED_LANGUAGES: "Shell",
   SEED_PER_LANGUAGE: "5",
+  GITHUB_TOKEN: "ghs_builder",
 };
 writeFileSync(join(root, "target", "site-e2e-env.json"), JSON.stringify({ builderScript, builderEnv, databaseUrl: shared.DATABASE_URL }));
 
@@ -76,6 +78,7 @@ children.push(
       BETTER_AUTH_URL: `http://127.0.0.1:${port}`,
       BETTER_AUTH_SECRET: "e2e-secret-e2e-secret-e2e-secret-e2e",
       BOARDS_CACHE_SECONDS: "0",
+      GITHUB_TOKEN: "ghs_site",
     },
   }),
 );

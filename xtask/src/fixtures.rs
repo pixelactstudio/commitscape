@@ -167,6 +167,7 @@ pub fn build(force: bool) -> Result<()> {
     conflict(&dir)?;
     rhythm(&dir)?;
     lines(&dir)?;
+    survival(&dir)?;
     empty(&dir)?;
     detached(&dir)?;
     bare(&dir)?;
@@ -458,6 +459,147 @@ fn lines(dir: &Path) -> Result<()> {
         fx.write(&format!("gen/f{n:02}.txt"), "generated\n")?;
     }
     fx.commit(ALICE, "add sixty files")?;
+    Ok(())
+}
+
+fn survival(dir: &Path) -> Result<()> {
+    let mut fx = Fx::init(dir.join("survival"))?;
+    let text = |lines: &[&str]| lines.iter().map(|l| format!("{l}\n")).collect::<String>();
+    let indented = |lines: &[&str]| {
+        lines
+            .iter()
+            .map(|l| format!("    {l}\n"))
+            .collect::<String>()
+    };
+    let lock = |bumped: usize| {
+        (1..=5)
+            .map(|n| format!("dep-{n} = {}\n", if n <= bumped { "2.0" } else { "1.0" }))
+            .collect::<String>()
+    };
+
+    let core = [
+        "fn alpha() {}",
+        "fn beta() {}",
+        "fn gamma() {}",
+        "fn delta() {}",
+        "fn epsilon() {}",
+        "fn zeta() {}",
+    ];
+    fx.write("src/core.rs", &text(&core))?;
+    fx.write("README.md", "# Survival\n\nA fixture.\nFor blame.\n")?;
+    fx.write("Cargo.lock", &lock(0))?;
+    fx.commit(ALICE, "add core, readme and lockfile")?;
+
+    let core = [
+        "fn alpha() {}",
+        "fn beta() {}",
+        "fn bob_one() {}",
+        "fn bob_two() {}",
+        "fn epsilon() {}",
+        "fn zeta() {}",
+        "fn bob_three() {}",
+    ];
+    let util = [
+        "pub fn u1() {}",
+        "pub fn u2() {}",
+        "pub fn u3() {}",
+        "pub fn u4() {}",
+    ];
+    fx.write("src/core.rs", &text(&core))?;
+    fx.write("src/util.rs", &text(&util))?;
+    fx.commit(BOB, "rework core, add util")?;
+
+    let extra = ["fn k1() {}", "fn k2() {}", "fn k3() {}"];
+    fx.write("src/extra.rs", &text(&extra))?;
+    fx.write(
+        "README.md",
+        "# Survival\n\nA fixture.\nFor blame.\nMore.\nAnd more.\n",
+    )?;
+    fx.write("Cargo.lock", &lock(3))?;
+    fx.commit(CAROL_PLAIN, "extra, docs and a bump")?;
+
+    std::fs::create_dir_all(fx.root.join("lib")).context("creating lib")?;
+    fx.git(&["mv", "src/util.rs", "lib/util.rs"])?;
+    fx.commit(ALICE_UPPER, "move util")?;
+
+    let util = [
+        "pub fn u1() {}",
+        "pub fn carol_two() {}",
+        "pub fn u3() {}",
+        "pub fn u4() {}",
+    ];
+    fx.write("lib/util.rs", &text(&util))?;
+    fx.commit(CAROL_PLAIN, "rework util")?;
+
+    let mut core_formatted: Vec<&str> = core.to_vec();
+    core_formatted.push("fn bob_four() {}");
+    fx.write("src/core.rs", &indented(&core_formatted))?;
+    fx.write("lib/util.rs", &indented(&util))?;
+    fx.write("src/extra.rs", &indented(&extra))?;
+    fx.write(
+        "README.md",
+        "# Survival\n\nA fixture.\nFor blame.\nMore.\nAnd more.\nFormatted.\n",
+    )?;
+    fx.commit(BOB, "reformat")?;
+
+    let mut tabbed = indented(&core_formatted);
+    tabbed = tabbed.replacen(
+        "    fn alpha() {}\n    fn beta() {}\n",
+        "\tfn alpha() {}\n\tfn beta() {}\n\t// tabs from here on\n",
+        1,
+    );
+    fx.write("src/core.rs", &tabbed)?;
+    fx.commit(CAROL_PLAIN, "style: tabs in the header")?;
+    let rename = fx
+        .git(&["rev-parse", "--short=12", "HEAD"])?
+        .trim()
+        .to_string();
+
+    fx.write(".git-blame-ignore-revs", &format!("# tabs\n{rename}\n"))?;
+    fx.commit(BOB, "ignore the tabs in blame")?;
+    let base = fx.git(&["rev-parse", "HEAD"])?.trim().to_string();
+
+    fx.git(&["checkout", "-q", "-b", "side", &base])?;
+    let extra = ["fn k1() {}", "fn k2() {}", "fn k3() {}", "fn k4() {}"];
+    fx.write("src/extra.rs", &indented(&extra))?;
+    fx.commit(CAROL_PLAIN, "extend extra")?;
+
+    fx.git(&["checkout", "-q", "main"])?;
+    let util = [
+        "pub fn u1() {}",
+        "pub fn carol_two() {}",
+        "pub fn u3() {}",
+        "pub fn u4() {}",
+        "pub fn u5() {}",
+    ];
+    fx.write("lib/util.rs", &indented(&util))?;
+    fx.commit(ALICE, "extend util")?;
+
+    let stamp = format!("{} +0000", EPOCH + fx.day * DAY);
+    fx.git_env(
+        &[
+            "merge",
+            "--no-ff",
+            "-q",
+            "-m",
+            "merge side into main",
+            "side",
+        ],
+        &[
+            ("GIT_AUTHOR_NAME", ALICE.name.to_string()),
+            ("GIT_AUTHOR_EMAIL", ALICE.email.to_string()),
+            ("GIT_AUTHOR_DATE", stamp.clone()),
+            ("GIT_COMMITTER_NAME", ALICE.name.to_string()),
+            ("GIT_COMMITTER_EMAIL", ALICE.email.to_string()),
+            ("GIT_COMMITTER_DATE", stamp),
+        ],
+    )?;
+    fx.day += 1;
+
+    std::fs::remove_file(fx.root.join("src/extra.rs")).context("moving src/extra.rs")?;
+    let moved = ["fn k1() {}", "fn bob_k2() {}", "fn k3() {}", "fn k4() {}"];
+    fx.write("lib/extra.rs", &indented(&moved))?;
+    fx.commit(BOB, "move extra into lib, rename k2")?;
     Ok(())
 }
 

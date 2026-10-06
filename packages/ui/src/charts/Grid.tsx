@@ -1,137 +1,130 @@
-import { day, grouped } from "../format";
-import { ramp } from "../theme";
+import { heat } from "../design/tokens";
+import { grouped, many, share } from "../format";
 import { TableView } from "./common";
-import { ranges, useWidth } from "./scale";
 import { useTip } from "./tip";
-
-function steps(max: number): number[] {
-  if (max <= 4) return [1, 2, 3, 4].map((s) => Math.min(s, max));
-  return [1, 2, 3, 4].map((s) => Math.ceil((max * s) / 4));
-}
-
-function step(n: number, bounds: number[]): number {
-  if (n <= 0) return 0;
-  const i = bounds.findIndex((b) => n <= b);
-  return i === -1 ? 4 : i + 1;
-}
-
-function RampLegend({ bounds, unit }: { bounds: number[]; unit: string }) {
-  return (
-    <ul className="legend">
-      <li>
-        <svg width="12" height="12" aria-hidden>
-          <rect width="12" height="12" rx="2" className="empty-cell" />
-        </svg>
-        none
-      </li>
-      {ranges(bounds).map((r) => (
-        <li key={r.step}>
-          <svg width="12" height="12" aria-hidden>
-            <rect width="12" height="12" rx="2" fill={ramp("blue", step(r.to, bounds))} />
-          </svg>
-          {r.from === r.to ? grouped(r.to) : `${grouped(r.from)}–${grouped(r.to)}`}
-        </li>
-      ))}
-      <li className="note">{unit}</li>
-    </ul>
-  );
-}
 
 const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
-export function WeekGrid({ week }: { week: number[][] }) {
+const hh = (h: number) => `${String(h % 24).padStart(2, "0")}:00`;
+
+function step(n: number, max: number): number {
+  if (n <= 0 || max <= 0) return 0;
+  return Math.min(4, Math.max(1, Math.ceil(Math.sqrt(n / max) * 4)));
+}
+
+
+export type Peak = { day: number; hour: number; commits: number; times: number };
+
+/** The busiest weekday and hour of a week of commits, and how many times a typical hour it is. */
+export function peakOf(week: number[][]): Peak | null {
+  let best: Peak | null = null;
+  const all = week.flat().reduce((a, b) => a + b, 0);
+  week.forEach((hours, day) =>
+    hours.forEach((commits, hour) => {
+      if (commits > 0 && (!best || commits > best.commits)) best = { day, hour, commits, times: 0 };
+    }),
+  );
+  if (!best) return null;
+  const found: Peak = best;
+  return { ...found, times: all > 0 ? found.commits / (all / 168) : 0 };
+}
+
+/** Commits by weekday and hour as a heat map of cells on the authors' own clocks, with each hour's and each day's totals beside it and the busiest hour ringed. */
+export function WeekGrid({ week, unit = "commits", totals = true }: { week: number[][]; unit?: string; totals?: boolean }) {
   const tip = useTip();
-  const [ref, width] = useWidth<HTMLDivElement>();
   const max = Math.max(0, ...week.flat());
-  const bounds = steps(max);
-  const left = 80;
-  const cell = Math.max(8, Math.min(26, (width - left) / 24));
+  const all = week.flat().reduce((a, b) => a + b, 0);
+  const peak = peakOf(week);
+  const byHour = Array.from({ length: 24 }, (_, h) => week.reduce((n, hours) => n + (hours[h] ?? 0), 0));
+  const byDay = week.map((hours) => hours.reduce((a, b) => a + b, 0));
+  const hourMost = Math.max(1, ...byHour);
+  const dayMost = Math.max(1, ...byDay);
+  const average = all / 168;
+  const columns = totals ? "grid-cols-[2.1rem_repeat(24,minmax(0,1fr))] sm:grid-cols-[2.4rem_repeat(24,minmax(0,1fr))_4rem]" : "grid-cols-[2.1rem_repeat(24,minmax(0,1fr))]";
   return (
-    <div className="chart" ref={ref}>
-      <RampLegend bounds={bounds} unit="commits in the hour" />
-      <svg width={left + cell * 24} height={cell * 7 + 18} role="img" aria-label="Commits by weekday and hour">
-        {week.map((hours, d) => (
-          <g key={d}>
-            <text className="axis-label" x={left - 8} y={d * cell + cell / 2} dy="0.32em" textAnchor="end">
-              {WEEKDAYS[d]?.slice(0, 3)}
-            </text>
-            {hours.map((n, h) => (
-              <rect
-                key={h}
-                x={left + h * cell + 1}
-                y={d * cell + 1}
-                width={cell - 2}
-                height={cell - 2}
-                rx="2"
-                className={n === 0 ? "empty-cell" : undefined}
-                fill={n === 0 ? undefined : ramp("blue", step(n, bounds))}
-                tabIndex={-1}
+    <div className="flex min-w-0 flex-col gap-3">
+      <div className={`grid ${columns} items-end gap-0.75 text-2xs text-secondary tnum`} role="img" aria-label={`${unit} by weekday and hour, on each author's own clock`}>
+        {totals && (
+          <>
+            <span aria-hidden />
+            {byHour.map((n, h) => (
+              <span
+                key={`h${h}`}
+                className="flex h-7 items-end"
                 {...tip(
                   <>
                     <strong>
-                      {WEEKDAYS[d]}s, {String(h).padStart(2, "0")}:00–{String(h + 1).padStart(2, "0")}:00
+                      {hh(h)} to {hh(h + 1)}
                     </strong>
-                    <div>{grouped(n)} commits</div>
+                    <div className="note">
+                      {many(n, unit === "commits" ? "commit" : unit, unit)} across the week · {share(n, all)}
+                    </div>
                   </>,
                 )}
-              />
+              >
+                <span className="block w-full rounded-t-cell bg-heat-2 opacity-70" style={{ height: `${Math.max(n > 0 ? 6 : 0, (n * 100) / hourMost)}%` }} />
+              </span>
             ))}
-          </g>
+            <span aria-hidden className="hidden sm:block" />
+          </>
+        )}
+        {week.map((hours, d) => (
+          <div key={d} className="contents">
+            <span className="self-center pe-1 text-end">{WEEKDAYS[d]?.slice(0, 3)}</span>
+            {hours.map((n, h) => {
+              const top = peak !== null && peak.day === d && peak.hour === h;
+              return (
+                <span
+                  key={h}
+                  className={`aspect-square rounded-cell transition-[filter] hover:brightness-125 ${top ? "outline-2 outline-offset-1 outline-primary outline-solid" : ""}`}
+                  style={{ background: heat(step(n, max)) }}
+                  {...tip(
+                    <>
+                      <strong>
+                        {WEEKDAYS[d]}s, {hh(h)} to {hh(h + 1)}
+                      </strong>
+                      <div>{many(n, unit === "commits" ? "commit" : unit, unit)}</div>
+                      {n > 0 && (
+                        <div className="note">
+                          {share(n, all)} of all{average > 0 ? ` · ${(n / average).toFixed(n / average >= 10 ? 0 : 1)}× a typical hour` : ""}
+                          {top ? " · the busiest hour" : ""}
+                        </div>
+                      )}
+                    </>,
+                  )}
+                />
+              );
+            })}
+            {totals && (
+              <span className="hidden h-full items-center gap-1.5 ps-1.5 sm:flex" title={`${grouped(byDay[d] ?? 0)} on ${WEEKDAYS[d]}s`}>
+                <span className="flex w-5 flex-none">
+                  <span className="block h-1.5 rounded-full bg-heat-2 opacity-70" style={{ width: `${Math.max((byDay[d] ?? 0) > 0 ? 12 : 0, ((byDay[d] ?? 0) * 100) / dayMost)}%` }} />
+                </span>
+                <span className="whitespace-nowrap">{share(byDay[d] ?? 0, all)}</span>
+              </span>
+            )}
+          </div>
         ))}
-        {[0, 6, 12, 18].map((h) => (
-          <text key={h} className="axis-label" x={left + h * cell} y={cell * 7 + 14}>
-            {String(h).padStart(2, "0")}:00
-          </text>
+        <span aria-hidden />
+        {Array.from({ length: 24 }, (_, h) => (
+          <span key={`l${h}`} className="relative h-4">
+            {h % 6 === 0 && <span className="absolute start-0 top-0.5 whitespace-nowrap">{hh(h)}</span>}
+          </span>
         ))}
-      </svg>
-      <TableView
-        head={["Day", ...Array.from({ length: 24 }, (_, h) => `${h}`)]}
-        rows={week.map((hours, d) => [WEEKDAYS[d] ?? "", ...hours])}
-      />
-    </div>
-  );
-}
-
-export function Calendar({ firstDay, days }: { firstDay: number; days: number[] }) {
-  const tip = useTip();
-  const [ref, width] = useWidth<HTMLDivElement>();
-  const max = Math.max(0, ...days);
-  const bounds = steps(max);
-  const weekday = (d: number) => (d + 3) % 7;
-  const offset = weekday(firstDay);
-  const weeks = Math.ceil((days.length + offset) / 7);
-  const cell = Math.max(4, Math.min(14, width / Math.max(1, weeks)));
-  return (
-    <div className="chart" ref={ref}>
-      <RampLegend bounds={bounds} unit="commits a day" />
-      <svg width={weeks * cell} height={cell * 7} role="img" aria-label="Commits a day">
-        {days.map((n, i) => {
-          const d = firstDay + i;
-          const col = Math.floor((i + offset) / 7);
-          return (
-            <rect
-              key={i}
-              x={col * cell + 0.5}
-              y={weekday(d) * cell + 0.5}
-              width={cell - 1}
-              height={cell - 1}
-              rx="1.5"
-              className={n === 0 ? "empty-cell" : undefined}
-              fill={n === 0 ? undefined : ramp("blue", step(n, bounds))}
-              {...tip(
-                <>
-                  <strong>{day(d)}</strong>
-                  <div>{grouped(n)} commits</div>
-                </>,
-              )}
-            />
-          );
-        })}
-      </svg>
-      <TableView
-        head={["Day", "Commits"]}
-        rows={days.flatMap((n, i) => (n > 0 ? [[day(firstDay + i), n]] : []))}
-      />
+        {totals && <span aria-hidden className="hidden sm:block" />}
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-2xs text-secondary">
+        <TableView head={["Day", ...Array.from({ length: 24 }, (_, h) => `${h}`)]} rows={week.map((hours, d) => [WEEKDAYS[d] ?? "", ...hours])} />
+        <span className="flex items-center gap-1.5" aria-label={`From none to ${grouped(max)} ${unit} in one hour of the week`}>
+          <span className="tnum">0</span>
+          {[0, 1, 2, 3, 4].map((s) => (
+            <span key={s} aria-hidden className="inline-block size-2.75 rounded-cell" style={{ background: heat(s) }} />
+          ))}
+          <span className="tnum">
+            {grouped(max)} {unit} in an hour
+          </span>
+        </span>
+      </div>
     </div>
   );
 }

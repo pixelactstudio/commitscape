@@ -8,11 +8,13 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   resolve: { tsconfigPaths: true },
+  ssr: { external: ["satori", "@resvg/resvg-js", "pdfkit"], optimizeDeps: { exclude: ["satori", "@resvg/resvg-js", "pdfkit"] } },
+  optimizeDeps: { exclude: ["satori", "@resvg/resvg-js"] },
   plugins: [
     devtools(),
     tailwindcss(),
     tanstackStart(),
-    nitro(),
+    nitro({ traceDeps: ["satori*", "harfbuzzjs*", "@resvg/resvg-js*", "pdfkit*"] }),
     react(),
     sentryTanstackStart({
       org: process.env.SENTRY_ORG,

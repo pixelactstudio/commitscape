@@ -12,6 +12,10 @@
     },
     "typecheck": {},
     "lint": {},
-    "test": {}
+    "test": {
+      "passThroughEnv": [
+        "CARD_BUDGET_MS"
+      ]
+    }
   }
 }

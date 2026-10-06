@@ -17,8 +17,18 @@ describe("addresses and limits", () => {
     const from = (origin?: string) => sameOrigin(new Request("http://site.internal:3000/", { headers: origin ? { origin } : {} }), "https://commitscape.example");
     expect(from("https://commitscape.example")).toBe(true);
     expect(from()).toBe(true);
-    expect(from("http://site.internal:3000")).toBe(false);
     expect(from("https://elsewhere.example")).toBe(false);
+    expect(from("https://site.internal:3000")).toBe(false);
+    expect(from("null")).toBe(false);
+  });
+
+  test("a page is the Site's at the address the request was sent to, as when it is opened by its IP address", () => {
+    const sent = (url: string, origin: string, host?: string) => sameOrigin(new Request(url, { headers: { origin, ...(host ? { host } : {}) } }), "http://localhost:3100");
+    expect(sent("http://100.120.169.108:3100/_serverFn/x", "http://100.120.169.108:3100")).toBe(true);
+    expect(sent("http://100.120.169.108:3100/_serverFn/x", "http://100.120.169.108:3101")).toBe(false);
+    expect(sent("http://100.120.169.108:3100/_serverFn/x", "http://evil.example")).toBe(false);
+    expect(sent("http://site.internal:3000/_serverFn/x", "http://10.0.0.5:3000", "10.0.0.5:3000")).toBe(true);
+    expect(sent("http://site.internal:3000/_serverFn/x", "http://site.internal:3000", "10.0.0.5:3000")).toBe(false);
   });
 
   test("an IPv6 address counts as its /64; an IPv4 one as itself", () => {
@@ -87,6 +97,19 @@ describe("repositories", () => {
     const down = { ...deps, queue: () => Promise.reject(new Error("down")) };
     const paused = await requestBuild(down, viewer(), "acme", "other");
     expect(paused.build).toMatchObject({ state: "failed", reason: "paused" });
+  });
+
+  test("a fresh Report read without lines is stale, so the next visit builds it again with them", async () => {
+    const deps = await testDeps();
+    await deps.db.insert(repositories).values([
+      { id: "acme/rocket", owner: "acme", name: "rocket", githubId: 1, reportKey: reportPrefix("acme/rocket", "b1"), reportAt: now(), reportLines: false, factsAt: now() },
+      { id: "acme/other", owner: "acme", name: "other", githubId: 3, reportKey: reportPrefix("acme/other", "b1"), reportAt: now(), reportLines: true, factsAt: now() },
+    ]);
+    expect(await lookup(deps, viewer(), "acme", "rocket")).toMatchObject({ stale: true, canBuild: true, report: { lines: false } });
+    expect(await lookup(deps, viewer(), "acme", "other")).toMatchObject({ stale: false, canBuild: false });
+    const started = await requestBuild(deps, viewer(), "acme", "rocket");
+    expect(started.build?.state).toBe("queued");
+    expect(deps.sent).toHaveLength(1);
   });
 
   test("a Build asked for from another site is refused", async () => {

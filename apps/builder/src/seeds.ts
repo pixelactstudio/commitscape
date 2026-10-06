@@ -1,5 +1,5 @@
 import { and, desc, eq, sql } from "drizzle-orm";
-import { busy, now, PRIORITY, queueBuild, REPORT_FOR, repoId, schema, type Db, type Queue } from "@commitscape/server";
+import { busy, now, PRIORITY, queueBuild, REPORT_FOR, repoId, schema, settleRepository, type Db, type Queue, type Storage } from "@commitscape/server";
 import type { Env } from "./config";
 
 const { builds, repositories } = schema;
@@ -26,7 +26,7 @@ export function seedConfig(env: Env): SeedConfig {
   };
 }
 
-export type Seed = { owner: string; name: string; language: string; stars: number; sizeKb: number };
+export type Seed = { owner: string; name: string; language: string; stars: number; sizeKb: number; githubId?: number };
 
 /** The most starred repositories per language, from GitHub's search. */
 export async function seedList(s: SeedConfig, fetcher: typeof fetch = fetch): Promise<Seed[]> {
@@ -46,10 +46,10 @@ export async function seedList(s: SeedConfig, fetcher: typeof fetch = fetch): Pr
       answer = await ask();
     }
     if (!answer.ok) throw new Error(`GitHub's search answered ${answer.status} for ${language}`);
-    const items = ((await answer.json()) as { items?: { full_name: string; stargazers_count: number; size: number }[] }).items ?? [];
+    const items = ((await answer.json()) as { items?: { id?: number; full_name: string; stargazers_count: number; size: number }[] }).items ?? [];
     for (const i of items) {
       const [owner = "", name = ""] = i.full_name.split("/");
-      if (!out.some((o) => o.owner === owner && o.name === name)) out.push({ owner, name, language, stars: i.stargazers_count, sizeKb: i.size });
+      if (!out.some((o) => o.owner === owner && o.name === name)) out.push({ owner, name, language, stars: i.stargazers_count, sizeKb: i.size, ...(typeof i.id === "number" ? { githubId: i.id } : {}) });
     }
   }
   return out;
@@ -59,11 +59,15 @@ function pause(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-/** Marks the list as Leaderboard seeds and queues tonight's Builds within the budget. */
-export async function queueSeeds(db: Db, queue: Queue, list: Seed[], budget: number): Promise<number> {
+/** Marks the list as Leaderboard seeds under their current names, moving rows kept under older ones, and queues tonight's Builds within the budget. */
+export async function queueSeeds(db: Db, queue: Queue, list: Seed[], budget: number, storage: Storage | null = null): Promise<number> {
   const valid = list.filter((r) => repoId(r.owner, r.name)).slice(0, 500);
   for (const r of valid) {
     const fields = { seed: true, language: r.language, stars: r.stars, sizeKb: r.sizeKb };
+    if (r.githubId) {
+      await settleRepository(db, storage, { githubId: r.githubId, owner: r.owner, name: r.name, set: fields });
+      continue;
+    }
     await db
       .insert(repositories)
       .values({ id: repoId(r.owner, r.name) ?? "", owner: r.owner, name: r.name, ...fields })
@@ -78,7 +82,7 @@ export async function queueSeeds(db: Db, queue: Queue, list: Seed[], budget: num
   let queued = 0;
   for (const row of due) {
     if (queued >= budget) break;
-    if (row.reportAt && row.reportAt > now() - REPORT_FOR) continue;
+    if (row.reportAt && row.reportAt > now() - REPORT_FOR && row.reportLines !== false) continue;
     const [last] = await db.select().from(builds).where(eq(builds.repoId, row.id)).orderBy(desc(builds.requestedAt)).limit(1);
     if (busy(last)) continue;
     await queueBuild(db, queue, row.id, PRIORITY.seed);

@@ -12,7 +12,7 @@ export function TipLayer({ children }: { children: ReactNode }) {
       {children}
       {tip && (
         <div
-          className="tip"
+          className="pointer-events-none fixed z-(--z-toast) max-w-[270px] rounded-md border border-line bg-raised px-2.5 py-2 text-sm break-words text-primary shadow-lg [&_.note]:text-secondary"
           role="tooltip"
           style={{
             left: Math.min(tip.x + 14, window.innerWidth - 280),

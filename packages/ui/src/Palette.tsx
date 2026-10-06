@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { CommandPalette } from "@astryxdesign/core/CommandPalette";
-import type { DataSource, MapLevel, People, Risk } from "@commitscape/data";
+import type { DataSource, MapLevel, People } from "@commitscape/data";
 import { useSource } from "./data";
 import { jumpSource, type Jump } from "./jump";
 import { SCREENS, TITLES, type Route } from "./route";
@@ -25,10 +25,12 @@ export function Palette({
   );
   const searchSource = useMemo(() => jumpSource(items), [items]);
   const pick = (id: string) => {
-    void items.then((list) => {
-      const to = list.find((i) => i.id === id)?.auxiliaryData?.to;
-      if (to) go(to);
-    });
+    if (id.startsWith("commits:")) go({ screen: "commits", q: id.slice("commits:".length), id: undefined, file: undefined });
+    else
+      void items.then((list) => {
+        const to = list.find((i) => i.id === id)?.auxiliaryData?.to;
+        if (to) go(to);
+      });
     onOpenChange(false);
   };
   const onKeyDownCapture = (e: React.KeyboardEvent) => {
@@ -46,7 +48,7 @@ export function Palette({
       <CommandPalette
         isOpen={isOpen}
         onOpenChange={onOpenChange}
-        label="Jump to"
+        label="Search people, folders, files and commits"
         searchSource={searchSource}
         emptySearchText="Nothing by that name in this Window"
         onValueChange={pick}
@@ -57,11 +59,7 @@ export function Palette({
 
 async function jumps(source: DataSource, window: string): Promise<Jump[]> {
   const soft = <T,>(p: Promise<T>) => p.catch(() => null);
-  const [people, map, risk] = await Promise.all([
-    soft(source.get<People>("/api/people", { window })),
-    soft(source.get<MapLevel>("/api/map", { window })),
-    soft(source.get<Risk>("/api/risk", { window })),
-  ]);
+  const [people, map] = await Promise.all([soft(source.get<People>("/api/people", { window })), soft(source.get<MapLevel>("/api/map", { window }))]);
   const out: Jump[] = SCREENS.map((s) => ({
     id: `screen:${s}`,
     label: TITLES[s],
@@ -77,7 +75,6 @@ async function jumps(source: DataSource, window: string): Promise<Jump[]> {
       else out.push({ id: `folder:${c.path}`, label: c.path, auxiliaryData: { group: "Folders", to: { screen: "map", path: c.path, file: undefined } } });
     }
   }
-  for (const h of risk?.hotspots ?? []) files.add(h.path);
   for (const f of files) {
     out.push({ id: `file:${f}`, label: f, auxiliaryData: { group: "Files", to: { screen: "map", path: folderOf(f), file: f } } });
   }

@@ -241,6 +241,85 @@ Every change the line pass counts, merges aside: 10 + 100 + 5 + 20 + 6 + 11
 + 2 + 60 = 214 added and 2 + 2 + 20 + 11 = 35 removed, with `logo.png` the
 one change not counted.
 
+## `survival`: Surviving Lines, and what blame passes through
+
+Thirteen commits, days 0 to 11, with one branch and its merge. Alice commits
+once as `Alice@Example.COM`, the same Author Identity (rule 2). Carol is
+`carol@users.noreply.github.com`. Every line is different from every
+other, so each diff has one smallest answer. The tests use a bulk threshold
+of **3 files**, which makes day 5 a Bulk Commit.
+
+| Day | Author | Commit | Files |
+|---|---|---|---|
+| 0 | Alice | adds `src/core.rs` (`alpha` to `zeta`, 6 lines), `README.md` (4 lines), `Cargo.lock` (5 lines) | 3 |
+| 1 | Bob | `src/core.rs`: `gamma`, `delta` become `bob_one`, `bob_two`; appends `bob_three` (+3 −2). Adds `src/util.rs`, `u1` to `u4` (+4) | 2 |
+| 2 | Carol | adds `src/extra.rs`, `k1` to `k3` (+3); `README.md` +2; `Cargo.lock` 3 versions bumped | 3 |
+| 3 | Alice (`Alice@Example.COM`) | moves `src/util.rs` to `lib/util.rs` unchanged | 1 |
+| 4 | Carol | `lib/util.rs`: `u2` becomes `carol_two` (+1 −1) | 1 |
+| 5 | Bob | **reformat, a Bulk Commit**: indents every line of `src/core.rs`, `lib/util.rs`, `src/extra.rs` by four spaces, appends `bob_four` to `src/core.rs`, appends a line to `README.md` | 4 |
+| 6 | Carol | `src/core.rs`: `alpha`, `beta` indented with a tab instead, and a new line `// tabs from here on` after them (+3 −2) | 1 |
+| 7 | Bob | adds `.git-blame-ignore-revs`: a comment and day 6's id, abbreviated to 12 characters (+2) | 1 |
+| 8 | Carol, branch `side` from day 7 | `src/extra.rs`: appends `k4` (+1) | 1 |
+| 9 | Alice, `main` | `lib/util.rs`: appends `u5` (+1) | 1 |
+| 10 | Alice | merges `side`; each file matches one parent, so its Changeset is empty | 0 |
+| 11 | Bob | moves `src/extra.rs` to `lib/extra.rs` and turns `k2` into `bob_k2`: a move with an edit, so a new File Identity, and a rename git's blame follows (score 42,187 of 60,000, over the 50% it needs) | 2 |
+
+Blame at the head, with day 5 (Bulk) and day 6 (ignored) passed through. A
+line a pass-through commit changed only in whitespace goes to the line it
+came from; a line it added goes nowhere else and stays with it, as git's
+"unblamable" lines do. Day 11's move is followed the way `git blame`
+follows renames, by similarity:
+
+| File at the head | Line | Goes to |
+|---|---|---|
+| `src/core.rs` | `alpha`, `beta` (tab) | day 6 changed only whitespace → day 5 changed only whitespace → **Alice**, day 0 |
+| | `// tabs from here on` | added by day 6, nothing before it → **Carol**, day 6 |
+| | `bob_one`, `bob_two`, `bob_three` | through day 5 → **Bob**, day 1 |
+| | `epsilon`, `zeta` | through day 5 → **Alice**, day 0 |
+| | `bob_four` | added by day 5, nothing before it → **Bob**, day 5 |
+| `lib/util.rs` | `u1`, `u3`, `u4` | through day 5 and the move of day 3 → **Bob**, day 1 |
+| | `carol_two` | through day 5 → **Carol**, day 4 |
+| | `u5` | **Alice**, day 9 (the merge passes the file to `main`) |
+| `lib/extra.rs` | `k1`, `k3` | through the move of day 11 and day 5 → **Carol**, day 2 |
+| | `bob_k2` | **Bob**, day 11 |
+| | `k4` | through the move, then the merge passes the file to `side` → **Carol**, day 8 |
+| `.git-blame-ignore-revs` | both lines | **Bob**, day 7 |
+| `README.md`, `Cargo.lock` | | not counted: a Prose File and a Generated File |
+
+`git blame --ignore-revs-file` naming days 5 and 6 gives the same owner for
+every one of these lines.
+
+| Person | Surviving Lines | Lines added | Files blamed |
+|---|---|---|---|
+| Alice | 4 + 1 = **5** | 6 + 4 (`README.md`) + 1 = **11** | 2: `src/core.rs`, `lib/util.rs` |
+| Bob | 4 + 3 + 1 + 2 = **10** | 3 + 4 + 2 + 4 = **13** | 4: those two, `lib/extra.rs` (day 11), `.git-blame-ignore-revs` |
+| Carol | 1 + 1 + 3 = **5** | 3 + 2 (`README.md`) + 1 + 1 = **7** | 3: `src/core.rs`, `lib/util.rs`, and `lib/extra.rs`, which she never changed under that File Identity: it is blamed for her because day 11 moved her `src/extra.rs` into it |
+
+Each person's oldest surviving line, by its commit's author time (day *n*
+is 1704067200 + *n* × 86400):
+
+| Person | Oldest | Line |
+|---|---|---|
+| Alice | day 0, **1704067200** | `alpha`, `beta`, `epsilon`, `zeta` |
+| Bob | day 1, **1704153600** | `bob_one`, `bob_two`, `bob_three` |
+| Carol | day 2, **1704240000** | `k1`, `k3` |
+
+The 20 countable lines at the head (9 + 5 + 4 + 2) are all accounted for:
+5 + 10 + 5. Lines added are Lines Changed: no lockfile, no Bulk Commit (day
+5), no ignored commit (day 6), no merge; a Prose File's lines are added
+lines, so Alice's and Carol's include `README.md`. Day 3 is a move and adds
+nothing; day 11 is a move with an edit, which Lines Changed counts as a new
+file of 4 lines and a deleted one.
+
+At the default threshold of 50, day 5 is an ordinary commit and keeps every
+line it touched: Bob holds `src/core.rs` but the tab comment (8 of 9),
+`u1`, `carol_two`, `u3`, `u4`, `k1`, `bob_k2`, `k3` and
+`.git-blame-ignore-revs`, so **Alice 1** (`u5`), **Bob 17**, **Carol 2**
+(the comment and `k4`). Bob's lines added grow by day 5's 8 + 4 + 3 + 1 =
+16, to **29**. The oldest surviving lines become Alice's `u5`, day 9
+(**1704844800**), Bob's day 5 reformat (**1704499200**) and Carol's tab
+comment, day 6 (**1704585600**).
+
 ## Edge-case repositories
 
 | Fixture | Shape | Required behaviour |

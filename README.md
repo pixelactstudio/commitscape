@@ -1,7 +1,7 @@
 <div align="center">
   <img src="./.github/logo.svg" alt="commitscape" width="64" height="64" />
   <h1>commitscape</h1>
-  <p>Reads a git repository's history and shows what changes what you do next.</p>
+  <p>What you have built, how you stand next to the people you work with, and cards to share it.</p>
 </div>
 
 <p align="center">
@@ -16,11 +16,12 @@
   </a>
 </p>
 
-commitscape reads a git repository and answers the questions its history
-can answer: who knows which part of the code, which files are risky to
-change, what you probably forgot to change, and how the project got here.
-It reads the whole history of a large repository in seconds, on your
-machine, from git's own data.
+commitscape shows a developer what they have built: pull requests merged,
+reviews given, and the lines of theirs that still run, counted from each
+repository's own history with blame. It shows how they stand next to the
+people they work with, view by view and never by one score, and turns it
+into Cards for a README, a self-review or a post. On your machine it reads
+the whole history of a large repository in seconds, from git's own data.
 
 ![commitscape's own story, drawn by commitscape](.github/commitscape-card.svg)
 
@@ -31,9 +32,12 @@ There are three ways to use it:
 2. **Shared from a terminal.** `commitscape share` builds the Report on
    your machine, encrypts it, uploads it and prints a link. The link opens
    in any browser for 4 hours, and the Site cannot read what it stores.
-3. **On the Site.** Paste any public GitHub link to see its Report, sign in
-   with GitHub to open your private repositories, or browse the
-   Leaderboards.
+3. **On the Site.** Type any GitHub username for their Profile: totals,
+   Surviving Lines, Archetype and Achievements, where their work is, Cards
+   to embed, Proof of Work for a period, Versus, Rivals, Races, Crews and
+   Wrapped. Paste a repository link for its Report and Standings, sign in
+   with GitHub to see your own private work, or browse the Leaderboards.
+   Anyone can stay out of comparisons.
 
 The project is in early development. The CLI and the Site work end to end;
 the first release is next.
@@ -79,6 +83,7 @@ once it runs.
 | `commitscape health <owner/name>` | Whether a GitHub project is alive and whether it depends on one person |
 | `commitscape wrapped [folder]` | Your year across every repository under a folder, as a card |
 | `commitscape card [path]` | The repository's story as an SVG card, like the one above |
+| `commitscape surviving [path] --person <id>` | A person's Surviving Lines: the lines at the head that blame gives them, reformats passed through |
 | `commitscape share` | An encrypted link to this repository's Report, for any browser |
 | `commitscape report [path]` | The Report as gzipped JSON, as the Site stores it |
 | `commitscape github [path]` | Fetch pull requests, issues and releases through the `gh` CLI |

@@ -1,6 +1,6 @@
 # commitscape
 
-A tool that reads a git repository, locally or on the Site, and reports the things about it that change what you do next. Every number it shows must either alter a decision or be interesting enough to screenshot, and every number must be enterable.
+A tool that shows a developer what they have built, how they stand next to the people they work with, and gives them something to share about it (ADR-0020). It reads git history, locally or on the Site, and GitHub's API. Every number says what it counts, and none is a guess.
 
 ## Language
 
@@ -44,7 +44,7 @@ _Avoid_: age, freshness, last modified.
 
 **Code Age**:
 The distribution of surviving code by the quarter in which it was introduced. Until line-level history exists it is measured per file: each file's lines count toward the quarter the file first appeared. Distinct from Staleness, which is per-file and backward-looking from now.
-_Avoid_: code lifetime, survival.
+_Avoid_: code lifetime, Surviving Lines (a different, line-level measure).
 
 ### What we measure it over
 
@@ -127,8 +127,12 @@ The code at HEAD drawn as nested rectangles, each as large as its lines of code,
 _Avoid_: treemap, tree view, file browser.
 
 **Card**:
-A composited image summarizing a repository, rendered for sharing rather than for reading in a terminal: the Overview's story of all of history, unless a shorter Window is asked for. The tool's growth mechanism, treated as a product feature.
-_Avoid_: summary image, badge (and report, which is the Report).
+One of a set of images made for sharing, about a person, a person in a repository, a Versus, a Race, a Season or a repository: one React component, shown on the Site, embedded in a README as animated SVG, and used as a PNG link preview (ADR-0021). The tool's growth mechanism, treated as a product feature.
+_Avoid_: summary image, badge, widget (and report, which is the Report).
+
+**Embed**:
+A Card placed in a README or elsewhere by its address, served from a stored copy that never waits on GitHub.
+_Avoid_: badge, widget, stats image.
 
 **Report**:
 Every answer the browser interface needs, for every Window, written ahead of time: it needs no server and answers only what it was written with. Kept as one file, stored on the Site for a repository, or uploaded as a Shared Report.
@@ -143,7 +147,7 @@ One short row per commit (who, when, its subject line, its Commit Kind, how much
 _Avoid_: log, history, search index.
 
 **Wrapped**:
-One person's year across every repository in a folder: only their own commits, under every address they commit with, told as a page and a Card.
+One person's year, told as a page and a set of Cards: across GitHub on the Site, or across every repository in a folder in the CLI, under every address they commit with.
 _Avoid_: year in review, stats, recap.
 
 **Moment**:
@@ -169,5 +173,74 @@ A repository someone let the Site read by choosing it in commitscape's GitHub Ap
 _Avoid_: linked repo, imported repo, private repo.
 
 **Leaderboard**:
-A ranking of repositories, never of people, by something commitscape measures, such as Bus Factor or how quickly issues get a first answer. It says when it was built and from how many repositories.
-_Avoid_: ranking of developers, top contributors, hall of fame.
+A ranking of repositories, or of people who haven't hidden, by one view at a time, such as Bus Factor or merged pull requests this Season. It says when it was built and from how many repositories.
+_Avoid_: score, top developers.
+
+### People
+
+**Profile**:
+Everything commitscape shows about one GitHub login: their totals, their Archetype and Achievements, and the per-project breakdown. GitHub's facts show at once; the engine's numbers stream in when their Builds finish. Private work appears only as totals unless its person opts in.
+_Avoid_: account, user page, dashboard.
+
+**Hidden**:
+Said of a Profile whose person chose to stay out of comparisons: it appears in no Versus, Leaderboard, Race or other person's Standings.
+_Avoid_: private profile, opted out.
+
+**Surviving Lines**:
+The lines at a repository's head that blame attributes to a person, passing through Bulk Commits and ignored revisions, leaving out Generated Files, Prose Files and files over a megabyte (ADR-0022). Passing through gives a changed line to the commit before only when the two are the same once whitespace is removed; any other line a reformat changed stays with the reformat. Counted per person on request; "not counted" when over its time budget, never an estimate.
+_Avoid_: lines owned, code alive, impact.
+
+**Survival**:
+A person's Surviving Lines as a share of the lines they added in that repository (their Lines Changed). Shown only when both are known and it is at most 100%: an import left out of Lines Changed as a Bulk Commit can keep more lines than were counted as added.
+_Avoid_: retention, survival rate, code quality.
+
+**Standing**:
+Where a person stands among a repository's people in one view, counted from the top, as Rank is for files. **Standings** are every person's Standing side by side, view by view, never combined into a score. A private repository's Standings are shown only to people who can see it.
+_Avoid_: score, rating, leaderboard position.
+
+**Proof of Work**:
+What a person shipped in a chosen period, grouped by repository and month, with links: merged pull requests and commits. Shared as a link or downloaded as Markdown or PDF.
+_Avoid_: report (that is the Report), timesheet, invoice.
+
+**Versus**:
+Two Profiles side by side, with a winner for each view and no overall winner.
+_Avoid_: battle, duel, comparison score.
+
+**Rival**:
+A person someone chose to measure themselves against, whose gap shows on their own Profile.
+_Avoid_: friend, follow.
+
+**Archetype**:
+A label for how a person works, from a written rule over their numbers, shown with its rule. Nobody under 50 contributions has one. The rules are tried in this order, and the first that fits is theirs (the others show as "also"):
+- **Reviewer**: gave more reviews than they opened pull requests, and at least 20 reviews.
+- **Janitor**: removed more lines than they added in their merged pull requests, and at least 1,000 lines.
+- **Firefighter**: at least half of their merged pull requests, and 10 or more, are fixes: titled fix, hotfix or bugfix, or a conventional fix:.
+- **Night Owl**: at least 40% of their newest 100 commits, 30 or more read, were made between 22:00 and 04:59 on the commit's own clock.
+- **Polyglot**: committed in five or more languages, each at least 5% of their commits, by the main language of each repository.
+- **Weekend Warrior**: at least 40% of their active days in the last year fell on a Saturday or Sunday, with 30 or more active days.
+- **Marathoner**: a streak of 30 days or more in a row with a contribution.
+- **Builder**: merged 25 or more pull requests, adding at least twice the lines they removed.
+_Avoid_: personality, type, persona.
+
+**Achievement**:
+A milestone a person reached, from a written rule, shown with the day it was reached when that is known. Each has a Card. The set:
+- **Merged into a 10k-star repository**: a pull request of theirs merged into a repository with 10,000 stars or more, as it has now.
+- **100** and **1,000 pull requests merged**.
+- **100** and **1,000 reviews** of others' pull requests.
+- **Removed 10k lines in one pull request**: a merged pull request of theirs that removed 10,000 lines or more.
+- **A 30-day** and **a 100-day streak** of contributions.
+- **10,000 lines still running**: Surviving Lines at the heads of the repositories commitscape has read.
+- **A line that has survived five years**: a line of theirs still at a repository's head, from a commit authored five years ago or more.
+_Avoid_: badge, trophy.
+
+**Season**:
+One calendar month, after which Crew Standings and people Leaderboards start again.
+_Avoid_: period, sprint.
+
+**Race**:
+A fixed window in which two or more people who accepted compare their Standings live, ending with a finish Card.
+_Avoid_: challenge, competition, contest.
+
+**Crew**:
+A group of people who accepted an invitation to compare themselves every Season.
+_Avoid_: team, group, organisation.

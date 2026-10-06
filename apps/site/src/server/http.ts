@@ -2,9 +2,11 @@ import "@tanstack/react-start/server-only";
 
 export class SiteError extends Error {
   readonly status: number;
-  constructor(status: number, message: string) {
+  readonly detail: Record<string, unknown>;
+  constructor(status: number, message: string, detail: Record<string, unknown> = {}) {
     super(message);
     this.status = status;
+    this.detail = detail;
   }
 }
 
@@ -23,7 +25,7 @@ export async function answer(run: () => Promise<Response>): Promise<Response> {
   try {
     return await run();
   } catch (e) {
-    if (e instanceof SiteError) return says(e.status, e.message);
+    if (e instanceof SiteError) return json({ error: e.message, ...e.detail }, e.status);
     throw e;
   }
 }
@@ -42,8 +44,16 @@ export function clientAddress(request: Request, header: string): string {
     .join(":")}::/64`;
 }
 
-/** Whether a request comes from the Site's own pages, judged by the public address it is served at. */
+/** Whether a request comes from the Site's own pages: its Origin is the public address the Site is served at, or the address the request itself was sent to. */
 export function sameOrigin(request: Request, site: string): boolean {
   const origin = request.headers.get("origin");
-  return origin === null || origin === new URL(site).origin;
+  if (origin === null) return true;
+  if (origin === new URL(site).origin) return true;
+  try {
+    const from = new URL(origin);
+    const to = new URL(request.url);
+    return from.host === (request.headers.get("host") ?? to.host) && from.protocol === to.protocol;
+  } catch {
+    return false;
+  }
 }

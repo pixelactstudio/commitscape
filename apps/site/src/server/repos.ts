@@ -13,7 +13,9 @@ import {
   readIndex,
   REPORT_FOR,
   repoId,
+  repoNamed,
   schema,
+  settleRepository,
   waitingBuilds,
   type Db,
   type GitHubApp,
@@ -25,7 +27,7 @@ import { askGitHub, asUser, type GitHubConfig } from "./github";
 import { SiteError } from "./http";
 import { allow } from "./limits";
 
-const { access, builds, repositories } = schema;
+const { access, builds, repoNames, repoPeople, repositories } = schema;
 
 export type Deps = { db: Db; storage: Storage; github: GitHubConfig; app: GitHubApp | null; queue: () => Promise<Queue> };
 
@@ -53,34 +55,56 @@ function idOf(owner: string, name: string): string {
   return id;
 }
 
-async function rowOf(db: Db, id: string): Promise<Row | undefined> {
-  const [row] = await db.select().from(repositories).where(eq(repositories.id, id));
-  return row;
+/** The row a name leads to, following a repository that moved to another name. */
+export async function rowOf(db: Db, id: string): Promise<Row | undefined> {
+  const row = await repoNamed(db, id);
+  if (!row) return undefined;
+  const { movedAt: _, ...kept } = row;
+  return kept;
 }
 
-/** A repository's row, with GitHub's facts asked again when they are an hour old. */
+function nameOf(fullName: string | undefined): { owner: string; name: string } | null {
+  const [owner = "", name = "", more] = (fullName ?? "").split("/");
+  return more === undefined && repoId(owner, name) ? { owner, name } : null;
+}
+
+async function settled(deps: Deps, row: Row): Promise<Row> {
+  if (!row.githubId) return row;
+  const twins = await deps.db.select().from(repositories).where(eq(repositories.githubId, row.githubId));
+  const informed = twins.filter((t) => t.facts).sort((a, b) => (b.factsAt ?? 0) - (a.factsAt ?? 0))[0];
+  const current = nameOf(informed?.facts ? (JSON.parse(informed.facts) as { fullName?: string }).fullName : undefined);
+  if (twins.length <= 1 && (!current || repoId(current.owner, current.name) === row.id)) return row;
+  return settleRepository(deps.db, deps.storage, { githubId: row.githubId, ...(current ?? { owner: row.owner, name: row.name }) });
+}
+
+/** A repository's row under its current name, with GitHub's facts asked again when they are an hour old; an old name of a renamed or moved repository leads to its row. */
 export async function known(deps: Deps, owner: string, name: string, address?: string): Promise<Row | null> {
   const id = idOf(owner, name);
-  const row = await rowOf(deps.db, id);
-  if (row && (row.installationId || (row.factsAt && row.factsAt > now() - FACTS_FOR))) return row;
+  const [own] = await deps.db.select().from(repositories).where(eq(repositories.id, id));
+  const moved = own ? undefined : await repoNamed(deps.db, id);
+  if (moved && (moved.movedAt ?? 0) > now() - FACTS_FOR) return known(deps, moved.owner, moved.name, address);
+  const row: Row | undefined = own ?? moved;
+  if (own && (own.installationId || (own.factsAt && own.factsAt > now() - FACTS_FOR))) return settled(deps, own);
   if (address && !(await allow(deps.db, LOOKUP_LIMIT, address))) {
     if (row) return row;
     throw new SiteError(429, "This address has looked up many repositories this hour. Try again later.");
   }
   const asked = await askGitHub(deps.github, owner, name).catch(() => null);
   if (!asked) return row ?? null;
-  const another = !!row?.githubId && !!asked.githubId && row.githubId !== asked.githubId;
-  if (another && row?.reportKey) await deps.storage.deletePrefix(`${row.reportKey}/`);
+  if (asked.status === "ok" && asked.githubId) {
+    const current = nameOf(asked.facts.fullName) ?? { owner, name };
+    const facts = { status: "ok", isPrivate: false, facts: JSON.stringify(asked.facts), factsAt: now(), sizeKb: asked.facts.sizeKb };
+    return settleRepository(deps.db, deps.storage, { githubId: asked.githubId, ...current, asked: id, set: facts });
+  }
+  if (moved) await deps.db.delete(repoNames).where(eq(repoNames.id, id));
   const fields = {
-    githubId: asked.githubId ?? row?.githubId ?? null,
-    ...(another ? { reportKey: null, reportAt: null, reportBytes: null, reportLines: null, cardKey: null } : {}),
     status: asked.status,
     isPrivate: asked.status === "private",
     facts: asked.status === "ok" ? JSON.stringify(asked.facts) : null,
     factsAt: now(),
     sizeKb: asked.status === "ok" ? asked.facts.sizeKb : null,
-    owner: row?.owner ?? owner,
-    name: row?.name ?? name,
+    owner: own?.owner ?? owner,
+    name: own?.name ?? name,
   };
   const [saved] = await deps.db.insert(repositories).values({ id, ...fields }).onConflictDoUpdate({ target: repositories.id, set: fields }).returning();
   return saved ?? null;
@@ -105,7 +129,8 @@ export async function canSee(deps: Deps, sessionId: string, token: string, owner
   return allowed;
 }
 
-async function connected(deps: Deps, viewer: Viewer, owner: string, name: string, row: Row): Promise<{ access: Lookup["access"]; row: Row }> {
+async function connected(deps: Deps, viewer: Viewer, row: Row): Promise<{ access: Lookup["access"]; row: Row }> {
+  const { owner, name } = row;
   const s = await viewer.session();
   const token = s ? await viewer.token() : null;
   if (!s || !token) return { access: "signed_out", row };
@@ -139,7 +164,7 @@ export async function lastBuild(db: Db, id: string) {
 
 export function lookupOf(row: Row, build: Awaited<ReturnType<typeof lastBuild>>, seen: Lookup["access"] = "public", at = now()): Lookup {
   const visible = row.status === "ok" || seen === "allowed";
-  const stale = !!row.reportAt && row.reportAt < at - REPORT_FOR;
+  const stale = (!!row.reportAt && row.reportAt < at - REPORT_FOR) || (!!row.reportKey && row.reportLines === false);
   return {
     id: row.id,
     owner: row.owner,
@@ -168,7 +193,7 @@ export async function resolve(deps: Deps, viewer: Viewer, owner: string, name: s
   const row = await known(deps, owner, name, viewer.address);
   if (!row) throw new SiteError(503, "GitHub could not be asked just now. Try again in a moment.");
   if (row.status === "ok" && !row.installationId) return { row, access: "public" };
-  return connected(deps, viewer, owner, name, row);
+  return connected(deps, viewer, row);
 }
 
 /** What the Site knows of a repository: GitHub's facts, its Report and its last Build. */
@@ -177,7 +202,7 @@ export async function lookup(deps: Deps, viewer: Viewer, owner: string, name: st
   return lookupOf(row, await lastBuild(deps.db, row.id), seen);
 }
 
-/** Starts a Build when the Report is missing or a day old, within the rate limits. */
+/** Starts a Build when the Report is missing, a day old or read without lines, within the rate limits. */
 export async function requestBuild(deps: Deps, viewer: Viewer, owner: string, name: string): Promise<Lookup> {
   const { row, access: seen } = await resolve(deps, viewer, owner, name);
   const state = lookupOf(row, await lastBuild(deps.db, row.id), seen);
@@ -194,29 +219,34 @@ export async function requestBuild(deps: Deps, viewer: Viewer, owner: string, na
 }
 
 async function readable(deps: Deps, viewer: Viewer, owner: string, name: string): Promise<Row & { reportKey: string }> {
-  const id = idOf(owner, name);
-  let row = await rowOf(deps.db, id);
+  let row = await rowOf(deps.db, idOf(owner, name));
   if (row && !row.installationId && (row.factsAt ?? 0) < now() - FACTS_FOR) row = (await known(deps, owner, name)) ?? row;
   if (!row?.reportKey) throw new SiteError(404, NO_REPORT);
   if (row.isPrivate || row.installationId) {
     const s = await viewer.session();
     const token = s ? await viewer.token() : null;
-    if (row.isPrivate && (!s || !token || !(await canSee(deps, s.id, token, owner, name, row.githubId)))) throw new SiteError(404, NO_REPORT);
+    if (row.isPrivate && (!s || !token || !(await canSee(deps, s.id, token, row.owner, row.name, row.githubId)))) throw new SiteError(404, NO_REPORT);
   } else if (row.status !== "ok") {
     throw new SiteError(404, NO_REPORT);
   }
-  if ((row.viewedAt ?? 0) < now() - 3600) await deps.db.update(repositories).set({ viewedAt: now() }).where(eq(repositories.id, id));
+  if ((row.viewedAt ?? 0) < now() - 3600) await deps.db.update(repositories).set({ viewedAt: now() }).where(eq(repositories.id, row.id));
   return row as Row & { reportKey: string };
 }
 
-export type ReportHead = { at: number; index: ReportIndex; private: boolean };
+export type ReportHead = { at: number; index: ReportIndex; private: boolean; logins: [number, string][] };
 
-/** A readable Report's index and when it was built. */
+/** A readable Report's index, when it was built, and the GitHub login of each of its people the Builder found. */
 export async function reportHead(deps: Deps, viewer: Viewer, owner: string, name: string): Promise<ReportHead> {
   const row = await readable(deps, viewer, owner, name);
-  const index = await readIndex(deps.storage, row.reportKey);
+  const [index, people] = await Promise.all([
+    readIndex(deps.storage, row.reportKey),
+    deps.db
+      .select({ id: repoPeople.personId, login: repoPeople.login })
+      .from(repoPeople)
+      .where(and(eq(repoPeople.repoId, row.id), eq(repoPeople.reportKey, row.reportKey))),
+  ]);
   if (!index) throw new SiteError(404, NO_REPORT);
-  return { at: row.reportAt ?? 0, index, private: row.isPrivate };
+  return { at: row.reportAt ?? 0, index, private: row.isPrivate, logins: people.flatMap((p) => (p.login ? [[p.id, p.login] as [number, string]] : [])) };
 }
 
 /** One answer of a Report the viewer may read. */
@@ -239,12 +269,4 @@ export async function reportCard(deps: Deps, viewer: Viewer, owner: string, name
   const svg = await readCard(deps.storage, row.reportKey, window);
   if (!svg) throw new SiteError(404, "No card for that Window.");
   return svg;
-}
-
-/** A public repository's card image, for social previews. */
-export async function publicCard(deps: Deps, owner: string, name: string): Promise<{ body: Uint8Array; type: string } | null> {
-  const row = await rowOf(deps.db, idOf(owner, name));
-  if (!row?.cardKey || row.status !== "ok" || row.isPrivate) return null;
-  const object = await deps.storage.get(row.cardKey);
-  return object ? { body: object.body, type: object.type ?? "image/png" } : null;
 }

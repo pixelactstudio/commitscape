@@ -1,0 +1,1 @@
+ALTER TABLE "surviving" ADD COLUMN "oldest" bigint;

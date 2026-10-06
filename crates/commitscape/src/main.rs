@@ -4,6 +4,7 @@ mod health;
 mod json;
 mod people;
 mod share;
+mod surviving;
 mod text;
 mod who;
 mod wrapped;
@@ -105,6 +106,11 @@ enum Command {
     /// link holds, so any browser can open it for a few hours. The Site
     /// cannot read it. Exits at once.
     Share(share::ShareArgs),
+    /// Count each person's Surviving Lines: the lines at the head that blame
+    /// gives them, passing Bulk Commits and the commits named in
+    /// .git-blame-ignore-revs through to who wrote the lines before, and
+    /// leaving out Generated Files and Prose Files. Prints one JSON document.
+    Surviving(surviving::SurvivingArgs),
 }
 
 #[derive(Args)]
@@ -252,6 +258,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         Some(Command::Github(args)) => return github_history(args),
         Some(Command::Report(args)) => return report(args),
         Some(Command::Share(args)) => return share::run(args),
+        Some(Command::Surviving(args)) => return surviving::run(args),
         None => {}
     }
     let repo = GixRepo::open(&cli.repo)?;
@@ -341,7 +348,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
 
 fn report(args: ReportArgs) -> anyhow::Result<()> {
     let options = args.common.cache();
-    let path = report_source(&args, &options)?;
+    let path = repo_source(&args.repo, args.partial, &options)?;
     let count_lines = !(args.no_lines || args.partial);
     let (name, report) = make_report(
         &path,
@@ -408,21 +415,21 @@ pub(crate) fn make_report(
     Ok((name, report))
 }
 
-fn report_source(args: &ReportArgs, options: &CacheOptions) -> anyhow::Result<PathBuf> {
-    let local = PathBuf::from(&args.repo);
+pub(crate) fn repo_source(
+    repo: &str,
+    partial: bool,
+    options: &CacheOptions,
+) -> anyhow::Result<PathBuf> {
+    let local = PathBuf::from(repo);
     if local.exists() {
         anyhow::ensure!(
-            !args.partial,
+            !partial,
             "--partial is for a GitHub project, not a local repository"
         );
         return Ok(local);
     }
-    let remote = clone::remote(&args.repo).ok_or_else(|| {
-        anyhow::anyhow!(
-            "{} is neither a folder here nor a GitHub project",
-            args.repo
-        )
-    })?;
+    let remote = clone::remote(repo)
+        .ok_or_else(|| anyhow::anyhow!("{} is neither a folder here nor a GitHub project", repo))?;
     let root = options
         .root
         .clone()
@@ -430,7 +437,7 @@ fn report_source(args: &ReportArgs, options: &CacheOptions) -> anyhow::Result<Pa
         .ok_or_else(|| {
             anyhow::anyhow!("there is no cache directory to clone into; pass --cache-dir")
         })?;
-    let how = if args.partial {
+    let how = if partial {
         clone::Clone::Partial
     } else {
         clone::Clone::Full

@@ -1,5 +1,5 @@
 import "@tanstack/react-start/server-only";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { removeReports, schema, type Db, type Storage } from "@commitscape/server";
 import { asUser, type GitHubConfig } from "./github";
 import { SiteError } from "./http";
@@ -35,6 +35,11 @@ export async function mine(gh: GitHubConfig, user: { login: string; name: string
 export async function deleteMyData(db: Db, storage: Storage, userId: string): Promise<number> {
   const theirs = await db.select().from(schema.repositories).where(eq(schema.repositories.connectedBy, userId));
   await removeReports(db, storage, theirs);
+  const [who] = await db.select({ login: schema.user.login }).from(schema.user).where(eq(schema.user.id, userId));
+  if (who?.login) {
+    await db.delete(schema.profiles).where(and(eq(schema.profiles.login, who.login.toLowerCase()), eq(schema.profiles.scope, "self")));
+    await db.delete(schema.people).where(eq(schema.people.login, who.login.toLowerCase()));
+  }
   await db.delete(schema.user).where(eq(schema.user.id, userId));
   return theirs.length;
 }

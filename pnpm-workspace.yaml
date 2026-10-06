@@ -3,8 +3,8 @@ packages:
   - packages/*
 
 catalog:
-  "@astryxdesign/core": 0.6.3
-  "@astryxdesign/theme-neutral": 0.6.3
+  "@astryxdesign/core": 0.6.5
+  "@astryxdesign/theme-neutral": 0.6.5
   "@stylexjs/stylex": 0.19.1
   "@playwright/test": 1.63.0
   "@types/node": 24.13.6
@@ -47,3 +47,9 @@ allowBuilds:
   "@astryxdesign/core": false
   core-js: false
   esbuild: true
+
+overrides:
+  seroval: ^1.6.7
+  seroval-plugins: ^1.6.7
+  shell-quote: ^1.11.0
+  source-map-js: ^1.2.2

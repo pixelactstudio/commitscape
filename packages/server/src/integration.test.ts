@@ -1,13 +1,14 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { afterAll, describe, expect, test } from "vitest";
 import { busy, queueBuild, waitingBuilds } from "./builds";
 import { cleanup } from "./cleanup";
 import { createDb, runMigrations } from "./db/client";
-import { builds, repositories, shares } from "./db/schema";
+import { builds, repoNames, repositories, shares } from "./db/schema";
 import { BUILD_QUEUE, bossQueue, PRIORITY, startQueue, type BuildJob } from "./queue";
 import { readEntry, readIndex, reportPrefix, storeReport } from "./reports";
+import { settleRepository } from "./repos";
 import { s3Storage } from "./storage";
 import { now } from "./time";
 
@@ -43,6 +44,17 @@ describe.skipIf(!url || !s3)("against Postgres and S3", async () => {
     expect(busy(row)).toBe(true);
     await site.stop();
     await boss.stop();
+  });
+
+  test("a renamed repository's rows become one in a transaction, its old name kept as a way to it", async () => {
+    await db.delete(repositories).where(inArray(repositories.id, ["t/old-name", "t/new-name"]));
+    await db.insert(repositories).values({ id: "t/old-name", owner: "t", name: "old-name", githubId: -42, reportKey: "reports/gh/t/old-name/b1", reportAt: now() });
+    await db.insert(builds).values({ id: `t-${now()}`, repoId: "t/old-name", state: "done", requestedAt: now() });
+    const row = await settleRepository(db, storage, { githubId: -42, owner: "t", name: "new-name" });
+    expect(row).toMatchObject({ id: "t/new-name", reportKey: "reports/gh/t/old-name/b1" });
+    expect(await db.select({ repoId: repoNames.repoId }).from(repoNames).where(eq(repoNames.id, "t/old-name"))).toEqual([{ repoId: "t/new-name" }]);
+    expect((await db.select().from(builds).where(eq(builds.repoId, "t/new-name"))).length).toBeGreaterThan(0);
+    await db.delete(repositories).where(eq(repositories.id, "t/new-name"));
   });
 
   test("cleanup removes what has expired", async () => {

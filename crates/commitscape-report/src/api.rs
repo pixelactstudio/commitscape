@@ -1263,6 +1263,35 @@ impl CommitList {
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[cfg_attr(test, derive(ts_rs::TS))]
+pub struct Surviving {
+    pub head: String,
+    pub people: Vec<SurvivingPerson>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SurvivingPerson {
+    pub id: u32,
+    pub name: Option<String>,
+    pub status: SurvivingStatus,
+    pub surviving: Option<u64>,
+    pub added: Option<u64>,
+    pub files: u32,
+    pub oldest: Option<i64>,
+    pub seconds: f64,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum SurvivingStatus {
+    Counted,
+    OverBudget,
+    UnknownPerson,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct Stats {
     pub commits: u64,
     pub people: u32,
@@ -1364,6 +1393,9 @@ mod types {
             CommitList::decl(&cfg),
             CommitPerson::decl(&cfg),
             Stats::decl(&cfg),
+            Surviving::decl(&cfg),
+            SurvivingPerson::decl(&cfg),
+            SurvivingStatus::decl(&cfg),
         ] {
             out.push_str("\nexport ");
             out.push_str(&decl);

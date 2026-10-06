@@ -81,7 +81,7 @@ fn encode(out: &mut Vec<u8>, id: Oid, deltas: &[Option<LineDelta>]) {
     }
 }
 
-fn leb128(out: &mut Vec<u8>, mut n: u64) {
+pub(super) fn leb128(out: &mut Vec<u8>, mut n: u64) {
     loop {
         let byte = (n & 0x7f) as u8;
         n >>= 7;
@@ -130,7 +130,7 @@ fn record(bytes: &[u8]) -> Option<Record<'_>> {
     Some((Oid(id), deltas, rest))
 }
 
-fn read_leb128(bytes: &[u8]) -> Option<(u64, &[u8])> {
+pub(super) fn read_leb128(bytes: &[u8]) -> Option<(u64, &[u8])> {
     let mut n = 0u64;
     for (i, &b) in bytes.iter().enumerate().take(10) {
         n |= u64::from(b & 0x7f) << (7 * i);

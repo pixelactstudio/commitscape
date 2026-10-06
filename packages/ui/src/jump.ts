@@ -11,7 +11,8 @@ export function jumpSource(items: Promise<Jump[]>): SearchSource<Jump> {
       const all = await items;
       const words = query.toLowerCase().split(/\s+/).filter(Boolean);
       if (words.length === 0) return shown(all);
-      return shown(all.filter((i) => words.every((w) => i.label.toLowerCase().includes(w))));
+      const commits: Jump = { id: `commits:${query.trim()}`, label: `Commits that mention “${query.trim()}”`, auxiliaryData: { group: "Commits", to: { screen: "commits", q: query.trim(), id: undefined, file: undefined } } };
+      return [...shown(all.filter((i) => words.every((w) => i.label.toLowerCase().includes(w)))), commits];
     },
   };
 }

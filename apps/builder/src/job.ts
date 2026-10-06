@@ -2,17 +2,25 @@ import { eq } from "drizzle-orm";
 import {
   installationToken,
   now,
+  PRIORITY,
   reportPrefix,
   schema,
   storeReport,
   type Db,
   type GitHubApp,
+  type BuildJob,
   type Storage,
+  type SurvivalJob,
 } from "@commitscape/server";
 import type { Config } from "./config";
-import { build, type Deps } from "./run";
+import type { GitHubApi } from "./github";
+import { peopleOf, resolveLogins } from "./people";
+import { build, BUILD_ATTEMPTS, type Deps } from "./run";
 
-const { builds, repositories } = schema;
+const { builds, repoPeople, repositories, surviving } = schema;
+
+export const SEED_COUNTED = 30;
+const COUNTED_AT_ONCE = 10;
 
 export type JobContext = {
   db: Db;
@@ -20,12 +28,15 @@ export type JobContext = {
   cfg: Config;
   app: GitHubApp | null;
   run: Deps["run"];
-  png: Deps["png"];
+  github: GitHubApi;
   log: (line: string) => void;
+  queuePulls?: (repoId: string) => Promise<void>;
+  queueCounts?: (job: SurvivalJob) => Promise<void>;
+  queueBuild?: (job: BuildJob & { attempt: number }, priority: number) => Promise<void>;
 };
 
-/** Runs one queued Build: reads the repository, stores its Report and card in R2, and records how it ended. */
-export async function runJob(buildId: string, ctx: JobContext): Promise<void> {
+/** Runs one queued Build: reads the repository, stores its Report in R2 and its people in Postgres, and records how it ended; one past its time limit is queued again to go on from the lines it counted. */
+export async function runJob(buildId: string, ctx: JobContext, attempt = 1): Promise<void> {
   const { db, storage, log } = ctx;
   const [found] = await db
     .select({ build: builds, repo: repositories })
@@ -48,59 +59,107 @@ export async function runJob(buildId: string, ctx: JobContext): Promise<void> {
   await db.update(builds).set({ state: "running", step: "reading", startedAt: now() }).where(eq(builds.id, buildId));
   const started = Date.now();
   const outcome = await build(
-    { id: buildId, owner: repo.owner, name: repo.name, sizeKb: repo.sizeKb ?? 0, private: repo.isPrivate, token, seed: repo.seed },
+    { id: buildId, owner: repo.owner, name: repo.name, sizeKb: repo.sizeKb ?? 0, private: repo.isPrivate, token, seed: repo.seed, attempt },
     ctx.cfg,
     {
       run: ctx.run,
-      png: ctx.png,
       progress: async (step) => {
         await db.update(builds).set({ step }).where(eq(builds.id, buildId));
       },
     },
   );
-  log(`build ${buildId} ${repo.id}: ${outcome.ok ? "done" : outcome.reason} in ${((Date.now() - started) / 1000).toFixed(1)} s`);
+  log(`build ${buildId} ${repo.id}: ${outcome.ok ? "done" : outcome.reason} in ${((Date.now() - started) / 1000).toFixed(1)} s, attempt ${attempt}`);
+  if (!outcome.ok && outcome.reason === "timed_out" && attempt < BUILD_ATTEMPTS && ctx.queueBuild) {
+    await db.update(builds).set({ state: "queued", step: null, startedAt: null, requestedAt: now() }).where(eq(builds.id, buildId));
+    const queued = await ctx
+      .queueBuild({ buildId, attempt: attempt + 1 }, repo.seed ? PRIORITY.seed : PRIORITY.person)
+      .then(() => true)
+      .catch((e: unknown) => {
+        log(`build ${buildId} not queued again: ${(e as Error).message}`);
+        return false;
+      });
+    if (!queued) await fail(outcome.reason, outcome.detail);
+    return;
+  }
   if (!outcome.ok) {
     await fail(outcome.reason, outcome.detail);
     return;
   }
 
-  const prefix = reportPrefix(repo.id, buildId);
+  const [before] = await db
+    .select({ id: repositories.id, owner: repositories.owner, name: repositories.name })
+    .from(builds)
+    .innerJoin(repositories, eq(repositories.id, builds.repoId))
+    .where(eq(builds.id, buildId));
+  const named = before ?? repo;
+  const prefix = reportPrefix(named.id, buildId);
   const { index, bytes } = await storeReport(storage, prefix, outcome.report);
-  const extension = outcome.card?.type === "image/png" ? "png" : "svg";
-  const card = outcome.card ? `cards/gh/${repo.id}/${buildId}.${extension}` : null;
-  if (outcome.card && card) await storage.put(card, outcome.card.bytes, { type: outcome.card.type });
   const stats = outcome.stats ?? index.stats;
-  const [updated] = await db
-    .update(repositories)
-    .set({
-      reportKey: prefix,
-      reportAt: now(),
-      reportBytes: bytes,
-      reportLines: outcome.lines,
-      cardKey: card ?? repo.cardKey,
-      ...(stats
-        ? {
-            busFactor: stats.bus_factor,
-            maintainers: stats.maintainers,
-            commits30d: stats.commits_30d,
-            people30d: stats.people_30d,
-            codeLines: stats.code_lines,
-            untouched5y: stats.untouched_5y,
-            ...(stats.answered !== undefined ? { answered: stats.answered, answerHours: stats.answer_hours ?? null } : {}),
-          }
-        : {}),
-    })
-    .where(eq(repositories.id, repo.id))
-    .returning({ id: repositories.id });
-  if (!updated) {
+  const people = await peopleRows(ctx, named.id, named.owner, named.name, outcome.report, token);
+  const target = await db.transaction(async (tx) => {
+    const [current] = await tx
+      .select({ id: repositories.id, reportKey: repositories.reportKey })
+      .from(builds)
+      .innerJoin(repositories, eq(repositories.id, builds.repoId))
+      .where(eq(builds.id, buildId));
+    if (!current) return null;
+    await tx
+      .update(repositories)
+      .set({
+        reportKey: prefix,
+        reportAt: now(),
+        reportBytes: bytes,
+        reportLines: true,
+        ...(stats
+          ? {
+              busFactor: stats.bus_factor,
+              maintainers: stats.maintainers,
+              commits30d: stats.commits_30d,
+              people30d: stats.people_30d,
+              codeLines: stats.code_lines,
+              untouched5y: stats.untouched_5y,
+              ...(stats.answered !== undefined ? { answered: stats.answered, answerHours: stats.answer_hours ?? null } : {}),
+            }
+          : {}),
+      })
+      .where(eq(repositories.id, current.id));
+    const rows = people.map((p) => ({ ...p, repoId: current.id, reportKey: prefix }));
+    await tx.delete(repoPeople).where(eq(repoPeople.repoId, current.id));
+    for (let i = 0; i < rows.length; i += 1000) await tx.insert(repoPeople).values(rows.slice(i, i + 1000));
+    return current;
+  });
+  if (!target) {
     await storage.deletePrefix(`${prefix}/`);
-    if (card) await storage.delete([card]);
     return;
   }
   await db
     .update(builds)
-    .set({ state: "done", step: null, finishedAt: now(), seconds: Math.round(outcome.seconds), partial: outcome.partial })
+    .set({ state: "done", step: null, finishedAt: now(), seconds: Math.round(outcome.seconds), partial: false })
     .where(eq(builds.id, buildId));
-  if (repo.reportKey && repo.reportKey !== prefix) await storage.deletePrefix(`${repo.reportKey}/`);
-  if (repo.cardKey && card && repo.cardKey !== card) await storage.delete([repo.cardKey]);
+  if (target.reportKey && target.reportKey !== prefix) await storage.deletePrefix(`${target.reportKey}/`);
+  await ctx.queuePulls?.(target.id).catch((e: unknown) => log(`pulls for ${target.id} not queued: ${(e as Error).message}`));
+  if (repo.seed) await queueSeedCounts(ctx, target.id, prefix, people).catch((e: unknown) => log(`counts for ${target.id} not queued: ${(e as Error).message}`));
+}
+
+async function queueSeedCounts(ctx: JobContext, repoId: string, reportKey: string, people: { personId: number; login: string | null; commits: number }[]): Promise<void> {
+  if (!ctx.queueCounts) return;
+  const ids = people
+    .filter((p) => p.login && !p.login.endsWith("[bot]"))
+    .sort((a, b) => b.commits - a.commits)
+    .slice(0, SEED_COUNTED)
+    .map((p) => p.personId);
+  if (ids.length === 0) return;
+  await ctx.db.insert(surviving).values(ids.map((personId) => ({ repoId, reportKey, personId, status: "queued", askedAt: now() }))).onConflictDoNothing();
+  for (let i = 0; i < ids.length; i += COUNTED_AT_ONCE) await ctx.queueCounts({ repoId, reportKey, personIds: ids.slice(i, i + COUNTED_AT_ONCE) });
+}
+
+async function peopleRows(ctx: JobContext, repoId: string, owner: string, name: string, report: Uint8Array, token: string | null) {
+  const { people, newest } = peopleOf(report);
+  let found = new Map<number, string>();
+  try {
+    found = (await resolveLogins({ ...ctx.github, token: token ?? ctx.github.token }, owner, name, people, newest)).found;
+  } catch (e) {
+    ctx.log(`logins for ${repoId}: ${(e as Error).message}`);
+  }
+  return people.map((p) => ({ ...p, login: p.login ?? found.get(p.personId) ?? null }));
 }
