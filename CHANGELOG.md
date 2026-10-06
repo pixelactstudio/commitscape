@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/pixelactstudio/commitscape/compare/v0.1.1...v0.2.0) (2026-10-06)
+
+
+### Features
+
+* **phase-33:** rebuild the Site UI and add people insights ([#23](https://github.com/pixelactstudio/commitscape/issues/23)) ([212ee2b](https://github.com/pixelactstudio/commitscape/commit/212ee2ba23f0f0db91b6366cb33c0a28ddfa3861))
+
 ## [0.1.1](https://github.com/pixelactstudio/commitscape/compare/v0.1.0...v0.1.1) (2026-09-28)
 
 
