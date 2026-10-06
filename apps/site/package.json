@@ -24,7 +24,7 @@
     "@commitscape/ui": "workspace:*",
     "@fontsource-variable/inter": "5.3.0",
     "@gsap/react": "2.1.2",
-    "@modelcontextprotocol/sdk": "1.30.1",
+    "@modelcontextprotocol/sdk": "1.32.1",
     "@posthog/react": "1.11.2",
     "@resvg/resvg-js": "2.6.2",
     "@sentry/tanstackstart-react": "11.0.0",

@@ -51,4 +51,5 @@ allowBuilds:
 overrides:
   seroval: ^1.6.7
   seroval-plugins: ^1.6.7
+  shell-quote: ^1.11.0
   source-map-js: ^1.2.2
