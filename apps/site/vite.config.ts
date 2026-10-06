@@ -14,7 +14,7 @@ export default defineConfig({
     devtools(),
     tailwindcss(),
     tanstackStart(),
-    nitro({ traceDeps: ["satori*", "harfbuzzjs*", "@resvg/resvg-js*", "pdfkit*"] }),
+    nitro({ traceDeps: ["satori*", "harfbuzzjs*", "@resvg/resvg-js*", "pdfkit*", "react", "react-dom"] }),
     react(),
     sentryTanstackStart({
       org: process.env.SENTRY_ORG,
