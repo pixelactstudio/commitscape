@@ -1,18 +1,19 @@
-import { Component, Suspense, useState, type ReactNode } from "react";
+import { Component, Suspense, useCallback, useEffect, useState, type ReactNode } from "react";
 import { Button } from "@astryxdesign/core/Button";
 import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { TextInput } from "@astryxdesign/core/TextInput";
-import { useMutation, useSuspenseQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, Copy, Download, Link2, Lock, Share2 } from "lucide-react";
-import { groupWork, inFilter, periodDates, PRODUCT, WORK_KINDS, type Work, type WorkKind } from "@commitscape/data";
-import { Face, many, Page, PageHead, PeriodPicker, RepoPicker, WorkSkeleton, WorkView, type WorkLook } from "@commitscape/ui";
+import { ArrowLeft, Copy, Download, Link2, Lock, LogIn, Share2 } from "lucide-react";
+import { groupWork, inFilter, isWorkGate, periodDates, periodWords, PRODUCT, WORK_KINDS, type Work, type WorkGate, type WorkKind } from "@commitscape/data";
+import { Face, grouped, many, Page, PageHead, Panel, PeriodPicker, RepoPicker, WorkSkeleton, WorkView, type WorkLook } from "@commitscape/ui";
 import { Section } from "#/components/Boundary";
 import { Missing } from "#/components/Missing";
 import { shareMyWork } from "#/functions/work";
+import { signIn } from "#/lib/auth-client";
 import { profileLookupQuery, workQuery } from "#/lib/queries";
 import { useToast } from "#/lib/toast";
 
@@ -48,43 +49,120 @@ function ProofOfWork() {
   if (lookup.status !== "ok") return <Missing title={`No one called @${login}`} words="GitHub has no person by that name. Check its spelling, or search for them." />;
   const id = lookup.identity;
   const name = id.name ?? id.login;
+  return <Proof login={id.login} name={name} self={lookup.self} search={search} />;
+}
+
+function useGate(login: string, search: Search): WorkGate | null {
+  const base = useQuery(workQuery(login, search.from, search.to, null)).data;
+  const gated = !!base && isWorkGate(base);
+  const narrowed = useQuery({ ...workQuery(login, search.from, search.to, search.filter ?? null), enabled: gated && !!search.filter }).data;
+  if (!base || !isWorkGate(base)) return null;
+  if (!search.filter) return base;
+  return narrowed && isWorkGate(narrowed) ? narrowed : null;
+}
+
+function Proof({ login, name, self, search }: { login: string; name: string; self: boolean; search: Search }) {
+  const gate = useGate(login, search);
+  const [asking, setAsking] = useState(false);
+  const [picking, setPicking] = useState(false);
+  const open = useCallback(() => setAsking(true), []);
+  const shorter = useCallback(() => setPicking(true), []);
   return (
     <Page className="flex flex-col gap-gutter pb-16">
       <PageHead
-        media={<Face login={id.login} name={name} size={48} />}
+        media={<Face login={login} name={name} size={48} />}
         eyebrow={
-          <Link to="/u/$login" params={{ login: id.login }} className="inline-flex items-center gap-1 text-secondary no-underline hover:text-primary">
+          <Link to="/u/$login" params={{ login }} className="inline-flex items-center gap-1 text-secondary no-underline hover:text-primary">
             <ArrowLeft size={14} aria-hidden /> {name}
           </Link>
         }
-        title={lookup.self ? "Your Proof of Work" : `${name}'s Proof of Work`}
+        title={self ? "Your Proof of Work" : `${name}'s Proof of Work`}
         description={
-          lookup.self
+          self
             ? "Every pull request you merged and every commit you made, with links. Your private work shows to you alone, and goes into a shared link only if you choose it."
             : "Every pull request they merged and every commit they made, with links. Public work only."
         }
-        actions={<Actions login={id.login} search={search} self={lookup.self} />}
+        actions={<Actions login={login} search={search} self={self} ask={gate ? open : null} />}
       />
-      <Filters login={id.login} search={search} />
+      <Filters login={login} search={search} picking={picking} onPicking={setPicking} />
       <Section fallback={<WorkSkeleton />}>
-        <Results login={id.login} search={search} />
+        <Results login={login} search={search} onAsk={open} onShorter={shorter} />
       </Section>
+      <SignInForWork
+        gate={gate}
+        isOpen={asking && !!gate}
+        onOpenChange={setAsking}
+        onShorter={() => {
+          setAsking(false);
+          setPicking(true);
+        }}
+      />
     </Page>
   );
 }
 
-function Actions({ login, search, self }: { login: string; search: Search; self: boolean }) {
+const here = () => (typeof window === "undefined" ? "/" : `${window.location.pathname}${window.location.search}`);
+
+function SignInForWork({ gate, isOpen, onOpenChange, onShorter }: { gate: WorkGate | null; isOpen: boolean; onOpenChange: (open: boolean) => void; onShorter: () => void }) {
+  return (
+    <Dialog isOpen={isOpen} onOpenChange={onOpenChange} width={520} padding={5} purpose="info">
+      {isOpen && gate && (
+        <>
+          <DialogHeader title={gate.signedIn ? "Sign in again to read this much work" : "Sign in to read this much work"} onOpenChange={onOpenChange} />
+          <SignInWords gate={gate} onShorter={onShorter} />
+        </>
+      )}
+    </Dialog>
+  );
+}
+
+function SignInWords({ gate, onShorter }: { gate: WorkGate; onShorter: () => void }) {
+  return (
+    <div className="flex flex-col gap-stack pt-4">
+      <p className="m-0 type-body">
+        This period, {periodWords(gate.from, gate.to)}
+        {gate.filter ? `, in ${gate.filter},` : ","} holds {gate.atLeast ? "at least" : "about"} {grouped(gate.prs + gate.commits)} merged pull requests and commits. Reading every one of them takes {gate.atLeast ? "at least" : "about"} {many(gate.requests, "request", "requests")} to GitHub.
+      </p>
+      <p className="m-0 type-description">
+        {gate.signedIn ? "GitHub no longer accepts your sign-in for reading, so" : "Without signing in,"} {PRODUCT} reads GitHub with one allowance that every visitor shares, and it reads no more than {gate.budget} requests for one Proof of Work. Sign in with GitHub{gate.signedIn ? " again" : ""} and it reads this one with your own GitHub allowance instead. It only reads; it never changes anything on GitHub.
+      </p>
+      <div className="flex flex-wrap justify-end gap-cluster">
+        <Button label="Pick a shorter period" variant="secondary" onClick={onShorter} />
+        <Button label="Sign in with GitHub" variant="primary" icon={<Icon icon={LogIn} size="sm" />} onClick={() => signIn(here())} />
+      </div>
+    </div>
+  );
+}
+
+function Gated({ gate, onAsk, onShorter }: { gate: WorkGate; onAsk: () => void; onShorter: () => void }) {
+  useEffect(() => onAsk(), [onAsk]);
+  return (
+    <Panel
+      title={gate.signedIn ? "This period needs you to sign in again" : "This period needs a sign-in"}
+      description={`${many(gate.prs, "merged pull request", "merged pull requests")} and ${gate.atLeast ? "at least" : "about"} ${many(gate.commits, "commit", "commits")}${gate.filter ? ` in ${gate.filter}` : ""}: reading them takes ${gate.atLeast ? "at least" : "about"} ${many(gate.requests, "request", "requests")} to GitHub, more than the ${gate.budget} the Site's shared allowance gives one Proof of Work. Sign in${gate.signedIn ? " again" : ""} to read it with your own GitHub allowance, or pick a shorter period or one repository.`}
+    >
+      <div className="flex flex-wrap gap-cluster">
+        <Button label="Sign in with GitHub" variant="primary" icon={<Icon icon={LogIn} size="sm" />} onClick={() => signIn(here())} />
+        <Button label="Pick a shorter period" variant="secondary" onClick={onShorter} />
+        <Button label="Why?" variant="ghost" onClick={onAsk} />
+      </div>
+    </Panel>
+  );
+}
+
+function Actions({ login, search, self, ask }: { login: string; search: Search; self: boolean; ask: (() => void) | null }) {
   const { origin } = Route.useLoaderData();
   const toast = useToast();
   const query = queryOf(search);
-  const copy = () => void navigator.clipboard?.writeText(`${origin}/u/${login}/work?${query}`).then(() => toast(self ? "Link copied. Others who open it see your public work." : "Link copied"));
+  const copy = () => (ask ? ask() : void navigator.clipboard?.writeText(`${origin}/u/${login}/work?${query}`).then(() => toast(self ? "Link copied. Others who open it see your public work." : "Link copied")));
+  const download = (file: string) => (ask ? { onClick: ask } : { href: `/api/work/u/${login}/${file}?${query}` });
   return (
     <>
       <Button label="Copy link" variant="secondary" icon={<Icon icon={Link2} size="sm" />} onClick={copy} />
       {self && <ShareWork login={login} search={search} />}
       <span className="hidden h-6 w-px bg-line sm:block" aria-hidden />
-      <Button label="Markdown" variant="secondary" icon={<Icon icon={Download} size="sm" />} href={`/api/work/u/${login}/proof.md?${query}`} tooltip="Download as Markdown" />
-      <Button label="PDF" variant="secondary" icon={<Icon icon={Download} size="sm" />} href={`/api/work/u/${login}/proof.pdf?${query}`} tooltip="Download as PDF" />
+      <Button label="Markdown" variant="secondary" icon={<Icon icon={Download} size="sm" />} {...download("proof.md")} tooltip="Download as Markdown" />
+      <Button label="PDF" variant="secondary" icon={<Icon icon={Download} size="sm" />} {...download("proof.pdf")} tooltip="Download as PDF" />
     </>
   );
 }
@@ -107,9 +185,14 @@ function ShareWork({ login, search }: { login: string; search: Search }) {
 }
 
 function ShareChoices({ login, search }: { login: string; search: Search }) {
+  const { data: read } = useSuspenseQuery(workQuery(login, search.from, search.to, search.filter ?? null));
+  if (isWorkGate(read)) return <p className="m-0 pt-4 type-description">GitHub no longer accepts your sign-in for reading this period. Sign out and in again, then share it.</p>;
+  return <ShareForm login={login} search={search} work={read} />;
+}
+
+function ShareForm({ login, search, work }: { login: string; search: Search; work: Work }) {
   const { origin } = Route.useLoaderData();
   const toast = useToast();
-  const { data: work } = useSuspenseQuery(workQuery(login, search.from, search.to, search.filter ?? null));
   const [chosen, setChosen] = useState<Set<string>>(new Set());
   const [link, setLink] = useState<string | null>(null);
   const privateRepos = [...new Map(groupWork(work.items).flatMap((m) => m.repositories.filter((r) => r.private).map((r) => [r.repo, 0] as const))).keys()].map((repo) => ({ repo, count: work.items.filter((i) => i.repo === repo).length }));
@@ -168,11 +251,11 @@ function ShareChoices({ login, search }: { login: string; search: Search }) {
   );
 }
 
-function Filters({ login, search }: { login: string; search: Search }) {
+function Filters({ login, search, picking, onPicking }: { login: string; search: Search; picking: boolean; onPicking: (open: boolean) => void }) {
   const navigate = useNavigate({ from: Route.fullPath });
   return (
     <div className="flex flex-col gap-cluster sm:flex-row sm:flex-wrap sm:items-center" role="group" aria-label="What to show">
-      <PeriodPicker from={search.from} to={search.to} onChange={(p) => void navigate({ search: (s) => ({ ...s, ...p, kind: undefined }) })} />
+      <PeriodPicker from={search.from} to={search.to} isOpen={picking} onOpenChange={onPicking} onChange={(p) => void navigate({ search: (s) => ({ ...s, ...p, kind: undefined }) })} />
       <Quiet key={`${search.from}:${search.to}`} fallback={<RepoPicker items={[]} value={search.filter ?? null} disabled onChange={() => undefined} />}>
         <Places login={login} search={search} />
       </Quiet>
@@ -193,19 +276,24 @@ class Quiet extends Component<{ fallback: ReactNode; children: ReactNode }, { fa
 function Places({ login, search }: { login: string; search: Search }) {
   const navigate = useNavigate({ from: Route.fullPath });
   const { data: base } = useSuspenseQuery(workQuery(login, search.from, search.to, null));
-  return <RepoPicker items={base.items} value={search.filter ?? null} onChange={(filter) => void navigate({ search: (s) => ({ ...s, filter: filter ?? undefined, kind: undefined }) })} />;
+  const choose = (filter: string | null) => void navigate({ search: (s) => ({ ...s, filter: filter ?? undefined, kind: undefined }) });
+  if (isWorkGate(base)) return <RepoPicker items={base.repositories.map((r) => ({ repo: r.repo, count: r.commits }))} noun={["commit", "commits"]} all={`${base.atLeast ? "at least" : "about"} ${many(base.commits, "commit", "commits")}`} value={search.filter ?? null} onChange={choose} />;
+  return <RepoPicker items={base.items} value={search.filter ?? null} onChange={choose} />;
 }
 
-function Results({ login, search }: { login: string; search: Search }) {
+type Asking = { onAsk: () => void; onShorter: () => void };
+
+function Results({ login, search, onAsk, onShorter }: { login: string; search: Search } & Asking) {
   const { data: base } = useSuspenseQuery(workQuery(login, search.from, search.to, null));
-  if (search.filter && base.truncated) return <Narrowed login={login} search={search} />;
+  if (isWorkGate(base)) return search.filter ? <Narrowed login={login} search={search} onAsk={onAsk} onShorter={onShorter} /> : <Gated gate={base} onAsk={onAsk} onShorter={onShorter} />;
   const work: Work = search.filter ? { ...base, filter: search.filter, items: base.items.filter((i) => inFilter(i, search.filter ?? null)) } : base;
   return <Shown work={work} search={search} />;
 }
 
-function Narrowed({ login, search }: { login: string; search: Search }) {
-  const { data: work } = useSuspenseQuery(workQuery(login, search.from, search.to, search.filter ?? null));
-  return <Shown work={work} search={search} />;
+function Narrowed({ login, search, onAsk, onShorter }: { login: string; search: Search } & Asking) {
+  const { data: read } = useSuspenseQuery(workQuery(login, search.from, search.to, search.filter ?? null));
+  if (isWorkGate(read)) return <Gated gate={read} onAsk={onAsk} onShorter={onShorter} />;
+  return <Shown work={read} search={search} />;
 }
 
 function Shown({ work, search }: { work: Work; search: Search }) {
@@ -217,7 +305,7 @@ function Shown({ work, search }: { work: Work; search: Search }) {
       work={work}
       look={look}
       onLook={(l) => void navigate({ search: (s) => ({ ...s, group: l.group === "repository" ? "repository" : undefined, kind: l.kind ?? undefined }), replace: true, resetScroll: false })}
-      footer={`Read from GitHub on ${read} UTC. Pull requests are counted on the day they were merged, commits on the day their author made them.`}
+      footer={`Read from GitHub on ${read} UTC. Pull requests are counted on the day they were merged. Commits are the ones on each repository's main branch today, on the day their author made them, so GitHub's own contribution count can be higher: it keeps commits that were later squashed or rewritten away.`}
     />
   );
 }

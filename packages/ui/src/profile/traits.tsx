@@ -6,7 +6,9 @@ import { Award, Check, Eye, Lock, Minus, Share2 } from "lucide-react";
 import { ARCHETYPE_MINIMUM, ARCHETYPES, type Achievement, type Archetype, type ArchetypeCheck } from "@commitscape/data";
 import { ICON } from "../design/tokens";
 import { Chip, Panel } from "../kit/layout";
-import { ARCHETYPE_ICONS } from "./icons";
+import { meshFallback } from "../motion/mesh";
+import { MeshGradient } from "../motion/MeshGradient";
+import { ARCHETYPE_ICONS, ARCHETYPE_PALETTES } from "./icons";
 
 /** Their Archetype as the hero of its own stage: its name and what it means, the numbers that met its rule as meters, and a dialog with every rule. */
 export function ArchetypePanel({ archetypes, complete, checks }: { archetypes: Archetype[]; complete: boolean; checks?: ArchetypeCheck[] }) {
@@ -15,8 +17,10 @@ export function ArchetypePanel({ archetypes, complete, checks }: { archetypes: A
   const closest = main ? null : [...(checks ?? [])].sort((a, b) => mean(b) - mean(a))[0];
   const shown = main ? checks?.find((c) => c.id === main.id) : closest;
   const Glyph = main ? ARCHETYPE_ICONS[main.id] : Award;
+  const palette = ARCHETYPE_PALETTES[main?.id ?? "none"];
   return (
-    <section aria-label="Archetype" className="archetype-card relative isolate flex h-full min-w-0 flex-col gap-5 overflow-hidden rounded-lg p-panel text-on-stage shadow-sm">
+    <section aria-label="Archetype" className="archetype-card relative isolate flex h-full min-w-0 flex-col gap-5 overflow-hidden rounded-lg p-panel text-on-stage shadow-sm" style={{ background: meshFallback(palette) }}>
+      <MeshGradient palette={palette} seed={main ? main.id.length : 3} />
       <Glyph aria-hidden size={176} strokeWidth={1.25} className="pointer-events-none absolute -end-8 -bottom-8 -z-10 text-on-stage opacity-10" />
       <div className="flex items-center justify-between gap-3">
         <span className="text-2xs font-semibold tracking-wide text-on-stage-2 uppercase">Archetype</span>

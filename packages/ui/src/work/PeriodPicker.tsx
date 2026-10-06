@@ -18,25 +18,29 @@ const listen = (on: () => void) => {
   return () => q.removeEventListener("change", on);
 };
 
-/** One switcher for a period: the named periods, and a custom range picked on a calendar, at most a year long. */
-export function PeriodPicker({ from, to, onChange }: { from: string; to: string; onChange: (period: { from: string; to: string }) => void }) {
-  const [open, setOpen] = useState(false);
+/** One switcher for a period: the named periods, and a custom range picked on a calendar, at most a year long. Opens on its own, or as `isOpen` says. */
+export function PeriodPicker({ from, to, onChange, isOpen, onOpenChange }: { from: string; to: string; onChange: (period: { from: string; to: string }) => void; isOpen?: boolean; onOpenChange?: (open: boolean) => void }) {
+  const [shown, setShown] = useState(false);
+  const open = isOpen ?? shown;
+  const setOpen = onOpenChange ?? setShown;
   const [custom, setCustom] = useState(false);
   const [draft, setDraft] = useState<DateRange>({ start: from as ISODateString, end: to as ISODateString });
+  const [was, setWas] = useState(open);
   const twoMonths = useSyncExternalStore(listen, wide, () => false);
   const preset = presetOf(from, to);
   const today = new Date().toISOString().slice(0, 10) as ISODateString;
+  if (open !== was) {
+    setWas(open);
+    if (open) {
+      setCustom(!preset);
+      setDraft({ start: from as ISODateString, end: to as ISODateString });
+    }
+  }
   const pick = (next: { from: string; to: string }) => {
     setOpen(false);
     if (next.from !== from || next.to !== to) onChange(next);
   };
-  const toggle = (on: boolean) => {
-    setOpen(on);
-    if (on) {
-      setCustom(!preset);
-      setDraft({ start: from as ISODateString, end: to as ISODateString });
-    }
-  };
+  const toggle = (on: boolean) => setOpen(on);
   const content = (
     <div className="flex max-w-full flex-col sm:flex-row">
       <ul className={`m-0 list-none flex-col gap-0.5 p-1.5 ${custom ? "hidden border-line sm:flex sm:w-56 sm:flex-none sm:border-e" : "flex w-full sm:min-w-64"}`} aria-label="Periods">

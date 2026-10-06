@@ -64,7 +64,7 @@ test("in brief: kinds in their fixed order, repositories busiest first, the bigg
 });
 
 test("as Markdown: a summary, the notable work by kind, then everything by month, with links", () => {
-  const work: Work = { login: "alice", name: "Alice", from: "2026-09-01", to: "2026-09-30", filter: "acme", items: [item("pr", "acme/rocket", "2026-09-02", { number: 7, title: "Add *thrust*" })], scope: "public", shared: null, truncated: false, at: 0 };
+  const work: Work = { login: "alice", name: "Alice", from: "2026-09-01", to: "2026-09-30", filter: "acme", items: [item("pr", "acme/rocket", "2026-09-02", { number: 7, title: "Add *thrust*" })], scope: "public", shared: null, capped: { prDays: [], repositoryDays: [] }, at: 0 };
   const md = workMarkdown(work, "https://commitscape.example");
   expect(md).toContain("# Proof of Work: Alice (@alice)");
   expect(md).toContain("**1 September to 30 September 2026** · Only in acme");

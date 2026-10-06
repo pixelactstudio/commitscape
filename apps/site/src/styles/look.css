@@ -228,3 +228,5 @@
 }
 @media (prefers-reduced-motion: reduce) { .terminal-caret { animation: none; } }
 .astryx-app-shell-header { z-index: var(--z-header); }
+nav.astryx-top-nav { padding-inline: max(1rem, calc((100% - var(--page)) / 2 + 1.5rem)); }
+@media (width >= 40rem) { nav.astryx-top-nav { padding-inline: max(1.5rem, calc((100% - var(--page)) / 2 + 1.5rem)); } }

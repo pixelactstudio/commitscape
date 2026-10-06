@@ -2,9 +2,11 @@ import "@tanstack/react-start/server-only";
 
 export class SiteError extends Error {
   readonly status: number;
-  constructor(status: number, message: string) {
+  readonly detail: Record<string, unknown>;
+  constructor(status: number, message: string, detail: Record<string, unknown> = {}) {
     super(message);
     this.status = status;
+    this.detail = detail;
   }
 }
 
@@ -23,7 +25,7 @@ export async function answer(run: () => Promise<Response>): Promise<Response> {
   try {
     return await run();
   } catch (e) {
-    if (e instanceof SiteError) return says(e.status, e.message);
+    if (e instanceof SiteError) return json({ error: e.message, ...e.detail }, e.status);
     throw e;
   }
 }

@@ -47,3 +47,8 @@ allowBuilds:
   "@astryxdesign/core": false
   core-js: false
   esbuild: true
+
+overrides:
+  seroval: ^1.6.7
+  seroval-plugins: ^1.6.7
+  source-map-js: ^1.2.2

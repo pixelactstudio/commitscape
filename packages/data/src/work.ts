@@ -20,9 +20,43 @@ export type Work = {
   items: WorkItem[];
   scope: "public" | "self";
   shared: string | null;
-  truncated: boolean;
+  capped: WorkCapped;
   at: number;
 };
+
+export type WorkCapped = { prDays: string[]; repositoryDays: string[] };
+
+export type WorkGate = {
+  gate: "sign_in_for_work";
+  login: string;
+  from: string;
+  to: string;
+  filter: string | null;
+  prs: number;
+  commits: number;
+  requests: number;
+  budget: number;
+  atLeast: boolean;
+  signedIn: boolean;
+  repositories: { repo: string; private: boolean; commits: number }[];
+};
+
+/** Whether a read came back as a Proof of Work or as the sign-in it needs. */
+export const isWorkGate = (read: Work | WorkGate): read is WorkGate => "gate" in read;
+
+const dayWords = (days: string[]) => {
+  const long = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+  const named = days.slice(0, 3).map((d) => long.format(new Date(`${d}T00:00:00Z`)));
+  return days.length > 3 ? `${named.join(", ")} and ${days.length - 3} more days` : named.join(" and ");
+};
+
+/** What GitHub could not list in full, in words, or null when the Proof of Work is complete. */
+export function cappedWords(capped: WorkCapped | undefined): string | null {
+  const parts: string[] = [];
+  if (capped?.prDays.length) parts.push(`On ${dayWords(capped.prDays)}, more than 1,000 pull requests were merged in a single day, and GitHub's search lists at most 1,000 of them.`);
+  if (capped?.repositoryDays.length) parts.push(`On ${dayWords(capped.repositoryDays)}, commits went into more than 100 repositories in a single day, and GitHub lists at most 100 of them.`);
+  return parts.length > 0 ? parts.join(" ") : null;
+}
 
 export type WorkMonth = { month: string; repositories: { repo: string; private: boolean; items: WorkItem[] }[] };
 
@@ -111,7 +145,7 @@ export function kindOf(title: string): WorkKind {
   const head = /^([A-Za-z]+)(\([^)]*\))?!?:\s/.exec(clean);
   const prefix = head?.[1]?.toLowerCase();
   if (prefix && CONVENTIONAL[prefix]) return CONVENTIONAL[prefix];
-  const scoped = /^[\w ./-]{1,32}:\s+(.+)$/.exec(clean);
+  const scoped = /^[\w ./-]{1,32}:\s+(\S.*)$/.exec(clean);
   if (scoped?.[1]) clean = scoped[1];
   const text = clean.toLowerCase();
   return WORDS.find(([, re]) => re.test(text))?.[0] ?? "other";
@@ -170,7 +204,7 @@ export function notable(items: WorkItem[], kind: WorkKind, count: number): { sho
 }
 
 /** Whether an item is in an organisation ("acme") or a repository ("acme/rocket"). */
-export function inFilter(item: WorkItem, filter: string | null): boolean {
+export function inFilter(item: { repo: string }, filter: string | null): boolean {
   if (!filter) return true;
   const f = filter.toLowerCase();
   const repo = item.repo.toLowerCase();
@@ -254,12 +288,14 @@ export function workMarkdown(work: Work, site: string): string {
       lines.push(`#### ${r.repo}${r.private ? " (private)" : ""}`, "", ...r.items.map((i) => `- ${itemLine(i)}`), "");
     }
   }
-  lines.push(`Made with commitscape: ${site}/u/${work.login}/work${work.truncated ? ". GitHub returned at most 1,000 commits and 1,000 pull requests for this period; narrow it to see everything." : ""}`, "");
+  const capped = cappedWords(work.capped);
+  if (capped) lines.push(`> ${capped}`, "");
+  lines.push(`Made with commitscape: ${site}/u/${work.login}/work`, "");
   return lines.join("\n");
 }
 
 function itemLine(i: WorkItem): string {
-  return i.kind === "pr" ? `[#${i.number} ${escapeMd(i.title)}](${i.url}), merged ${i.at.slice(0, 10)}, ${signed(i.additions ?? 0, i.deletions ?? 0)}` : `[\`${(i.sha ?? "").slice(0, 7)}\`](${i.url}) ${escapeMd(i.title)}, ${i.at.slice(0, 10)}`;
+  return i.kind === "pr" ? `[#${i.number} ${escapeMd(i.title)}](${i.url}), merged ${i.at.slice(0, 10)}, ${signed(i.additions ?? 0, i.deletions ?? 0)}` : `[\`${(i.sha ?? "").slice(0, 7)}\`](${i.url}) ${escapeMd(i.title)}, ${i.at.slice(0, 10)}${i.additions === null ? "" : `, ${signed(i.additions, i.deletions ?? 0)}`}`;
 }
 
 /** A Proof of Work's numbers in one sentence. */

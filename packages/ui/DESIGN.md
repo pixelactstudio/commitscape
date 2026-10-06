@@ -101,6 +101,11 @@ eases `out`, `in-out`, `in`, `emphasized`. CSS reads them as
 `useScene` for sequences. Above the fold, use the CSS `rise` / `fade`
 classes so nothing waits on hydration. Reduced motion shows the finished frame.
 
+Stages that should feel alive (the Archetype) use `MeshGradient`, a WebGL
+fragment shader that flows through a palette (`MeshPalette`: a dark base and
+three lights), drawn at reduced resolution, paused off screen, still with
+reduced motion, and backed by `meshFallback(palette)` as a CSS gradient.
+
 ## Icons
 
 Lucide, at `ICON.xs` 12 in chips, `ICON.sm` 14 in buttons and rows,

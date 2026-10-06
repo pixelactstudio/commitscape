@@ -4,7 +4,7 @@ import { Banner } from "@astryxdesign/core/Banner";
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { CircleCheck, GitCommitHorizontal, GitMerge, Lock, X } from "lucide-react";
-import { groupWork, kindOf, monthName, percent, workSummary, type Work, type WorkItem, type WorkKind } from "@commitscape/data";
+import { cappedWords, groupWork, kindOf, monthName, percent, workSummary, type Work, type WorkItem, type WorkKind } from "@commitscape/data";
 import { Face } from "../components/Face";
 import { Nothing } from "../motion";
 import { Stat } from "../kit/layout";
@@ -36,6 +36,7 @@ export function WorkView({ work, look, onLook, footer }: { work: Work; look?: Wo
   const kind = view.kind && summary.kinds.some((k) => k.kind === view.kind) ? view.kind : null;
   const items = useMemo(() => (kind ? work.items.filter((i) => kindOf(i.title) === kind) : work.items), [work.items, kind]);
   const days = span(work.from, work.to);
+  const capped = cappedWords(work.capped);
   return (
     <article className="overflow-clip rounded-lg border border-line bg-surface" aria-label={`${name}'s Proof of Work`}>
       <div className="grid grid-cols-2 lg:grid-cols-4">
@@ -61,9 +62,9 @@ export function WorkView({ work, look, onLook, footer }: { work: Work; look?: Wo
         </Cell>
       </div>
       {summary.kinds.length > 0 && <Kinds kinds={summary.kinds} active={kind} onPick={(k) => change({ kind: k === kind ? null : k })} />}
-      {work.truncated && (
+      {capped && (
         <div className="border-t border-line px-5 py-4 sm:px-6">
-          <Banner status="info" title="GitHub returns at most 1,000 pull requests and 1,000 commits for one search. Narrow the period to see everything." />
+          <Banner status="info" title={capped} />
         </div>
       )}
       {work.items.length === 0 ? (
@@ -267,7 +268,7 @@ function RepoTitle({ id, repo, isPrivate, work, level }: { id?: string; repo: st
 function Row({ item }: { item: WorkItem }) {
   const pr = item.kind === "pr";
   const ref = pr ? `#${item.number}` : (item.sha ?? "").slice(0, 7);
-  const lines = pr && (
+  const lines = item.additions !== null && (
     <span className="tnum">
       <span className="text-added">+{compact(item.additions ?? 0)}</span> <span className="text-removed">−{compact(item.deletions ?? 0)}</span>
     </span>

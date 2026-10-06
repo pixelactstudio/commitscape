@@ -1,6 +1,6 @@
 import "@tanstack/react-start/server-only";
 import PDFDocument from "pdfkit";
-import { groupWork, kindOf, leadingKinds, monthName, notable, percent, periodWords, workSummary, type Work, type WorkItem, type WorkKind } from "@commitscape/data";
+import { cappedWords, groupWork, kindOf, leadingKinds, monthName, notable, percent, periodWords, workSummary, type Work, type WorkItem, type WorkKind } from "@commitscape/data";
 import { INTER } from "@commitscape/ui/cards/fonts";
 
 const font = (dataUrl: string) => Buffer.from(dataUrl.slice(dataUrl.indexOf(",") + 1), "base64");
@@ -117,9 +117,10 @@ export function workPdf(work: Work, site: string): Promise<Uint8Array> {
       `${many(t.prs, "pull request", "pull requests")} merged and ${many(t.commits, "commit", "commits")} across ${many(t.repositories, "repository", "repositories")}, on ${summary.activeDays} of the period's ${many(span, "day", "days")}.${lead ? ` The work is ${lead}.` : ""}`,
       { size: 13, lineGap: 3 },
     );
-    if (work.truncated) {
+    const capped = cappedWords(work.capped);
+    if (capped) {
       gap(6);
-      write("GitHub returns at most 1,000 pull requests and 1,000 commits for one search, so this period shows only part of the work. Narrow it to see everything.", { size: 8.5, colour: WARN, lineGap: 1 });
+      write(capped, { size: 8.5, colour: WARN, lineGap: 1 });
     }
     gap(18);
 
@@ -199,7 +200,7 @@ export function workPdf(work: Work, site: string): Promise<Uint8Array> {
     write(i.title, { f: "semi", size: 9.5, x: SIDE + 14, y, width: tw - 14, link: i.url });
     const meta = `${i.repo} ${ref(i)}${i.kind === "pr" ? `, merged ${day(i.at)}` : `, ${day(i.at)}`}`;
     write(meta, { size: 8, colour: SOFT, x: SIDE + 14, y: y + h + 2, width: tw - 14, one: true });
-    if (i.kind === "pr") lines(i.additions ?? 0, i.deletions ?? 0, right, y + 1, 8.5);
+    if (i.additions !== null) lines(i.additions, i.deletions ?? 0, right, y + 1, 8.5);
     doc.y = y + h + 18;
   }
 
@@ -249,7 +250,7 @@ export function workPdf(work: Work, site: string): Promise<Uint8Array> {
           write(ref(i), { size: 7.5, colour: MUTED, x: SIDE + 8, y: ry + 1, width: 44, one: true });
           write(i.title, { size: 8.5, x: SIDE + 54, y: ry, width: W - 54 - 110, one: true, link: i.url });
           write(day(i.at), { size: 7.5, colour: MUTED, x: right - 106, y: ry + 1, width: 36, align: "right", one: true });
-          if (i.kind === "pr") lines(i.additions ?? 0, i.deletions ?? 0, right, ry + 1, 7.5, "text");
+          if (i.additions !== null) lines(i.additions, i.deletions ?? 0, right, ry + 1, 7.5, "text");
           doc.y = ry + 12.5;
         }
         gap(7);

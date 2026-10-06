@@ -6,14 +6,21 @@ import { db } from "#/server/context";
 import { SiteError } from "#/server/http";
 import { loginOf } from "#/server/profiles";
 import { profileDeps, profileViewer } from "#/server/viewer";
-import { sharedWork, shareWork, unshareWork, workOf } from "#/server/work";
+import { sharedWork, shareWork, unshareWork, WorkGateError, workOf } from "#/server/work";
 
 const ask = z.object({ login: z.string().min(1).max(39), from: z.string().length(10), to: z.string().length(10), filter: z.string().max(140).nullable().optional() });
 
-/** A person's Proof of Work for a period. */
+/** A person's Proof of Work for a period, or the sign-in it needs when it is too big for the Site's shared GitHub allowance. */
 export const getWork = createServerFn({ method: "GET" })
   .validator(ask)
-  .handler(({ data }) => workOf(profileDeps(), profileViewer(getRequest()), data.login, data));
+  .handler(async ({ data }) => {
+    try {
+      return await workOf(profileDeps(), profileViewer(getRequest()), data.login, data);
+    } catch (e) {
+      if (e instanceof WorkGateError) return e.gate;
+      throw e;
+    }
+  });
 
 async function me() {
   const s = await auth.api.getSession({ headers: getRequest().headers });

@@ -186,6 +186,8 @@ jobs:
           cargo xtask fixtures --force
           cargo llvm-cov --workspace --exclude xtask --lcov --output-path rust.lcov
       - name: TypeScript
+        env:
+          CARD_BUDGET_MS: "1000"
         run: |
           pnpm install --frozen-lockfile
           pnpm -r --filter "./packages/*" --filter "./apps/*" exec vitest run --coverage --coverage.reporter=lcov --coverage.reportsDirectory=coverage

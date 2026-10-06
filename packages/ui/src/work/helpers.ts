@@ -1,4 +1,4 @@
-import { periodDates, PERIODS, type Period, type WorkItem, type WorkKind } from "@commitscape/data";
+import { periodDates, PERIODS, type Period, type WorkKind } from "@commitscape/data";
 
 export { periodWords } from "@commitscape/data";
 
@@ -36,16 +36,17 @@ export function presetOf(from: string, to: string, today: Date = new Date()): Pe
   })?.[0] ?? null;
 }
 
-/** The organisations and repositories a person's work is in, busiest first, with how many items each holds. */
-export function placesOf(items: WorkItem[]) {
+/** The organisations and repositories a person's work is in, busiest first, with how many items each holds; an entry with a count stands for that many items. */
+export function placesOf(items: { repo: string; count?: number }[]) {
   const repos = new Map<string, number>();
   const owners = new Map<string, Set<string>>();
   const counts = new Map<string, number>();
   for (const i of items) {
-    repos.set(i.repo, (repos.get(i.repo) ?? 0) + 1);
+    const n = i.count ?? 1;
+    repos.set(i.repo, (repos.get(i.repo) ?? 0) + n);
     const owner = i.repo.split("/")[0] ?? i.repo;
     owners.set(owner, (owners.get(owner) ?? new Set()).add(i.repo));
-    counts.set(owner, (counts.get(owner) ?? 0) + 1);
+    counts.set(owner, (counts.get(owner) ?? 0) + n);
   }
   const busiest = <T,>(a: [string, T, number], b: [string, T, number]) => b[2] - a[2] || (a[0] < b[0] ? -1 : 1);
   return {

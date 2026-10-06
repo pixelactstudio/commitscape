@@ -2727,3 +2727,10 @@ The owner asked for one design system applied to every screen, plus a list of fi
 - **Proof of Work:** "Last year" (the previous calendar year) is the default period; the period list's spacing is fixed; a whole year loads about three times faster (`server/work.ts` reads search pages and months in parallel and shares identical requests in flight).
 - The dev Builder needs `target/release/commitscape`; it was missing in this worktree and was rebuilt.
 
+### Proof of Work without the 1,000 cap, and CI fixes (2026-10-06, uncommitted)
+
+- **Proof of Work** (`apps/site/src/server/work.ts`) reads the whole period (at most a year). Commits come from each repository's default-branch history through GraphQL (the repositories from `contributionsCollection`, plus, for the person's own view, their private repositories pushed to in the period, which GitHub leaves out of contributions even for their owner); merged pull requests from search, split in halves while a range holds more than 1,000. Requests are estimated first: above `SITE_BUDGET` (40) a read without the visitor's own token is refused with `WorkGateError` (`sign_in_for_work`) and the page opens a "Sign in to read this much work" dialog. `Work.truncated` became `capped` (only a single day over 1,000 pull requests, or 100+ repositories in a day).
+- **Nav bar** aligns with the page column (`nav.astryx-top-nav` in look.css).
+- **Archetype** stage is a WebGL shader (`MeshGradient`, `packages/ui/src/motion`) with a palette per Archetype (`ARCHETYPE_PALETTES`).
+- **CI:** pnpm overrides for seroval and source-map-js (audit), `apt-get upgrade` in both Docker images (Trivy, perl CVEs), a non-backtracking title regex in `kindOf` (CodeQL), and the Card timing test takes the best of three with `CARD_BUDGET_MS` raised under coverage.
+
