@@ -88,7 +88,11 @@ test("the repository page has avatars, one chart, and none of the panels the Sit
   await expect(page.getByRole("heading", { name: "Commits over time" })).toHaveCount(1);
   await expect(page.getByRole("list", { name: "Contributors" }).getByRole("listitem")).toHaveCount(3);
   await expect(page.getByRole("list", { name: "Contributors" }).locator("[class*=avatar]").first()).toBeVisible();
-  await page.keyboard.press("Control+k");
+  const palette = page.getByRole("dialog", { name: "Search people, folders, files and commits" });
+  await expect(async () => {
+    await page.keyboard.press("Control+k");
+    await expect(palette).toBeVisible({ timeout: 1000 });
+  }).toPass();
   await page.keyboard.type("Carol");
   await expect(page.getByRole("option", { name: "Carol", exact: true })).toBeVisible();
   await expect(page.getByRole("option", { name: /Commits that mention/ })).toBeVisible();
