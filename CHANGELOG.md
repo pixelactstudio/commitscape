@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/pixelactstudio/commitscape/compare/v0.2.0...v0.2.1) (2026-10-07)
+
+
+### Fixes
+
+* **site:** ship React with the server so the image starts ([#27](https://github.com/pixelactstudio/commitscape/issues/27)) ([e903940](https://github.com/pixelactstudio/commitscape/commit/e903940eb8bef0331f00efa604bb96091529bd01))
+
 ## [0.2.0](https://github.com/pixelactstudio/commitscape/compare/v0.1.1...v0.2.0) (2026-10-06)
 
 

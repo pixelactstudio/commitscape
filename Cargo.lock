@@ -370,7 +370,7 @@ checksum = "1d07550c9036bf2ae0c684c4297d503f838287c83c53686d05370d0e139ae570"
 
 [[package]]
 name = "commitscape"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -393,7 +393,7 @@ dependencies = [
 
 [[package]]
 name = "commitscape-core"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "bincode",
  "serde",
@@ -402,7 +402,7 @@ dependencies = [
 
 [[package]]
 name = "commitscape-forge"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "commitscape-core",
  "serde",
@@ -413,7 +413,7 @@ dependencies = [
 
 [[package]]
 name = "commitscape-index"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "bincode",
  "commitscape-core",
@@ -429,7 +429,7 @@ dependencies = [
 
 [[package]]
 name = "commitscape-metrics"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "commitscape-core",
  "serde",
@@ -438,7 +438,7 @@ dependencies = [
 
 [[package]]
 name = "commitscape-report"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "commitscape-core",
  "commitscape-forge",
@@ -451,7 +451,7 @@ dependencies = [
 
 [[package]]
 name = "commitscape-tui"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "commitscape-core",
  "commitscape-forge",
@@ -3655,7 +3655,7 @@ checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 
 [[package]]
 name = "xtask"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "clap",
