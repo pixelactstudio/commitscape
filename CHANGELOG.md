@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.0](https://github.com/pixelactstudio/commitscape/compare/v0.2.1...v0.3.0) (2026-10-09)
+
+
+### ⚠ BREAKING CHANGES
+
+* share from the CLI, drop the terminal interface, keep commits in Postgres ([#29](https://github.com/pixelactstudio/commitscape/issues/29))
+
+### Features
+
+* share from the CLI, drop the terminal interface, keep commits in Postgres ([#29](https://github.com/pixelactstudio/commitscape/issues/29)) ([d8658a2](https://github.com/pixelactstudio/commitscape/commit/d8658a286d9db64657644b10bec897329221371f))
+
 ## [0.2.1](https://github.com/pixelactstudio/commitscape/compare/v0.2.0...v0.2.1) (2026-10-07)
 
 
