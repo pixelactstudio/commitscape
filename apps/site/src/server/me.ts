@@ -1,26 +1,27 @@
 import "@tanstack/react-start/server-only";
 import { and, eq } from "drizzle-orm";
-import { removeReports, schema, type Db, type Storage } from "@commitscape/server";
-import { asUser, type GitHubConfig } from "./github";
+import { cachedGet, removeReports, schema, type Db, type Storage } from "@commitscape/server";
+import { apiOf, GITHUB_TTL, type GitHubDeps } from "./github";
 import { SiteError } from "./http";
 
 export type Mine = {
-  user: { login: string; name: string | null; avatar: string | null };
+  user: { login: string | null; name: string | null; avatar: string | null };
   installations: { id: number; account: string; repositories: { name: string; private: boolean; description: string | null }[] }[];
   install: string | null;
 };
 
 type Repo = { full_name: string; private: boolean; description: string | null };
 
-/** The signed-in person and every repository the GitHub App may read for them. */
-export async function mine(gh: GitHubConfig, user: { login: string; name: string | null; image: string | null }, token: string, slug?: string): Promise<Mine> {
-  const installed = await asUser(gh, token, "/user/installations?per_page=100");
+/** The signed-in person and every repository the GitHub App may read for them, asked with their own token and kept a minute under their scope. */
+export async function mine(deps: GitHubDeps, userId: string, user: { login: string | null; name: string | null; image: string | null }, token: string, slug?: string): Promise<Mine> {
+  const get = <T,>(path: string) => cachedGet<T>(deps.db, { url: `${apiOf(deps.github)}${path}`, token, scope: `user:${userId}`, ttl: GITHUB_TTL.installations, fetcher: deps.github.fetcher });
+  const installed = await get<{ installations?: { id: number; account: { login: string } }[] }>("/user/installations?per_page=100");
   if (installed.status === 401) throw new SiteError(401, "GitHub no longer accepts this sign-in. Sign in again.");
-  const installations = ((await installed.json()) as { installations?: { id: number; account: { login: string } }[] }).installations ?? [];
+  const installations = installed.body?.installations ?? [];
   const lists = await Promise.all(
     installations.slice(0, 20).map(async (i) => {
-      const answer = await asUser(gh, token, `/user/installations/${i.id}/repositories?per_page=100`);
-      const repos = ((await answer.json()) as { repositories?: Repo[] }).repositories ?? [];
+      const answer = await get<{ repositories?: Repo[] }>(`/user/installations/${i.id}/repositories?per_page=100`);
+      const repos = answer.body?.repositories ?? [];
       return { id: i.id, account: i.account.login, repositories: repos.map((r) => ({ name: r.full_name, private: r.private, description: r.description })) };
     }),
   );

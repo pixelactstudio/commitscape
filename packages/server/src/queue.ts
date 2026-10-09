@@ -1,10 +1,11 @@
 import { PgBoss } from "pg-boss";
 
-export const BUILD_QUEUE = "build";
-export const SURVIVAL_QUEUE = "survival";
-export const PULLS_QUEUE = "pulls";
+export const BUILD_QUEUE = "builds";
+export const BUILD_LARGE_QUEUE = "builds-large";
+export const SURVIVAL_QUEUE = "surviving-by-people";
+export const PULLS_QUEUE = "pulls-by-repo";
 
-export type BuildJob = { buildId: string; attempt?: number };
+export type BuildJob = { buildId: string; repoId?: string; attempt?: number };
 
 export type SurvivalJob = { repoId: string; reportKey: string; personIds: number[]; attempt?: number };
 
@@ -16,7 +17,10 @@ export const LONGEST_JOB_SECONDS = 24 * 3600;
 
 export type Queue = { send(job: BuildJob, priority: number): Promise<void>; count?(job: SurvivalJob): Promise<void> };
 
-/** Starts pg-boss and creates the Build queue; a worker also runs its maintenance and sets how long a job may run. */
+export const buildKey = (job: BuildJob) => job.repoId ?? job.buildId;
+export const survivalKey = (job: SurvivalJob) => `${job.repoId}:${job.reportKey}:${job.personIds.join(",")}`;
+
+/** Starts pg-boss and creates the queues: a repository's Builds run one at a time, and a read of pull requests or a count of Surviving Lines waits at most once behind the same one running. A worker also runs maintenance and sets how long a Build may run. */
 export async function startQueue(url: string, options: { worker: boolean; expireInSeconds?: number }): Promise<PgBoss> {
   const boss = new PgBoss({
     connectionString: url,
@@ -26,12 +30,13 @@ export async function startQueue(url: string, options: { worker: boolean; expire
   });
   boss.on("error", (e) => console.error("queue:", e));
   await boss.start();
-  await boss.createQueue(BUILD_QUEUE, { retryLimit: 0, expireInSeconds: options.expireInSeconds ?? 1200, retentionSeconds: 7 * 24 * 3600 });
-  await boss.createQueue(PULLS_QUEUE, { retryLimit: 0, expireInSeconds: 3600, retentionSeconds: 24 * 3600 });
-  await boss.createQueue(SURVIVAL_QUEUE, { retryLimit: 0, expireInSeconds: LONGEST_JOB_SECONDS, retentionSeconds: 24 * 3600 });
-  if (options.worker) {
-    if (options.expireInSeconds) await boss.updateQueue(BUILD_QUEUE, { expireInSeconds: options.expireInSeconds });
-    await boss.updateQueue(SURVIVAL_QUEUE, { expireInSeconds: LONGEST_JOB_SECONDS });
+  for (const name of [BUILD_QUEUE, BUILD_LARGE_QUEUE]) {
+    await boss.createQueue(name, { policy: "singleton", retryLimit: 0, expireInSeconds: options.expireInSeconds ?? 3600, retentionSeconds: 7 * 24 * 3600 });
+  }
+  await boss.createQueue(PULLS_QUEUE, { policy: "stately", retryLimit: 0, expireInSeconds: 3600, retentionSeconds: 24 * 3600 });
+  await boss.createQueue(SURVIVAL_QUEUE, { policy: "stately", retryLimit: 0, expireInSeconds: LONGEST_JOB_SECONDS, retentionSeconds: 24 * 3600 });
+  if (options.worker && options.expireInSeconds) {
+    for (const name of [BUILD_QUEUE, BUILD_LARGE_QUEUE]) await boss.updateQueue(name, { expireInSeconds: options.expireInSeconds });
   }
   return boss;
 }
@@ -40,10 +45,16 @@ export async function startQueue(url: string, options: { worker: boolean; expire
 export function bossQueue(boss: PgBoss): Queue {
   return {
     async send(job, priority) {
-      await boss.send(BUILD_QUEUE, job, { priority });
+      await boss.send(BUILD_QUEUE, job, { priority, singletonKey: buildKey(job) });
     },
     async count(job) {
-      await boss.send(SURVIVAL_QUEUE, job, { singletonKey: `${job.repoId}:${job.reportKey}:${job.personIds.join(",")}` });
+      await boss.send(SURVIVAL_QUEUE, job, { singletonKey: survivalKey(job) });
     },
   };
+}
+
+/** The states of the queued jobs that carry a Build, in either lane. */
+export async function buildJobStates(boss: PgBoss, buildId: string): Promise<string[]> {
+  const found = await Promise.all([BUILD_QUEUE, BUILD_LARGE_QUEUE].map((name) => boss.findJobs<BuildJob>(name, { data: { buildId } })));
+  return found.flat().map((j) => j.state);
 }

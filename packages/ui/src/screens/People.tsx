@@ -13,7 +13,7 @@ import { Face } from "../components/Face";
 import { useLogin } from "../components/login";
 import { Name, Path, useStanding } from "../components/Name";
 import { Explain } from "../explain";
-import { compact, date, githubWhy, grouped, many, share } from "../format";
+import { compact, date, grouped, many, share } from "../format";
 import { A } from "../kit/A";
 import { Panel } from "../kit/layout";
 import { personColour } from "../theme";
@@ -28,16 +28,6 @@ type Column = {
   why: string;
   wide?: boolean;
 };
-
-function hoursWords(h: number): string {
-  if (h < 1) return `${Math.max(1, Math.round(h * 60))} min`;
-  if (h < 48) return `${Math.round(h)} h`;
-  return `${Math.round(h / 24)} days`;
-}
-
-function known(n: number | null, words: (n: number) => string = grouped): string {
-  return n === null ? "—" : words(n);
-}
 
 const dash = <span className="text-tertiary">—</span>;
 
@@ -59,9 +49,6 @@ const COLUMNS: Column[] = [
     why: "Lines their commits added and removed, lockfiles and generated files left out.",
     wide: true,
   },
-  { key: "prs", label: "PRs merged", value: (r) => r.prs_merged, shown: (r) => known(r.prs_merged), why: "Their pull requests merged in the Window. — when GitHub knows no account for them." },
-  { key: "reviews", label: "Reviews", value: (r) => r.reviews, shown: (r) => known(r.reviews), why: "Reviews they gave on others' pull requests." },
-  { key: "hours", label: "Time to merge", value: (r) => r.hours_to_merge, shown: (r) => known(r.hours_to_merge, hoursWords), why: "From opening to merging, the middle of their merged pull requests." },
 ];
 
 /** The people of a repository: the page's Standings first when it has them, everyone in the Window, and one person in full. */
@@ -142,7 +129,6 @@ function Everyone({ meta, params, go, extra }: ScreenProps & { extra?: ReactNode
               ))}
             </ul>
             {meta.lines !== "counted" && <p className="m-0">Lines are {meta.lines === "counting" ? "being counted" : "not counted in this Report"}.</p>}
-            <p className="m-0">{meta.github_history === "complete" ? "— under pull requests means GitHub knows no account for the person." : githubWhy(meta.github, meta.github_history)}</p>
           </Explain>
         </div>
       </Panel>
@@ -496,8 +482,6 @@ function PersonNumbers({ r, streak }: { r: PersonRow; streak: number | null }) {
     { id: "days", value: grouped(r.active_days), label: "active days", note: `${share(r.active_days, Math.max(1, Math.round((r.last - r.first) / 86_400) + 1))} of the days in that span` },
     ...(streak !== null ? [{ id: "streak", value: many(streak, "day", "days"), label: "longest streak", note: "days in a row with a commit" }] : []),
     ...(r.lines_added !== null ? [{ id: "added", value: compact(r.lines_added), label: "lines added", note: `${compact(r.lines_removed ?? 0)} removed` }] : []),
-    ...(r.prs_merged !== null ? [{ id: "prs", value: grouped(r.prs_merged), label: "PRs merged", note: r.hours_to_merge !== null ? `${hoursWords(r.hours_to_merge)} to merge, typically` : undefined }] : []),
-    ...(r.reviews !== null ? [{ id: "reviews", value: grouped(r.reviews), label: "reviews given" }] : []),
   ];
   const columns = Math.min(7, Math.max(4, cells.length)) as 4 | 5 | 6 | 7;
   return (

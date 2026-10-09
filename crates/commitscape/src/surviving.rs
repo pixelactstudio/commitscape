@@ -8,12 +8,12 @@ use clap::Args;
 use commitscape_core::{AuthorId, Index, Oid};
 use commitscape_index::{
     line_pass, load, BlameCommit, BlameSource, BlameThreads, GixError, GixRepo, GixThreads,
-    InParent, LineStore, Moves, RepoSource, Since, Survival, Survived,
+    InParent, LineStore, Moves, RepoSource, Survival, Survived,
 };
 use commitscape_metrics::{Analysis, Window};
 use commitscape_report::api::{Surviving, SurvivingPerson, SurvivingStatus};
 
-use crate::{now, repo_source, Common, ProgressLine};
+use crate::{now, read_accounts, repo_source, with_accounts, Common, ProgressLine};
 
 #[derive(Args)]
 pub struct SurvivingArgs {
@@ -39,6 +39,11 @@ pub struct SurvivingArgs {
     #[arg(long)]
     partial: bool,
 
+    /// A JSON object of email addresses to GitHub logins, as report takes:
+    /// give the same file to get the same person ids.
+    #[arg(long, value_name = "FILE")]
+    accounts: Option<PathBuf>,
+
     #[command(flatten)]
     common: Common,
 }
@@ -46,6 +51,7 @@ pub struct SurvivingArgs {
 /// Counts the asked-for people's Surviving Lines and prints them, with the lines each added, as one JSON document.
 pub fn run(args: SurvivingArgs) -> anyhow::Result<()> {
     let options = args.common.cache();
+    let given = args.accounts.as_deref().map(read_accounts).transpose()?;
     let path = if Path::new(&args.repo).exists() {
         PathBuf::from(&args.repo)
     } else {
@@ -53,8 +59,11 @@ pub fn run(args: SurvivingArgs) -> anyhow::Result<()> {
     };
     let repo = GixRepo::open(&path)?;
     let mut meter = ProgressLine::new();
-    let mut loaded = load(&repo, &options, Since::All, &mut |p| meter.show(p))?;
+    let mut loaded = load(&repo, &options, &mut |p| meter.show(p))?;
     meter.clear();
+    if given.is_some() {
+        with_accounts(&repo, &options, &mut loaded.index, given.as_ref())?;
+    }
     let count_lines = !args.partial;
     if count_lines {
         let store = LineStore::for_repo(&options, &loaded.index.repo);
@@ -134,7 +143,7 @@ fn added_by_person(
     index: &Index,
     metrics: commitscape_metrics::Options,
 ) -> anyhow::Result<HashMap<AuthorId, u64>> {
-    let analysis = Analysis::new(index, Window::all(now()), metrics)?;
+    let analysis = Analysis::new(index, Window::all(now()), metrics);
     Ok(analysis
         .lines_by_person()
         .into_iter()

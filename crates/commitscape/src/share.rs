@@ -21,16 +21,21 @@ pub struct ShareArgs {
     #[arg(long, value_name = "HOURS", default_value_t = 4, value_parser = clap::value_parser!(u32).range(1..=12))]
     expires: u32,
 
-    /// Upload without asking first.
+    /// Upload without asking first. Needed when nobody is at a terminal to
+    /// answer.
     #[arg(long)]
     yes: bool,
 
+    /// Print the link without opening it in the browser.
+    #[arg(long)]
+    no_open: bool,
+
     /// Take down a Shared Report: give the link `share` printed.
-    #[arg(long, value_name = "LINK", conflicts_with_all = ["list", "yes"])]
+    #[arg(long, value_name = "LINK", conflicts_with_all = ["list", "yes", "no_open"])]
     delete: Option<String>,
 
     /// List the Shared Reports this machine made, and when each expires.
-    #[arg(long, conflicts_with = "yes")]
+    #[arg(long, conflicts_with_all = ["yes", "no_open"])]
     list: bool,
 
     #[command(flatten)]
@@ -303,41 +308,86 @@ pub fn run(args: ShareArgs) -> anyhow::Result<()> {
         "share uploads to the Site, which --offline forbids"
     );
     let site = site();
+    let asking = std::io::stdin().is_terminal();
+    if !args.yes {
+        let name = std::fs::canonicalize(&args.repo)
+            .ok()
+            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+            .unwrap_or_else(|| "this repository".to_string());
+        eprintln!("{}", explain(&name, &site, args.expires));
+        anyhow::ensure!(
+            asking,
+            "nothing uploaded: with no terminal to answer, pass --yes to upload"
+        );
+        eprint!("Upload it? [Y/n] ");
+        let _ = std::io::stderr().flush();
+        let mut answer = String::new();
+        std::io::stdin().lock().read_line(&mut answer)?;
+        if !agreed(&answer) {
+            eprintln!("Nothing was uploaded.");
+            return Ok(());
+        }
+    }
     let (name, report) = make_report(
         &args.repo,
         &args.common,
         commitscape_metrics::Span::Quarter,
         true,
         false,
+        None,
     )?;
     let json = commitscape_report::report::data(report);
-    if !args.yes {
-        eprintln!(
-            "This uploads {name}'s Report to {site}, locked with a key only the link will hold: \
-             its file paths, people's names and GitHub logins, and commit subject lines. No email \
-             addresses. The Site cannot read it. The link works for {} hours.",
-            args.expires
-        );
-        anyhow::ensure!(
-            std::io::stdin().is_terminal(),
-            "nothing uploaded: to upload without being asked, pass --yes"
-        );
-        eprint!("Upload it? [y/N] ");
-        let _ = std::io::stderr().flush();
-        let mut answer = String::new();
-        std::io::stdin().lock().read_line(&mut answer)?;
-        if !matches!(answer.trim(), "y" | "Y" | "yes") {
-            eprintln!("Nothing was uploaded.");
-            return Ok(());
-        }
-    }
     let shared = upload(&name, &json, args.expires, &args.common)?;
     println!("{}", shared.link);
     eprintln!(
         "It works in any browser and expires {}. Its page has a Delete button, or: commitscape share --delete <link>",
         from_now(shared.expires_at)
     );
+    if asking && !args.no_open && !open(&shared.link) {
+        eprintln!("Could not open a browser: open the link above.");
+    }
     Ok(())
+}
+
+fn explain(name: &str, site: &str, hours: u32) -> String {
+    let hours = if hours == 1 {
+        "1 hour".to_string()
+    } else {
+        format!("{hours} hours")
+    };
+    [
+        format!("This uploads {name}'s Report to {site}."),
+        "  It holds file paths, people's names and GitHub logins, and commit subjects. No email addresses.".to_string(),
+        "  It is locked with a key only the link holds, so the Site cannot read it.".to_string(),
+        format!("  The link works for {hours}."),
+    ]
+    .join("\n")
+}
+
+fn agreed(answer: &str) -> bool {
+    matches!(
+        answer.trim().to_ascii_lowercase().as_str(),
+        "" | "y" | "yes"
+    )
+}
+
+fn open(link: &str) -> bool {
+    let mut command = if cfg!(target_os = "macos") {
+        std::process::Command::new("open")
+    } else if cfg!(windows) {
+        let mut c = std::process::Command::new("cmd");
+        c.args(["/c", "start", ""]);
+        c
+    } else {
+        std::process::Command::new("xdg-open")
+    };
+    command
+        .arg(link)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
 }
 
 #[cfg(test)]

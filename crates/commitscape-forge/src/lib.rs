@@ -1,32 +1,13 @@
-pub mod accounts;
-pub mod history;
-
 use std::process::Command;
 
 use commitscape_core::parse_iso8601;
 use serde::Deserialize;
 
-pub(crate) fn gh_graphql(remote: &Remote, query: &str, cache: &str) -> Result<Vec<u8>, ForgeError> {
-    gh_graphql_with(remote, query, Some(cache), &[])
-}
-
-pub(crate) fn gh_graphql_with(
-    remote: &Remote,
-    query: &str,
-    cache: Option<&str>,
-    vars: &[(&str, &str)],
-) -> Result<Vec<u8>, ForgeError> {
-    let mut cmd = Command::new("gh");
-    cmd.args(["api", "graphql"]);
-    if let Some(cache) = cache {
-        cmd.args(["--cache", cache]);
-    }
-    cmd.args(["-f", &format!("owner={}", remote.owner)])
-        .args(["-f", &format!("name={}", remote.name)]);
-    for (k, v) in vars {
-        cmd.args(["-f", &format!("{k}={v}")]);
-    }
-    let out = cmd
+fn gh_graphql(remote: &Remote, query: &str, cache: &str) -> Result<Vec<u8>, ForgeError> {
+    let out = Command::new("gh")
+        .args(["api", "graphql", "--cache", cache])
+        .args(["-f", &format!("owner={}", remote.owner)])
+        .args(["-f", &format!("name={}", remote.name)])
         .args(["-f", &format!("query={query}")])
         .env("GH_PROMPT_DISABLED", "1")
         .output()
@@ -46,49 +27,6 @@ pub(crate) fn gh_graphql_with(
         });
     }
     Ok(out.stdout)
-}
-
-pub fn pull_request_files(remote: &Remote, number: u64) -> Result<Vec<String>, ForgeError> {
-    let query = format!(
-        "query($owner: String!, $name: String!, $after: String) {{
-  repository(owner: $owner, name: $name) {{
-    pullRequest(number: {number}) {{
-      files(first: 100, after: $after) {{ pageInfo {{ hasNextPage endCursor }} nodes {{ path }} }}
-    }}
-  }}
-}}"
-    );
-    let mut paths = Vec::new();
-    let mut after: Option<String> = None;
-    loop {
-        let vars: Vec<(&str, &str)> = after.as_deref().map(|a| ("after", a)).into_iter().collect();
-        let bytes = gh_graphql_with(remote, &query, None, &vars)?;
-        let v: serde_json::Value =
-            serde_json::from_slice(&bytes).map_err(|e| ForgeError::Unreadable(e.to_string()))?;
-        let files = v
-            .pointer("/data/repository/pullRequest/files")
-            .ok_or_else(|| ForgeError::NotFound(format!("pull request #{number}")))?;
-        paths.extend(
-            files
-                .pointer("/nodes")
-                .and_then(serde_json::Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter_map(|n| n.get("path").and_then(serde_json::Value::as_str))
-                .map(str::to_string),
-        );
-        let next = files
-            .pointer("/pageInfo/hasNextPage")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false);
-        after = files
-            .pointer("/pageInfo/endCursor")
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_string);
-        if !next || after.is_none() {
-            return Ok(paths);
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -143,60 +81,13 @@ impl Remote {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct GitHub {
-    pub name_with_owner: String,
-    pub description: Option<String>,
-    pub url: String,
-    pub homepage: Option<String>,
-    pub created: Option<i64>,
-    pub pushed: Option<i64>,
-    pub private: bool,
-    pub fork: bool,
     pub archived: bool,
-    pub stars: u64,
-    pub forks: u64,
-    pub watchers: u64,
-    pub open_issues: u64,
-    pub closed_issues: u64,
-    pub open_prs: u64,
-    pub merged_prs: u64,
-    pub closed_prs: u64,
-    pub releases: u64,
-    pub latest_release: Option<Release>,
-    pub license: Option<String>,
-    pub topics: Vec<String>,
-    pub languages: Vec<(String, u64)>,
-    pub recent_prs: Vec<PullRequest>,
     pub recent_issues: Vec<Issue>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Release {
-    pub name: Option<String>,
-    pub tag: String,
-    pub published: Option<i64>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PrState {
-    Open,
-    Merged,
-    Closed,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PullRequest {
-    pub created: i64,
-    pub merged: Option<i64>,
-    pub closed: Option<i64>,
-    pub state: PrState,
-    pub author: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Issue {
     pub created: i64,
-    pub closed: Option<i64>,
-    pub open: bool,
     pub first_answer: Option<i64>,
 }
 
@@ -214,29 +105,11 @@ pub enum ForgeError {
     Unreadable(String),
 }
 
-const RECENT: usize = 100;
-
 const QUERY: &str = "query($owner: String!, $name: String!) {
   repository(owner: $owner, name: $name) {
-    nameWithOwner description url homepageUrl createdAt pushedAt isPrivate isFork isArchived
-    stargazerCount forkCount
-    watchers { totalCount }
-    openIssues: issues(states: OPEN) { totalCount }
-    closedIssues: issues(states: CLOSED) { totalCount }
-    openPullRequests: pullRequests(states: OPEN) { totalCount }
-    mergedPullRequests: pullRequests(states: MERGED) { totalCount }
-    closedPullRequests: pullRequests(states: CLOSED) { totalCount }
-    releases(first: 1, orderBy: {field: CREATED_AT, direction: DESC}) {
-      totalCount nodes { name tagName publishedAt }
-    }
-    licenseInfo { spdxId }
-    languages(first: 10, orderBy: {field: SIZE, direction: DESC}) { edges { size node { name } } }
-    repositoryTopics(first: 10) { nodes { topic { name } } }
-    recentPullRequests: pullRequests(last: 100) {
-      nodes { createdAt mergedAt closedAt state author { login } }
-    }
+    isArchived
     recentIssues: issues(last: 100) {
-      nodes { createdAt closedAt state author { login } comments(first: 5) { nodes { createdAt author { login __typename } } } }
+      nodes { createdAt author { login } comments(first: 5) { nodes { createdAt author { login __typename } } } }
     }
   }
 }";
@@ -253,60 +126,8 @@ impl GitHub {
             .data
             .and_then(|d| d.repository)
             .ok_or_else(|| ForgeError::Unreadable("no repository in the answer".to_string()))?;
-        let time = |t: &Option<String>| t.as_deref().and_then(parse_iso8601);
         Ok(GitHub {
-            name_with_owner: r.name_with_owner,
-            description: r.description.filter(|d| !d.is_empty()),
-            url: r.url,
-            homepage: r.homepage_url.filter(|h| !h.is_empty()),
-            created: time(&r.created_at),
-            pushed: time(&r.pushed_at),
-            private: r.is_private,
-            fork: r.is_fork,
             archived: r.is_archived,
-            stars: r.stargazer_count,
-            forks: r.fork_count,
-            watchers: r.watchers.total_count,
-            open_issues: r.open_issues.total_count,
-            closed_issues: r.closed_issues.total_count,
-            open_prs: r.open_pull_requests.total_count,
-            merged_prs: r.merged_pull_requests.total_count,
-            closed_prs: r.closed_pull_requests.total_count,
-            releases: r.releases.total_count,
-            latest_release: r.releases.nodes.into_iter().next().map(|n| Release {
-                name: n.name.filter(|n| !n.is_empty()),
-                tag: n.tag_name,
-                published: time(&n.published_at),
-            }),
-            license: r.license_info.and_then(|l| l.spdx_id),
-            topics: r
-                .repository_topics
-                .nodes
-                .into_iter()
-                .map(|n| n.topic.name)
-                .collect(),
-            languages: r
-                .languages
-                .map(|l| l.edges.into_iter().map(|e| (e.node.name, e.size)).collect())
-                .unwrap_or_default(),
-            recent_prs: r
-                .recent_pull_requests
-                .nodes
-                .into_iter()
-                .filter_map(|p| {
-                    Some(PullRequest {
-                        created: parse_iso8601(&p.created_at)?,
-                        merged: time(&p.merged_at),
-                        closed: time(&p.closed_at),
-                        state: match p.state.as_str() {
-                            "MERGED" => PrState::Merged,
-                            "CLOSED" => PrState::Closed,
-                            _ => PrState::Open,
-                        },
-                        author: p.author.map_or_else(|| "ghost".to_string(), |a| a.login),
-                    })
-                })
-                .collect(),
             recent_issues: r
                 .recent_issues
                 .nodes
@@ -322,74 +143,11 @@ impl GitHub {
                         .find_map(|c| parse_iso8601(&c.created_at));
                     Some(Issue {
                         created: parse_iso8601(&i.created_at)?,
-                        closed: time(&i.closed_at),
-                        open: i.state == "OPEN",
                         first_answer,
                     })
                 })
                 .collect(),
         })
-    }
-
-    pub fn prs_merged_since(&self, since: i64) -> usize {
-        self.recent_prs
-            .iter()
-            .filter(|p| p.merged.is_some_and(|m| m >= since))
-            .count()
-    }
-
-    pub fn prs_opened_since(&self, since: i64) -> usize {
-        self.recent_prs
-            .iter()
-            .filter(|p| p.created >= since)
-            .count()
-    }
-
-    pub fn median_hours_to_merge(&self) -> Option<f64> {
-        let mut hours: Vec<f64> = self
-            .recent_prs
-            .iter()
-            .filter_map(|p| p.merged.map(|m| (m - p.created) as f64 / 3600.0))
-            .collect();
-        hours.sort_by(f64::total_cmp);
-        let middle = hours.len() / 2;
-        match hours.len() {
-            0 => None,
-            n if n % 2 == 1 => hours.get(middle).copied(),
-            _ => Some((hours.get(middle - 1)? + hours.get(middle)?) / 2.0),
-        }
-    }
-
-    pub fn issues_opened_since(&self, since: i64) -> usize {
-        self.recent_issues
-            .iter()
-            .filter(|i| i.created >= since)
-            .count()
-    }
-
-    pub fn issues_reach(&self, since: i64) -> bool {
-        self.recent_issues.len() < RECENT || self.recent_issues.iter().any(|i| i.created < since)
-    }
-
-    pub fn issues_closed_since(&self, since: i64) -> usize {
-        self.recent_issues
-            .iter()
-            .filter(|i| i.closed.is_some_and(|c| c >= since))
-            .count()
-    }
-
-    pub fn pr_authors(&self) -> Vec<(String, usize)> {
-        let mut logins: Vec<&str> = self.recent_prs.iter().map(|p| p.author.as_str()).collect();
-        logins.sort_unstable();
-        let mut out: Vec<(String, usize)> = Vec::new();
-        for login in logins {
-            match out.last_mut() {
-                Some((l, n)) if l == login => *n += 1,
-                _ => out.push((login.to_string(), 1)),
-            }
-        }
-        out.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
-        out
     }
 }
 
@@ -406,92 +164,13 @@ struct Data {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Repository {
-    name_with_owner: String,
-    description: Option<String>,
-    url: String,
-    homepage_url: Option<String>,
-    created_at: Option<String>,
-    pushed_at: Option<String>,
-    is_private: bool,
-    is_fork: bool,
     is_archived: bool,
-    stargazer_count: u64,
-    fork_count: u64,
-    watchers: Count,
-    open_issues: Count,
-    closed_issues: Count,
-    open_pull_requests: Count,
-    merged_pull_requests: Count,
-    closed_pull_requests: Count,
-    releases: Releases,
-    license_info: Option<LicenseInfo>,
-    languages: Option<LanguageEdges>,
-    repository_topics: Nodes<TopicNode>,
-    recent_pull_requests: Nodes<PrNode>,
     recent_issues: Nodes<IssueNode>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Count {
-    total_count: u64,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Releases {
-    total_count: u64,
-    nodes: Vec<ReleaseNode>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ReleaseNode {
-    name: Option<String>,
-    tag_name: String,
-    published_at: Option<String>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct LicenseInfo {
-    spdx_id: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct LanguageEdges {
-    edges: Vec<LanguageEdge>,
-}
-
-#[derive(Deserialize)]
-struct LanguageEdge {
-    size: u64,
-    node: Named,
-}
-
-#[derive(Deserialize)]
-struct Named {
-    name: String,
 }
 
 #[derive(Deserialize)]
 struct Nodes<T> {
     nodes: Vec<T>,
-}
-
-#[derive(Deserialize)]
-struct TopicNode {
-    topic: Named,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct PrNode {
-    created_at: String,
-    merged_at: Option<String>,
-    closed_at: Option<String>,
-    state: String,
-    author: Option<Login>,
 }
 
 #[derive(Deserialize)]
@@ -511,8 +190,6 @@ impl Login {
 #[serde(rename_all = "camelCase")]
 struct IssueNode {
     created_at: String,
-    closed_at: Option<String>,
-    state: String,
     #[serde(default)]
     author: Option<Login>,
     #[serde(default)]
@@ -531,15 +208,4 @@ struct CommentNode {
     created_at: String,
     #[serde(default)]
     author: Option<Login>,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{QUERY, RECENT};
-
-    #[test]
-    fn the_query_asks_for_as_many_recent_items_as_the_counts_assume() {
-        assert!(QUERY.contains(&format!("pullRequests(last: {RECENT})")));
-        assert!(QUERY.contains(&format!("issues(last: {RECENT})")));
-    }
 }

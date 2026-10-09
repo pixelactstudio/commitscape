@@ -52,15 +52,3 @@ dense_id!(
      resolution applied on top (mailmap plus two rules), so a `.mailmap` edit re-resolves\n\
      a table of signatures instead of re-walking history."
 );
-
-dense_id!(
-    CommitIx,
-    "Position of a commit within the index's time-ordered commit array.\n\n\
-     The ordering invariant — ascending commit time — is what makes a time window a\n\
-     contiguous range, and therefore what makes the cache body range-readable (ADR-0002)."
-);
-
-dense_id!(
-    DirId,
-    "Identifies a directory within the index's directory table."
-);

@@ -1,8 +1,8 @@
 {
   "name": "commitscape",
   "version": "0.0.0",
-  "description": "Reads a git repository and shows what changes what you do next: who knows the code, what is risky, what you forgot.",
-  "keywords": ["git", "repository", "analytics", "code-ownership", "hotspots", "cli", "tui"],
+  "description": "Reads a git repository's history and shares what each person built there.",
+  "keywords": ["git", "repository", "analytics", "code-ownership", "cli"],
   "license": "MIT OR Apache-2.0",
   "bin": { "commitscape": "bin/commitscape.js" },
   "files": ["bin/commitscape.js", "README.md", "LICENSE-MIT", "LICENSE-APACHE"],

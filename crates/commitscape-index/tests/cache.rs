@@ -5,8 +5,7 @@ use std::path::Path;
 use commitscape_core::{ChangeKind, Index, Oid};
 use commitscape_index::source::RawChangeKind::{Added, Modified};
 use commitscape_index::{
-    index_from_scratch, load, CacheOptions, Freshness, Loaded, Mailmap, RebuildReason,
-    ScriptedRepo, Since,
+    index_from_scratch, load, CacheOptions, Freshness, Loaded, Mailmap, RebuildReason, ScriptedRepo,
 };
 
 const ALICE: (&str, &str) = ("Alice Example", "alice@example.com");
@@ -22,18 +21,18 @@ fn blob(n: u8) -> Oid {
     Oid(b)
 }
 
-fn load_with(repo: &ScriptedRepo, root: Option<&Path>, since: Since) -> Loaded {
+fn load_with(repo: &ScriptedRepo, root: Option<&Path>) -> Loaded {
     let options = CacheOptions {
         root: root.map(Path::to_path_buf),
     };
-    match load(repo, &options, since, &mut |_| {}) {
+    match load(repo, &options, &mut |_| {}) {
         Ok(l) => l,
         Err(never) => match never {},
     }
 }
 
 fn load_all(repo: &ScriptedRepo, root: &Path) -> Loaded {
-    load_with(repo, Some(root), Since::All)
+    load_with(repo, Some(root))
 }
 
 type Observed = Vec<(Oid, i64, String, String, Vec<(String, ChangeKind)>)>;
@@ -277,58 +276,6 @@ fn four_months() -> ScriptedRepo {
 }
 
 #[test]
-fn a_recent_window_reads_only_the_months_it_needs_and_the_rest_later() {
-    const MAR_1_2024: i64 = 1_709_251_200;
-    let dir = tempfile::tempdir().expect("temp dir");
-    let repo = four_months();
-    load_all(&repo, dir.path());
-
-    let mut recent = load_with(&repo, Some(dir.path()), Since::Time(MAR_1_2024 + 20 * DAY));
-    assert_eq!(recent.freshness, Freshness::Warm);
-    assert_eq!(recent.index.loaded_from, Some(MAR_1_2024));
-    assert_eq!(recent.index.commits.len(), 2);
-    assert_eq!(recent.index.span.commits, 4, "totals cover all history");
-
-    let rest = recent.take_rest().expect("older months remain");
-    let older = rest.load().expect("loading the older months");
-    older.prepend_to(&mut recent.index);
-    assert_eq!(recent.index.loaded_from, None);
-    assert_eq!(observe(&recent.index), observe(&scratch(&repo)));
-}
-
-#[test]
-fn the_rest_completes_a_copy_while_the_recent_index_stays_in_use() {
-    const MAR_1_2024: i64 = 1_709_251_200;
-    let dir = tempfile::tempdir().expect("temp dir");
-    let repo = four_months();
-    load_all(&repo, dir.path());
-
-    let mut recent = load_with(&repo, Some(dir.path()), Since::Time(MAR_1_2024 + 20 * DAY));
-    let rest = recent.take_rest().expect("older months remain");
-    let full = rest
-        .complete(&recent.index)
-        .expect("reading the older months");
-    assert_eq!(observe(&full), observe(&scratch(&repo)));
-    assert_eq!(
-        recent.index.commits.len(),
-        2,
-        "the recent index is untouched"
-    );
-}
-
-#[test]
-fn a_window_relative_to_the_newest_commit_resolves_against_the_cache() {
-    const APR_1_2024: i64 = 1_711_929_600;
-    let dir = tempfile::tempdir().expect("temp dir");
-    let repo = four_months();
-    load_all(&repo, dir.path());
-
-    let recent = load_with(&repo, Some(dir.path()), Since::BeforeNewest(5 * DAY));
-    assert_eq!(recent.index.loaded_from, Some(APR_1_2024));
-    assert_eq!(recent.index.commits.len(), 1);
-}
-
-#[test]
 fn a_mailmap_edit_is_applied_without_walking_history() {
     let dir = tempfile::tempdir().expect("temp dir");
     let repo = ScriptedRepo::new()
@@ -344,9 +291,7 @@ fn a_mailmap_edit_is_applied_without_walking_history() {
 }
 
 #[test]
-fn an_undone_merge_and_a_github_link_apply_on_the_next_warm_load() {
-    use commitscape_index::identity::{keys_of, Account};
-    use commitscape_index::IdentityStore;
+fn a_stored_undone_merge_and_github_link_apply_on_the_next_warm_load() {
     const ALICE_NOREPLY: (&str, &str) = ("Alice Example", "7+alice@users.noreply.github.com");
     const ALI: (&str, &str) = ("ali", "ali@home.example");
     let dir = tempfile::tempdir().expect("temp dir");
@@ -361,31 +306,13 @@ fn an_undone_merge_and_a_github_link_apply_on_the_next_warm_load() {
     let first = load_all(&repo, dir.path());
     assert_eq!(first.index.authors.len(), 2, "the same full name joins two");
 
-    let options = CacheOptions {
-        root: Some(dir.path().to_path_buf()),
-    };
-    let store = IdentityStore::for_repo(&options, &first.index.repo).expect("a store");
-    let rules = store.rules(Mailmap::default());
-    let alice = first
-        .index
-        .author_of(first.index.commits.first().expect("a commit"))
-        .expect("alice");
-    store
-        .keep_apart(&keys_of(&first.index.authors, alice, &rules))
-        .expect("saved");
+    let stored = repo_cache(dir.path());
+    std::fs::write(stored.join("kept-apart"), "alice@example.com github:7\n").expect("saved");
     let undone = load_all(&repo, dir.path());
     assert_eq!(undone.freshness, Freshness::Warm, "no history is read");
     assert_eq!(undone.index.authors.len(), 3);
 
-    store
-        .save_accounts(&[(
-            "ali@home.example".to_string(),
-            Some(Account {
-                id: 7,
-                login: "alice".to_string(),
-            }),
-        )])
-        .expect("saved");
+    std::fs::write(stored.join("accounts"), "ali@home.example\t7\talice\n").expect("saved");
     let linked = load_all(&repo, dir.path());
     assert_eq!(linked.freshness, Freshness::Warm);
     assert_eq!(
@@ -397,7 +324,7 @@ fn an_undone_merge_and_a_github_link_apply_on_the_next_warm_load() {
 
 #[test]
 fn without_a_cache_directory_nothing_is_read_or_written() {
-    let loaded = load_with(&linear(), None, Since::All);
+    let loaded = load_with(&linear(), None);
     assert_eq!(
         loaded.freshness,
         Freshness::Built {
@@ -438,7 +365,7 @@ fn cache_files(root: &Path) -> Vec<std::path::PathBuf> {
 }
 
 #[test]
-fn a_late_merge_of_old_commits_reaches_back_past_a_partial_load() {
+fn a_late_merge_of_old_commits_is_stored_among_the_months_it_landed_in() {
     const APR_1_2024: i64 = 1_711_929_600;
     let full = || {
         four_months()
@@ -450,13 +377,10 @@ fn a_late_merge_of_old_commits_reaches_back_past_a_partial_load() {
     let dir = tempfile::tempdir().expect("temp dir");
     load_all(&full().only_tips(&[4]), dir.path());
 
-    let recent = load_with(&full(), Some(dir.path()), Since::Time(APR_1_2024));
-    assert_eq!(recent.freshness, Freshness::Updated { added: 2 });
-    assert!(
-        recent.index.covers(JAN_2024 + 19 * DAY),
-        "the months the new commits landed in were read"
-    );
-    assert!(recent.index.is_time_ordered());
+    let updated = load_all(&full(), dir.path());
+    assert_eq!(updated.freshness, Freshness::Updated { added: 2 });
+    assert!(updated.index.is_time_ordered());
+    assert_eq!(observe(&updated.index), observe(&scratch(&full())));
 
     let again = load_all(&full(), dir.path());
     assert_eq!(again.freshness, Freshness::Warm);

@@ -181,8 +181,23 @@ describe("a Profile from GitHub", () => {
     expect(again.read.requests).toBe(0);
     expect((await lookupProfile(deps, anonymous, "alice")).requests).toBe(0);
     await db.update(schema.profiles).set({ fetchedAt: now() - PROFILE_FOR - 1, identityAt: now() - PROFILE_FOR - 1 });
+    await db.update(schema.githubCache).set({ until: now() - 1 });
     await readProfile(deps, anonymous, "alice", true);
     expect(gh.asked.length).toBe(before + 7);
+  });
+
+  test("the Site's token reads a person once for the lookup and the Profile together, and a visitor's own token is spent apart", async () => {
+    const gh = fakeGitHub();
+    const db = await testDb();
+    const deps = { db, github: { api: "http://github.test", token: "site", fetcher: gh.fetcher } };
+    await lookupProfile(deps, anonymous, "alice");
+    await readProfile(deps, anonymous, "alice");
+    expect(gh.asked.filter((a) => a === "owner")).toHaveLength(1);
+    expect(gh.tokens.every((t) => t === "Bearer site")).toBe(true);
+    await db.delete(schema.profiles);
+    await readProfile(deps, as("bob", "ghu_bob"), "alice");
+    expect(gh.asked.filter((a) => a === "owner")).toHaveLength(2);
+    expect(gh.tokens.at(-1)).toBe("Bearer ghu_bob");
   });
 
   test("a name GitHub does not know, an organization, and a name that cannot be a login", async () => {
@@ -208,6 +223,7 @@ describe("when they commit", () => {
   const age = async (db: Awaited<ReturnType<typeof testDb>>, seconds: number) => {
     const p = await stored(db);
     await db.update(schema.profiles).set({ data: JSON.stringify({ ...p, read: { ...p.read, clockAt: (p.read.clockAt ?? 0) - seconds } }) });
+    await db.update(schema.githubCache).set({ until: now() - 1 });
   };
 
   test("each commit's weekday and hour come from its own clock", () => {

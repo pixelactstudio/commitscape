@@ -9,15 +9,12 @@ const meta: Meta = {
   anchor: 0,
   history: "complete",
   lines: "counted",
-  github: "ready",
-  github_history: "complete",
   avatars: false,
 };
 
 const report: Report = {
   meta,
   data: { "/api/overview?window=90d": { commits: 3 } },
-  cards: { "90d": "<svg/>" },
 };
 
 async function gzip(text: string): Promise<Uint8Array> {
@@ -38,7 +35,7 @@ describe("a Report", () => {
     const source = reportSource(report, "demo");
     expect(await source.get("/api/overview", { window: "90d" })).toEqual({ commits: 3 });
     await expect(source.get("/api/overview", { window: "1y" })).rejects.toThrow(NOT_IN_REPORT);
-    expect(await source.card("90d")).toBe("<svg/>");
+    await expect(source.commits({})).rejects.toThrow(NOT_IN_REPORT);
   });
 
   test("is read gzipped or not", async () => {

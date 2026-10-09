@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-use std::io;
 use std::path::{Path, PathBuf};
 
 use commitscape_core::RepoIdentity;
@@ -48,39 +46,6 @@ impl IdentityStore {
         rules
     }
 
-    pub fn asked(&self) -> HashSet<String> {
-        self.lines(ACCOUNTS)
-            .filter_map(|l| l.split('\t').next().map(str::to_string))
-            .collect()
-    }
-
-    pub fn save_accounts(&self, answers: &[(String, Option<Account>)]) -> io::Result<()> {
-        let mut text = self.read(ACCOUNTS);
-        for (email, account) in answers {
-            match account {
-                Some(a) => text.push_str(&format!("{email}\t{}\t{}\n", a.id, a.login)),
-                None => text.push_str(&format!("{email}\t-\n")),
-            }
-        }
-        self.write(ACCOUNTS, &text)
-    }
-
-    pub fn keep_apart(&self, keys: &[String]) -> io::Result<()> {
-        let mut text = self.read(KEPT_APART);
-        text.push_str(&keys.join(" "));
-        text.push('\n');
-        self.write(KEPT_APART, &text)
-    }
-
-    pub fn merge_again(&self, keys: &[String]) -> io::Result<()> {
-        let text: String = self
-            .lines(KEPT_APART)
-            .filter(|l| !l.split(' ').any(|k| keys.iter().any(|x| x == k)))
-            .map(|l| format!("{l}\n"))
-            .collect();
-        self.write(KEPT_APART, &text)
-    }
-
     fn read(&self, name: &str) -> String {
         std::fs::read_to_string(self.dir.join(name)).unwrap_or_default()
     }
@@ -92,12 +57,5 @@ impl IdentityStore {
             .map(str::to_string)
             .collect::<Vec<_>>()
             .into_iter()
-    }
-
-    fn write(&self, name: &str, text: &str) -> io::Result<()> {
-        std::fs::create_dir_all(&self.dir)?;
-        let tmp = self.dir.join(format!("{name}.tmp"));
-        std::fs::write(&tmp, text)?;
-        std::fs::rename(tmp, self.dir.join(name))
     }
 }

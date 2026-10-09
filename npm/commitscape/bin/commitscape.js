@@ -48,7 +48,7 @@ try {
 } catch {
   runnable = false;
 }
-if (runnable && typeof process.execve === "function") {
+if (runnable && process.platform !== "win32" && typeof process.execve === "function") {
   process.emitWarning = () => {};
   process.execve(binary, [binary, ...args], process.env);
 }

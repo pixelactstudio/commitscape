@@ -82,7 +82,6 @@ fn added(max_changeset_size: u32) -> Vec<u64> {
         ..Options::default()
     };
     let lines: HashMap<_, _> = Analysis::new(&index, Window::all(anchor), options)
-        .expect("all history")
         .lines_by_person()
         .into_iter()
         .collect();
@@ -124,8 +123,12 @@ fn run(args: &[&str]) -> Vec<u8> {
 }
 
 fn report_people(cache: &Path, out: &Path) -> Vec<(u64, String)> {
+    report_people_with(cache, out, &[])
+}
+
+fn report_people_with(cache: &Path, out: &Path, extra: &[&str]) -> Vec<(u64, String)> {
     let repo = fixture();
-    run(&[
+    let mut args = vec![
         "report",
         "--offline",
         "--no-emails",
@@ -135,9 +138,10 @@ fn report_people(cache: &Path, out: &Path) -> Vec<(u64, String)> {
         cache.to_str().expect("UTF-8"),
         "--out",
         out.to_str().expect("UTF-8"),
-        "--",
-        repo.to_str().expect("UTF-8"),
-    ]);
+    ];
+    args.extend_from_slice(extra);
+    args.extend(["--", repo.to_str().expect("UTF-8")]);
+    run(&args);
     let mut json = String::new();
     flate2::read::GzDecoder::new(std::fs::File::open(out).expect("the report"))
         .read_to_string(&mut json)
@@ -245,4 +249,65 @@ fn the_command_takes_the_reports_person_ids_and_reuses_what_it_blamed() {
         row["added"].as_u64(),
         Some(expected[people[0].1.as_str()].1)
     );
+}
+
+#[test]
+fn surviving_given_the_reports_accounts_file_uses_the_reports_ids() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let cache = dir.path().join("cache");
+    let accounts = dir.path().join("accounts.json");
+    std::fs::write(
+        &accounts,
+        r#"{"bob@example.com": "bobgh", "carol@users.noreply.github.com": "bobgh"}"#,
+    )
+    .expect("written");
+    let accounts = accounts.to_str().expect("UTF-8");
+    let apart = report_people(&cache, &dir.path().join("apart.json.gz"));
+    let people = report_people_with(
+        &cache,
+        &dir.path().join("joined.json.gz"),
+        &["--accounts", accounts],
+    );
+    assert_eq!(apart.len(), 3);
+    assert_eq!(people.len(), 2, "Bob and Carol are one person");
+
+    let mut args = vec![
+        "surviving".to_string(),
+        fixture().to_str().expect("UTF-8").to_string(),
+        "--max-changeset-size".to_string(),
+        "3".to_string(),
+        "--offline".to_string(),
+        "--cache-dir".to_string(),
+        cache.to_str().expect("UTF-8").to_string(),
+        "--accounts".to_string(),
+        accounts.to_string(),
+    ];
+    for (id, _) in &people {
+        args.push("--person".to_string());
+        args.push(id.to_string());
+    }
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let out: Value = serde_json::from_slice(&run(&args)).expect("one JSON document");
+    let rows = out["people"].as_array().expect("people");
+    let named: Vec<(u64, String)> = rows
+        .iter()
+        .map(|r| {
+            (
+                r["id"].as_u64().expect("id"),
+                r["name"].as_str().expect("a known person").to_string(),
+            )
+        })
+        .collect();
+    assert_eq!(named, people);
+    let lines: HashMap<String, u64> = rows
+        .iter()
+        .map(|r| {
+            (
+                r["name"].as_str().unwrap_or("").to_string(),
+                r["surviving"].as_u64().unwrap_or(0),
+            )
+        })
+        .collect();
+    assert_eq!(lines.values().sum::<u64>(), 20);
+    assert_eq!(lines.get("Alice Example"), Some(&5));
 }

@@ -4,8 +4,7 @@ import { z } from "zod";
 import { auth } from "#/server/auth";
 import { db } from "#/server/context";
 import { SiteError } from "#/server/http";
-import { loginOf } from "#/server/profiles";
-import { profileDeps, profileViewer } from "#/server/viewer";
+import { loginFor, profileDeps, profileViewer } from "#/server/viewer";
 import { sharedWork, shareWork, unshareWork, WorkGateError, workOf } from "#/server/work";
 
 const ask = z.object({ login: z.string().min(1).max(39), from: z.string().length(10), to: z.string().length(10), filter: z.string().max(140).nullable().optional() });
@@ -25,7 +24,7 @@ export const getWork = createServerFn({ method: "GET" })
 async function me() {
   const s = await auth.api.getSession({ headers: getRequest().headers });
   if (!s) throw new SiteError(401, "Sign in to share your Proof of Work.");
-  return { userId: s.user.id, login: await loginOf(db(), s.user.id) };
+  return { userId: s.user.id, login: await loginFor(getRequest(), s.user.id) };
 }
 
 /** Keeps the signed-in person's Proof of Work as a link, with only the private repositories they chose. */

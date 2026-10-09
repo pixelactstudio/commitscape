@@ -38,7 +38,7 @@ fn options() -> Options {
 
 fn analysis(idx: &Index) -> Analysis<'_> {
     let anchor = idx.span.newest.expect("a fixture has commits");
-    Analysis::new(idx, Window::all(anchor), options()).expect("all history is loaded")
+    Analysis::new(idx, Window::all(anchor), options())
 }
 
 fn churn(idx: &Index) -> HashMap<String, u32> {
@@ -248,7 +248,7 @@ fn pairs(idx: &Index, support: u32) -> Vec<(String, String, u32, f64, f64, f64, 
         coupling_support: support,
         ..options()
     };
-    let a = Analysis::new(idx, Window::all(anchor), options).expect("loaded");
+    let a = Analysis::new(idx, Window::all(anchor), options);
     a.coupling()
         .pairs
         .iter()
@@ -320,11 +320,11 @@ fn lines_each_person_wrote_leave_out_lockfiles_ignored_revs_and_bulk_commits() {
 
     pass.apply(&mut idx);
     let people: HashMap<String, (u64, u64)> = analysis(&idx)
-        .contributions()
+        .lines_by_person()
         .iter()
-        .map(|c| {
-            let name = idx.authors.get(c.author).map(|a| a.name.to_string());
-            (name.unwrap_or_default(), (c.lines.added, c.lines.removed))
+        .map(|(author, lines)| {
+            let name = idx.authors.get(*author).map(|a| a.name.to_string());
+            (name.unwrap_or_default(), (lines.added, lines.removed))
         })
         .collect();
     assert_eq!(people.get("Alice Example"), Some(&(10, 2)));

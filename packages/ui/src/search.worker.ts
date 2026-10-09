@@ -1,5 +1,5 @@
 /// <reference lib="webworker" />
-import { prepare, search, type Prepared, type Query } from "./search";
+import { prepare, search, type Prepared, type Query } from "@commitscape/data";
 
 let prepared: Prepared | null = null;
 

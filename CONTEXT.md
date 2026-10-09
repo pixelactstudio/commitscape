@@ -10,18 +10,6 @@ A tool that shows a developer what they have built, how they stand next to the p
 The number of commits touching a file within the active Window. Merge Commits and Bulk Commits are excluded.
 _Avoid_: activity, edits, changes, revisions.
 
-**Complexity Proxy**:
-A language-agnostic stand-in for structural complexity, derived from the indentation structure of a file at HEAD. Never called "complexity" unqualified — the qualifier is the honesty.
-_Avoid_: complexity, cyclomatic complexity, difficulty.
-
-**Hotspot**:
-A file that is both heavily changed and structurally complex, scored as the product of its Churn percentile and its Complexity Proxy percentile: where it ranks among the files that changed in the Window, times where it ranks among all the files people wrote. The central finding of the tool. Shown to people as Ranks, never as percentiles.
-_Avoid_: problem file, risk file, tech debt.
-
-**Rank**:
-Where a file stands among the files it was compared with, counted from the top: the 2nd most changed of 40 files. Files that tie share the higher place.
-_Avoid_: percentile, p90, score.
-
 **Change Coupling**:
 The tendency of two files to appear in the same commit. Reported symmetrically as a Jaccard degree, and directionally as the probability that one changes given the other did.
 _Avoid_: logical coupling, dependency, correlation, co-change.
@@ -35,7 +23,7 @@ The smallest number of Authors who together hold more than 80% of a directory's 
 _Avoid_: truck factor, key person risk.
 
 **Maintainer**:
-Someone who made at least three commits in the last 90 days: who keeps a project going now, as `health` counts them. Not a role anyone was given.
+Someone who made at least three commits in the last 90 days: who keeps a project going now. Not a role anyone was given.
 _Avoid_: owner, core team, admin.
 
 **Staleness**:
@@ -105,7 +93,7 @@ What a commit says it is, read from a conventional commit subject (`feat:`, `fix
 _Avoid_: commit type, category, label.
 
 **Prose File**:
-A file a person wrote to be read rather than run: Markdown, reStructuredText, AsciiDoc, plain text. Counted in Churn, Ownership and Change Coupling, but never a Hotspot or among the largest files, since the Complexity Proxy and size measure code.
+A file a person wrote to be read rather than run: Markdown, reStructuredText, AsciiDoc, plain text. Counted in Churn, Ownership and Change Coupling, but never among the largest files, since size measures code.
 _Avoid_: docs, documentation file, text file.
 
 **Generated File**:
@@ -114,12 +102,8 @@ _Avoid_: artifact, build output, ignored file.
 
 ### What we produce
 
-**Panel**:
-One screen of the interface, computed from the Index over the active Window. A Panel whose numbers cannot be entered should have been a command-line flag instead.
-_Avoid_: view, screen, tab, page.
-
 **Overview**:
-The Panel the interface opens on: the repository's story at a glance, then what is worth a look. Its size, age and languages, how the Window's commits fell over time, who wrote them, facts worth sharing, and the findings that change what you do next: the directories one person holds, the top Hotspot, the files in different directories that change together, how much has gone untouched for a year, and the people who may be one person. Each finding can be entered.
+The screen a Report opens on: the repository's story at a glance. Its size, age and languages, how the Window's commits fell over time, who wrote them, and facts worth sharing.
 _Avoid_: dashboard, home, summary.
 
 **Map**:
@@ -135,19 +119,19 @@ A Card placed in a README or elsewhere by its address, served from a stored copy
 _Avoid_: badge, widget, stats image.
 
 **Report**:
-Every answer the browser interface needs, for every Window, written ahead of time: it needs no server and answers only what it was written with. Kept as one file, stored on the Site for a repository, or uploaded as a Shared Report.
+Every screen's answer for every Window, written ahead of time by `commitscape report`: it needs no server and answers only what it was written with. Stored on the Site for a repository, with its Commit List kept apart as rows in Postgres (ADR-0024), or uploaded whole as a Shared Report.
 _Avoid_: export, snapshot, dump.
 
 **Shared Report**:
-A Report someone uploaded from their own machine so another browser can open it, locked with a key that exists only in its link. The Site stores it without being able to read it; it expires after hours, and anyone with the link can delete it.
+A Report someone uploaded from their own machine, with `commitscape share` or a bare `commitscape`, so another browser can open it, locked with a key that exists only in its link. The Site stores it without being able to read it; its Commit List stays inside it and is searched in the browser. It expires after hours, and anyone with the link can delete it.
 _Avoid_: session, tunnel, upload, snapshot.
 
 **Commit List**:
-One short row per commit (who, when, its subject line, its Commit Kind, how much it changed), searched in the browser. On the Site it names people but never shows their email addresses.
+One short row per commit (who, when, its subject line, its Commit Kind, how much it changed), read a page at a time. On the Site the rows are kept in Postgres and searched there; in a Shared Report they are searched in the browser. It names people but never shows their email addresses.
 _Avoid_: log, history, search index.
 
 **Wrapped**:
-One person's year, told as a page and a set of Cards: across GitHub on the Site, or across every repository in a folder in the CLI, under every address they commit with.
+One person's year across GitHub, told as a page on the Site and a set of Cards.
 _Avoid_: year in review, stats, recap.
 
 **Moment**:
@@ -157,15 +141,15 @@ _Avoid_: event, milestone.
 ### Where it runs
 
 **Site**:
-The hosted website: the landing page, any public GitHub repository's Report, Shared Reports, a signed-in person's Connected Repositories, and the Leaderboards. It shows the same screens as the local browser interface.
+The hosted website: the landing page, Profiles, any public GitHub repository's Report, Shared Reports, a signed-in person's Connected Repositories, and the Leaderboards.
 _Avoid_: dashboard, cloud, platform, web app.
 
 **Builder**:
-What reads a repository's history for the Site and writes its Report: the same engine the CLI runs, on the owner's server, one Build at a time.
+What reads a repository's history for the Site: it clones the repository, runs the same engine the CLI runs, and stores the Report in R2 and its Commit List in Postgres. The Site never runs git.
 _Avoid_: worker, backend, crawler.
 
 **Build**:
-One run of the Builder for one repository, from clone to stored Report. A repository's Report is rebuilt when someone asks for it and it is more than a day old.
+One run of the Builder for one repository, from clone to stored Report, in two phases at once: a clone without old file contents gives a Report without Lines Changed, shown at once, while a full clone gives the Report with them that replaces it. A repository's Report is rebuilt when someone asks for it and it is more than a day old.
 _Avoid_: job, scan, analysis, refresh.
 
 **Connected Repository**:
@@ -195,7 +179,7 @@ A person's Surviving Lines as a share of the lines they added in that repository
 _Avoid_: retention, survival rate, code quality.
 
 **Standing**:
-Where a person stands among a repository's people in one view, counted from the top, as Rank is for files. **Standings** are every person's Standing side by side, view by view, never combined into a score. A private repository's Standings are shown only to people who can see it.
+Where a person stands among a repository's people in one view, counted from the top; people who tie share the higher place. **Standings** are every person's Standing side by side, view by view, never combined into a score. A private repository's Standings are shown only to people who can see it.
 _Avoid_: score, rating, leaderboard position.
 
 **Proof of Work**:

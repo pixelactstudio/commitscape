@@ -1,25 +1,20 @@
 use std::io::Write;
-use std::path::PathBuf;
 
 use clap::Args;
 use commitscape_forge::{GitHub, Remote};
-use commitscape_index::{default_cache_root, load, GixRepo, Since};
-use commitscape_metrics::{Analysis, Health, Span, Window};
-use commitscape_tui::format::{ago, days, grouped};
+use commitscape_index::{default_cache_root, load, GixRepo};
+use commitscape_metrics::{Analysis, Health, Window};
 
 use crate::clone::{clone, remote, Clone};
-use crate::{now, repo_name, Common, ProgressLine};
+use crate::format::{ago, days, grouped};
+use crate::{now, Common, ProgressLine};
 
 #[derive(Args)]
 pub struct HealthArgs {
     /// The project: a GitHub URL, or owner/name.
     url: String,
 
-    /// Where to write its card. Defaults to <owner>-<name>-card.svg here.
-    #[arg(long, value_name = "FILE")]
-    card: Option<PathBuf>,
-
-    /// Print it as JSON, and draw no card.
+    /// Print it as JSON.
     #[arg(long)]
     json: bool,
 
@@ -46,7 +41,7 @@ pub fn run(args: HealthArgs) -> anyhow::Result<()> {
     let dir = clone(&remote, &root, Clone::Partial)?;
     let repo = GixRepo::open(&dir)?;
     let mut meter = ProgressLine::new();
-    let loaded = load(&repo, &options, Since::All, &mut |p| meter.show(p))?;
+    let loaded = load(&repo, &options, &mut |p| meter.show(p))?;
     meter.clear();
 
     let github = if args.common.offline {
@@ -61,7 +56,7 @@ pub fn run(args: HealthArgs) -> anyhow::Result<()> {
             .collect()
     });
     let anchor = now();
-    let analysis = Analysis::new(&loaded.index, Window::all(anchor), args.common.metrics())?;
+    let analysis = Analysis::new(&loaded.index, Window::all(anchor), args.common.metrics());
     let health = analysis.health(&repo.version_tags(), issues.as_deref());
 
     let mut out = std::io::stdout().lock();
@@ -82,26 +77,6 @@ pub fn run(args: HealthArgs) -> anyhow::Result<()> {
     let archived = github.as_ref().is_ok_and(|g| g.archived);
     let why = github.as_ref().err().map(String::as_str);
     write!(out, "{}", words(&remote, &health, archived, why, &name))?;
-
-    let card = args
-        .card
-        .unwrap_or_else(|| PathBuf::from(format!("{}-{}-card.svg", remote.owner, remote.name)));
-    let session = commitscape_tui::Session {
-        name: repo_name(&loaded.index),
-        index: loaded.index,
-        anchor,
-        span: Span::All,
-        options: args.common.metrics(),
-        older: None,
-        github: Err("not asked for a card".to_string()),
-        people: None,
-        link_accounts: None,
-        lines: None,
-        releases: None,
-        theme: commitscape_tui::Theme::Dark,
-    };
-    std::fs::write(&card, commitscape_tui::svg(&commitscape_tui::card(session)))?;
-    writeln!(out, "  Card:        {}", card.display())?;
     Ok(())
 }
 

@@ -1,5 +1,5 @@
 {
-  description = "commitscape: reads a git repository and shows what changes what you do next";
+  description = "commitscape: reads a git repository's history and shares what each person built there";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
@@ -31,7 +31,7 @@
             ];
             doCheck = false;
             meta = {
-              description = "Reads a git repository and shows what changes what you do next";
+              description = "Reads a git repository's history and shares what each person built there";
               license = with pkgs.lib.licenses; [
                 mit
                 asl20

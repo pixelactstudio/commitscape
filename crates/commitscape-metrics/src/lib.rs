@@ -1,6 +1,5 @@
 mod ages;
 mod analysis;
-mod check;
 mod code_map;
 mod contributions;
 mod coupling;
@@ -10,25 +9,17 @@ mod people;
 mod pulse;
 mod roles;
 mod timeline;
-mod who;
 mod window;
-mod wrapped;
 
 pub use ages::{Age, AgeCount, QuarterAge, StaleFile, Staleness};
-pub use analysis::{
-    Analysis, Churn, CommitCounts, Hotspot, LargeFile, NotLoaded, Options, Rank, Totals,
-    RANKING_LIMIT,
-};
-pub use check::Forgotten;
+pub use analysis::{Analysis, Churn, CommitCounts, LargeFile, Options, Totals, RANKING_LIMIT};
 pub use code_map::{CodeMap, MapNode};
 pub use contributions::{combine, Contribution, LinesChanged};
-pub use coupling::{ChangeGroup, ChangesetSizes, CoupledPair, Coupling, SizeBucket};
+pub use coupling::{ChangesetSizes, CoupledPair, Coupling, SizeBucket};
 pub use health::{Answers, Health, Maintainer, Releases, Trend};
 pub use languages::{Language, Languages};
-pub use people::{Contributor, DirectoryOwnership, Owner, Ownership, Silo, SuspectedDuplicate};
+pub use people::{Contributor, DirectoryOwnership, Owner, Ownership, SuspectedDuplicate};
 pub use pulse::{CommitsByPerson, KindCount, Pulse, Streak, Work, WorkCount};
 pub use roles::{is_lockfile, looks_generated, role_of, Role};
 pub use timeline::Moment;
-pub use who::{Expert, Who};
 pub use window::{Span, Window};
-pub use wrapped::{wrapped, DayCount, LanguageYear, RepoYear, StreakYear, Wrapped, YearIn};

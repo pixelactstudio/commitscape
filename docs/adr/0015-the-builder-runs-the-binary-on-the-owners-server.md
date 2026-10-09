@@ -10,7 +10,7 @@ The analysis stays in Rust and in one place, and it runs as a command, never as 
 
 ## Status
 
-accepted (2026-09-25, Build Run 4 plan); amended in Phase 27 and in Phases 30 and 31 (below).
+accepted (2026-09-25, Build Run 4 plan); amended in Phase 27 and in Phases 30 and 31 (below). Amended by ADR-0026 (2026-10-09): the Builder clones and fetches itself, in two phases, and the binary reads only the local checkout.
 
 ## Context
 

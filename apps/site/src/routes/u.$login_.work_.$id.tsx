@@ -36,7 +36,7 @@ function SharedProof() {
   const toast = useToast();
   const [asking, setAsking] = useState(false);
   const remove = useMutation({ mutationFn: () => deleteSharedWork({ data: { id } }) });
-  const mine = user?.login.toLowerCase() === work.login.toLowerCase();
+  const mine = user?.login?.toLowerCase() === work.login.toLowerCase();
   const name = work.name ?? work.login;
   if (remove.isSuccess) return <Missing title="Deleted" words="This link no longer opens anything. Anyone who had it sees that it is gone." back={{ label: "Your Proof of Work", href: `/u/${work.login}/work` }} />;
   return (

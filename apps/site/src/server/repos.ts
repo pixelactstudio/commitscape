@@ -3,12 +3,11 @@ import { and, desc, eq } from "drizzle-orm";
 import { FAILURE_WORDS, type Lookup } from "@commitscape/data";
 import {
   busy,
-  commitsKey,
+  cachedGet,
   installationOf,
   now,
   PRIORITY,
   queueBuild,
-  readCard,
   readEntry,
   readIndex,
   REPORT_FOR,
@@ -23,7 +22,7 @@ import {
   type ReportIndex,
   type Storage,
 } from "@commitscape/server";
-import { askGitHub, asUser, type GitHubConfig } from "./github";
+import { apiOf, askGitHub, GITHUB_TTL, type GitHubConfig } from "./github";
 import { SiteError } from "./http";
 import { allow } from "./limits";
 
@@ -77,19 +76,20 @@ async function settled(deps: Deps, row: Row): Promise<Row> {
   return settleRepository(deps.db, deps.storage, { githubId: row.githubId, ...(current ?? { owner: row.owner, name: row.name }) });
 }
 
-/** A repository's row under its current name, with GitHub's facts asked again when they are an hour old; an old name of a renamed or moved repository leads to its row. */
-export async function known(deps: Deps, owner: string, name: string, address?: string): Promise<Row | null> {
+/** A repository's row under its current name, with GitHub's facts asked again when an hour old (with the visitor's token if any); an old name of a renamed or moved repository leads to its row. */
+export async function known(deps: Deps, owner: string, name: string, address?: string, token?: () => Promise<string | null>): Promise<Row | null> {
   const id = idOf(owner, name);
   const [own] = await deps.db.select().from(repositories).where(eq(repositories.id, id));
   const moved = own ? undefined : await repoNamed(deps.db, id);
-  if (moved && (moved.movedAt ?? 0) > now() - FACTS_FOR) return known(deps, moved.owner, moved.name, address);
+  if (moved && (moved.movedAt ?? 0) > now() - FACTS_FOR) return known(deps, moved.owner, moved.name, address, token);
   const row: Row | undefined = own ?? moved;
   if (own && (own.installationId || (own.factsAt && own.factsAt > now() - FACTS_FOR))) return settled(deps, own);
   if (address && !(await allow(deps.db, LOOKUP_LIMIT, address))) {
     if (row) return row;
     throw new SiteError(429, "This address has looked up many repositories this hour. Try again later.");
   }
-  const asked = await askGitHub(deps.github, owner, name).catch(() => null);
+  const lent = await token?.().catch(() => null);
+  const asked = await askGitHub(deps, owner, name, { token: lent }).catch(() => null);
   if (!asked) return row ?? null;
   if (asked.status === "ok" && asked.githubId) {
     const current = nameOf(asked.facts.fullName) ?? { owner, name };
@@ -118,9 +118,9 @@ export async function canSee(deps: Deps, sessionId: string, token: string, owner
     .from(access)
     .where(and(eq(access.sessionId, sessionId), eq(access.repoId, id)));
   if (kept && kept.until > now()) return kept.allowed;
-  const answer = await asUser(deps.github, token, `/repos/${owner}/${name}`);
-  let allowed = answer.ok;
-  if (allowed && githubId) allowed = ((await answer.json().catch(() => null)) as { id?: unknown } | null)?.id === githubId;
+  const answer = await cachedGet<{ id?: unknown }>(deps.db, { url: `${apiOf(deps.github)}/repos/${owner}/${name}`, token, scope: `session:${sessionId}`, ttl: GITHUB_TTL.access, fetcher: deps.github.fetcher });
+  let allowed = answer.status >= 200 && answer.status < 300;
+  if (allowed && githubId) allowed = answer.body?.id === githubId;
   const until = now() + ACCESS_FOR;
   await deps.db
     .insert(access)
@@ -138,7 +138,7 @@ async function connected(deps: Deps, viewer: Viewer, row: Row): Promise<{ access
   const installation = row.installationId ?? (await installationOf(deps.app, owner, name));
   if (!installation) return { access: "not_connected", row };
   if (row.installationId && row.factsAt && row.factsAt > now() - FACTS_FOR) return { access: "allowed", row };
-  const asked = await askGitHub(deps.github, owner, name, token).catch(() => null);
+  const asked = await askGitHub(deps, owner, name, { token, scope: `user:${s.userId}` }).catch(() => null);
   const facts = asked?.status === "ok" ? asked.facts : null;
   const [updated] = await deps.db
     .update(repositories)
@@ -190,7 +190,7 @@ export function lookupOf(row: Row, build: Awaited<ReturnType<typeof lastBuild>>,
 
 /** A repository's row and what the viewer may know of it. */
 export async function resolve(deps: Deps, viewer: Viewer, owner: string, name: string): Promise<{ row: Row; access: Lookup["access"] }> {
-  const row = await known(deps, owner, name, viewer.address);
+  const row = await known(deps, owner, name, viewer.address, viewer.token);
   if (!row) throw new SiteError(503, "GitHub could not be asked just now. Try again in a moment.");
   if (row.status === "ok" && !row.installationId) return { row, access: "public" };
   return connected(deps, viewer, row);
@@ -218,9 +218,10 @@ export async function requestBuild(deps: Deps, viewer: Viewer, owner: string, na
   return lookupOf(row, await lastBuild(deps.db, row.id), seen);
 }
 
-async function readable(deps: Deps, viewer: Viewer, owner: string, name: string): Promise<Row & { reportKey: string }> {
+/** The row of a Report the viewer may read, or a 404 when there is none or they may not. */
+export async function readable(deps: Deps, viewer: Viewer, owner: string, name: string): Promise<Row & { reportKey: string }> {
   let row = await rowOf(deps.db, idOf(owner, name));
-  if (row && !row.installationId && (row.factsAt ?? 0) < now() - FACTS_FOR) row = (await known(deps, owner, name)) ?? row;
+  if (row && !row.installationId && (row.factsAt ?? 0) < now() - FACTS_FOR) row = (await known(deps, owner, name, undefined, viewer.token)) ?? row;
   if (!row?.reportKey) throw new SiteError(404, NO_REPORT);
   if (row.isPrivate || row.installationId) {
     const s = await viewer.session();
@@ -253,20 +254,4 @@ export async function reportHead(deps: Deps, viewer: Viewer, owner: string, name
 export async function reportEntry(deps: Deps, viewer: Viewer, owner: string, name: string, key: string): Promise<unknown> {
   const row = await readable(deps, viewer, owner, name);
   return readEntry(deps.storage, row.reportKey, key);
-}
-
-/** A readable Report's Commit List, gzipped as stored. */
-export async function reportCommits(deps: Deps, viewer: Viewer, owner: string, name: string): Promise<{ body: Uint8Array; private: boolean }> {
-  const row = await readable(deps, viewer, owner, name);
-  const object = await deps.storage.get(commitsKey(row.reportKey));
-  if (!object) throw new SiteError(404, NO_REPORT);
-  return { body: object.body, private: row.isPrivate };
-}
-
-/** A readable Report's card for a Window. */
-export async function reportCard(deps: Deps, viewer: Viewer, owner: string, name: string, window: string): Promise<string> {
-  const row = await readable(deps, viewer, owner, name);
-  const svg = await readCard(deps.storage, row.reportKey, window);
-  if (!svg) throw new SiteError(404, "No card for that Window.");
-  return svg;
 }

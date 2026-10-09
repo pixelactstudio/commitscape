@@ -31,10 +31,6 @@ impl Default for Options {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("the window starts before the history loaded so far")]
-pub struct NotLoaded;
-
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct CommitCounts {
     pub in_window: u64,
@@ -49,30 +45,11 @@ pub struct Churn {
     pub commits: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
-pub struct Hotspot {
-    pub file: FileId,
-    pub churn: u32,
-    pub complexity: u32,
-    pub churn_percentile: f64,
-    pub complexity_percentile: f64,
-    pub score: f64,
-    pub churn_rank: Rank,
-    pub complexity_rank: Rank,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-pub struct Rank {
-    pub place: u32,
-    pub of: u32,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct LargeFile {
     pub file: FileId,
     pub loc: u32,
     pub bytes: u64,
-    pub complexity: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -100,10 +77,7 @@ pub struct Analysis<'i> {
 
 impl<'i> Analysis<'i> {
     /// Every metric over one Window of an Index.
-    pub fn new(index: &'i Index, window: Window, options: Options) -> Result<Self, NotLoaded> {
-        if !window.is_loaded(index) {
-            return Err(NotLoaded);
-        }
+    pub fn new(index: &'i Index, window: Window, options: Options) -> Self {
         let start = window
             .from
             .map_or(0, |from| index.commits.partition_point(|c| c.time < from));
@@ -127,14 +101,14 @@ impl<'i> Analysis<'i> {
                 }
             }
         }
-        Ok(Analysis {
+        Analysis {
             index,
             window,
             options,
             range,
             churn,
             counts,
-        })
+        }
     }
 
     pub fn index(&self) -> &'i Index {
@@ -181,46 +155,6 @@ impl<'i> Analysis<'i> {
         out
     }
 
-    pub fn hotspots(&self) -> Vec<Hotspot> {
-        let mut churns: Vec<u32> = self
-            .code()
-            .map(|h| self.churn_of(h.file))
-            .filter(|&c| c > 0)
-            .collect();
-        churns.sort_unstable();
-        let mut complexities: Vec<u32> = self.code().map(|h| h.indent_levels).collect();
-        complexities.sort_unstable();
-
-        let mut out: Vec<Hotspot> = self
-            .code()
-            .filter_map(|h| {
-                let churn = self.churn_of(h.file);
-                if churn == 0 || h.indent_levels == 0 {
-                    return None;
-                }
-                let churn_percentile = percentile(&churns, churn);
-                let complexity_percentile = percentile(&complexities, h.indent_levels);
-                Some(Hotspot {
-                    file: h.file,
-                    churn,
-                    complexity: h.indent_levels,
-                    churn_percentile,
-                    complexity_percentile,
-                    score: churn_percentile * complexity_percentile,
-                    churn_rank: rank(&churns, churn),
-                    complexity_rank: rank(&complexities, h.indent_levels),
-                })
-            })
-            .collect();
-        top(&mut out, |a, b| {
-            b.score
-                .partial_cmp(&a.score)
-                .unwrap_or(Ordering::Equal)
-                .then_with(|| self.by_path(a.file, b.file))
-        });
-        out
-    }
-
     pub fn largest(&self) -> Vec<LargeFile> {
         let mut out: Vec<LargeFile> = self
             .code()
@@ -228,7 +162,6 @@ impl<'i> Analysis<'i> {
                 file: h.file,
                 loc: h.loc,
                 bytes: h.bytes,
-                complexity: h.indent_levels,
             })
             .collect();
         top(&mut out, |a, b| {
@@ -297,21 +230,6 @@ impl<'i> Analysis<'i> {
 
     pub(crate) fn by_path(&self, a: FileId, b: FileId) -> Ordering {
         self.index.paths.path(a).cmp(&self.index.paths.path(b))
-    }
-}
-
-fn percentile(sorted: &[u32], value: u32) -> f64 {
-    if sorted.is_empty() {
-        return 0.0;
-    }
-    sorted.partition_point(|&v| v <= value) as f64 / sorted.len() as f64
-}
-
-fn rank(sorted: &[u32], value: u32) -> Rank {
-    let above = sorted.len() - sorted.partition_point(|&v| v <= value);
-    Rank {
-        place: u32::try_from(above + 1).unwrap_or(u32::MAX),
-        of: u32::try_from(sorted.len()).unwrap_or(u32::MAX),
     }
 }
 

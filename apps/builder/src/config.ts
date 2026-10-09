@@ -20,6 +20,10 @@ export function loadEnv(runtimeEnv: Record<string, string | undefined> = process
       CONCURRENCY: positive(1),
       MAX_REPOSITORY_MB: z.coerce.number().positive().optional(),
       TIME_LIMIT_SECONDS: positive(900),
+      CLONE_TIME_LIMIT_SECONDS: positive(1800),
+      LARGE_REPOSITORY_MB: positive(1500),
+      LARGE_CONCURRENCY: positive(1),
+      LOGINS_ASKED: positive(300),
       DISK_BUDGET_GB: positive(20),
       SURVIVING_BUDGET_SECONDS: positive(60),
       PULLS_TIME_LIMIT_SECONDS: positive(1800),
@@ -45,6 +49,10 @@ export type Config = {
   concurrency: number;
   maxMb: number | undefined;
   timeLimit: number;
+  cloneLimit: number;
+  largeMb: number;
+  largeConcurrency: number;
+  logins: number;
   diskGb: number;
   gitBase: string | undefined;
 };
@@ -56,6 +64,10 @@ export function configOf(env: Env): Config {
     concurrency: env.CONCURRENCY,
     maxMb: env.MAX_REPOSITORY_MB,
     timeLimit: env.TIME_LIMIT_SECONDS,
+    cloneLimit: env.CLONE_TIME_LIMIT_SECONDS,
+    largeMb: env.LARGE_REPOSITORY_MB,
+    largeConcurrency: env.LARGE_CONCURRENCY,
+    logins: env.LOGINS_ASKED,
     diskGb: env.DISK_BUDGET_GB,
     gitBase: env.GIT_BASE,
   };

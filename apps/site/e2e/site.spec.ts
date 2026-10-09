@@ -119,7 +119,8 @@ test("the API answers in plain words", async ({ request }) => {
   expect((await request.get("/api/reports/nobody/nothing/commits")).status()).toBe(404);
   const list = await request.get("/api/reports/acme/ownership/commits");
   expect(list.status()).toBe(200);
-  expect((await list.json()).subjects).toHaveLength(21);
+  expect(await list.json()).toMatchObject({ total: 21, all: 21, next: null });
+  expect(list.headers()["cache-control"]).toBe("public, max-age=300");
   expect((await request.get("/api/health")).status()).toBe(200);
 });
 

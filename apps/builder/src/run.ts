@@ -1,9 +1,13 @@
 import { spawn } from "node:child_process";
-import { mkdir, readFile, rm } from "node:fs/promises";
-import { gunzipSync } from "node:zlib";
+import { existsSync } from "node:fs";
+import { mkdir, readFile, rm, utimes } from "node:fs/promises";
 import { join } from "node:path";
+import { gunzipSync } from "node:zlib";
 import type { BuildFailure, BuildStats, BuildStep } from "@commitscape/data";
+import { writeAccounts, type Signature } from "./accounts";
+import { cloneUrl, ensureClone, gitEnv, locked, type Cloned } from "./clone";
 import type { Config } from "./config";
+import { privateDir, repoDir, scratchDir } from "./disk";
 
 export type BuildTarget = {
   id: string;
@@ -16,22 +20,33 @@ export type BuildTarget = {
   attempt?: number;
 };
 
-export type Outcome =
-  | {
-      ok: true;
-      seconds: number;
-      stats?: BuildStats;
-      report: Uint8Array;
-    }
-  | { ok: false; reason: BuildFailure; detail?: string };
+export type Phase = "quick" | "full";
+
+export type Made = { report: Uint8Array; commits: Uint8Array | null; stats: BuildStats | null; seconds: number };
+
+type Failed = { reason: BuildFailure; detail?: string };
+
+export type Outcome = { published: Phase | null; seconds: number; failure?: Failed; resumable: boolean };
 
 export const REPORT_MAX = 64 * 1024 * 1024;
 
 export const BUILD_ATTEMPTS = 4;
 
-/** How long one attempt at a Build may take: the time limit, doubled for each attempt after the first. */
+const doubled = (base: number, attempt: number) => base * 2 ** (Math.min(Math.max(attempt, 1), BUILD_ATTEMPTS) - 1);
+
+/** How long commitscape may take over one Report in one attempt at a Build: the time limit, doubled for each attempt after the first. */
 export function timeLimitOf(cfg: Config, attempt = 1): number {
-  return cfg.timeLimit * 2 ** (Math.min(Math.max(attempt, 1), BUILD_ATTEMPTS) - 1);
+  return doubled(cfg.timeLimit, attempt);
+}
+
+/** How long one clone may take in one attempt at a Build: the clone time limit, doubled for each attempt after the first. */
+export function cloneLimitOf(cfg: Config, attempt = 1): number {
+  return doubled(cfg.cloneLimit, attempt);
+}
+
+/** How long the queue lets one attempt at a Build run: its clone, its two runs of commitscape and the time to store what they wrote. */
+export function jobLimitOf(cfg: Config, attempt = 1): number {
+  return cloneLimitOf(cfg, attempt) + 2 * timeLimitOf(cfg, attempt) + 600;
 }
 
 export type Ran = { code: number | null; stderr: string; timedOut: boolean; stdout?: string };
@@ -40,15 +55,6 @@ export function statsOf(gzipped: Uint8Array): BuildStats | null {
   try {
     const report = JSON.parse(gunzipSync(gzipped).toString("utf8")) as { stats?: BuildStats | null };
     return report.stats ?? null;
-  } catch {
-    return null;
-  }
-}
-
-export function answersOf(text: string): { answered: number; typical_hours: number | null } | null {
-  try {
-    const h = JSON.parse(text) as { answers?: { answered: number; typical_hours: number | null } | null };
-    return h.answers ?? null;
   } catch {
     return null;
   }
@@ -99,82 +105,120 @@ export function run(cmd: string, args: string[], env: NodeJS.ProcessEnv, timeout
 export type Deps = {
   run: typeof run;
   progress: (step: BuildStep) => Promise<void>;
+  accounts: (signatures: Signature[]) => Promise<Record<string, string>>;
+  publish: (phase: Phase, made: Made) => Promise<boolean>;
+  log?: (line: string) => void;
 };
-
-export function failure(stderr: string): BuildFailure {
-  if (/repository ['"]?[^\n]*['"]? not found|Repository not found|does not appear to be a git repository|\b404\b/i.test(stderr)) return "not_found";
-  if (/Authentication failed|could not read Username|terminal prompts disabled|\b403\b/i.test(stderr)) return "private";
-  return "error";
-}
-
-export function cacheRoot(cfg: Config, req: BuildTarget): string {
-  return req.private ? join(cfg.work, "private", req.id) : cfg.work;
-}
-
-export function clonePath(cfg: Config, req: BuildTarget): string {
-  return join(cacheRoot(cfg, req), "clones", req.owner, req.name);
-}
 
 export const NAME = /^[A-Za-z0-9_.][A-Za-z0-9_.-]{0,99}$/;
 
-/** The environment a commitscape command runs in: no prompts, the token as a header for private clones, the git base for tests. */
-export function gitEnv(cfg: Config, token: string | null): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { GIT_TERMINAL_PROMPT: "0" };
-  if (token) {
-    env.GH_TOKEN = token;
-    env.GIT_CONFIG_COUNT = "1";
-    env.GIT_CONFIG_KEY_0 = "http.https://github.com/.extraheader";
-    env.GIT_CONFIG_VALUE_0 = `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`;
-  }
-  if (cfg.gitBase) env.COMMITSCAPE_GIT_BASE = cfg.gitBase;
-  return env;
-}
+type Step = { ok: true } | ({ ok: false } & Failed);
 
-/** Clones a repository in full and reads it, its lines included, with the commitscape binary, and returns its Report. */
+const lastLine = (text: string) => text.trim().split("\n").at(-1);
+const failed = (c: Cloned): Step => (c.ok ? { ok: true } : { ok: false, reason: c.reason, ...(c.detail ? { detail: c.detail } : {}) });
+
+/** Reads a repository in two phases at once: a quick clone without old file contents gives a Report without lines to publish at once, while a full clone gives the Report with its lines that replaces it. */
 export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<Outcome> {
   if (!NAME.test(req.owner) || !NAME.test(req.name) || req.name === "." || req.name === "..") {
-    return { ok: false, reason: "not_found", detail: "not a repository name" };
+    return { published: null, seconds: 0, failure: { reason: "not_found", detail: "not a repository name" }, resumable: false };
   }
-  const started = Date.now();
   const sizeMb = req.sizeKb / 1024;
-  if (cfg.maxMb !== undefined && sizeMb > cfg.maxMb) return { ok: false, reason: "too_big", detail: `${Math.round(sizeMb)} MB` };
+  if (cfg.maxMb !== undefined && sizeMb > cfg.maxMb) return { published: null, seconds: 0, failure: { reason: "too_big", detail: `${Math.round(sizeMb)} MB` }, resumable: false };
+  const started = Date.now();
   const attempt = req.attempt ?? 1;
-  const limit = timeLimitOf(cfg, attempt);
+  const binLimit = timeLimitOf(cfg, attempt);
+  const cloneLimit = cloneLimitOf(cfg, attempt) * 1000;
+  const home = req.private ? privateDir(cfg, req.id) : repoDir(cfg, req.owner, req.name);
+  const full = join(home, "full");
+  const scratch = scratchDir(cfg, req.id);
+  const env = gitEnv(req.token);
+  const url = cloneUrl(cfg, req.owner, req.name);
+  const warm = existsSync(join(full, ".git"));
   let resumable = false;
-  const out = join(cfg.work, "out");
-  await mkdir(out, { recursive: true });
-  const report = join(out, `${req.id}.json.gz`);
-  const env = gitEnv(cfg, req.token);
-  const left = () => Math.max(1000, limit * 1000 - (Date.now() - started));
-  try {
-    await deps.progress("reading");
-    const args = ["report", "--no-emails", "--offline", "--window", "all", "--cache-dir", cacheRoot(cfg, req), "--out", report, "--", `${req.owner}/${req.name}`];
-    const made = await deps.run(cfg.bin, args, env, left());
-    if (made.timedOut) {
-      resumable = attempt < BUILD_ATTEMPTS;
-      return { ok: false, reason: "timed_out", detail: `${limit} s` };
-    }
-    if (made.code !== 0) return { ok: false, reason: failure(made.stderr), detail: made.stderr.trim().split("\n").at(-1) };
-    const bytes = new Uint8Array(await readFile(report));
+  let fullMade = false;
+  let quickPublished = false;
+  let cloneDone = false;
+
+  const report = async (dir: string, phase: Phase, cache: string, accounts: string | null): Promise<({ ok: true } & Made) | ({ ok: false } & Failed)> => {
+    const out = join(scratch, `${phase}.json.gz`);
+    const commitsOut = join(scratch, `${phase}.commits.json.gz`);
+    const t = Date.now();
+    const args = ["report", ...(phase === "quick" ? ["--no-lines"] : []), "--no-emails", "--offline", "--window", "all", "--cache-dir", cache];
+    if (accounts) args.push("--accounts", accounts);
+    args.push("--out", out, "--commits-out", commitsOut, "--", dir);
+    const made = await deps.run(cfg.bin, args, env, binLimit * 1000);
+    if (made.timedOut) return { ok: false, reason: "timed_out", detail: `${binLimit} s` };
+    if (made.code !== 0) return { ok: false, reason: "error", ...(made.stderr ? { detail: lastLine(made.stderr) } : {}) };
+    const bytes = new Uint8Array(await readFile(out));
     if (bytes.length > REPORT_MAX) return { ok: false, reason: "too_big", detail: `a ${Math.round(bytes.length / 1024 ** 2)} MB Report` };
-    let stats = statsOf(bytes);
-    if (req.seed && stats) {
-      const seedEnv = process.env.GITHUB_TOKEN ? { ...env, GH_TOKEN: process.env.GITHUB_TOKEN } : env;
-      const health = await deps.run(cfg.bin, ["health", "--json", "--cache-dir", cfg.work, "--", `${req.owner}/${req.name}`], seedEnv, left());
-      const answers = health.code === 0 ? answersOf(health.stdout ?? "") : null;
-      stats = { ...stats, answered: answers?.answered ?? null, answer_hours: answers?.typical_hours ?? null };
-    }
-    await deps.progress("uploading");
-    return {
-      ok: true,
-      seconds: Math.round((Date.now() - started) / 100) / 10,
-      ...(stats ? { stats } : {}),
-      report: bytes,
-    };
+    const commits = existsSync(commitsOut) ? new Uint8Array(await readFile(commitsOut)) : null;
+    await rm(out, { force: true });
+    await rm(commitsOut, { force: true });
+    return { ok: true, report: bytes, commits, stats: statsOf(bytes), seconds: Math.round((Date.now() - t) / 100) / 10 };
+  };
+
+  const accountsFrom = (dir: string) => writeAccounts(deps.run, { bin: cfg.bin, dir, scratch, env, timeoutMs: binLimit * 1000, ...(deps.log ? { log: deps.log } : {}) }, deps.accounts);
+
+  const guarded = (fn: () => Promise<Step>): Promise<Step> => fn().catch((e: unknown) => ({ ok: false, reason: "error", detail: (e as Error).message }));
+
+  try {
+    await rm(scratch, { recursive: true, force: true });
+    await mkdir(scratch, { recursive: true });
+    await mkdir(home, { recursive: true });
+    await utimes(home, new Date(), new Date());
+    await deps.progress("cloning");
+    const fullCloned = locked(full, () => ensureClone(deps.run, { url, dir: full, blobless: false, env, timeoutMs: cloneLimit })).catch(
+      (e: unknown): Cloned => ({ ok: false, reason: "error", detail: (e as Error).message }),
+    );
+    void fullCloned.then(() => {
+      cloneDone = true;
+    });
+    const quick = join(scratch, "quick");
+    const quickCloned: Promise<Cloned | null> =
+      attempt > 1 ? Promise.resolve(null) : warm ? fullCloned : ensureClone(deps.run, { url, dir: quick, blobless: true, env, timeoutMs: cloneLimit });
+    const quickDir = quickCloned.then((c) => (c?.ok ? (warm ? full : quick) : null)).catch(() => null);
+    const accounts = quickDir.then(async (d) => d ?? ((await fullCloned).ok ? full : null)).then((d) => (d ? accountsFrom(d) : null));
+
+    const quickPhase = guarded(async () => {
+      const c = await quickCloned;
+      if (!c) return { ok: false, reason: "error", detail: "no quick phase" };
+      if (!c.ok) return failed(c);
+      const dir = warm ? full : quick;
+      const file = await accounts;
+      await deps.progress("reading");
+      const made = await report(dir, "quick", join(warm ? home : scratch, "cache"), file);
+      if (!made.ok || fullMade) return made.ok ? { ok: true } : made;
+      await deps.progress("uploading");
+      quickPublished = await deps.publish("quick", made);
+      if (!fullMade) await deps.progress(cloneDone ? "reading" : "cloning");
+      return { ok: true };
+    });
+
+    const fullPhase = guarded(async () => {
+      const c = await fullCloned;
+      if (!c.ok) return failed(c);
+      deps.log?.(`clone of ${req.owner}/${req.name}: ${c.fresh ? "cloned" : "brought up to date"} in ${c.seconds} s`);
+      if (warm) await quickPhase;
+      const file = await accounts;
+      const made = await report(full, "full", join(home, "cache"), file);
+      if (!made.ok) return made;
+      fullMade = true;
+      await quickPhase;
+      await deps.progress("uploading");
+      await deps.publish("full", made);
+      return { ok: true };
+    });
+
+    const [q, f] = await Promise.all([quickPhase, fullPhase]);
+    const seconds = Math.round((Date.now() - started) / 100) / 10;
+    if (f.ok) return { published: "full", seconds, resumable: false };
+    resumable = f.reason === "timed_out" && attempt < BUILD_ATTEMPTS;
+    const why = { reason: f.reason, ...(f.detail ? { detail: f.detail } : {}) };
+    return { published: q.ok && quickPublished ? "quick" : null, seconds, failure: why, resumable };
   } catch (e) {
-    return { ok: false, reason: "error", detail: (e as Error).message };
+    return { published: null, seconds: Math.round((Date.now() - started) / 100) / 10, failure: { reason: "error", detail: (e as Error).message }, resumable: false };
   } finally {
-    await rm(report, { force: true });
-    if (req.private && !resumable) await rm(cacheRoot(cfg, req), { recursive: true, force: true });
+    await rm(scratch, { recursive: true, force: true });
+    if (req.private && !resumable) await rm(home, { recursive: true, force: true });
   }
 }

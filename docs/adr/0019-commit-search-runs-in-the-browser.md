@@ -4,7 +4,7 @@ Searching commits by message, person and date runs in the browser, over a Commit
 
 ## Status
 
-accepted (2026-09-25, Build Run 4 plan); amended in Phase 25 (below).
+accepted (2026-09-25, Build Run 4 plan); amended in Phase 25 (below). On the Site, superseded by ADR-0024 (2026-10-08): commits are rows in Postgres, searched there. A Shared Report is still searched in the browser.
 
 ## Context
 

@@ -3,6 +3,7 @@ export { Key } from "./components/Key";
 export { LinesSkeleton, ScreenSkeleton } from "./components/Loading";
 export { Logo } from "./components/Logo";
 export { dataQuery, SourceContext, useData, useSource } from "./data";
+export { searcher } from "./searcher";
 export { paramsOf, primaryRequest, SCREENS, toRoute, toSearch, type Go, type Route, type Screen, type Search } from "./route";
 export { commitscapeTheme, MODE_COOKIE, MODES, ModeContext, modeOf, themeCss, useMode, type Mode } from "./theme";
 export { Face, type FaceProps, type FaceSize } from "./components/Face";

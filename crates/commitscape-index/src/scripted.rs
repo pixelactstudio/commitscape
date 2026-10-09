@@ -37,8 +37,6 @@ pub struct ScriptedRepo {
     head_blobs: Vec<(Vec<u8>, Vec<u8>)>,
     blobs: Vec<(Oid, Vec<u8>)>,
     mailmap: Mailmap,
-    remote: Option<String>,
-    truncated: bool,
     reads: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
@@ -66,18 +64,8 @@ impl ScriptedRepo {
         self
     }
 
-    pub fn with_remote(mut self, url: &str) -> Self {
-        self.remote = Some(url.to_string());
-        self
-    }
-
     pub fn blob(mut self, id: Oid, contents: &str) -> Self {
         self.blobs.push((id, contents.as_bytes().to_vec()));
-        self
-    }
-
-    pub fn truncated(mut self) -> Self {
-        self.truncated = true;
         self
     }
 
@@ -289,19 +277,12 @@ impl RepoSource for ScriptedRepo {
         Ok(self.mailmap.fingerprint())
     }
 
-    fn remote_url(&self) -> Option<String> {
-        self.remote.clone()
-    }
-
     fn walk_history(
         &self,
         indexed: &dyn Indexed,
         sink: &mut dyn CommitSink,
     ) -> Result<WalkStats, Self::Error> {
-        let mut stats = WalkStats {
-            history_truncated: self.truncated,
-            ..WalkStats::default()
-        };
+        let mut stats = WalkStats::default();
         let mut wanted = HashSet::new();
         let mut stack = self.tips()?;
         while let Some(id) = stack.pop() {

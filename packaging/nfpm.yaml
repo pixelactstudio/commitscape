@@ -5,7 +5,7 @@ version: ${VERSION}
 section: devel
 priority: optional
 maintainer: Dev Talan <chaudhary.dev.talan@gmail.com>
-description: Reads a git repository and shows what changes what you do next.
+description: Reads a git repository's history and shares what each person built there.
 vendor: Dev Talan
 homepage: https://github.com/pixelactstudio/commitscape
 license: MIT OR Apache-2.0

@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use commitscape_core::{FileId, HeadFile, Month};
 use serde::Serialize;
 
-use crate::analysis::{top, Analysis, LargeFile};
+use crate::analysis::{top, Analysis};
 
 const DAY: i64 = 86_400;
 
@@ -84,15 +84,6 @@ impl Analysis<'_> {
         Staleness { buckets, files }
     }
 
-    pub fn stale_files(&self, age: Age) -> Vec<StaleFile> {
-        let mut files: Vec<StaleFile> = self
-            .stale()
-            .filter(|f| Age::of_days(f.days) == age)
-            .collect();
-        top(&mut files, |a, b| self.stalest_first(a, b));
-        files
-    }
-
     fn stale(&self) -> impl Iterator<Item = StaleFile> + '_ {
         let index = self.index();
         let anchor = self.window().to;
@@ -128,23 +119,6 @@ impl Analysis<'_> {
                 files,
             })
             .collect()
-    }
-
-    pub fn code_age_files(&self, year: i64, quarter: u32) -> Vec<LargeFile> {
-        let mut files: Vec<LargeFile> = self
-            .created()
-            .filter(|&(_, key)| key == (year, quarter))
-            .map(|(h, _)| LargeFile {
-                file: h.file,
-                loc: h.loc,
-                bytes: h.bytes,
-                complexity: h.indent_levels,
-            })
-            .collect();
-        top(&mut files, |a, b| {
-            b.loc.cmp(&a.loc).then_with(|| self.by_path(a.file, b.file))
-        });
-        files
     }
 
     fn created(&self) -> impl Iterator<Item = (&HeadFile, (i64, u32))> + '_ {

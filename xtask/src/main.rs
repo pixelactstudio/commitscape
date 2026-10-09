@@ -4,7 +4,6 @@ mod fixtures;
 mod layering;
 mod line_cost;
 mod npm;
-mod preview;
 mod verify;
 
 use anyhow::Result;
@@ -74,27 +73,6 @@ enum Command {
         #[arg(long)]
         verify: bool,
     },
-    /// Render the interface's screens for a repository to SVG and PNG, to
-    /// look at while designing it.
-    Preview {
-        /// The repository to show.
-        repo: std::path::PathBuf,
-        /// Where the images go.
-        #[arg(long, default_value = "target/preview")]
-        out: std::path::PathBuf,
-        /// Terminal size, as columns x rows.
-        #[arg(long, default_value = "130x40")]
-        size: String,
-        /// The Window: 30d, 90d, 1y or all.
-        #[arg(long, default_value = "90d")]
-        window: String,
-        /// Do not ask GitHub.
-        #[arg(long)]
-        offline: bool,
-        /// Only screens whose name contains this.
-        #[arg(long)]
-        only: Option<String>,
-    },
     /// Check the history walk against `git diff-tree` on a real repository.
     VerifyWalk {
         /// The repository to check.
@@ -132,20 +110,6 @@ fn main() -> Result<()> {
             newest,
             verify,
         } => line_cost::run(&repo, newest, verify),
-        Command::Preview {
-            repo,
-            out,
-            size,
-            window,
-            offline,
-            only,
-        } => {
-            let (w, h) = size
-                .split_once('x')
-                .and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?)))
-                .unwrap_or((130, 40));
-            preview::run(&repo, &out, (w, h), &window, offline, only.as_deref())
-        }
     }
 }
 

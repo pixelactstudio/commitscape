@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { AlertDialog } from "@astryxdesign/core/AlertDialog";
+import { Avatar } from "@astryxdesign/core/Avatar";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
@@ -50,7 +51,7 @@ function Me() {
   const signOut = useMutation({ mutationFn: () => endSession(), onSuccess: () => after("Signed out.") });
   return (
     <Page className="pb-16">
-      <PageHead title="Settings" description={mine ? `Signed in with GitHub as @${mine.user.login}. Every choice here takes effect at once.` : "What others see of you, who you measure yourself against, and the repositories you let us read."} />
+      <PageHead title="Settings" description={mine ? (mine.user.login ? `Signed in with GitHub as @${mine.user.login}. Every choice here takes effect at once.` : "Signed in with GitHub. Every choice here takes effect at once.") : "What others see of you, who you measure yourself against, and the repositories you let us read."} />
       {done && (
         <div className="pb-4">
           <Banner status="success" title={done} />
@@ -71,16 +72,20 @@ function Me() {
             <Panel id="profile" title="Profile" description="Who you are signed in as.">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
                 <div className="flex min-w-0 flex-1 items-center gap-4">
-                  <Face login={mine.user.login} name={mine.user.name ?? mine.user.login} size={60} />
+                  {mine.user.login ? <Face login={mine.user.login} name={mine.user.name ?? mine.user.login} size={60} /> : <Avatar src={mine.user.avatar ?? undefined} name={mine.user.name ?? ""} size="lg" />}
                   <div className="flex min-w-0 flex-col">
-                    <span className="truncate type-panel">{mine.user.name ?? mine.user.login}</span>
-                    <span className="type-caption">@{mine.user.login} on GitHub</span>
+                    <span className="truncate type-panel">{mine.user.name ?? mine.user.login ?? "Signed in"}</span>
+                    {mine.user.login ? <span className="type-caption">@{mine.user.login} on GitHub</span> : <span className="type-caption">GitHub has not told us your username yet.</span>}
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button label="Your Profile" variant="secondary" icon={<Icon icon={User} size="sm" />} href={`/u/${mine.user.login}`} />
-                  <Button label="Your Cards" variant="secondary" icon={<Icon icon={ImageIcon} size="sm" />} href={`/u/${mine.user.login}/cards`} />
-                  <Button label="Proof of Work" variant="secondary" icon={<Icon icon={Briefcase} size="sm" />} href={`/u/${mine.user.login}/work`} />
+                  {mine.user.login && (
+                    <>
+                      <Button label="Your Profile" variant="secondary" icon={<Icon icon={User} size="sm" />} href={`/u/${mine.user.login}`} />
+                      <Button label="Your Cards" variant="secondary" icon={<Icon icon={ImageIcon} size="sm" />} href={`/u/${mine.user.login}/cards`} />
+                      <Button label="Proof of Work" variant="secondary" icon={<Icon icon={Briefcase} size="sm" />} href={`/u/${mine.user.login}/work`} />
+                    </>
+                  )}
                   <Button label="Sign out" variant="ghost" icon={<Icon icon={LogOut} size="sm" />} onClick={() => signOut.mutate()} isLoading={signOut.isPending} />
                 </div>
               </div>

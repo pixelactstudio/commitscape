@@ -29,10 +29,6 @@ impl IdentityRules {
         }
     }
 
-    pub fn has_extras(&self) -> bool {
-        !self.accounts.is_empty() || !self.kept_apart.is_empty()
-    }
-
     pub fn extras_fingerprint(&self) -> u64 {
         let mut h = xxhash_rust::xxh3::Xxh3::new();
         h.update(&RULES_VERSION.to_le_bytes());
@@ -203,28 +199,6 @@ pub fn resolve_authors(
 
     let suspects = suspected_duplicates(&authors, &resolved, &keys, rules);
     AuthorTable::new(signatures, used, person_of, authors, suspects)
-}
-
-pub fn keys_of(table: &AuthorTable, person: AuthorId, rules: &IdentityRules) -> Vec<String> {
-    let emails: Vec<String> = (0..table.signature_count())
-        .map(|i| {
-            let s = table.signature(SignatureId(i as u32));
-            let (name, email) = s.map_or(("", ""), |s| (s.name, s.email));
-            let (_, e) = rules.mailmap.resolve(name.as_bytes(), email.as_bytes());
-            String::from_utf8_lossy(e).into_owned()
-        })
-        .collect();
-    let keys = address_keys(emails.iter().map(String::as_str));
-    let mut out: Vec<String> = table
-        .get(person)
-        .map(|a| a.signatures)
-        .unwrap_or_default()
-        .iter()
-        .filter_map(|s| keys.get(s.idx()).cloned())
-        .collect();
-    out.sort_unstable();
-    out.dedup();
-    out
 }
 
 struct Group {

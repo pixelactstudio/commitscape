@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { now, reportPrefix, schema } from "@commitscape/server";
 import { fakeGitHub, repoFacts, testDeps, viewer } from "#/test/deps";
 import { engineOf } from "./engine";
-import { known, lookup, reportHead, requestBuild } from "./repos";
+import { canSee, known, lookup, reportHead, requestBuild } from "./repos";
 import { standingsOf } from "./standings";
 
 const { builds, pullRequests, repoNames, repoPeople, repositories, surviving } = schema;
@@ -19,7 +19,7 @@ async function moved() {
     { id: "facebook/react", owner: "facebook", name: "react", githubId: 10, reportKey: key, reportAt: now() - 60, reportLines: true, factsAt: now() - 600, facts: facts("react/react"), pullsReadAt: now() - 60 },
     { id: "react/react", owner: "react", name: "react", githubId: 10, factsAt: now() - 60, facts: facts("react/react") },
   ]);
-  await deps.storage.put(`${key}/index.json`, JSON.stringify({ meta: {}, stats: null, keys: [], cards: [], commits: false }), { type: "application/json" });
+  await deps.storage.put(`${key}/index.json`, JSON.stringify({ meta: {}, stats: null, keys: [] }), { type: "application/json" });
   await deps.db.insert(repoPeople).values({ repoId: "facebook/react", reportKey: key, personId: 1, name: "Dan", login: "gaearon", commits: 40, linesAdded: 400, linesRemoved: 40, first: 1, last: 2 });
   await deps.db.insert(surviving).values({ repoId: "facebook/react", reportKey: key, personId: 1, status: "counted", lines: 100, added: 400, askedAt: now() });
   await deps.db.insert(pullRequests).values({ repoId: "facebook/react", number: 7, author: "gaearon", state: "MERGED", title: "Hooks", createdAt: 1, mergedAt: 2, updatedAt: 3, additions: 1, deletions: 1 });
@@ -101,5 +101,62 @@ describe("renamed and moved repositories", () => {
     expect(await known(deps, "acme", "rocket")).toMatchObject({ githubId: 2, reportKey: null, pullsReadAt: null });
     expect(await deps.db.select().from(repoPeople)).toEqual([]);
     expect(await deps.db.select().from(pullRequests)).toEqual([]);
+  });
+});
+
+describe("what asking GitHub costs", () => {
+  type Seen = { path: string; token: string | null; match: string | null };
+  const asking = (reply: (path: string, match: string | null) => Response) => {
+    const seen: Seen[] = [];
+    const fetcher = (async (input: string | URL | Request, init: RequestInit) => {
+      const url = new URL(String(input));
+      const headers = new Headers(init.headers);
+      const found = { path: url.pathname, token: headers.get("authorization")?.replace("Bearer ", "") ?? null, match: headers.get("if-none-match") };
+      seen.push(found);
+      return reply(found.path, found.match);
+    }) as unknown as typeof fetch;
+    return { seen, fetcher };
+  };
+
+  test("a visitor's own token pays for a public repository's facts, and the next visitor's cost nothing", async () => {
+    const gh = asking((path) => (path === "/repos/acme/rocket" ? Response.json(repoFacts(1)) : Response.json([])));
+    const deps = await testDeps({ github: { api: "http://github.test", token: "site", fetcher: gh.fetcher } });
+    expect(await known(deps, "acme", "rocket", "1.1.1.1", async () => "ghu_visitor")).toMatchObject({ status: "ok", githubId: 1 });
+    expect(gh.seen.every((s) => s.token === "ghu_visitor")).toBe(true);
+    const requests = gh.seen.length;
+    await deps.db.update(repositories).set({ factsAt: now() - 7200 });
+    await known(deps, "acme", "rocket", "2.2.2.2", async () => "ghu_other");
+    await known(deps, "acme", "rocket", "3.3.3.3");
+    expect(gh.seen).toHaveLength(requests);
+  });
+
+  test("without a visitor's token the Site's is used", async () => {
+    const gh = asking(() => Response.json(repoFacts(1)));
+    const deps = await testDeps({ github: { api: "http://github.test", token: "site", fetcher: gh.fetcher } });
+    await known(deps, "acme", "rocket", "1.1.1.1", async () => null);
+    expect(gh.seen.every((s) => s.token === "site")).toBe(true);
+  });
+
+  test("a private repository a visitor's token can see is no more than not found for everyone else, and none of its facts are kept", async () => {
+    const gh = asking(() => Response.json(repoFacts(5, { full_name: "acme/secret", private: true })));
+    const deps = await testDeps({ github: { api: "http://github.test", token: "site", fetcher: gh.fetcher } });
+    const row = await known(deps, "acme", "secret", "1.1.1.1", async () => "ghu_member");
+    expect(row).toMatchObject({ status: "not_found", isPrivate: false, facts: null });
+    expect(await deps.db.select().from(schema.githubCache)).toEqual([]);
+  });
+
+  test("whether GitHub shows a repository to someone is revalidated with an ETag, which costs nothing when nothing changed", async () => {
+    const gh = asking((_, match) => (match === '"v1"' ? new Response(null, { status: 304 }) : Response.json({ id: 1 }, { headers: { etag: '"v1"' } })));
+    const deps = await testDeps();
+    await deps.db.insert(schema.user).values({ id: "u1", name: "Alice", email: "alice@example.com" });
+    await deps.db.insert(schema.session).values(["session-1", "session-2"].map((id) => ({ id, token: id, userId: "u1", expiresAt: new Date(Date.now() + 3_600_000) })));
+    const github = { ...deps, github: { api: "http://github.test", token: "site", fetcher: gh.fetcher } };
+    expect(await canSee(github, "session-1", "ghu_alice", "acme", "secret", 1)).toBe(true);
+    await deps.db.delete(schema.access);
+    expect(await canSee(github, "session-1", "ghu_alice", "acme", "secret", 1)).toBe(true);
+    expect(gh.seen.map((s) => s.match)).toEqual([null, '"v1"']);
+    await deps.db.delete(schema.access);
+    expect(await canSee(github, "session-2", "ghu_bob", "acme", "secret", 2)).toBe(false);
+    expect(gh.seen[2]?.match).toBeNull();
   });
 });

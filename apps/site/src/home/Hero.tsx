@@ -48,9 +48,11 @@ export function Hero() {
           </div>
           <div className="rise type-caption [animation-delay:250ms]">
             {user ? (
-              <Link to="/u/$login" params={{ login: user.login }} className="inline-flex items-center gap-1 font-medium text-primary no-underline hover:underline">
-                Open your Profile, @{user.login} <ArrowRight size={ICON.sm} />
-              </Link>
+              user.login && (
+                <Link to="/u/$login" params={{ login: user.login }} className="inline-flex items-center gap-1 font-medium text-primary no-underline hover:underline">
+                  Open your Profile, @{user.login} <ArrowRight size={ICON.sm} />
+                </Link>
+              )
             ) : (
               <>
                 Or{" "}

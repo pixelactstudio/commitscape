@@ -1,13 +1,13 @@
 import { eq, inArray, or } from "drizzle-orm";
 import type { Db } from "./db/client";
-import { builds, pullRequests, pullReviews, repoNames, repoPeople, repositories, surviving } from "./db/schema";
+import { builds, commits, pullRequests, pullReviews, repoNames, repoPeople, repositories, surviving } from "./db/schema";
 import { repoId } from "./names";
 import type { Storage } from "./storage";
 import { now } from "./time";
 
 export type RepoRow = typeof repositories.$inferSelect;
 
-/** Deletes repositories' stored Reports and cards, and their rows. */
+/** Deletes repositories' stored Reports and cards, and their rows; their commit rows go with them. */
 export async function removeReports(db: Db, storage: Storage, rows: RepoRow[]): Promise<void> {
   for (const r of rows) {
     if (r.reportKey) await storage.deletePrefix(`${r.reportKey}/`);
@@ -90,7 +90,7 @@ export async function settleRepository(db: Db, storage: Storage | null, s: Settl
           .values({ ...values, id })
           .returning();
     const earlier = members.map((r) => r.id).filter((r) => r !== id);
-    const move = async (from: RepoRow | undefined, tables: (typeof repoPeople | typeof surviving | typeof pullRequests | typeof pullReviews)[]) => {
+    const move = async (from: RepoRow | undefined, tables: (typeof repoPeople | typeof surviving | typeof commits | typeof pullRequests | typeof pullReviews)[]) => {
       const dropped = members.map((r) => r.id).filter((r) => r !== from?.id);
       for (const t of tables) {
         if (dropped.length > 0) await tx.delete(t).where(inArray(t.repoId, dropped));
@@ -98,7 +98,7 @@ export async function settleRepository(db: Db, storage: Storage | null, s: Settl
       }
     };
     if (earlier.length > 0) {
-      await move(holder ?? current, [repoPeople, surviving]);
+      await move(holder ?? current, [repoPeople, surviving, commits]);
       await move(puller ?? current, [pullRequests, pullReviews]);
       await tx.update(builds).set({ repoId: id }).where(inArray(builds.repoId, earlier));
       await tx.update(repoNames).set({ repoId: id }).where(inArray(repoNames.repoId, earlier));

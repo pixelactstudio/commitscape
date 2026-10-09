@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 
 const fixtures = resolve(import.meta.dirname, "../../../fixtures");
 
-function authorOf(name: string, oid: string): string | null {
+export function authorOf(name: string, oid: string): string | null {
   try {
     const email = execFileSync("git", ["-C", resolve(fixtures, name), "log", "-1", "--format=%ae", oid], { encoding: "utf8" }).trim().toLowerCase();
     if (email.startsWith("alice@")) return "alice";

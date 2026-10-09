@@ -25,22 +25,21 @@ the whole history of a large repository in seconds, from git's own data.
 
 ![commitscape's own story, drawn by commitscape](.github/commitscape-card.svg)
 
-There are three ways to use it:
+There are two ways to use it:
 
-1. **In your terminal.** Run `npx commitscape` in any git repository.
-   Nothing leaves your machine.
-2. **Shared from a terminal.** `commitscape share` builds the Report on
-   your machine, encrypts it, uploads it and prints a link. The link opens
-   in any browser for 4 hours, and the Site cannot read what it stores.
-3. **On the Site.** Type any GitHub username for their Profile: totals,
+1. **From your terminal.** Run `npx commitscape` in any git repository. It
+   says what it will upload and asks first (Enter means yes), reads the
+   history on your machine, uploads the Report encrypted and opens its link
+   in your browser. The link works for 4 hours, and the Site cannot read
+   what it stores.
+2. **On the Site.** Type any GitHub username for their Profile: totals,
    Surviving Lines, Archetype and Achievements, where their work is, Cards
    to embed, Proof of Work for a period, Versus, Rivals, Races, Crews and
    Wrapped. Paste a repository link for its Report and Standings, sign in
    with GitHub to see your own private work, or browse the Leaderboards.
    Anyone can stay out of comparisons.
 
-The project is in early development. The CLI and the Site work end to end;
-the first release is next.
+The project is in early development. The CLI and the Site work end to end.
 
 ## Getting started
 
@@ -48,10 +47,19 @@ the first release is next.
 npx commitscape
 ```
 
-The first run reads the whole history (about 25 seconds for a repository
-the size of rust-lang/rust). After that it opens in well under a second.
+```text
+This uploads my-project's Report to https://commitscape.damnlabs.com.
+  It holds file paths, people's names and GitHub logins, and commit subjects. No email addresses.
+  It is locked with a key only the link holds, so the Site cannot read it.
+  The link works for 4 hours.
+Upload it? [Y/n]
+https://commitscape.damnlabs.com/s/k3f9q2x7#0dbf…
+```
 
-![The terminal interface on ripgrep](docs/media/terminal.gif)
+`--no-open` prints the link without opening a browser, `--yes` uploads
+without asking (for scripts; it never opens a browser), and `--expires 12`
+keeps the link up for 12 hours. `commitscape share --list` lists the links
+this machine made and `--delete <link>` takes one down.
 
 ## Install
 
@@ -77,65 +85,28 @@ once it runs.
 
 | Command | What it does |
 |---|---|
-| `commitscape [path]` | The terminal interface: five screens over any Window of history |
-| `commitscape check` | The files that nearly always change with the ones you staged, and did not |
-| `commitscape who <path>` | Who to ask about a file or folder, and whether they still commit |
-| `commitscape health <owner/name>` | Whether a GitHub project is alive and whether it depends on one person |
-| `commitscape wrapped [folder]` | Your year across every repository under a folder, as a card |
-| `commitscape card [path]` | The repository's story as an SVG card, like the one above |
+| `commitscape [path]` | The same as `commitscape share`: asks, uploads the encrypted Report and opens its link |
+| `commitscape share [path]` | An encrypted link to this repository's Report, for any browser; `--list` and `--delete <link>` manage them |
+| `commitscape report [path]` | The Report as gzipped JSON, as the Site stores it; uploads nothing |
 | `commitscape surviving [path] --person <id>` | A person's Surviving Lines: the lines at the head that blame gives them, reformats passed through |
-| `commitscape share` | An encrypted link to this repository's Report, for any browser |
-| `commitscape report [path]` | The Report as gzipped JSON, as the Site stores it |
-| `commitscape github [path]` | Fetch pull requests, issues and releases through the `gh` CLI |
+| `commitscape health <owner/name>` | Whether a GitHub project is alive and whether it depends on one person |
 
-`commitscape --summary` prints a plain-text summary, `--json` every metric
-as one document, `--window 30d|90d|1y|all` picks the Window, and `--help`
-lists every option.
+`--help` on any command lists every option.
 
-## What it shows
+## Cards in a README
 
-| Screen | Shows |
-|---|---|
-| Overview | The project's story on a line (its first commit, releases, people joining and leaving, the busiest day, quiet stretches), commits over time, who writes the code, and what is worth a look |
-| Activity | Commits over time by person with releases marked, pull requests and issues a week, the hours of the week, and what kind of work it was |
-| People | A column per measure and no single score: commits, active days, lines added and removed, folders that depend on them, pull requests and reviews, with a profile for each person |
-| Map | The code as nested blocks sized by lines, coloured by how often, when last, or who changes it. Open a file to see what changes with it |
-| Risk | Hotspots (files changed often and deeply nested), files that change together, and folders one person holds, with who could take each over |
-| Commits | Every commit, searched in your browser as you type (on the Site) |
+The [card action](./actions/card) keeps Cards from the Site in your
+repository, up to date on a schedule:
 
-Every number is explained on screen. Press `?` for what each screen means
-and every key.
-
-## Questions it answers
-
-**What did I forget?** Before you commit, `commitscape check` names the
-files that nearly always change with the ones you staged, with the
-evidence, and says nothing when the evidence is weak:
-
-```text
-$ commitscape check
-Probably forgotten:
-  You changed src/schema.ts. 9 of the last 10 commits that did also changed a file in migrations/.
+```yaml
+- uses: pixelactstudio/commitscape/actions/card@v1
+  with:
+    cards: |
+      u/octocat/totals?theme=dark .github/cards/totals.svg
 ```
 
-`--branch main` checks a branch, `--pr 123` a pull request, and `--strict`
-exits with 1 when something looks forgotten. The
-[`actions/check`](actions/check/README.md) GitHub Action comments the same
-on pull requests.
-
-**Who do I ask?** `commitscape who src/api` lists who worked on a file or
-folder most and most recently, flags anyone who has stopped committing,
-and names who to ask instead.
-
-**Can I rely on this project?** `commitscape health owner/name` says
-whether a GitHub project is alive: its maintainers in the last 90 days,
-its bus factor, how often it releases, how fast issues get a first answer,
-and whether it is getting busier or quieter.
-
-**What did I do this year?** `commitscape wrapped ~/code` keeps only your
-commits across every repository under a folder, under every address you
-commit with, and draws your year as a card. Private repositories are
-included, and nothing is uploaded.
+Or embed a Card's address from the Site directly; its Cards studio at
+`/u/<login>/cards` gives the address for each.
 
 ## On the Site
 
@@ -157,14 +128,14 @@ read it.
 
 ## Privacy
 
-On your machine, commitscape sends nothing anywhere unless you ask:
+On your machine, commitscape sends nothing anywhere until you say yes:
 
-- With the [GitHub CLI](https://cli.github.com) signed in, it asks GitHub
-  about pull requests, issues, reviews and releases. `--offline` never
-  asks.
-- `share` uploads the Report encrypted with AES-256-GCM. The key is only in
+- `share` (and a bare `commitscape`) uploads the Report encrypted with AES-256-GCM. The key is only in
   the link, after the `#`, which browsers never send, so the Site stores
   what it cannot read. No email address is ever included.
+- `report` and `surviving` never use the network. `health` asks GitHub,
+  through the [GitHub CLI](https://cli.github.com), about the project it is
+  given.
 - No analytics, no update checks, and nothing runs at install time.
 
 ## Self-hosting
@@ -196,7 +167,7 @@ Sentry and PostHog stay off while their keys are empty.
 
 | Command | Purpose |
 |---|---|
-| `cargo run -p commitscape -- <path>` | Run the CLI on a repository |
+| `cargo run -p commitscape -- report <path>` | Write a repository's Report with the CLI |
 | `cargo test --workspace` | Every Rust test |
 | `cargo clippy --workspace --all-targets -- -D warnings` | Rust lints |
 | `cargo xtask check-layering` | Check that the crates depend on each other only as designed |
@@ -209,9 +180,9 @@ Sentry and PostHog stay off while their keys are empty.
 
 | Folder | What |
 |---|---|
-| `crates/` | Rust: the engine that reads git, the metrics, the terminal interface, the Report and the CLI |
+| `crates/` | Rust: the engine that reads git, the metrics, the Report and the CLI |
 | `apps/site/` | The Site: TanStack Start on Node, server-rendered, with Better Auth |
-| `apps/builder/` | The Builder: takes Builds from a Postgres queue, runs `commitscape report`, stores the Report in R2 |
+| `apps/builder/` | The Builder: takes Builds from a Postgres queue, clones the repository, runs `commitscape report`, stores the Report in R2 and its commits in Postgres |
 | `packages/server/` | The database schema and migrations, R2 storage, the queue and stored Reports |
 | `packages/ui/` | Every screen and chart the Site shows |
 | `packages/data/` | The Report's types, generated from Rust |
@@ -219,12 +190,14 @@ Sentry and PostHog stay off while their keys are empty.
 - [Domain language](./CONTEXT.md)
 - [Architecture decisions](./docs/adr)
 - [Deploying](./DEPLOY.md)
+- [How the pieces work together](./docs/working.md)
+- [GitHub's API limits](./docs/github-api.md)
 - [Releasing](./RELEASING.md)
 - [Agent guide](./CLAUDE.md)
 
 ## Stack
 
-- Rust, gix, ratatui
+- Rust, gix and imara-diff
 - TanStack Start, React 19, TypeScript and Vite
 - Astryx and Tailwind CSS
 - PostgreSQL, Drizzle ORM, pg-boss and Cloudflare R2

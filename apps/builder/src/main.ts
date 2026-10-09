@@ -1,25 +1,31 @@
-import { utimes } from "node:fs/promises";
 import { eq } from "drizzle-orm";
 import {
+  BUILD_LARGE_QUEUE,
   BUILD_QUEUE,
   bossQueue,
+  buildJobStates,
+  buildKey,
   cleanup,
   createDb,
+  PRIORITY,
   PULLS_QUEUE,
+  reapBuilds,
   runMigrations,
   s3Storage,
   schema,
   startQueue,
   LONGEST_JOB_SECONDS,
   SURVIVAL_QUEUE,
+  survivalKey,
   type BuildJob,
+  type Db,
   type PullsJob,
   type SurvivalJob,
 } from "@commitscape/server";
-import { configOf, loadEnv } from "./config";
-import { inUse, prune } from "./disk";
+import { configOf, loadEnv, type Config } from "./config";
+import { inUse, prune, sweep } from "./disk";
 import { runJob } from "./job";
-import { run, timeLimitOf } from "./run";
+import { jobLimitOf, run } from "./run";
 import { pullsToken, readPulls } from "./pulls";
 import { budgetOf, runSurvival } from "./survival";
 import { queueSeeds, seedConfig, seedList } from "./seeds";
@@ -36,34 +42,72 @@ const storage = s3Storage({
 });
 const app = env.GITHUB_APP_ID && env.GITHUB_APP_PRIVATE_KEY ? { appId: env.GITHUB_APP_ID, privateKey: env.GITHUB_APP_PRIVATE_KEY, api: env.GITHUB_API } : null;
 
+const REAP_EVERY = 5 * 60 * 1000;
+
+/** The lane a Build runs in: large repositories wait for each other, never for small ones. */
+async function laneOf(db: Db, config: Config, buildId: string): Promise<{ queue: string; seed: boolean; repoId: string } | null> {
+  const [row] = await db
+    .select({ sizeKb: schema.repositories.sizeKb, seed: schema.repositories.seed, repoId: schema.repositories.id })
+    .from(schema.builds)
+    .innerJoin(schema.repositories, eq(schema.repositories.id, schema.builds.repoId))
+    .where(eq(schema.builds.id, buildId));
+  if (!row) return null;
+  return { queue: (row.sizeKb ?? 0) / 1024 > config.largeMb ? BUILD_LARGE_QUEUE : BUILD_QUEUE, seed: row.seed, repoId: row.repoId };
+}
+
 async function work() {
   await runMigrations(env.DATABASE_URL, env.MIGRATIONS_DIR);
-  const { db, pool } = createDb(env.DATABASE_URL, cfg.concurrency + 2);
-  const boss = await startQueue(env.DATABASE_URL, { worker: true, expireInSeconds: cfg.timeLimit + 300 });
+  const { db, pool } = createDb(env.DATABASE_URL, cfg.concurrency + cfg.largeConcurrency + 3);
+  const boss = await startQueue(env.DATABASE_URL, { worker: true, expireInSeconds: Math.min(LONGEST_JOB_SECONDS, jobLimitOf(cfg, 1)) });
   const github = { api: env.GITHUB_API, token: env.GITHUB_TOKEN ?? null };
   const queuePulls = async (repoId: string) => {
     await boss.send(PULLS_QUEUE, { repoId }, { singletonKey: repoId });
   };
   const queueCounts = async (job: SurvivalJob) => {
-    const seconds = budgetOf(env.SURVIVING_BUDGET_SECONDS, job.attempt) * job.personIds.length + cfg.timeLimit + 300;
-    await boss.send(SURVIVAL_QUEUE, job, {
-      singletonKey: `${job.repoId}:${job.reportKey}:${job.personIds.join(",")}`,
-      expireInSeconds: Math.min(LONGEST_JOB_SECONDS, Math.ceil(seconds)),
-    });
+    const seconds = budgetOf(env.SURVIVING_BUDGET_SECONDS, job.attempt) * job.personIds.length + cfg.timeLimit + cfg.cloneLimit + 300;
+    await boss.send(SURVIVAL_QUEUE, job, { singletonKey: survivalKey(job), expireInSeconds: Math.min(LONGEST_JOB_SECONDS, Math.ceil(seconds)) });
+  };
+  const sendBuild = async (queue: string, job: BuildJob, priority: number) => {
+    await boss.send(queue, job, { priority, singletonKey: buildKey(job), expireInSeconds: Math.min(LONGEST_JOB_SECONDS, jobLimitOf(cfg, job.attempt ?? 1)) });
   };
   const queueBuild = async (job: BuildJob & { attempt: number }, priority: number) => {
-    await boss.send(BUILD_QUEUE, job, { priority, expireInSeconds: Math.min(LONGEST_JOB_SECONDS, timeLimitOf(cfg, job.attempt) + 300) });
+    const lane = await laneOf(db, cfg, job.buildId);
+    await sendBuild(lane?.queue ?? BUILD_QUEUE, job, priority);
   };
-  await boss.work<BuildJob>(BUILD_QUEUE, { localConcurrency: cfg.concurrency, batchSize: 1 }, async ([job]) => {
-    if (!job) return;
-    await runJob(job.data.buildId, { db, storage, cfg, app, run, github, log: console.log, queuePulls, queueCounts, queueBuild }, job.data.attempt ?? 1);
-    await utimes(cfg.work, new Date(), new Date()).catch(() => {});
+  const tidy = async () => {
+    for (const p of await sweep(db, cfg).catch(() => [])) console.log(`swept ${p}`);
     const keep = await inUse(db, cfg).catch(() => null);
     if (keep) for (const p of await prune(cfg.work, cfg.diskGb * 1024 ** 3, keep)) console.log(`pruned ${p}`);
+  };
+  const reap = async () => {
+    const reaped = await reapBuilds(db, (id) => buildJobStates(boss, id), bossQueue(boss)).catch((e: unknown) => {
+      console.log(`reaper: ${(e as Error).message}`);
+      return null;
+    });
+    if (reaped && reaped.failed + reaped.resent > 0) console.log(`reaper: ${reaped.failed} Builds ended, ${reaped.resent} sent again`);
+  };
+  const ctx = { db, storage, cfg, app, run, github, log: console.log, queuePulls, queueCounts, queueBuild };
+  await reap();
+  await tidy();
+  const reaper = setInterval(() => void reap(), REAP_EVERY);
+  await boss.work<BuildJob>(BUILD_QUEUE, { localConcurrency: cfg.concurrency, batchSize: 1 }, async ([job]) => {
+    if (!job) return;
+    const lane = await laneOf(db, cfg, job.data.buildId);
+    if (lane?.queue === BUILD_LARGE_QUEUE) {
+      await sendBuild(BUILD_LARGE_QUEUE, { ...job.data, repoId: lane.repoId }, lane.seed ? PRIORITY.seed : PRIORITY.person);
+      return;
+    }
+    await runJob(job.data.buildId, ctx, job.data.attempt ?? 1);
+    await tidy();
+  });
+  await boss.work<BuildJob>(BUILD_LARGE_QUEUE, { localConcurrency: cfg.largeConcurrency, batchSize: 1 }, async ([job]) => {
+    if (!job) return;
+    await runJob(job.data.buildId, ctx, job.data.attempt ?? 1);
+    await tidy();
   });
   await boss.work<SurvivalJob>(SURVIVAL_QUEUE, { localConcurrency: 1, batchSize: 1 }, async ([job]) => {
     if (!job) return;
-    await runSurvival(job.data, { db, storage, cfg, app, run, github, log: console.log, queueCounts, budget: env.SURVIVING_BUDGET_SECONDS });
+    await runSurvival(job.data, { ...ctx, budget: env.SURVIVING_BUDGET_SECONDS });
   });
   await boss.work<PullsJob>(PULLS_QUEUE, { localConcurrency: 1, batchSize: 1 }, async ([job]) => {
     if (!job) return;
@@ -77,9 +121,10 @@ async function work() {
     });
     if (read) console.log(`pulls ${repo.id}: ${read.pulls} pull requests in ${read.pages} pages, ${read.seconds.toFixed(1)} s${read.done ? "" : ", stopped at the time limit"}`);
   });
-  console.log(`builder working, ${cfg.concurrency} Build${cfg.concurrency > 1 ? "s" : ""} at a time; clones in ${cfg.work}`);
+  console.log(`builder working, ${cfg.concurrency} Build${cfg.concurrency > 1 ? "s" : ""} at a time and ${cfg.largeConcurrency} over ${cfg.largeMb} MB; clones in ${cfg.work}`);
   const stop = async () => {
     console.log("builder stopping");
+    clearInterval(reaper);
     await boss.stop({ graceful: true, timeout: 30_000 });
     await pool.end();
     process.exit(0);

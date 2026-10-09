@@ -61,13 +61,6 @@ impl Ownership {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct Silo {
-    pub directory: DirectoryOwnership,
-    pub holder: AuthorId,
-    pub successor: Option<(AuthorId, u32)>,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct Contributor {
     pub author: AuthorId,
@@ -253,46 +246,6 @@ impl Analysis<'_> {
         out
     }
 
-    pub fn silos(&self) -> Vec<Silo> {
-        self.silos_in(&self.ownership())
-    }
-
-    pub fn silos_in(&self, ownership: &Ownership) -> Vec<Silo> {
-        let single = |d: &DirectoryOwnership| d.owners.len() == 1;
-        let mut out: Vec<Silo> = ownership
-            .held_alone()
-            .into_iter()
-            .filter(|d| single(d))
-            .filter_map(|d| {
-                let holder = d.owners.first()?.author;
-                let around = ownership
-                    .directories
-                    .iter()
-                    .filter(|o| o.dir.len() < d.dir.len() && d.dir.starts_with(&o.dir))
-                    .filter(|o| !single(o))
-                    .max_by_key(|o| o.dir.len());
-                let successor = around.and_then(|o| {
-                    o.owners
-                        .iter()
-                        .find(|x| x.author != holder)
-                        .map(|x| (x.author, x.commits))
-                });
-                Some(Silo {
-                    directory: d.clone(),
-                    holder,
-                    successor,
-                })
-            })
-            .collect();
-        out.sort_by(|a, b| {
-            b.directory
-                .commits
-                .cmp(&a.directory.commits)
-                .then_with(|| a.directory.dir.cmp(&b.directory.dir))
-        });
-        out
-    }
-
     pub fn work_of(&self, author: AuthorId) -> Vec<Churn> {
         let index = self.index();
         let options = self.options();
@@ -379,24 +332,6 @@ impl Analysis<'_> {
                 SuspectedDuplicate { people, commits }
             })
             .collect()
-    }
-
-    pub fn mailmap_for(&self, group: &SuspectedDuplicate) -> String {
-        let authors = &self.index().authors;
-        let Some(keep) = group.people.first().and_then(|p| authors.get(*p)) else {
-            return String::new();
-        };
-        let mut lines = String::new();
-        for other in group.people.iter().skip(1).filter_map(|p| authors.get(*p)) {
-            for sig in other
-                .signatures
-                .iter()
-                .filter_map(|s| authors.signature(*s))
-            {
-                lines.push_str(&format!("{} <{}> <{}>\n", keep.name, keep.email, sig.email));
-            }
-        }
-        lines
     }
 }
 

@@ -9,6 +9,8 @@ import { auth, githubTokenOf } from "#/server/auth";
 import { db, reports } from "#/server/context";
 import { env } from "#/server/env";
 import { sameOrigin, SiteError } from "#/server/http";
+import { loginOf } from "#/server/logins";
+import { loginFor, profileDeps } from "#/server/viewer";
 
 /** The Leaderboards of repositories. */
 export const getBoards = createServerFn({ method: "GET" }).handler(() => leaderboards(db(), env.BOARDS_CACHE_SECONDS));
@@ -24,10 +26,10 @@ export const getMe = createServerFn({ method: "GET" }).handler(async () => {
   const s = await auth.api.getSession({ headers: request.headers });
   if (!s) return null;
   const token = await githubTokenOf(s.user.id, request.headers);
-  const user = s.user as typeof s.user & { login?: string | null };
-  const who = { login: user.login ?? user.name, name: user.name, image: user.image ?? null };
-  if (!token) return { user: { login: who.login, name: who.name, avatar: who.image }, installations: [], install: env.GITHUB_APP_SLUG ? `https://github.com/apps/${env.GITHUB_APP_SLUG}/installations/new` : null, tokenLost: true };
-  return { ...(await mine({ api: env.GITHUB_API }, who, token, env.GITHUB_APP_SLUG)), tokenLost: false };
+  const login = await loginOf(profileDeps(), s.user.id, async () => token);
+  const who = { login, name: s.user.name, image: s.user.image ?? null };
+  if (!token) return { user: { login, name: who.name, avatar: who.image }, installations: [], install: env.GITHUB_APP_SLUG ? `https://github.com/apps/${env.GITHUB_APP_SLUG}/installations/new` : null, tokenLost: true };
+  return { ...(await mine(profileDeps(), s.user.id, who, token, env.GITHUB_APP_SLUG)), tokenLost: false };
 });
 
 /** Deletes the signed-in person's data. */
@@ -36,17 +38,18 @@ export const deleteMe = createServerFn({ method: "POST" }).handler(async () => {
   if (!sameOrigin(request, env.BETTER_AUTH_URL)) throw new SiteError(403, "Not from this Site.");
   const s = await auth.api.getSession({ headers: request.headers });
   if (!s) throw new SiteError(401, "Not signed in.");
+  await loginFor(request, s.user.id);
   return { reports: await deleteMyData(db(), reports(), s.user.id) };
 });
 
-/** Who is signed in, and the Site's origin. */
+/** Who is signed in, and the Site's origin. The login is null when GitHub could not say, never the display name. */
 export const getViewer = createServerFn({ method: "GET" }).handler(async () => {
-  const s = await auth.api.getSession({ headers: getRequest().headers });
-  const user = s?.user as (NonNullable<typeof s>["user"] & { login?: string | null }) | undefined;
+  const request = getRequest();
+  const s = await auth.api.getSession({ headers: request.headers });
   return {
     origin: new URL(env.BETTER_AUTH_URL).origin,
     public: { PUBLIC_SENTRY_DSN: env.PUBLIC_SENTRY_DSN, PUBLIC_POSTHOG_KEY: env.PUBLIC_POSTHOG_KEY, PUBLIC_POSTHOG_HOST: env.PUBLIC_POSTHOG_HOST },
-    user: user ? { login: user.login ?? user.name, image: user.image ?? null } : null,
+    user: s ? { login: await loginFor(request, s.user.id), name: s.user.name, image: s.user.image ?? null } : null,
     mode: modeOf(getCookie(MODE_COOKIE)),
   };
 });

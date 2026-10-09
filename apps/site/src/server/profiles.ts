@@ -2,11 +2,12 @@ import "@tanstack/react-start/server-only";
 import { and, eq } from "drizzle-orm";
 import type { Identity, Partner, Profile, ProfileLookup, ProfileMonth, ProfilePr, ProfileRepo, ProfileYear } from "@commitscape/data";
 import { isLogin } from "@commitscape/data";
-import { now, schema, type Db } from "@commitscape/server";
+import { cachedGet, now, schema, type Db } from "@commitscape/server";
+import { GITHUB_TTL } from "./github";
 import { graphql, type GraphQL } from "./graphql";
 import { SiteError } from "./http";
 
-const { people, profiles, user } = schema;
+const { people, profiles } = schema;
 
 export const PROFILE_FOR = 24 * 3600;
 export const PRS_READ = 3000;
@@ -376,12 +377,10 @@ export function localSlot(iso: string): { weekday: number; hour: number } | null
 
 /** When a person's newest 100 commits were made, by hour and by weekday and hour; null when GitHub did not answer, never mistaken for "no commits". */
 export async function fetchClock(gh: GraphQL, login: string): Promise<Profile["clock"]> {
-  if (gh.count) gh.count.requests++;
-  const answer = await (gh.fetcher ?? fetch)(`${gh.api.replace(/\/$/, "")}/search/commits?q=${encodeURIComponent(`author:${login}`)}&sort=author-date&order=desc&per_page=100`, {
-    headers: { accept: "application/vnd.github+json", "user-agent": "commitscape", "x-github-api-version": "2022-11-28", ...(gh.token ? { authorization: `Bearer ${gh.token}` } : {}) },
-  }).catch(() => null);
-  if (!answer?.ok) return null;
-  const body = (await answer.json().catch(() => null)) as { items?: { commit: { author: { date: string } | null } }[] } | null;
+  const url = `${gh.api.replace(/\/$/, "")}/search/commits?q=${encodeURIComponent(`author:${login}`)}&sort=author-date&order=desc&per_page=100`;
+  const answer = await cachedGet<{ items?: { commit: { author: { date: string } | null } }[] }>(gh.cache?.db ?? null, { url, token: gh.token, scope: gh.cache?.scope, ttl: GITHUB_TTL.commits, fetcher: gh.fetcher }).catch(() => null);
+  if (gh.count && !answer?.cached) gh.count.requests++;
+  const body = answer?.status === 200 ? answer.body : null;
   if (!body || !Array.isArray(body.items)) return null;
   const hours = Array(24).fill(0) as number[];
   const week = Array.from({ length: 7 }, () => Array(24).fill(0) as number[]);
@@ -470,7 +469,7 @@ async function scopeOf(viewer: ProfileViewer, login: string): Promise<Profile["s
 }
 
 function gh(deps: ProfileDeps, token: string | null, count: { requests: number }): GraphQL {
-  return { api: deps.github.api, token: token ?? deps.github.token ?? null, fetcher: deps.github.fetcher, count };
+  return { api: deps.github.api, token: token ?? deps.github.token ?? null, fetcher: deps.github.fetcher, count, cache: token ? undefined : { db: deps.db, scope: "public" } };
 }
 
 async function choices(db: Db, login: string): Promise<{ hidden: boolean; namePrivate: boolean }> {
@@ -580,10 +579,4 @@ export async function readProfile(deps: ProfileDeps, viewer: ProfileViewer, logi
     if (keptProfile && (!full || keptProfile.read.complete)) return keptProfile;
     throw e;
   }
-}
-
-/** The signed-in person's GitHub login. */
-export async function loginOf(db: Db, userId: string): Promise<string | null> {
-  const [row] = await db.select({ login: user.login }).from(user).where(eq(user.id, userId));
-  return row?.login ?? null;
 }

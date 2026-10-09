@@ -110,18 +110,6 @@ impl IndexBuilder {
         self.commits.iter().map(|c| c.time).min()
     }
 
-    pub fn prepend_base(
-        &mut self,
-        commits: Vec<CommitMeta>,
-        changes: Vec<FileChange>,
-        subjects: Vec<u8>,
-        loaded_from: Option<i64>,
-    ) {
-        if let Some(base) = self.base.as_mut() {
-            base.prepend_history(commits, changes, subjects, loaded_from);
-        }
-    }
-
     fn path_id(&mut self, path: &[u8]) -> PathId {
         let hash = xxhash_rust::xxh3::xxh3_64(path);
         let paths = &self.paths;

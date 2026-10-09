@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use anyhow::{Context, Result};
-use commitscape_index::{load, CacheOptions, GixRepo, Since};
+use commitscape_index::{load, CacheOptions, GixRepo};
 use commitscape_metrics::{Analysis, Options, Span};
 
 pub fn run(repos: &[PathBuf]) -> Result<()> {
@@ -18,12 +18,7 @@ fn report(path: &Path) -> Result<()> {
         .join("target")
         .join("bench-cache")
         .join("changesets");
-    let loaded = load(
-        &source,
-        &CacheOptions { root: Some(cache) },
-        Since::All,
-        &mut |_| {},
-    )?;
+    let loaded = load(&source, &CacheOptions { root: Some(cache) }, &mut |_| {})?;
     let index = &loaded.index;
     let anchor = index.span.newest.unwrap_or(0);
     println!(
@@ -34,7 +29,7 @@ fn report(path: &Path) -> Result<()> {
     );
 
     for span in [Span::All, Span::Year] {
-        let a = Analysis::new(index, span.window(anchor), Options::default())?;
+        let a = Analysis::new(index, span.window(anchor), Options::default());
         let sizes = a.changeset_sizes();
         let row: Vec<String> = sizes
             .buckets
@@ -74,7 +69,7 @@ fn report(path: &Path) -> Result<()> {
     }
 
     for span in [Span::Quarter, Span::Year, Span::All] {
-        let a = Analysis::new(index, span.window(anchor), Options::default())?;
+        let a = Analysis::new(index, span.window(anchor), Options::default());
         let t = Instant::now();
         let coupling = a.coupling();
         println!(

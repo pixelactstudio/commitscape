@@ -1,8 +1,13 @@
-import { and, eq, inArray } from "drizzle-orm";
-import { installationToken, now, schema, type SurvivalJob } from "@commitscape/server";
-import type { JobContext } from "./job";
 import { existsSync } from "node:fs";
-import { cacheRoot, clonePath, gitEnv, NAME } from "./run";
+import { mkdir, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { and, eq, inArray } from "drizzle-orm";
+import { installationToken, now, randomId, schema, type SurvivalJob } from "@commitscape/server";
+import { cloneUrl, ensureClone, gitEnv, locked } from "./clone";
+import { accountsFor, writeAccounts } from "./accounts";
+import { holding, privateDir, repoDir, scratchDir } from "./disk";
+import type { JobContext } from "./job";
+import { NAME, type Ran } from "./run";
 
 const { repositories, surviving } = schema;
 
@@ -47,15 +52,39 @@ export async function runSurvival(job: SurvivalJob, ctx: JobContext & { budget: 
       return;
     }
   }
-  const req = { id: job.repoId, owner: repo.owner, name: repo.name, sizeKb: repo.sizeKb ?? 0, private: repo.isPrivate, token, seed: repo.seed };
   const attempt = job.attempt ?? 0;
   const budget = budgetOf(ctx.budget, attempt);
-  const args = ["surviving", "--budget-seconds", String(budget), "--cache-dir", cacheRoot(cfg, req), "--offline"];
-  for (const id of job.personIds) args.push("--person", String(id));
-  const clone = clonePath(cfg, req);
-  args.push("--", existsSync(clone) ? clone : `${repo.owner}/${repo.name}`);
+  const key = `surviving-${randomId()}`;
+  const scratch = scratchDir(cfg, key);
+  const home = repo.isPrivate ? privateDir(cfg, key) : repoDir(cfg, repo.owner, repo.name);
+  const full = join(home, "full");
+  const env = gitEnv(token);
   const started = Date.now();
-  const ran = await ctx.run(cfg.bin, args, gitEnv(cfg, token), (budget * job.personIds.length + cfg.timeLimit) * 1000);
+  let ran: Ran;
+  holding.add(key);
+  try {
+    const cloned = existsSync(join(full, ".git"))
+      ? ({ ok: true } as const)
+      : await locked(full, () => ensureClone(ctx.run, { url: cloneUrl(cfg, repo.owner, repo.name), dir: full, blobless: false, env, timeoutMs: cfg.cloneLimit * 1000 }));
+    if (!cloned.ok) {
+      ctx.log(`surviving ${job.repoId}: clone ${cloned.reason}`);
+      await mark("failed", job.personIds);
+      return;
+    }
+    await mkdir(scratch, { recursive: true });
+    const gh = { ...ctx.github, token: token ?? ctx.github.token };
+    const scope = repo.isPrivate ? repo.id : "public";
+    const accounts = await writeAccounts(ctx.run, { bin: cfg.bin, dir: full, scratch, env, timeoutMs: cfg.timeLimit * 1000, log: ctx.log }, async (signatures) => (await accountsFor(db, gh, { owner: repo.owner, name: repo.name, scope }, signatures, cfg.logins)).accounts);
+    const args = ["surviving", "--budget-seconds", String(budget), "--cache-dir", join(home, "cache"), "--offline"];
+    if (accounts) args.push("--accounts", accounts);
+    for (const id of job.personIds) args.push("--person", String(id));
+    args.push("--", full);
+    ran = await ctx.run(cfg.bin, args, env, (budget * job.personIds.length + cfg.timeLimit) * 1000);
+  } finally {
+    await rm(scratch, { recursive: true, force: true });
+    if (repo.isPrivate) await rm(home, { recursive: true, force: true });
+    holding.delete(key);
+  }
   const answer = ran.code === 0 ? survivingOf(ran.stdout ?? "") : null;
   ctx.log(`surviving ${job.repoId} [${job.personIds.join(",")}]: ${answer ? "done" : ran.timedOut ? "timed out" : "failed"} in ${((Date.now() - started) / 1000).toFixed(1)} s, budget ${budget} s`);
   const again = async (ids: number[]) => {

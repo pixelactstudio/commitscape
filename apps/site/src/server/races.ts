@@ -26,9 +26,9 @@ export async function windowStandings(deps: RaceDeps, logins: string[], from: st
 p${i}: search(query: "author:${l} is:pr is:merged merged:${from}..${to}", type: ISSUE, first: 0) { issueCount }`,
     )
     .join("\n");
-  const gh: GraphQL = { api: deps.github.api, token: token ?? deps.github.token ?? null, fetcher: deps.github.fetcher };
+  const gh: GraphQL = { api: deps.github.api, token: token ?? deps.github.token ?? null, fetcher: deps.github.fetcher, cache: token ? undefined : { db: deps.db, scope: "public" } };
   type U = { login: string; name: string | null; contributionsCollection: { totalCommitContributions: number; totalPullRequestReviewContributions: number; contributionCalendar: { totalContributions: number } } } | null;
-  const data = await graphql<Record<string, U | { issueCount: number }>>(gh, `query { ${fields} }`);
+  const data = await graphql<Record<string, U | { issueCount: number }>>(gh, `query { ${fields} }`, {}, STANDINGS_FOR);
   const rows: WindowRow[] = people.flatMap((_, i) => {
     const u = data[`u${i}`] as U;
     if (!u) return [];

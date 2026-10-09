@@ -96,7 +96,6 @@ impl Analysis<'_> {
         if commits.is_empty() {
             return out;
         }
-        let complete = index.loaded_from.is_none();
         let mut ever: HashMap<AuthorId, (i64, i64)> = HashMap::new();
         let mut project_first: Option<&CommitMeta> = None;
         for c in index
@@ -112,7 +111,7 @@ impl Analysis<'_> {
             }
         }
         let in_window = |t: i64| window.from.is_none_or(|f| t >= f);
-        if let Some(first) = project_first.filter(|c| complete && in_window(c.time)) {
+        if let Some(first) = project_first.filter(|c| in_window(c.time)) {
             out.push(Moment::FirstCommit {
                 time: first.time,
                 author: self.person_of(first),
@@ -142,7 +141,7 @@ impl Analysis<'_> {
             if f64::from(n) < total * MATTERS {
                 continue;
             }
-            if complete && in_window(joined) && Some(author) != first_author {
+            if in_window(joined) && Some(author) != first_author {
                 out.push(Moment::Joined {
                     time: joined,
                     author,

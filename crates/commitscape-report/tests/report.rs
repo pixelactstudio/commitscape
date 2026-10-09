@@ -4,12 +4,12 @@
 use commitscape_index::source::RawChangeKind::{Added, Modified};
 use commitscape_index::{index_from_scratch, ScriptedRepo};
 use commitscape_metrics::{Options, Span};
-use commitscape_report::report::{data, Report};
+use commitscape_report::report::{data, write, Report};
 
 const ANCHOR: i64 = 1_751_328_000;
 const DAY: i64 = 86_400;
 
-fn report() -> serde_json::Value {
+fn made() -> Report {
     let blob = |n: u8| commitscape_core::Oid([n; 20]);
     const ALICE: (&str, &str) = ("Alice Example", "alice@example.com");
     const BOB: (&str, &str) = ("Bob Builder", "bob@example.com");
@@ -43,7 +43,7 @@ fn report() -> serde_json::Value {
         Ok(i) => i,
         Err(never) => match never {},
     };
-    let r = Report {
+    Report {
         name: "acme".to_string(),
         index,
         anchor: ANCHOR,
@@ -51,14 +51,31 @@ fn report() -> serde_json::Value {
         options: Options::default(),
         releases: Vec::new(),
         lines_counted: false,
-        history: None,
         accounts: Default::default(),
-        card: None,
         avatars: false,
         commit_link: Some("https://github.com/acme/acme/commit/".to_string()),
         emails: true,
-    };
-    serde_json::from_str(&data(r)).expect("JSON")
+    }
+}
+
+fn report() -> serde_json::Value {
+    serde_json::from_str(&data(made())).expect("JSON")
+}
+
+#[test]
+fn the_commit_list_can_be_written_apart_from_the_report() {
+    let inside = report();
+    let written = write(made(), true);
+    let apart: serde_json::Value = serde_json::from_str(&written.report).expect("JSON");
+    let commits: serde_json::Value =
+        serde_json::from_str(written.commits.as_deref().expect("the commit list")).expect("JSON");
+    assert!(apart["data"].get("/api/commits?").is_none());
+    assert_eq!(commits, inside["data"]["/api/commits?"]);
+    assert_eq!(
+        apart["data"]["/api/overview?window=all"],
+        inside["data"]["/api/overview?window=all"]
+    );
+    assert!(inside.get("cards").is_none());
 }
 
 #[test]
@@ -158,8 +175,7 @@ fn a_reports_stats_are_the_leaderboards_numbers() {
         Ok(i) => i,
         Err(never) => match never {},
     };
-    let stats =
-        commitscape_report::api::Stats::of(&index, ANCHOR, Options::default(), &[]).expect("stats");
+    let stats = commitscape_report::api::Stats::of(&index, ANCHOR, Options::default(), &[]);
     assert_eq!(stats.commits, 5);
     assert_eq!(stats.people, 2);
     assert_eq!(stats.bus_factor, Some(2));
@@ -191,7 +207,6 @@ fn a_months_people_are_all_counted_past_the_ranking_limit() {
         Ok(i) => i,
         Err(never) => match never {},
     };
-    let stats =
-        commitscape_report::api::Stats::of(&index, ANCHOR, Options::default(), &[]).expect("stats");
+    let stats = commitscape_report::api::Stats::of(&index, ANCHOR, Options::default(), &[]);
     assert_eq!((stats.commits_30d, stats.people_30d), (1005, 1005));
 }

@@ -36,7 +36,7 @@ fn staleness_puts_every_file_in_an_age_bucket() {
             h("week.rs", 1, 0),
         ],
     );
-    let a = Analysis::new(&idx, Window::all(EPOCH + 400 * DAY), options()).expect("covered");
+    let a = Analysis::new(&idx, Window::all(EPOCH + 400 * DAY), options());
     let staleness = a.staleness();
     let counts: Vec<(Age, u32)> = staleness.buckets.iter().map(|b| (b.age, b.files)).collect();
     assert_eq!(
@@ -62,37 +62,6 @@ fn staleness_puts_every_file_in_an_age_bucket() {
 }
 
 #[test]
-fn a_staleness_bucket_lists_its_own_files_stalest_first() {
-    let idx = index(
-        &[
-            c(0, "a@x.org", &["older.rs"]),
-            c(100, "a@x.org", &["year.rs"]),
-            c(200, "a@x.org", &["later.rs"]),
-            c(399, "a@x.org", &["week.rs"]),
-        ],
-        &[
-            h("older.rs", 1, 0),
-            h("year.rs", 1, 0),
-            h("later.rs", 1, 0),
-            h("week.rs", 1, 0),
-        ],
-    );
-    let a = Analysis::new(&idx, Window::all(EPOCH + 400 * DAY), options()).expect("covered");
-    let files = |age| -> Vec<(String, i64)> {
-        a.stale_files(age)
-            .iter()
-            .map(|f| (path(&idx, f.file), f.days))
-            .collect()
-    };
-    assert_eq!(
-        files(Age::Year),
-        vec![("year.rs".to_string(), 300), ("later.rs".to_string(), 200)]
-    );
-    assert_eq!(files(Age::Week), vec![("week.rs".to_string(), 1)]);
-    assert_eq!(files(Age::Quarter), vec![]);
-}
-
-#[test]
 fn staleness_counts_bulk_commits_and_merge_resolutions() {
     let idx = index(
         &[
@@ -109,7 +78,7 @@ fn staleness_counts_bulk_commits_and_merge_resolutions() {
             h("z.rs", 1, 0),
         ],
     );
-    let a = Analysis::new(&idx, Window::all(EPOCH + 6 * DAY), options()).expect("covered");
+    let a = Analysis::new(&idx, Window::all(EPOCH + 6 * DAY), options());
     let last = |p: &str| {
         a.staleness()
             .files
@@ -162,7 +131,7 @@ fn team() -> commitscape_core::Index {
 #[test]
 fn ownership_is_commit_weighted_per_directory_and_bus_factor_follows_the_80_percent_line() {
     let idx = team();
-    let a = Analysis::new(&idx, Window::all(EPOCH + 40 * DAY), options()).expect("covered");
+    let a = Analysis::new(&idx, Window::all(EPOCH + 40 * DAY), options());
     let ownership = a.ownership().directories;
     let dir = |d: &str| {
         ownership
@@ -196,7 +165,7 @@ fn ownership_is_commit_weighted_per_directory_and_bus_factor_follows_the_80_perc
 #[test]
 fn a_files_owners_are_who_made_its_counted_commits() {
     let idx = team();
-    let a = Analysis::new(&idx, Window::all(EPOCH + 40 * DAY), options()).expect("covered");
+    let a = Analysis::new(&idx, Window::all(EPOCH + 40 * DAY), options());
     let file = idx.paths.get(b"alpha/f.rs").expect("the file exists");
     let owners: Vec<(String, u32)> = a
         .owners_of(file)
@@ -219,7 +188,7 @@ fn directories_with_too_few_commits_are_not_reported() {
         ownership_min_commits: 11,
         ..options()
     };
-    let a = Analysis::new(&idx, Window::all(EPOCH + 40 * DAY), options).expect("covered");
+    let a = Analysis::new(&idx, Window::all(EPOCH + 40 * DAY), options);
     let dirs: Vec<Vec<u8>> = a
         .ownership()
         .directories
@@ -242,7 +211,7 @@ fn ownership_counts_every_directory_even_past_the_ranking_limit() {
         .collect();
     let head: Vec<_> = paths.iter().map(|p| h(p, 1, 0)).collect();
     let idx = index(&commits, &head);
-    let a = Analysis::new(&idx, Window::all(EPOCH + 1001 * DAY), options()).expect("covered");
+    let a = Analysis::new(&idx, Window::all(EPOCH + 1001 * DAY), options());
 
     let ownership = a.ownership();
     assert_eq!(ownership.directory_count, 1002);
@@ -268,25 +237,17 @@ fn code_age_counts_each_code_files_lines_in_the_quarter_it_appeared() {
             prose("README.md", 500, 0),
         ],
     );
-    let a = Analysis::new(&idx, Window::all(EPOCH + 120 * DAY), options()).expect("covered");
+    let a = Analysis::new(&idx, Window::all(EPOCH + 120 * DAY), options());
     let age: Vec<(i64, u32, u64, u32)> = a
         .code_age()
         .iter()
         .map(|q| (q.year, q.quarter, q.lines, q.files))
         .collect();
     assert_eq!(age, vec![(2024, 1, 100, 1), (2024, 2, 50, 2)]);
-
-    let files: Vec<(String, u32)> = a
-        .code_age_files(2024, 2)
-        .iter()
-        .map(|f| (path(&idx, f.file), f.loc))
-        .collect();
-    assert_eq!(files, vec![("q2.rs".into(), 30), ("q2b.rs".into(), 20)]);
-    assert!(a.code_age_files(2023, 4).is_empty());
 }
 
 #[test]
-fn suspected_duplicates_come_with_the_mailmap_lines_that_would_join_them() {
+fn suspected_duplicates_are_listed_most_commits_first() {
     let idx = index_with_suspects(
         &[
             c(0, "Dana Dev <dana@home.example>", &["a.rs"]),
@@ -296,7 +257,7 @@ fn suspected_duplicates_come_with_the_mailmap_lines_that_would_join_them() {
         &[h("a.rs", 1, 0)],
         vec![vec![AuthorId(0), AuthorId(1)]],
     );
-    let a = Analysis::new(&idx, Window::all(EPOCH + 2 * DAY), options()).expect("covered");
+    let a = Analysis::new(&idx, Window::all(EPOCH + 2 * DAY), options());
     let hints = a.suspected_duplicates();
     assert_eq!(hints.len(), 1);
     let hint = hints.first().expect("one hint");
@@ -306,10 +267,6 @@ fn suspected_duplicates_come_with_the_mailmap_lines_that_would_join_them() {
         "most commits first"
     );
     assert_eq!(hint.commits, vec![2, 1]);
-    assert_eq!(
-        a.mailmap_for(hint),
-        "Dana Dev <dana@work.example> <dana@home.example>\n"
-    );
 }
 
 #[test]
@@ -327,7 +284,7 @@ fn bots_are_left_out_of_the_people_and_listed_on_their_own() {
         ],
         &[h("alpha/a.rs", 10, 2)],
     );
-    let a = Analysis::new(&idx, Window::all(EPOCH + 9 * DAY), options()).expect("analysis");
+    let a = Analysis::new(&idx, Window::all(EPOCH + 9 * DAY), options());
     let name = |id: AuthorId| idx.authors.get(id).map(|p| p.name.to_string());
 
     let people: Vec<_> = a
@@ -378,7 +335,7 @@ fn a_folder_held_by_one_person_hides_its_subfolders_held_by_the_same_person() {
             h("app/api/v2/routes.ts", 10, 2),
         ],
     );
-    let a = Analysis::new(&idx, Window::all(EPOCH + 30 * DAY), options()).expect("analysis");
+    let a = Analysis::new(&idx, Window::all(EPOCH + 30 * DAY), options());
     let mut held: Vec<String> = a
         .ownership()
         .held_alone()
@@ -410,7 +367,7 @@ fn what_someone_works_on_leaves_out_manifests_and_lockfiles() {
             h("src/lib.rs", 50, 3),
         ],
     );
-    let a = Analysis::new(&idx, Window::all(EPOCH + 5 * DAY), options()).expect("analysis");
+    let a = Analysis::new(&idx, Window::all(EPOCH + 5 * DAY), options());
     let dev = a.contributors().first().map(|c| c.author).expect("dev");
     let work: Vec<_> = a
         .work_of(dev)
@@ -420,69 +377,5 @@ fn what_someone_works_on_leaves_out_manifests_and_lockfiles() {
     assert_eq!(
         work,
         vec![("src/app.ts".to_string(), 3), ("src/lib.rs".to_string(), 1)]
-    );
-}
-
-#[test]
-fn a_folder_only_one_person_touched_names_who_could_take_it_over() {
-    let mut commits = Vec::new();
-    for day in 0..12 {
-        commits.push(c(day, "dev@x.org", &["app/billing/x.ts"]));
-    }
-    for day in 12..20 {
-        commits.push(c(day, "ann@x.org", &["app/api/y.ts"]));
-    }
-    for day in 20..30 {
-        commits.push(c(day, "bob@x.org", &["lib/z.rs"]));
-    }
-    let idx = index(
-        &commits,
-        &[
-            h("app/billing/x.ts", 10, 2),
-            h("app/api/y.ts", 10, 2),
-            h("lib/z.rs", 10, 2),
-        ],
-    );
-    let a = Analysis::new(&idx, Window::all(EPOCH + 31 * DAY), options()).expect("analysis");
-    let email = |p| {
-        idx.authors
-            .get(p)
-            .map(|a| a.email.to_string())
-            .unwrap_or_default()
-    };
-    let silos: Vec<_> = a
-        .silos()
-        .iter()
-        .map(|s| {
-            (
-                s.directory.label(),
-                email(s.holder),
-                s.directory.commits,
-                s.successor.map(|(p, n)| (email(p), n)),
-            )
-        })
-        .collect();
-    assert_eq!(
-        silos,
-        vec![
-            (
-                "app/billing/".to_string(),
-                "dev@x.org".to_string(),
-                12,
-                Some(("ann@x.org".to_string(), 8))
-            ),
-            (
-                "lib/".to_string(),
-                "bob@x.org".to_string(),
-                10,
-                Some(("dev@x.org".to_string(), 12))
-            ),
-            (
-                "app/api/".to_string(),
-                "ann@x.org".to_string(),
-                8,
-                Some(("dev@x.org".to_string(), 12))
-            ),
-        ]
     );
 }

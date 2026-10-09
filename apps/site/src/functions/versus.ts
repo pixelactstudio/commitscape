@@ -4,9 +4,8 @@ import { z } from "zod";
 import { auth } from "#/server/auth";
 import { db } from "#/server/context";
 import { SiteError } from "#/server/http";
-import { loginOf } from "#/server/profiles";
 import { addRival, removeRival, rivalLogins, rivalsOf, versusFullOf } from "#/server/versus";
-import { profileDeps } from "#/server/viewer";
+import { loginFor, profileDeps } from "#/server/viewer";
 
 const login = z.string().min(1).max(39);
 
@@ -18,7 +17,7 @@ export const getVersus = createServerFn({ method: "GET" })
 async function me() {
   const s = await auth.api.getSession({ headers: getRequest().headers });
   if (!s) return null;
-  const who = await loginOf(db(), s.user.id);
+  const who = await loginFor(getRequest(), s.user.id);
   return who ? { userId: s.user.id, login: who } : null;
 }
 

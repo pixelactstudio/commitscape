@@ -18,7 +18,7 @@ export function Compare({ login }: { login: string }) {
     setOpen(false);
     void navigate({ to: "/vs/$a/$b", params: { a: login, b } });
   };
-  const mine = user && user.login.toLowerCase() !== login.toLowerCase() ? user.login : null;
+  const mine = user?.login && user.login.toLowerCase() !== login.toLowerCase() ? user.login : null;
   return (
     <Popover
       isOpen={open}

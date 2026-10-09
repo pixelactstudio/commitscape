@@ -1,6 +1,7 @@
 import { and, eq, inArray, isNotNull, isNull, lt, or } from "drizzle-orm";
 import type { Db } from "./db/client";
 import { access, rateLimits, repositories, session, shares, verification } from "./db/schema";
+import { pruneGitHubCache } from "./github-cache";
 import { removeReports } from "./repos";
 import type { Storage } from "./storage";
 import { now } from "./time";
@@ -63,5 +64,5 @@ export async function cleanup(db: Db, storage: Storage): Promise<Record<string, 
       ),
     )
     .returning({ id: repositories.id });
-  return { shared, retained, limits: limits.length, answers: answers.length, sessions: sessions.length, missing: missing.length };
+  return { shared, retained, limits: limits.length, answers: answers.length, sessions: sessions.length, missing: missing.length, github: await pruneGitHubCache(db) };
 }

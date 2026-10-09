@@ -1,6 +1,4 @@
 #!/bin/sh
-case "$*" in
-  *acme/slow*) sleep 60 ;;
-  health*) echo '{"answers":{"answered":12,"typical_hours":3.5}}'; exit 0 ;;
-esac
+for last; do :; done
+if [ "$1" = report ] && [ -d "$last" ] && git -C "$last" remote get-url origin 2>/dev/null | grep -q 'acme/slow'; then sleep 60; fi
 exec "$COMMITSCAPE_REAL" "$@"

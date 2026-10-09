@@ -55,11 +55,3 @@ export const WINDOW_WORDS: Record<string, string> = {
   range: "the dates chosen",
 };
 
-export function githubWhy(github: string, history: string): string {
-  if (github.startsWith("unavailable")) return `Nothing from GitHub: ${github.replace(/^unavailable: /, "")}.`;
-  if (history === "off") return "GitHub's history is not read here.";
-  if (history === "unavailable") return "GitHub's history could not be read.";
-  if (history === "complete") return "GitHub has no pull requests or issues in this window.";
-  if (history.startsWith("stopped early")) return `Reading GitHub's history ${history}.`;
-  return `Reading GitHub's history: ${history}…`;
-}

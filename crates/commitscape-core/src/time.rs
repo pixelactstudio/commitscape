@@ -24,21 +24,6 @@ impl Month {
     pub fn number(self) -> u32 {
         self.0.rem_euclid(12) as u32 + 1
     }
-
-    pub fn next(self) -> Month {
-        Month(self.0 + 1)
-    }
-}
-
-pub fn iso8601(unix: i64) -> String {
-    let (y, m, d) = civil_from_unix(unix);
-    let secs = unix.rem_euclid(SECONDS_PER_DAY);
-    format!(
-        "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z",
-        secs / 3600,
-        secs % 3600 / 60,
-        secs % 60
-    )
 }
 
 pub fn parse_iso8601(text: &str) -> Option<i64> {
@@ -118,17 +103,11 @@ mod tests {
     }
 
     #[test]
-    fn a_timestamp_prints_as_iso_8601_utc() {
-        assert_eq!(iso8601(JAN_1_2024), "2024-01-01T00:00:00Z");
-        assert_eq!(iso8601(FEB_1_2024 - 1), "2024-01-31T23:59:59Z");
-        assert_eq!(iso8601(-1), "1969-12-31T23:59:59Z");
-    }
-
-    #[test]
     fn an_iso_8601_time_reads_back_as_the_timestamp_it_was() {
         assert_eq!(parse_iso8601("2024-01-01T00:00:00Z"), Some(JAN_1_2024));
         assert_eq!(parse_iso8601("2024-01-31T23:59:59Z"), Some(FEB_1_2024 - 1));
-        assert_eq!(parse_iso8601(&iso8601(FEB_29_2000)), Some(FEB_29_2000));
+        assert_eq!(parse_iso8601("2000-02-29T00:00:00Z"), Some(FEB_29_2000));
+        assert_eq!(parse_iso8601("1969-12-31T23:59:59Z"), Some(-1));
         assert_eq!(parse_iso8601("2024-01-01"), None);
         assert_eq!(parse_iso8601("2024-13-01T00:00:00Z"), None);
         assert_eq!(parse_iso8601("2024-01-01T00:00:00+01:00"), None);
@@ -138,13 +117,13 @@ mod tests {
     fn a_month_starts_at_its_first_second() {
         let jan = Month::of(JAN_1_2024 + 12 * 86_400);
         assert_eq!(jan.start(), JAN_1_2024);
-        assert_eq!(jan.next().start(), FEB_1_2024);
+        assert_eq!(Month(jan.0 + 1).start(), FEB_1_2024);
         assert_eq!((jan.year(), jan.number()), (2024, 1));
     }
 
     #[test]
     fn months_either_side_of_a_boundary_differ() {
-        assert_eq!(Month::of(FEB_1_2024 - 1).next(), Month::of(FEB_1_2024));
-        assert_eq!(Month::of(-1).next(), Month::of(0));
+        assert_eq!(Month::of(FEB_1_2024 - 1).0 + 1, Month::of(FEB_1_2024).0);
+        assert_eq!(Month::of(-1).0 + 1, Month::of(0).0);
     }
 }
