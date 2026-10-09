@@ -1,4 +1,4 @@
-import { bigint, boolean, index, integer, pgTable, primaryKey, real, text, timestamp } from "drizzle-orm/pg-core";
+import { bigint, boolean, index, integer, pgTable, primaryKey, real, smallint, text, timestamp } from "drizzle-orm/pg-core";
 
 const seconds = (name: string) => bigint(name, { mode: "number" });
 
@@ -193,6 +193,41 @@ export const repoPeople = pgTable(
     reportKey: text("report_key").notNull(),
   },
   (t) => [primaryKey({ columns: [t.repoId, t.personId] }), index("repo_people_login").on(t.login)],
+);
+
+export const commits = pgTable(
+  "commits",
+  {
+    repoId: text("repo_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    reportKey: text("report_key").notNull(),
+    seq: integer("seq").notNull(),
+    sha: text("sha").notNull(),
+    at: seconds("at").notNull(),
+    offset: smallint("offset").notNull(),
+    personId: integer("person_id").notNull(),
+    subject: text("subject").notNull(),
+    kind: smallint("kind").notNull(),
+    merge: boolean("merge").notNull(),
+    files: integer("files").notNull(),
+    added: integer("added"),
+    removed: integer("removed"),
+  },
+  (t) => [primaryKey({ columns: [t.repoId, t.reportKey, t.seq] }), index("commits_person").on(t.repoId, t.reportKey, t.personId, t.seq), index("commits_at").on(t.repoId, t.reportKey, t.at)],
+);
+
+export const githubCache = pgTable(
+  "github_cache",
+  {
+    key: text("key").primaryKey(),
+    etag: text("etag"),
+    status: integer("status").notNull(),
+    body: text("body"),
+    fetchedAt: seconds("fetched_at").notNull(),
+    until: seconds("until").notNull(),
+  },
+  (t) => [index("github_cache_until").on(t.until)],
 );
 
 export const profiles = pgTable(

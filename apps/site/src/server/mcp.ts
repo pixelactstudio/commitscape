@@ -8,7 +8,7 @@ import { readProfile } from "./profiles";
 import { lookup, reportEntry, reportHead, requestBuild, type Deps, type Viewer } from "./repos";
 import { standingsOf } from "./standings";
 
-const SCREENS = { overview: "/api/overview", activity: "/api/activity", people: "/api/people", risk: "/api/risk", map: "/api/map" } as const;
+const SCREENS = { overview: "/api/overview", activity: "/api/activity", people: "/api/people", map: "/api/map" } as const;
 const WINDOW = z.enum(["30d", "90d", "1y", "all"]).default("all").describe("The time range every number is computed over.");
 const REPO = { owner: z.string().describe("The GitHub owner, like facebook."), repo: z.string().describe("The repository's name, like react.") };
 
@@ -42,10 +42,10 @@ export function mcpServer(deps: Deps, viewer: Viewer): McpServer {
     {
       title: "Read a repository's Report",
       description:
-        "One screen of a repository's Report: overview (story, hotspots, who holds what), activity (commits over time, rhythm), people (who worked on it), risk (hotspots, Bus Factor, coupling) or map (the code by folder). Build the Report first with request_build if lookup_repository says it has none.",
+        "One screen of a repository's Report: overview (its size, age, languages and who built it), activity (commits over time, rhythm), people (who worked on it) or map (the code by folder). Build the Report first with request_build if lookup_repository says it has none.",
       inputSchema: {
         ...REPO,
-        screen: z.enum(["overview", "activity", "people", "risk", "map"]),
+        screen: z.enum(["overview", "activity", "people", "map"]),
         window: WINDOW,
         path: z.string().optional().describe("For map: a folder to open, like src/."),
       },

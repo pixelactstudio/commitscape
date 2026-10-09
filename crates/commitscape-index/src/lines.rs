@@ -3,7 +3,7 @@ use imara_diff::{Algorithm, Diff, InternedInput};
 
 pub const MAX_BYTES: usize = 1 << 20;
 
-fn is_binary(bytes: &[u8]) -> bool {
+pub(crate) fn is_binary(bytes: &[u8]) -> bool {
     bytes.iter().take(8_000).any(|&b| b == 0)
 }
 
@@ -22,12 +22,70 @@ pub fn line_delta(before: &[u8], after: &[u8]) -> Option<LineDelta> {
             removed: lines(before),
         });
     }
+    let (before, after) = differing_lines(before, after);
     let input = InternedInput::new(before, after);
     let diff = Diff::compute(Algorithm::Myers, &input);
     Some(LineDelta {
         added: diff.count_additions(),
         removed: diff.count_removals(),
     })
+}
+
+fn differing_lines<'a>(before: &'a [u8], after: &'a [u8]) -> (&'a [u8], &'a [u8]) {
+    let same = common_prefix(before, after);
+    if same == before.len() && same == after.len() {
+        return (&[], &[]);
+    }
+    let start = before
+        .get(..same)
+        .and_then(|b| b.iter().rposition(|&c| c == b'\n'))
+        .map_or(0, |i| i + 1);
+    let (before, after) = (
+        before.get(start..).unwrap_or_default(),
+        after.get(start..).unwrap_or_default(),
+    );
+    let same = common_suffix(before, after);
+    let region = before.get(before.len() - same..).unwrap_or_default();
+    let starts_line = |b: &[u8]| b.len() == same || b.get(b.len() - same - 1) == Some(&b'\n');
+    let tail = if starts_line(before) && starts_line(after) {
+        same
+    } else {
+        region
+            .iter()
+            .position(|&c| c == b'\n')
+            .map_or(0, |i| same - i - 1)
+    };
+    (
+        before.get(..before.len() - tail).unwrap_or_default(),
+        after.get(..after.len() - tail).unwrap_or_default(),
+    )
+}
+
+fn common_prefix(a: &[u8], b: &[u8]) -> usize {
+    const STEP: usize = 64;
+    let n = a.len().min(b.len());
+    let mut i = 0;
+    while i + STEP <= n && a.get(i..i + STEP) == b.get(i..i + STEP) {
+        i += STEP;
+    }
+    while i < n && a.get(i) == b.get(i) {
+        i += 1;
+    }
+    i
+}
+
+fn common_suffix(a: &[u8], b: &[u8]) -> usize {
+    const STEP: usize = 64;
+    let n = a.len().min(b.len());
+    let (la, lb) = (a.len(), b.len());
+    let mut i = 0;
+    while i + STEP <= n && a.get(la - i - STEP..la - i) == b.get(lb - i - STEP..lb - i) {
+        i += STEP;
+    }
+    while i < n && a.get(la - i - 1) == b.get(lb - i - 1) {
+        i += 1;
+    }
+    i
 }
 
 use std::sync::Mutex;
@@ -46,21 +104,11 @@ pub fn line_pass<S: RepoSource>(
     store: Option<&LineStore>,
     progress: &mut dyn FnMut(u64, u64),
 ) -> Result<LinePass, S::Error> {
-    line_pass_where(source, index, store, &|_| true, progress)
-}
-
-pub fn line_pass_where<S: RepoSource>(
-    source: &S,
-    index: &Index,
-    store: Option<&LineStore>,
-    wanted: &dyn Fn(&commitscape_core::CommitMeta) -> bool,
-    progress: &mut dyn FnMut(u64, u64),
-) -> Result<LinePass, S::Error> {
     let mut known = store.map(LineStore::read).unwrap_or_default();
     let todo: Vec<Oid> = index
         .commits
         .iter()
-        .filter(|c| !c.is_merge() && wanted(c) && !known.contains_key(&c.id))
+        .filter(|c| !c.is_merge() && !known.contains_key(&c.id))
         .map(|c| c.id)
         .collect();
     let total = todo.len() as u64;
@@ -110,13 +158,6 @@ fn aligned(raws: &[RawChange<'_>], deltas: &[Option<LineDelta>]) -> Vec<Option<L
             }),
             Resolved::Plain { raw, .. } => deltas.get(raw).copied().flatten(),
         })
-        .collect()
-}
-
-pub fn parse_ignore_revs(text: &[u8]) -> Vec<Oid> {
-    ignore_rev_names(text)
-        .iter()
-        .filter_map(|n| Oid::from_hex(n))
         .collect()
 }
 

@@ -119,14 +119,6 @@ pub struct Pulse {
 }
 
 impl Pulse {
-    pub fn busiest_hour(&self) -> Option<usize> {
-        busiest((0..24).map(|hour| self.week.iter().map(|day| at(day, hour)).sum()))
-    }
-
-    pub fn busiest_weekday(&self) -> Option<usize> {
-        busiest(self.week.iter().map(|hours| hours.iter().sum()))
-    }
-
     pub fn weekend(&self) -> u32 {
         self.week.iter().skip(5).flatten().sum()
     }
@@ -169,7 +161,7 @@ impl Analysis<'_> {
         p
     }
 
-    pub fn work(&self, who: Option<AuthorId>) -> Vec<WorkCount> {
+    fn work(&self, who: Option<AuthorId>) -> Vec<WorkCount> {
         let index = self.index();
         let mut work: Vec<WorkCount> = Work::EVERY
             .iter()
@@ -203,7 +195,7 @@ impl Analysis<'_> {
         work
     }
 
-    pub fn pulse_in_time(&self, who: Option<AuthorId>) -> Pulse {
+    fn pulse_in_time(&self, who: Option<AuthorId>) -> Pulse {
         let index = self.index();
         let window = self.window();
         let commits: Vec<&CommitMeta> = self
@@ -282,10 +274,6 @@ pub struct CommitsByPerson {
 }
 
 impl Analysis<'_> {
-    pub fn commits_by_person(&self, top: usize) -> CommitsByPerson {
-        self.commits_by_person_in(&self.pulse(None), &self.contributors(), top)
-    }
-
     pub fn commits_by_person_in(
         &self,
         pulse: &Pulse,

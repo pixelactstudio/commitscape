@@ -2,7 +2,7 @@ import { createPublicKey, verify, type KeyObject } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import { join } from "node:path";
-import { commitSearch, graphqlAnswer } from "./graphql.ts";
+import { authorOf, commitSearch, graphqlAnswer } from "./graphql.ts";
 
 const recorded = (name: string) => JSON.parse(readFileSync(join(import.meta.dirname, "github", `${name}.json`), "utf8"));
 
@@ -100,6 +100,17 @@ export function fakeGitHub(port: number, appPublicKey: string): Promise<Server> 
     if (part === "/languages") return send(200, id === "acme/ownership" ? { Text: 2400, Shell: 600 } : {});
     if (part === "/contributors") return send(200, id === "acme/ownership" ? [{ login: "alice", avatar_url: "http://127.0.0.1/a.png", contributions: 10 }] : []);
     if (part === "/releases") return send(200, []);
+    if (part === "/issues") {
+      const asked = id === "acme/ownership" ? 20 : 0;
+      const comments = /\/issues\/(\d+)\/comments$/.exec(url.pathname);
+      if (comments) return send(200, [{ created_at: "2026-01-01T03:30:00Z", user: { login: "bob", type: "User" } }]);
+      return send(200, Array.from({ length: asked }, (_, i) => ({ number: i + 1, created_at: "2026-01-01T00:00:00Z", comments: i < 12 ? 1 : 0, user: { login: "alice", type: "User" } })));
+    }
+    if (part === "/commits") {
+      const sha = url.searchParams.get("sha") ?? "";
+      const login = /^[0-9a-f]{40}$/.test(sha) ? authorOf(name, sha) : null;
+      return send(200, login ? [{ sha, author: { login } }] : []);
+    }
     return send(200, body);
   });
   return new Promise((resolve) => server.listen(port, "127.0.0.1", () => resolve(server)));

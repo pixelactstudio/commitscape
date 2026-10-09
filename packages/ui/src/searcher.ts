@@ -1,15 +1,14 @@
-import type { CommitList } from "@commitscape/data";
-import { prepare, search, type Query } from "./search";
+import { prepare, search, type CommitList, type Finder } from "@commitscape/data";
 import SearchWorker from "./search.worker.ts?worker&inline";
 
 export const WORKER_ABOVE = 50_000;
 
-export type Searcher = {
-  run(q: Query): Promise<Int32Array>;
+export type Searcher = Finder & {
   close(): void;
   inWorker: boolean;
 };
 
+/** Searches a Commit List in a Web Worker when it is long, on this thread when it is short. */
 export function searcher(list: CommitList): Searcher {
   if (list.subjects.length > WORKER_ABOVE && typeof Worker !== "undefined") {
     try {

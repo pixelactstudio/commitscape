@@ -6,7 +6,7 @@ sum() { awk -v f="commitscape-$1.tar.gz" '$2 == f { print $1 }' "$sums"; }
 url() { echo "https://github.com/$repo/releases/download/v$version/commitscape-$1.tar.gz"; }
 cat <<RUBY
 class Commitscape < Formula
-  desc "Reads a git repository and shows what changes what you do next"
+  desc "Reads a git repository's history and shares what each person built there"
   homepage "https://github.com/$repo"
   version "$version"
   license any_of: ["MIT", "Apache-2.0"]

@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 
 use commitscape_core::{AuthorId, FileClass, Index, PersonTraits};
-use commitscape_forge::history::History;
-use commitscape_metrics::{Analysis, Moment, Work};
+use commitscape_metrics::{Analysis, CodeMap, Contribution, Contributor, Moment, Ownership, Work};
 use serde::Serialize;
 
 const DAY: i64 = 86_400;
@@ -16,8 +15,6 @@ pub struct Meta {
     pub anchor: i64,
     pub history: String,
     pub lines: String,
-    pub github: String,
-    pub github_history: String,
     pub avatars: bool,
 }
 
@@ -43,7 +40,6 @@ pub struct Overview {
     pub people: Vec<PersonCommits>,
     pub timeline: Vec<TimelineMoment>,
     pub facts: Vec<Fact>,
-    pub worth: Vec<Worth>,
     pub code_age: Vec<QuarterLines>,
 }
 
@@ -100,16 +96,6 @@ pub struct Fact {
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[cfg_attr(test, derive(ts_rs::TS))]
-pub struct Worth {
-    pub kind: String,
-    pub paths: Vec<String>,
-    pub person: Option<PersonRef>,
-    pub value: f64,
-    pub of: Option<f64>,
-}
-
-#[derive(Debug, Clone, Serialize, PartialEq)]
-#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct QuarterLines {
     pub year: i32,
     pub quarter: u32,
@@ -127,7 +113,6 @@ pub struct Activity {
     pub week: Vec<Vec<u32>>,
     pub kinds: Vec<KindCount>,
     pub unclassified: u32,
-    pub github: Option<GitHubWeeks>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -142,17 +127,6 @@ pub struct Release {
 pub struct KindCount {
     pub kind: String,
     pub commits: u32,
-}
-
-#[derive(Debug, Clone, Serialize, PartialEq)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct GitHubWeeks {
-    pub first_week: i64,
-    pub opened: Vec<u32>,
-    pub merged: Vec<u32>,
-    pub issues_opened: Vec<u32>,
-    pub issues_closed: Vec<u32>,
-    pub complete: bool,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -175,9 +149,6 @@ pub struct PersonRow {
     pub lines_added: Option<u64>,
     pub lines_removed: Option<u64>,
     pub areas: u32,
-    pub prs_merged: Option<u32>,
-    pub reviews: Option<u32>,
-    pub hours_to_merge: Option<f64>,
     pub identities: u32,
 }
 
@@ -243,54 +214,6 @@ pub struct MapBlock {
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[cfg_attr(test, derive(ts_rs::TS))]
-pub struct Risk {
-    pub window: String,
-    pub hotspots: Vec<HotspotRow>,
-    pub files: Vec<FilePoint>,
-    pub groups: Vec<GroupRow>,
-    pub silos: Vec<SiloRow>,
-}
-
-#[derive(Debug, Clone, Serialize, PartialEq)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct HotspotRow {
-    pub path: String,
-    pub churn: u32,
-    pub nesting: u32,
-    pub churn_place: u32,
-    pub churn_of: u32,
-    pub nesting_place: u32,
-    pub nesting_of: u32,
-    pub score: f64,
-}
-
-#[derive(Debug, Clone, Serialize, PartialEq)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct FilePoint {
-    pub path: String,
-    pub churn: u32,
-    pub nesting: u32,
-}
-
-#[derive(Debug, Clone, Serialize, PartialEq)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct GroupRow {
-    pub paths: Vec<String>,
-    pub together: u32,
-    pub cross_directory: bool,
-}
-
-#[derive(Debug, Clone, Serialize, PartialEq)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct SiloRow {
-    pub folder: String,
-    pub holder: PersonRef,
-    pub commits: u32,
-    pub successor: Option<PersonCommits>,
-}
-
-#[derive(Debug, Clone, Serialize, PartialEq)]
-#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct File {
     pub path: String,
     pub lines: Option<u32>,
@@ -319,46 +242,37 @@ pub struct CommitLine {
     pub person: Option<PersonRef>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct WrappedYear {
-    pub title: String,
-    pub name: String,
-    pub year: i32,
-    pub looked_in: u32,
-    pub commits: u32,
-    pub active_days: u32,
-    pub repositories: Vec<RepoCommits>,
-    pub lines_added: Option<u64>,
-    pub lines_removed: Option<u64>,
-    pub languages: Vec<Language>,
-    pub busiest_day: Option<i64>,
-    pub busiest_commits: u32,
-    pub streak_days: u32,
-    pub streak_from: Option<i64>,
-    pub night: u32,
-    pub hours: Vec<u32>,
-    pub first_day: i64,
-    pub days: Vec<u32>,
-    pub card: String,
-}
-
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct RepoCommits {
-    pub name: String,
-    pub commits: u32,
-}
-
 pub struct Context<'a> {
     pub window: &'a str,
     pub colours: &'a HashMap<AuthorId, u8>,
     pub releases: &'a [(String, i64)],
     pub lines_counted: bool,
-    pub history: Option<&'a History>,
-    pub logins: &'a HashMap<String, AuthorId>,
     pub login_of: &'a HashMap<AuthorId, String>,
     pub emails: bool,
+}
+
+pub struct Shared {
+    pub contributors: Vec<Contributor>,
+    pub ownership: Ownership,
+    pub contributions: Vec<Contribution>,
+    pub map: CodeMap,
+}
+
+impl Shared {
+    /// Works out the contributors, ownership, contributions and code map of one Window.
+    pub fn of(a: &Analysis<'_>) -> Shared {
+        let ((contributors, ownership), (lines, map)) = rayon::join(
+            || rayon::join(|| a.contributors(), || a.ownership()),
+            || rayon::join(|| a.lines_by_person(), || a.code_map()),
+        );
+        let contributions = commitscape_metrics::combine(&contributors, &ownership, &lines);
+        Shared {
+            contributors,
+            ownership,
+            contributions,
+            map,
+        }
+    }
 }
 
 impl Context<'_> {
@@ -440,12 +354,11 @@ fn percent(part: u64, whole: u64) -> f64 {
 }
 
 impl Overview {
-    pub fn of(a: &Analysis<'_>, cx: &Context<'_>) -> Overview {
+    pub fn of(a: &Analysis<'_>, cx: &Context<'_>, shared: &Shared) -> Overview {
         let index: &Index = a.index();
         let t = a.totals();
         let pulse = a.pulse(None);
-        let contributors = a.contributors();
-        let ownership = a.ownership();
+        let contributors = &shared.contributors;
         let path = |f| index.paths.path_lossy(f);
 
         let timeline = a
@@ -576,60 +489,6 @@ impl Overview {
             });
         }
 
-        let mut worth = Vec::new();
-        for d in ownership.held_alone().into_iter().take(3) {
-            if let Some(o) = d.owners.first() {
-                worth.push(Worth {
-                    kind: "held".into(),
-                    paths: vec![d.label()],
-                    person: Some(cx.person(index, o.author)),
-                    value: percent(u64::from(o.commits), u64::from(d.commits)),
-                    of: Some(f64::from(d.commits)),
-                });
-            }
-        }
-        if let Some(h) = a.hotspots().first() {
-            worth.push(Worth {
-                kind: "hotspot".into(),
-                paths: vec![path(h.file)],
-                person: None,
-                value: f64::from(h.churn),
-                of: None,
-            });
-        }
-        if let Some(p) = a.coupling().pairs.iter().find(|p| p.cross_directory) {
-            worth.push(Worth {
-                kind: "pair".into(),
-                paths: vec![path(p.first), path(p.second)],
-                person: None,
-                value: (p.jaccard * 100.0).round(),
-                of: Some(f64::from(p.both)),
-            });
-        }
-        let old = staleness
-            .buckets
-            .iter()
-            .find(|b| b.age == commitscape_metrics::Age::Older)
-            .map_or(0, |b| b.files);
-        let files: u32 = staleness.buckets.iter().map(|b| b.files).sum();
-        worth.push(Worth {
-            kind: "untouched".into(),
-            paths: Vec::new(),
-            person: None,
-            value: f64::from(old),
-            of: Some(f64::from(files)),
-        });
-        let duplicates = a.suspected_duplicates();
-        if !duplicates.is_empty() {
-            worth.push(Worth {
-                kind: "same_person".into(),
-                paths: Vec::new(),
-                person: None,
-                value: duplicates.len() as f64,
-                of: None,
-            });
-        }
-
         Overview {
             window: cx.window.to_string(),
             totals: Totals {
@@ -665,7 +524,6 @@ impl Overview {
                 .collect(),
             timeline,
             facts,
-            worth,
             code_age: a
                 .code_age()
                 .iter()
@@ -680,11 +538,10 @@ impl Overview {
 }
 
 impl Activity {
-    pub fn of(a: &Analysis<'_>, cx: &Context<'_>) -> Activity {
+    pub fn of(a: &Analysis<'_>, cx: &Context<'_>, shared: &Shared) -> Activity {
         let index = a.index();
         let pulse = a.pulse(None);
-        let contributors = a.contributors();
-        let split = a.commits_by_person_in(&pulse, &contributors, 5);
+        let split = a.commits_by_person_in(&pulse, &shared.contributors, 5);
         let window = a.window();
         let mut releases: Vec<Release> = cx
             .releases
@@ -694,18 +551,6 @@ impl Activity {
                 time: *time,
             })
             .collect();
-        if let Some(h) = cx.history {
-            for r in h.releases.iter().filter(|r| !r.prerelease) {
-                if let Some(time) = r.published {
-                    if !releases.iter().any(|x| x.name == r.tag) {
-                        releases.push(Release {
-                            name: r.tag.clone(),
-                            time,
-                        });
-                    }
-                }
-            }
-        }
         releases.retain(|r| window.contains(r.time));
         releases.sort_by_key(|r| r.time);
 
@@ -731,47 +576,6 @@ impl Activity {
             k
         };
 
-        let github = cx.history.map(|h| {
-            let week_of = |t: i64| (t.div_euclid(DAY) + 3).div_euclid(7);
-            let first = week_of(window.from.unwrap_or_else(|| {
-                h.pull_requests
-                    .iter()
-                    .map(|p| p.created)
-                    .chain(h.issues.iter().map(|i| i.created))
-                    .min()
-                    .unwrap_or(window.to)
-            }));
-            let weeks = (week_of(window.to) - first + 1).max(1) as usize;
-            let mut w = GitHubWeeks {
-                first_week: first * 7 - 3,
-                opened: vec![0; weeks],
-                merged: vec![0; weeks],
-                issues_opened: vec![0; weeks],
-                issues_closed: vec![0; weeks],
-                complete: h.complete,
-            };
-            let add = |list: &mut Vec<u32>, t: i64| {
-                if window.contains(t) {
-                    if let Some(n) = list.get_mut((week_of(t) - first) as usize) {
-                        *n += 1;
-                    }
-                }
-            };
-            for p in &h.pull_requests {
-                add(&mut w.opened, p.created);
-                if let Some(m) = p.merged {
-                    add(&mut w.merged, m);
-                }
-            }
-            for i in &h.issues {
-                add(&mut w.issues_opened, i.created);
-                if let Some(c) = i.closed {
-                    add(&mut w.issues_closed, c);
-                }
-            }
-            w
-        });
-
         Activity {
             window: cx.window.to_string(),
             first_day: split.first_day,
@@ -781,81 +585,18 @@ impl Activity {
             week: pulse.week.iter().map(|d| d.to_vec()).collect(),
             kinds,
             unclassified,
-            github,
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-struct OnGitHub {
-    merged: u32,
-    reviews: u32,
-    hours_to_merge: Option<f64>,
-}
-
-fn on_github(a: &Analysis<'_>, cx: &Context<'_>) -> Option<HashMap<AuthorId, OnGitHub>> {
-    let h = cx.history?;
-    let window = a.window();
-    let mut out: HashMap<AuthorId, (u32, u32, Vec<f64>)> = cx
-        .logins
-        .values()
-        .map(|&p| (p, Default::default()))
-        .collect();
-    let who = |login: &Option<String>| {
-        login
-            .as_deref()
-            .and_then(|l| cx.logins.get(&l.to_ascii_lowercase()))
-            .copied()
-    };
-    for p in &h.pull_requests {
-        let author = who(&p.author);
-        if let (Some(author), Some(merged)) = (author, p.merged) {
-            if window.contains(merged) {
-                let e = out.entry(author).or_default();
-                e.0 += 1;
-                e.2.push((merged - p.created) as f64 / 3600.0);
-            }
-        }
-        for r in &p.reviews {
-            let reviewer = who(&r.author);
-            if reviewer.is_some()
-                && reviewer != author
-                && r.submitted.is_some_and(|t| window.contains(t))
-            {
-                if let Some(reviewer) = reviewer {
-                    out.entry(reviewer).or_default().1 += 1;
-                }
-            }
-        }
-    }
-    Some(
-        out.into_iter()
-            .map(|(k, (merged, reviews, mut hours))| {
-                hours.sort_by(f64::total_cmp);
-                let median = hours.get(hours.len() / 2).copied();
-                let g = OnGitHub {
-                    merged,
-                    reviews,
-                    hours_to_merge: median.map(|m| (m * 10.0).round() / 10.0),
-                };
-                (k, g)
-            })
-            .collect(),
-    )
 }
 
 impl People {
-    pub fn of(a: &Analysis<'_>, cx: &Context<'_>) -> People {
+    pub fn of(a: &Analysis<'_>, cx: &Context<'_>, shared: &Shared) -> People {
         let index = a.index();
-        let contributors = a.contributors();
-        let ownership = a.ownership();
-        let lines = a.lines_by_person();
-        let contributions = commitscape_metrics::combine(&contributors, &ownership, &lines);
-        let github = on_github(a, cx);
-        let rows = contributors
+        let rows = shared
+            .contributors
             .iter()
-            .zip(&contributions)
-            .map(|(c, x)| row(index, cx, c, x, github.as_ref()))
+            .zip(&shared.contributions)
+            .map(|(c, x)| row(index, cx, c, x))
             .collect();
         People {
             window: cx.window.to_string(),
@@ -882,9 +623,7 @@ fn row(
     cx: &Context<'_>,
     c: &commitscape_metrics::Contributor,
     x: &commitscape_metrics::Contribution,
-    github: Option<&HashMap<AuthorId, OnGitHub>>,
 ) -> PersonRow {
-    let gh = github.and_then(|g| g.get(&c.author).copied());
     PersonRow {
         person: cx.person(index, c.author),
         commits: c.commits,
@@ -894,28 +633,21 @@ fn row(
         lines_added: cx.lines_counted.then_some(x.lines.added),
         lines_removed: cx.lines_counted.then_some(x.lines.removed),
         areas: x.areas,
-        prs_merged: gh.map(|g| g.merged),
-        reviews: gh.map(|g| g.reviews),
-        hours_to_merge: gh.and_then(|g| g.hours_to_merge),
         identities: index.authors.addresses_of(c.author).len().max(1) as u32,
     }
 }
 
 impl Person {
-    pub fn of(a: &Analysis<'_>, cx: &Context<'_>, id: AuthorId) -> Option<Person> {
+    pub fn of(a: &Analysis<'_>, cx: &Context<'_>, shared: &Shared, id: AuthorId) -> Option<Person> {
         let index = a.index();
         let author = index.authors.get(id)?;
         let pulse = a.pulse(Some(id));
-        let contributors = a.contributors();
-        let ownership = a.ownership();
-        let lines = a.lines_by_person();
-        let contributions = commitscape_metrics::combine(&contributors, &ownership, &lines);
-        let github = on_github(a, cx);
-        let row = contributors
+        let row = shared
+            .contributors
             .iter()
-            .zip(&contributions)
+            .zip(&shared.contributions)
             .find(|(c, _)| c.author == id)
-            .map(|(c, x)| row(index, cx, c, x, github.as_ref()));
+            .map(|(c, x)| row(index, cx, c, x));
         let traits = [
             (PersonTraits::SAME_NAME, "same_name"),
             (PersonTraits::SAME_ACCOUNT, "same_account"),
@@ -963,7 +695,8 @@ impl Person {
                     commits: w.commits,
                 })
                 .collect(),
-            areas: ownership
+            areas: shared
+                .ownership
                 .held_alone()
                 .into_iter()
                 .filter_map(|d| {
@@ -980,9 +713,9 @@ impl Person {
 }
 
 impl MapLevel {
-    pub fn of(a: &Analysis<'_>, cx: &Context<'_>, path: &str) -> Option<MapLevel> {
+    pub fn of(a: &Analysis<'_>, cx: &Context<'_>, shared: &Shared, path: &str) -> Option<MapLevel> {
         let index = a.index();
-        let map = a.code_map();
+        let map = &shared.map;
         let at = map.nodes.iter().position(|n| n.path == path)?;
         let block = |i: usize, depth: u8| -> Option<MapBlock> {
             fn build(
@@ -1013,7 +746,7 @@ impl MapLevel {
                     },
                 })
             }
-            build(&map, index, cx, i, depth)
+            build(map, index, cx, i, depth)
         };
         let here = map.nodes.get(at)?;
         Some(MapLevel {
@@ -1025,66 +758,6 @@ impl MapLevel {
                 .filter_map(|&c| block(c, 1))
                 .collect(),
         })
-    }
-}
-
-impl Risk {
-    pub fn of(a: &Analysis<'_>, cx: &Context<'_>) -> Risk {
-        let index = a.index();
-        let path = |f| index.paths.path_lossy(f);
-        let coupling = a.coupling();
-        let ownership = a.ownership();
-        let hotspots = a.hotspots();
-        Risk {
-            window: cx.window.to_string(),
-            hotspots: hotspots
-                .iter()
-                .take(20)
-                .map(|h| HotspotRow {
-                    path: path(h.file),
-                    churn: h.churn,
-                    nesting: h.complexity,
-                    churn_place: h.churn_rank.place,
-                    churn_of: h.churn_rank.of,
-                    nesting_place: h.complexity_rank.place,
-                    nesting_of: h.complexity_rank.of,
-                    score: (h.score * 1000.0).round() / 1000.0,
-                })
-                .collect(),
-            files: hotspots
-                .iter()
-                .take(400)
-                .map(|h| FilePoint {
-                    path: path(h.file),
-                    churn: h.churn,
-                    nesting: h.complexity,
-                })
-                .collect(),
-            groups: a
-                .change_groups_in(&coupling)
-                .iter()
-                .take(20)
-                .map(|g| GroupRow {
-                    paths: g.files.iter().map(|&f| path(f)).collect(),
-                    together: g.together,
-                    cross_directory: g.cross_directory,
-                })
-                .collect(),
-            silos: a
-                .silos_in(&ownership)
-                .iter()
-                .take(20)
-                .map(|s| SiloRow {
-                    folder: s.directory.label(),
-                    holder: cx.person(index, s.holder),
-                    commits: s.directory.commits,
-                    successor: s.successor.map(|(p, n)| PersonCommits {
-                        person: cx.person(index, p),
-                        commits: n,
-                    }),
-                })
-                .collect(),
-        }
     }
 }
 
@@ -1309,16 +982,15 @@ impl Stats {
         anchor: i64,
         options: commitscape_metrics::Options,
         releases: &[(String, i64)],
-    ) -> Option<Stats> {
-        let all = Analysis::new(index, commitscape_metrics::Window::all(anchor), options).ok()?;
+    ) -> Stats {
+        let all = Analysis::new(index, commitscape_metrics::Window::all(anchor), options);
         let totals = all.totals();
         let health = all.health(releases, None);
         let month = Analysis::new(
             index,
             commitscape_metrics::Span::Month.window(anchor),
             options,
-        )
-        .ok()?;
+        );
         let (commits_30d, people_30d) = month.activity();
         let cutoff = anchor - 5 * 365 * DAY;
         let untouched_5y = index
@@ -1332,7 +1004,7 @@ impl Stats {
             })
             .map(|h| u64::from(h.loc))
             .sum();
-        Some(Stats {
+        Stats {
             commits: totals.commits - totals.merges,
             people: totals.people as u32,
             bus_factor: health.bus_factor,
@@ -1341,7 +1013,7 @@ impl Stats {
             people_30d,
             code_lines: totals.code_lines,
             untouched_5y,
-        })
+        }
     }
 }
 
@@ -1366,12 +1038,10 @@ mod types {
             PersonCommits::decl(&cfg),
             TimelineMoment::decl(&cfg),
             Fact::decl(&cfg),
-            Worth::decl(&cfg),
             QuarterLines::decl(&cfg),
             Activity::decl(&cfg),
             Release::decl(&cfg),
             KindCount::decl(&cfg),
-            GitHubWeeks::decl(&cfg),
             People::decl(&cfg),
             PersonRow::decl(&cfg),
             Person::decl(&cfg),
@@ -1380,16 +1050,9 @@ mod types {
             Area::decl(&cfg),
             MapLevel::decl(&cfg),
             MapBlock::decl(&cfg),
-            Risk::decl(&cfg),
-            HotspotRow::decl(&cfg),
-            FilePoint::decl(&cfg),
-            GroupRow::decl(&cfg),
-            SiloRow::decl(&cfg),
             File::decl(&cfg),
             Coupled::decl(&cfg),
             CommitLine::decl(&cfg),
-            WrappedYear::decl(&cfg),
-            RepoCommits::decl(&cfg),
             CommitList::decl(&cfg),
             CommitPerson::decl(&cfg),
             Stats::decl(&cfg),

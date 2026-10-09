@@ -87,7 +87,9 @@ Create an application named `builder`:
 
 In Advanced, Volumes, add a volume named `commitscape-builder-work` with
 mount path `/work`. It keeps clones between Builds so the next Build of a
-repository only fetches what is new.
+repository only fetches what is new. A cold Build clones twice at once (a
+quick clone without old file contents, and the full clone), so leave room
+for both: several GB for a repository the size of torvalds/linux.
 
 Environment:
 
@@ -106,21 +108,28 @@ Optional limits, with their defaults:
 
 | Variable | Default | What |
 |---|---|---|
-| `CONCURRENCY` | 1 | Builds at a time |
+| `CONCURRENCY` | 1 | Builds at a time, for repositories under `LARGE_REPOSITORY_MB` |
+| `LARGE_REPOSITORY_MB` | 1500 | Repositories larger than this, by GitHub's size, are built in a lane of their own |
+| `LARGE_CONCURRENCY` | 1 | Builds at a time in that lane |
 | `MAX_REPOSITORY_MB` | none | Unset, every repository is cloned in full and its lines counted, however big; set, larger repositories are refused |
-| `TIME_LIMIT_SECONDS` | 900 | How long a Build's first attempt may take. One that runs out is queued again and goes on from the lines it counted, each attempt given twice the time, four attempts in all |
+| `TIME_LIMIT_SECONDS` | 900 | How long one run of the binary may take on a Build's first attempt, the clone not included. One that runs out is queued again and goes on from the lines it counted, each attempt given twice the time, four attempts in all |
+| `CLONE_TIME_LIMIT_SECONDS` | 1800 | How long a clone or fetch may take on the first attempt, doubled with each attempt |
+| `LOGINS_ASKED` | 300 | At most this many commit authors a Build asks GitHub for the login of; each answer is kept for a year, so a rebuild asks only for new ones |
 | `DISK_BUDGET_GB` | 20 | Past this, the least recently built clones in `/work` are deleted |
-| `SURVIVING_BUDGET_SECONDS` | 60 | How long one count of a person's Surviving Lines may take at first. A count past it is queued again with twice the budget, up to four hours, and goes on from the files it counted; cloning and loading the repository have `TIME_LIMIT_SECONDS` of their own |
+| `SURVIVING_BUDGET_SECONDS` | 60 | How long one count of a person's Surviving Lines may take at first. A count past it is queued again with twice the budget, up to four hours, and goes on from the files it counted; it reuses the Build's full clone when it is still there |
 | `PULLS_TIME_LIMIT_SECONDS` | 1800 | How long one read of a repository's pull requests may take; facebook/react's first read took 24 minutes, so a busy repository's first read may need longer, once |
 | `SEED_LANGUAGES`, `SEED_PER_LANGUAGE`, `SEED_BUDGET` | 9 languages, 10, 50 | The nightly Leaderboard Builds |
 
 Deploy it. It applies the database migrations, then logs `builder working`.
+The Builder runs git itself and no longer needs the `gh` CLI. When this
+release replaces an older Builder, Builds waiting in the old queues are
+sent again by the Builder's reaper within five minutes.
 
 In Schedules, add two jobs for this application:
 
 | Cron | Command | What it does |
 |---|---|---|
-| `*/15 * * * *` | `node builder.mjs cleanup` | Deletes expired Shared Reports, old rate-limit counts, ended sessions, and Connected Repositories' Reports unseen for 30 days |
+| `*/15 * * * *` | `node builder.mjs cleanup` | Deletes expired Shared Reports, old rate-limit counts, expired GitHub answers, ended sessions, and Connected Repositories' Reports unseen for 30 days |
 | `0 3 * * *` | `node builder.mjs seed` | Queues the night's Leaderboard Builds |
 
 ## 5. The Site

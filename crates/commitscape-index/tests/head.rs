@@ -4,7 +4,7 @@ use std::path::Path;
 
 use commitscape_core::{FileClass, HeadFile, Index, Oid};
 use commitscape_index::source::RawChangeKind::{Added, Deleted, Modified};
-use commitscape_index::{load, CacheOptions, Freshness, Loaded, ScriptedRepo, Since};
+use commitscape_index::{load, CacheOptions, Freshness, Loaded, ScriptedRepo};
 
 const ALICE: (&str, &str) = ("Alice Example", "alice@example.com");
 const JAN_2024: i64 = 1_704_067_200;
@@ -22,7 +22,7 @@ fn load_in(repo: &ScriptedRepo, root: &Path) -> Loaded {
     let options = CacheOptions {
         root: Some(root.to_path_buf()),
     };
-    match load(repo, &options, Since::All, &mut |_| {}) {
+    match load(repo, &options, &mut |_| {}) {
         Ok(l) => l,
         Err(never) => match never {},
     }

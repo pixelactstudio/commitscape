@@ -3,7 +3,7 @@ use std::sync::Mutex;
 use std::time::Instant;
 
 use anyhow::{Context, Result};
-use commitscape_index::{load, CacheOptions, GixRepo, RepoSource, Since};
+use commitscape_index::{load, CacheOptions, GixRepo, RepoSource};
 
 pub fn run(path: &Path, newest: Option<usize>, verify: bool) -> Result<()> {
     let source = GixRepo::open(path)?;
@@ -11,13 +11,8 @@ pub fn run(path: &Path, newest: Option<usize>, verify: bool) -> Result<()> {
         .join("target")
         .join("bench-cache")
         .join("line-cost");
-    let loaded = load(
-        &source,
-        &CacheOptions { root: Some(cache) },
-        Since::All,
-        &mut |_| {},
-    )
-    .context("loading the index")?;
+    let loaded = load(&source, &CacheOptions { root: Some(cache) }, &mut |_| {})
+        .context("loading the index")?;
     let index = loaded.index;
     let mut commits: Vec<_> = index
         .commits

@@ -1,52 +1,130 @@
-name: commitscape card
+name: commitscape cards
 description: >-
-  Draws the repository's commitscape card, an SVG of its story, and commits
-  it when it changed, so a README can show it.
+  Fetches Cards from the commitscape Site and commits them to the repository
+  when they changed, so a README can show them.
 branding:
   icon: image
   color: blue
 inputs:
-  path:
-    description: Where to keep the card in the repository.
-    default: .github/commitscape-card.svg
-  window:
-    description: The Window the card tells, 30d, 90d, 1y or all.
-    default: all
-  version:
-    description: The commitscape version to run, from npm.
-    default: latest
+  cards:
+    description: >-
+      The Cards to keep, one per line: the Card's address after /api/cards/
+      without its extension (and its query, if any), a space, and where to
+      keep it in the repository. The path's extension, .svg or .png, picks
+      the format.
+    default: |
+      u/${{ github.repository_owner }}/totals .github/commitscape-card.svg
+  site:
+    description: The Site to fetch Cards from.
+    default: https://commitscape.damnlabs.com
   message:
-    description: The commit message when the card changed.
-    default: "chore: update the commitscape card"
+    description: The commit message when a Card changed.
+    default: "chore: update commitscape cards"
 runs:
   using: composite
   steps:
-    - uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-    - name: Draw the card and commit it if it changed
+    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+    - name: Fetch the Cards and commit them if they changed
       shell: bash
       env:
-        CARD: ${{ inputs.path }}
-        WINDOW: ${{ inputs.window }}
-        VERSION: ${{ inputs.version }}
+        CARDS: ${{ inputs.cards }}
+        SITE: ${{ inputs.site }}
         MESSAGE: ${{ inputs.message }}
       run: |
         set -euo pipefail
-        last=$(git log -1 --format=%H -- "$CARD")
-        if [ "$WINDOW" = "all" ] && [ -n "$last" ] && [ -z "$(git log --format=%H "$last..HEAD")" ]; then
-          echo "Nothing has been committed since the card was drawn."
+        summary="${GITHUB_STEP_SUMMARY:-/dev/null}"
+        agent="commitscape-cards-action (+https://github.com/pixelactstudio/commitscape)"
+        site="${SITE%/}"
+        work=$(mktemp -d)
+        trap 'rm -rf "$work"' EXIT
+        fail() { echo "::error::$1"; echo "$1" >> "$summary"; exit 1; }
+
+        fetch() {
+          local url=$1 out=$2 attempt code
+          for attempt in 1 2 3; do
+            code=$(curl -sS -L --max-time 90 -A "$agent" -o "$out" -w '%{http_code}' "$url" 2> "$work/curl.err") || code=000
+            case "$code" in
+              200) return 0 ;;
+              000 | 429 | 5??)
+                if [ "$attempt" -lt 3 ]; then
+                  echo "Attempt $attempt got HTTP $code from $url, trying again."
+                  sleep $((attempt * 5))
+                fi
+                ;;
+              *) break ;;
+            esac
+          done
+          case "$code" in
+            404) fail "No such Card at $url (HTTP 404). Check the address, and that the Profile is public." ;;
+            000) fail "Could not reach $url: $(cat "$work/curl.err")" ;;
+            *) fail "$url answered HTTP $code." ;;
+          esac
+        }
+
+        valid() {
+          case "$2" in
+            svg) head -c 2048 "$1" | grep -q '<svg' ;;
+            png) [ "$(head -c 8 "$1" | od -An -tx1 | tr -d ' \n')" = "89504e470d0a1a0a" ] ;;
+          esac
+        }
+
+        paths=()
+        count=0
+        {
+          echo "### commitscape cards"
+          echo
+          echo "| File | Size |"
+          echo "|---|---|"
+        } >> "$summary"
+        while IFS= read -r line || [ -n "$line" ]; do
+          line="${line%$'\r'}"
+          read -r spec path extra <<< "$line" || true
+          [ -z "${spec:-}" ] && continue
+          case "$spec" in \#*) continue ;; esac
+          [ -n "${path:-}" ] || fail "The line '$line' needs a Card and a path: <card> <path in repository>."
+          [ -z "${extra:-}" ] || fail "The line '$line' has more than a Card and a path."
+          case "$path" in
+            /* | ../* | */../* | */.. | ..) fail "The path $path must stay inside the repository." ;;
+            *.svg) ext=svg ;;
+            *.png) ext=png ;;
+            *) fail "The path $path must end in .svg or .png." ;;
+          esac
+          spec="${spec#/}"
+          spec="${spec#api/cards/}"
+          card="${spec%%\?*}"
+          query=""
+          [ "$card" = "$spec" ] || query="?${spec#*\?}"
+          url="$site/api/cards/$card.$ext$query"
+          count=$((count + 1))
+          fetch "$url" "$work/$count"
+          valid "$work/$count" "$ext" || fail "$url did not answer with a valid $ext image."
+          paths+=("$path")
+        done <<< "$CARDS"
+
+        [ "$count" -gt 0 ] || fail "The cards input lists no Cards."
+
+        for i in "${!paths[@]}"; do
+          path="${paths[$i]}"
+          mkdir -p "$(dirname "$path")"
+          cp "$work/$((i + 1))" "$path"
+          echo "| \`$path\` | $(wc -c < "$path") bytes |" >> "$summary"
+        done
+
+        git add -- "${paths[@]}"
+        if git diff --cached --quiet -- "${paths[@]}"; then
+          echo "The Cards have not changed."
+          echo >> "$summary"
+          echo "The Cards have not changed." >> "$summary"
           exit 0
         fi
-        mkdir -p "$(dirname "$CARD")"
-        npx --yes "commitscape@$VERSION" card . --window "$WINDOW" --offline --no-cache --out "$CARD"
-        if git diff --quiet -- "$CARD" && git ls-files --error-unmatch "$CARD" > /dev/null 2>&1; then
-          echo "The card has not changed."
-          exit 0
-        fi
+        changed=$(git diff --cached --name-only -- "${paths[@]}")
         git config user.name "github-actions[bot]"
         git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-        git add -- "$CARD"
-        git commit --quiet -m "$MESSAGE"
+        git commit --quiet -m "$MESSAGE" -- "${paths[@]}"
         git push --quiet
-        echo "Updated $CARD." >> "$GITHUB_STEP_SUMMARY"
+        {
+          echo
+          echo "Committed:"
+          echo
+          echo "$changed" | sed 's/^/- `/; s/$/`/'
+        } >> "$summary"

@@ -8,7 +8,7 @@ cat <<PKGBUILD
 pkgname=commitscape-bin
 pkgver=$version
 pkgrel=1
-pkgdesc="Reads a git repository and shows what changes what you do next"
+pkgdesc="Reads a git repository's history and shares what each person built there"
 arch=('x86_64' 'aarch64')
 url="https://github.com/$repo"
 license=('MIT' 'Apache-2.0')

@@ -10,13 +10,13 @@ type Column = { title: string; links: [string, string][] };
 /** Every page's footer: what commitscape is, who makes it, and where to go next. */
 export function Footer() {
   const { user } = useRouteContext({ from: "__root__" });
-  const me = user ? `/u/${user.login}` : null;
+  const me = user?.login ? `/u/${user.login}` : null;
   const columns: Column[] = [
     { title: "Explore", links: [["/leaderboards", "Leaderboards"], ["/vs", "Versus"], ["/races", "Races"], ["/crews", "Crews"]] },
     {
       title: "You",
       links: [
-        [me ?? "/me", me ? "Your Profile" : "Sign in"],
+        [me ?? "/me", me ? "Your Profile" : user ? "Settings" : "Sign in"],
         [me ? `${me}/cards` : "/me", "Your Cards"],
         [me ? `${me}/work` : "/me", "Proof of Work"],
         [me ? `${me}/wrapped/${YEAR}` : "/me", `Wrapped ${YEAR}`],

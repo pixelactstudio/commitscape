@@ -124,7 +124,7 @@ async function privatePlaces(gh: GraphQL, run: Run, login: string, from: string)
   const out: Place[] = [];
   let after: string | null = null;
   for (let page = 0; page < 5; page++) {
-    const answer: Private = await run(() => graphql<Private>(gh, PRIVATE, { after }));
+    const answer: Private = await run(() => graphql<Private>(gh, PRIVATE, { after }, 0));
     if (answer.viewer.login.toLowerCase() !== login.toLowerCase()) return [];
     const { nodes, pageInfo } = answer.viewer.repositories;
     for (const r of nodes) if (r.pushedAt && r.pushedAt.slice(0, 10) >= from) out.push({ repo: r.nameWithOwner, private: true, commits: 1 });
@@ -270,7 +270,7 @@ export async function workOf(deps: ProfileDeps, viewer: ProfileViewer, login: st
 }
 
 async function readWork(deps: ProfileDeps, own: string | null, signedIn: boolean, login: string, ask: Required<WorkAsk>, scope: "self" | "public"): Promise<Work> {
-  const gh: GraphQL = { api: deps.github.api, token: own ?? deps.github.token ?? null, fetcher: deps.github.fetcher, count: { requests: 0 } };
+  const gh: GraphQL = { api: deps.github.api, token: own ?? deps.github.token ?? null, fetcher: deps.github.fetcher, count: { requests: 0 }, cache: own ? undefined : { db: deps.db, scope: "public" } };
   const run = limit(AT_ONCE);
   const narrow = ask.filter ? (ask.filter.includes("/") ? ` repo:${ask.filter}` : ` org:${ask.filter}`) : "";
   const q = (a: string, b: string) => `author:${login} is:pr is:merged merged:${a}..${b}${narrow}`;

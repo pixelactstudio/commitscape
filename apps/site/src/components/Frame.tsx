@@ -122,24 +122,29 @@ function Account() {
   const queryClient = useQueryClient();
   if (!user) return <Button label="Sign in" variant="primary" size="sm" onClick={() => signIn(path === "/" ? "/you" : path)} />;
   const go = (to: string) => void router.navigate({ to: to as "/" });
+  const shown = user.login ?? user.name;
   return (
     <DropdownMenu
-      button={{ label: `Signed in as ${user.login}`, isIconOnly: true, icon: <Avatar src={user.image ?? undefined} name={user.login} size="sm" tooltip={false} />, variant: "ghost", size: "md" }}
+      button={{ label: `Signed in as ${shown}`, isIconOnly: true, icon: <Avatar src={user.image ?? undefined} name={shown} size="sm" tooltip={false} />, variant: "ghost", size: "md" }}
       hasChevron={false}
       alignment="end"
       menuWidth={240}
       items={[
-        {
-          type: "section",
-          title: `@${user.login}`,
-          items: [
-            { label: "Your Profile", icon: User, onClick: () => go(`/u/${user.login}`) },
-            { label: "Your Cards", icon: ImageIcon, onClick: () => go(`/u/${user.login}/cards`) },
-            { label: "Proof of Work", icon: Briefcase, onClick: () => go(`/u/${user.login}/work`) },
-            { label: `Wrapped ${YEAR}`, icon: Sparkles, onClick: () => go(`/u/${user.login}/wrapped/${YEAR}`) },
-          ],
-        },
-        { type: "divider" },
+        ...(user.login
+          ? [
+              {
+                type: "section" as const,
+                title: `@${user.login}`,
+                items: [
+                  { label: "Your Profile", icon: User, onClick: () => go(`/u/${user.login}`) },
+                  { label: "Your Cards", icon: ImageIcon, onClick: () => go(`/u/${user.login}/cards`) },
+                  { label: "Proof of Work", icon: Briefcase, onClick: () => go(`/u/${user.login}/work`) },
+                  { label: `Wrapped ${YEAR}`, icon: Sparkles, onClick: () => go(`/u/${user.login}/wrapped/${YEAR}`) },
+                ],
+              },
+              { type: "divider" as const },
+            ]
+          : []),
         { label: "Settings", icon: Settings, onClick: () => go("/me") },
         {
           label: "Sign out",

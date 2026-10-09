@@ -417,10 +417,6 @@ impl Packed {
         std::str::from_utf8(self.get(i)?).ok()
     }
 
-    fn len(&self) -> usize {
-        self.ends.len()
-    }
-
     fn iter(&self) -> impl Iterator<Item = &[u8]> {
         (0..self.ends.len()).filter_map(|i| self.get(i))
     }
@@ -513,13 +509,6 @@ impl PathTable {
             .unwrap_or_default()
     }
 
-    pub fn former_paths(&self, id: FileId) -> impl Iterator<Item = &[u8]> {
-        self.departures
-            .iter()
-            .filter(move |(file, _)| *file == id)
-            .filter_map(|(_, path)| self.names.get(path.idx()))
-    }
-
     pub fn departures(&self) -> impl Iterator<Item = (FileId, &[u8])> {
         self.departures
             .iter()
@@ -532,10 +521,6 @@ impl PathTable {
 
     pub fn is_empty(&self) -> bool {
         self.current.is_empty()
-    }
-
-    pub fn path_count(&self) -> usize {
-        self.names.len()
     }
 
     pub fn path_names(&self) -> impl Iterator<Item = (PathId, &[u8])> {
@@ -610,7 +595,6 @@ pub struct Index {
     pub file_history: Vec<FileHistory>,
     pub history_truncated: bool,
     pub span: HistorySpan,
-    pub loaded_from: Option<i64>,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -661,37 +645,7 @@ impl Index {
             file_history: Vec::new(),
             history_truncated: false,
             span: HistorySpan::default(),
-            loaded_from: None,
         }
-    }
-
-    pub fn covers(&self, time: i64) -> bool {
-        self.loaded_from.is_none_or(|from| from <= time)
-    }
-
-    pub fn prepend_history(
-        &mut self,
-        older_commits: Vec<CommitMeta>,
-        older_changes: Vec<FileChange>,
-        older_subjects: Vec<u8>,
-        loaded_from: Option<i64>,
-    ) {
-        let shift = older_changes.len() as u32;
-        let subject_shift = older_subjects.len() as u32;
-        for c in &mut self.commits {
-            c.changes_start += shift;
-            c.subject_start += subject_shift;
-        }
-        let mut commits = older_commits;
-        commits.append(&mut self.commits);
-        let mut changes = older_changes;
-        changes.append(&mut self.changes);
-        let mut subjects = older_subjects;
-        subjects.append(&mut self.subjects);
-        self.commits = commits;
-        self.changes = changes;
-        self.subjects = subjects;
-        self.loaded_from = loaded_from;
     }
 
     pub fn subject_of(&self, c: &CommitMeta) -> &str {
@@ -745,8 +699,8 @@ mod tests {
         assert_eq!(t.get(b"new/path.txt"), Some(moved));
         assert_eq!(t.get(b"old/path.txt"), None, "nothing lives there now");
         assert_eq!(
-            t.former_paths(moved).collect::<Vec<_>>(),
-            vec![b"old/path.txt".as_slice()]
+            t.departures().collect::<Vec<_>>(),
+            vec![(moved, b"old/path.txt".as_slice())]
         );
         assert_eq!(t.len(), 1);
     }

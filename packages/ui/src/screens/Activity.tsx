@@ -3,7 +3,6 @@ import { useData } from "../data";
 import { Clock } from "lucide-react";
 import { peakOf, WeekGrid } from "../charts/Grid";
 import { useTip } from "../charts/tip";
-import { Lines } from "../charts/Lines";
 import { Explain } from "../explain";
 import { grouped, many, share } from "../format";
 import { Panel } from "../kit/layout";
@@ -47,30 +46,6 @@ export function Activity({ params }: ScreenProps) {
         {commits === 0 ? <Quiet>No commits in this Window. Choose a longer one above.</Quiet> : <StacksOverTime firstDay={a.first_day} stacks={stacks} unit="commits" height={280} />}
         <Explain>Commits that are not merges, stacked by who made them. Each person keeps one colour on every screen, fixed by their commits over all of history.</Explain>
       </Panel>
-
-      {a.github && (
-        <Panel title="Pull requests and issues" description={`A week at a time${a.github.complete ? "" : ", from what has been read of GitHub so far"}`}>
-          <div className="grid gap-6 lg:grid-cols-2">
-            <Lines
-              unit="pull requests"
-              firstWeek={a.github.first_week}
-              lines={[
-                { label: "Pull requests opened", colour: "var(--s1)", values: a.github.opened },
-                { label: "Pull requests merged", colour: "var(--brand)", values: a.github.merged, dashed: true },
-              ]}
-            />
-            <Lines
-              unit="issues"
-              firstWeek={a.github.first_week}
-              lines={[
-                { label: "Issues opened", colour: "var(--s2)", values: a.github.issues_opened },
-                { label: "Issues closed", colour: "var(--s3)", values: a.github.issues_closed, dashed: true },
-              ]}
-            />
-          </div>
-          <Explain>From GitHub's history of the repository, read a page at a time and kept, so later Builds read only what changed.</Explain>
-        </Panel>
-      )}
 
       <div className="flex flex-col gap-gutter">
         <Panel

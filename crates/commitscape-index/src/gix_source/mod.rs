@@ -20,7 +20,6 @@ macro_rules! git_ctx {
 
 mod blame;
 mod blobs;
-mod changes;
 mod lines;
 mod tree_diff;
 mod walk;
@@ -79,34 +78,6 @@ impl GixRepo {
             sync,
             path: path.to_path_buf(),
         })
-    }
-
-    pub fn discover(path: &Path) -> Result<Self, GixError> {
-        let mut repo = gix::discover(path).map_err(|e| GixError::NotARepository {
-            path: path.display().to_string(),
-            source: Box::new(e),
-        })?;
-        repo.object_cache_size_if_unset(OBJECT_CACHE_BYTES);
-        let sync = repo.clone().into_sync();
-        with_delta_cache(&mut repo);
-        let top = repo
-            .workdir()
-            .map_or_else(|| repo.path().to_path_buf(), Path::to_path_buf);
-        Ok(GixRepo {
-            repo,
-            sync,
-            path: top,
-        })
-    }
-
-    pub fn user(&self) -> (Option<String>, Option<String>) {
-        let config = self.repo.config_snapshot();
-        let get = |key: &str| config.string(key).map(|v| v.to_string());
-        (get("user.email"), get("user.name"))
-    }
-
-    pub fn top(&self) -> &Path {
-        &self.path
     }
 
     fn to_oid(id: &gix::hash::oid) -> Result<Oid, GixError> {

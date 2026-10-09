@@ -1,10 +1,14 @@
-import { mkdir, mkdtemp, readdir, utimes, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, readdir, readFile, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { gzipSync } from "node:zlib";
 import { expect, test } from "vitest";
+import { ensureClone, failure, gitEnv } from "./clone";
 import type { Config } from "./config";
-import { cacheKey, prune } from "./disk";
-import { build, BUILD_ATTEMPTS, failure, timeLimitOf, type BuildTarget, type Deps, type Ran } from "./run";
+import { prune } from "./disk";
+import { build, BUILD_ATTEMPTS, cloneLimitOf, run, timeLimitOf, type BuildTarget, type Deps, type Made, type Phase, type Ran } from "./run";
 
 const cfg = (work: string, over: Partial<Config> = {}): Config => ({
   bin: "commitscape",
@@ -12,6 +16,10 @@ const cfg = (work: string, over: Partial<Config> = {}): Config => ({
   concurrency: 1,
   maxMb: undefined,
   timeLimit: 60,
+  cloneLimit: 120,
+  largeMb: 1500,
+  largeConcurrency: 1,
+  logins: 300,
   diskGb: 20,
   gitBase: undefined,
   ...over,
@@ -27,101 +35,211 @@ const req = (over: Partial<BuildTarget> = {}): BuildTarget => ({
   ...over,
 });
 
-const outOf = (args: string[]) => (args.includes("--out") ? args[args.indexOf("--out") + 1] : undefined);
+const flag = (args: string[], name: string) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined);
+const ok: Ran = { code: 0, stderr: "", timedOut: false };
+const signatures = [{ email: "ada@example.com", name: "Ada", commits: 3, sha: "a".repeat(40) }];
 
-function fake(answer: (args: string[]) => Ran | Promise<Ran>) {
-  const calls: string[][] = [];
+type Call = { cmd: string; args: string[]; env: NodeJS.ProcessEnv; timeoutMs: number };
+
+function fake(answer: (call: Call) => Ran | Promise<Ran> = () => ok) {
+  const calls: Call[] = [];
   const said: string[] = [];
+  const published: [Phase, string][] = [];
+  const seen: Record<string, string>[] = [];
   const deps: Deps = {
-    run: async (_cmd, args) => {
-      calls.push(args);
-      const out = outOf(args);
-      if (out) await writeFile(out, "report");
-      return answer(args);
+    run: async (cmd, args, env, timeoutMs) => {
+      const call = { cmd, args, env, timeoutMs };
+      calls.push(call);
+      const ran = await answer(call);
+      if (ran.code !== 0) return ran;
+      if (cmd === "git" && args[0] === "clone") await mkdir(join(args.at(-1) ?? "", ".git"), { recursive: true });
+      if (args[0] === "signatures") await writeFile(flag(args, "--out") ?? "", JSON.stringify(signatures));
+      if (args[0] === "report") {
+        const accounts = flag(args, "--accounts");
+        if (accounts) seen.push(JSON.parse(await readFile(accounts, "utf8")) as Record<string, string>);
+        await writeFile(flag(args, "--out") ?? "", gzipSync(JSON.stringify({ stats: null, lines: !args.includes("--no-lines") })));
+        await writeFile(flag(args, "--commits-out") ?? "", gzipSync("[]"));
+      }
+      return ran;
     },
     progress: async (step) => void said.push(step),
+    accounts: async (list) => Object.fromEntries(list.map((s) => [s.email, "ada"])),
+    publish: async (phase: Phase, made: Made) => {
+      published.push([phase, made.commits ? "commits" : "none"]);
+      return true;
+    },
   };
-  return { deps, calls, said };
+  return { deps, calls, said, published, seen };
 }
-const ok: Ran = { code: 0, stderr: "", timedOut: false };
 
-test("git's and commitscape's failures in the Site's words", () => {
+const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+const commands = (calls: Call[]) => calls.map((c) => (c.cmd === "git" ? `git ${c.args[0]}${c.args.includes("--filter=blob:none") ? " blobless" : ""}` : c.args[0]));
+
+test("git's failures in the Site's words", () => {
   expect(failure("remote: Repository not found.\nfatal: repository 'https://github.com/a/b.git/' not found")).toBe("not_found");
   expect(failure("fatal: could not read Username for 'https://github.com': terminal prompts disabled")).toBe("private");
   expect(failure("disk full")).toBe("error");
 });
 
-test("every repository, however big, is cloned whole with its lines counted; a size limit refuses only when set", async () => {
+test("a first Build clones quickly without old contents and in full at once, publishes the quick Report without lines first, then the full one", async () => {
   const work = await mkdtemp(join(tmpdir(), "builder-"));
-  const small = fake(() => ok);
-  const done = await build(req(), cfg(work), small.deps);
-  expect(done).toMatchObject({ ok: true });
-  expect(done.ok && new TextDecoder().decode(done.report)).toBe("report");
-  expect(small.calls[0]).toEqual(expect.arrayContaining(["report", "--no-emails", "--", "acme/rocket"]));
-  expect(small.said).toEqual(["reading", "uploading"]);
-
-  const huge = fake(() => ok);
-  expect(await build(req({ sizeKb: 40_000 * 1024 }), cfg(work), huge.deps)).toMatchObject({ ok: true });
-  expect(huge.calls[0]).not.toContain("--partial");
-  expect(huge.calls[0]).not.toContain("--no-lines");
-
-  const limited = fake(() => ok);
-  expect(await build(req({ sizeKb: 4000 * 1024 }), cfg(work, { maxMb: 3000 }), limited.deps)).toEqual({ ok: false, reason: "too_big", detail: "4000 MB" });
-  expect(limited.calls).toEqual([]);
+  const f = fake(async (c) => {
+    if (c.cmd === "git" && !c.args.includes("--filter=blob:none")) await pause(300);
+    return ok;
+  });
+  const outcome = await build(req(), cfg(work), f.deps);
+  expect(outcome).toMatchObject({ published: "full", resumable: false });
+  expect(outcome.failure).toBeUndefined();
+  const clones = f.calls.filter((c) => c.cmd === "git");
+  expect(clones.map((c) => c.args.at(-2))).toEqual(["https://github.com/acme/rocket.git", "https://github.com/acme/rocket.git"]);
+  expect(commands(f.calls).slice(0, 2).sort()).toEqual(["git clone", "git clone blobless"]);
+  const quick = join(work, "jobs", "build-0001", "quick");
+  const full = join(work, "repos", "acme", "rocket", "full");
+  const sig = f.calls.find((c) => c.args[0] === "signatures");
+  expect(sig?.args.at(-1)).toBe(quick);
+  const reports = f.calls.filter((c) => c.args[0] === "report").sort((a, b) => Number(b.args.includes("--no-lines")) - Number(a.args.includes("--no-lines")));
+  expect(reports[0]?.args).toEqual(expect.arrayContaining(["--no-lines", "--no-emails", "--offline", "--window", "all", "--accounts", "--commits-out"]));
+  expect(reports[0]?.args.at(-1)).toBe(quick);
+  expect(reports[1]?.args).not.toContain("--no-lines");
+  expect(reports[1]?.args.at(-1)).toBe(full);
+  expect(flag(reports[1]?.args ?? [], "--cache-dir")).toBe(join(work, "repos", "acme", "rocket", "cache"));
+  expect(f.seen).toEqual([{ "ada@example.com": "ada" }, { "ada@example.com": "ada" }]);
+  expect(f.published).toEqual([
+    ["quick", "commits"],
+    ["full", "commits"],
+  ]);
+  expect(f.said[0]).toBe("cloning");
+  expect(existsSync(join(full, ".git"))).toBe(true);
+  expect(await readdir(join(work, "jobs"))).toEqual([]);
+  expect((await readdir(work)).sort()).toEqual(["jobs", "repos"]);
 });
 
-test("a Build that runs too long stops as timed out, each attempt given twice the time of the one before; a missing one says not found", async () => {
+test("a quick Report made after the full one is never published", async () => {
   const work = await mkdtemp(join(tmpdir(), "builder-"));
-  const limits: number[] = [];
-  const slow = fake(() => ({ code: null, stderr: "", timedOut: true }));
-  const real = slow.deps.run;
-  slow.deps.run = async (cmd, args, env, t) => {
-    limits.push(t);
-    return real(cmd, args, env, t);
-  };
-  expect(await build(req(), cfg(work, { timeLimit: 5 }), slow.deps)).toEqual({ ok: false, reason: "timed_out", detail: "5 s" });
-  expect(await build(req({ attempt: 3 }), cfg(work, { timeLimit: 5 }), slow.deps)).toEqual({ ok: false, reason: "timed_out", detail: "20 s" });
-  expect(limits[0]).toBeLessThanOrEqual(5000);
-  expect(limits[1]).toBeGreaterThan(15_000);
+  const f = fake(async (c) => {
+    if (c.args.includes("--no-lines")) await pause(300);
+    return ok;
+  });
+  expect(await build(req(), cfg(work), f.deps)).toMatchObject({ published: "full" });
+  expect(f.published.map((p) => p[0])).toEqual(["full"]);
+});
+
+test("a kept clone is brought up to date and read twice, quick then full, with no second clone", async () => {
+  const work = await mkdtemp(join(tmpdir(), "builder-"));
+  const full = join(work, "repos", "acme", "rocket", "full");
+  await mkdir(join(full, ".git"), { recursive: true });
+  const f = fake();
+  expect(await build(req(), cfg(work), f.deps)).toMatchObject({ published: "full" });
+  expect(commands(f.calls)).toEqual(["git rev-parse", "git fetch", "git reset", "signatures", "report", "report"]);
+  const fetch = f.calls[1];
+  expect(fetch?.env.GIT_DIR).toBe(join(full, ".git"));
+  expect(fetch?.env.GIT_WORK_TREE).toBe(full);
+  expect(fetch?.args).toEqual(["fetch", "--quiet", "--prune", "--tags", "origin"]);
+  expect(f.calls.filter((c) => c.args[0] === "report").map((c) => c.args.at(-1))).toEqual([full, full]);
+});
+
+test("a full Report past its time leaves the quick one published, to be gone on from in the next attempt", async () => {
+  const work = await mkdtemp(join(tmpdir(), "builder-"));
+  const f = fake((c) => (c.args[0] === "report" && !c.args.includes("--no-lines") ? { code: null, stderr: "", timedOut: true } : ok));
+  const outcome = await build(req(), cfg(work, { timeLimit: 5, cloneLimit: 50 }), f.deps);
+  expect(outcome).toMatchObject({ published: "quick", failure: { reason: "timed_out", detail: "5 s" }, resumable: true });
+  const clone = f.calls.find((c) => c.cmd === "git");
+  const report = f.calls.find((c) => c.args[0] === "report");
+  expect(clone?.timeoutMs).toBeLessThanOrEqual(50_000);
+  expect(clone?.timeoutMs).toBeGreaterThan(40_000);
+  expect(report?.timeoutMs).toBe(5000);
+
+  const last = fake((c) => (c.args[0] === "report" && !c.args.includes("--no-lines") ? { code: null, stderr: "", timedOut: true } : ok));
+  expect(await build(req({ attempt: BUILD_ATTEMPTS }), cfg(work, { timeLimit: 5 }), last.deps)).toMatchObject({ published: null, failure: { reason: "timed_out", detail: "40 s" }, resumable: false });
+  expect(commands(last.calls)).not.toContain("git clone blobless");
   expect([1, 2, 3, 4, 9].map((a) => timeLimitOf(cfg(work, { timeLimit: 900 }), a))).toEqual([900, 1800, 3600, 7200, 7200]);
-  expect(BUILD_ATTEMPTS).toBe(4);
-  const missing = fake(() => ({ code: 128, stderr: "remote: Repository not found.", timedOut: false }));
-  expect(await build(req(), cfg(work), missing.deps)).toMatchObject({ ok: false, reason: "not_found" });
+  expect([1, 2].map((a) => cloneLimitOf(cfg(work, { cloneLimit: 1800 }), a))).toEqual([1800, 3600]);
 });
 
-test("a Connected Repository's clone and index are kept only while a timed-out Build will go on from them", async () => {
+test("a missing repository says not found, and one whose quick clone fails is still read in full", async () => {
   const work = await mkdtemp(join(tmpdir(), "builder-"));
-  const slow = fake(() => ({ code: null, stderr: "", timedOut: true }));
-  const real = slow.deps.run;
-  slow.deps.run = async (cmd, args, env, t) => {
-    await mkdir(join(args[args.indexOf("--cache-dir") + 1] ?? "", "clones"), { recursive: true });
-    return real(cmd, args, env, t);
-  };
-  await build(req({ private: true, attempt: 1 }), cfg(work), slow.deps);
-  expect(await readdir(join(work, "private"))).toEqual(["build-0001"]);
-  await build(req({ private: true, attempt: BUILD_ATTEMPTS }), cfg(work), slow.deps);
-  expect(await readdir(join(work, "private"))).toEqual([]);
+  const missing = fake((c) => (c.cmd === "git" ? { code: 128, stderr: "remote: Repository not found.", timedOut: false } : ok));
+  expect(await build(req(), cfg(work), missing.deps)).toMatchObject({ published: null, failure: { reason: "not_found" } });
+  expect(commands(missing.calls).filter((c) => !c.startsWith("git"))).toEqual([]);
+
+  const flaky = fake((c) => (c.args.includes("--filter=blob:none") ? { code: 128, stderr: "fatal: early EOF", timedOut: false } : ok));
+  expect(await build(req({ id: "build-0002" }), cfg(work), flaky.deps)).toMatchObject({ published: "full" });
+  expect(flaky.published.map((p) => p[0])).toEqual(["full"]);
+  expect(flaky.calls.find((c) => c.args[0] === "signatures")?.args.at(-1)).toBe(join(work, "repos", "acme", "rocket", "full"));
 });
 
-test("a Connected Repository's clone and index are deleted after its Build", async () => {
+test("without signatures the Reports are made without accounts", async () => {
   const work = await mkdtemp(join(tmpdir(), "builder-"));
-  const f = fake(() => ok);
-  const real = f.deps.run;
-  f.deps.run = async (cmd, args, env, t) => {
-    const cache = args[args.indexOf("--cache-dir") + 1] ?? "";
-    await mkdir(join(cache, "clones", "acme", "rocket"), { recursive: true });
-    await mkdir(join(cache, "0123456789abcdef"), { recursive: true });
-    return real(cmd, args, env, t);
-  };
-  await build(req({ private: true }), cfg(work), f.deps);
-  expect(f.calls[0]).toEqual(expect.arrayContaining(["--cache-dir", join(work, "private", "build-0001")]));
-  expect(await readdir(join(work, "private"))).toEqual([]);
+  const f = fake((c) => (c.args[0] === "signatures" ? { code: 2, stderr: "unknown command", timedOut: false } : ok));
+  expect(await build(req(), cfg(work), f.deps)).toMatchObject({ published: "full" });
+  expect(f.calls.filter((c) => c.args[0] === "report").every((c) => !c.args.includes("--accounts"))).toBe(true);
+});
+
+test("emails exist only while the Build runs: the signatures and accounts files go with its scratch folder", async () => {
+  const work = await mkdtemp(join(tmpdir(), "builder-"));
+  const left: string[][] = [];
+  const f = fake(async (c) => {
+    if (c.args[0] === "report") left.push(await readdir(join(work, "jobs", "build-0001")));
+    return ok;
+  });
   await build(req(), cfg(work), f.deps);
-  expect((await readdir(work)).sort()).toEqual(["0123456789abcdef", "clones", "out", "private"]);
+  expect(left[0]).toContain("accounts.json");
+  expect(left[0]).not.toContain("signatures.json");
+  expect(existsSync(join(work, "jobs", "build-0001"))).toBe(false);
+});
+
+test("a Connected Repository is cloned with its token in git's environment only, and its folder is deleted unless a next attempt goes on from it", async () => {
+  const work = await mkdtemp(join(tmpdir(), "builder-"));
+  const f = fake();
+  await build(req({ private: true, token: "ghs_abc" }), cfg(work), f.deps);
+  const clone = f.calls.find((c) => c.cmd === "git");
+  expect(clone?.env.GIT_CONFIG_KEY_0).toBe("http.https://github.com/.extraheader");
+  expect(Buffer.from((clone?.env.GIT_CONFIG_VALUE_0 ?? "").replace("AUTHORIZATION: basic ", ""), "base64").toString()).toBe("x-access-token:ghs_abc");
+  expect(f.calls.every((c) => !c.args.join(" ").includes("ghs_abc"))).toBe(true);
+  expect(f.calls.find((c) => c.args[0] === "report" && !c.args.includes("--no-lines"))?.args.at(-1)).toBe(join(work, "private", "build-0001", "full"));
+  expect(await readdir(join(work, "private"))).toEqual([]);
+
+  const slow = fake((c) => (c.args[0] === "report" && !c.args.includes("--no-lines") ? { code: null, stderr: "", timedOut: true } : ok));
+  await build(req({ private: true, token: "ghs_abc" }), cfg(work), slow.deps);
+  expect(await readdir(join(work, "private"))).toEqual(["build-0001"]);
+  await build(req({ private: true, token: "ghs_abc", attempt: BUILD_ATTEMPTS }), cfg(work), slow.deps);
+  expect(await readdir(join(work, "private"))).toEqual([]);
+});
+
+test("a size limit refuses only when set, and a name that could be read as a flag never reaches a command", async () => {
+  const work = await mkdtemp(join(tmpdir(), "builder-"));
+  const f = fake();
+  expect(await build(req({ sizeKb: 4000 * 1024 }), cfg(work, { maxMb: 3000 }), f.deps)).toMatchObject({ published: null, failure: { reason: "too_big", detail: "4000 MB" } });
+  expect(await build(req({ owner: "-o" }), cfg(work), f.deps)).toMatchObject({ failure: { reason: "not_found" } });
+  expect(await build(req({ name: ".." }), cfg(work), f.deps)).toMatchObject({ failure: { reason: "not_found" } });
+  expect(f.calls).toEqual([]);
+});
+
+test("a clone is made whole beside its folder and moved in, brought up to date after, and a failed one leaves nothing", async () => {
+  const root = await mkdtemp(join(tmpdir(), "clone-"));
+  const origin = join(root, "origin");
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: origin, env: { ...process.env, GIT_AUTHOR_NAME: "A", GIT_AUTHOR_EMAIL: "a@x", GIT_COMMITTER_NAME: "A", GIT_COMMITTER_EMAIL: "a@x" } });
+  await mkdir(origin);
+  git("init", "--quiet", "-b", "main");
+  await writeFile(join(origin, "a.txt"), "one");
+  git("add", ".");
+  git("commit", "--quiet", "-m", "one");
+  const dir = join(root, "repos", "acme", "rocket", "full");
+  const how = { url: `file://${origin}`, dir, blobless: false, env: gitEnv(null), timeoutMs: 30_000 };
+  expect(await ensureClone(run, how)).toMatchObject({ ok: true, fresh: true });
+  expect(await readFile(join(dir, "a.txt"), "utf8")).toBe("one");
+  await writeFile(join(origin, "a.txt"), "two");
+  git("commit", "--quiet", "-am", "two");
+  expect(await ensureClone(run, how)).toMatchObject({ ok: true, fresh: false });
+  expect(await readFile(join(dir, "a.txt"), "utf8")).toBe("two");
+  const gone = join(root, "repos", "acme", "gone", "full");
+  expect(await ensureClone(run, { ...how, url: `file://${root}/nothing`, dir: gone })).toMatchObject({ ok: false });
+  expect(await readdir(join(root, "repos", "acme"))).toEqual(["gone", "rocket"]);
+  expect(await readdir(join(root, "repos", "acme", "gone"))).toEqual([]);
 });
 
 test("commands see none of the Builder's secrets", async () => {
-  const { run } = await import("./run");
   process.env.DATABASE_URL = "postgres://u:a-secret@db/x";
   process.env.S3_SECRET_ACCESS_KEY = "s3-secret";
   process.env.GITHUB_APP_PRIVATE_KEY = "app-secret";
@@ -145,79 +263,24 @@ test("commands see none of the Builder's secrets", async () => {
   }
 });
 
-test("the least recently built clones go first when the disk budget is passed", async () => {
+test("the least recently used repository folders go first when the disk budget is passed", async () => {
   const work = await mkdtemp(join(tmpdir(), "builder-"));
   for (const [name, at] of [["old", 1000], ["mid", 2000], ["new", 3000]] as const) {
-    const dir = join(work, "clones", "acme", name);
-    await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, "pack"), Buffer.alloc(1000));
+    const dir = join(work, "repos", "acme", name);
+    await mkdir(join(dir, "full"), { recursive: true });
+    await writeFile(join(dir, "full", "pack"), Buffer.alloc(1000));
     await utimes(dir, at, at);
   }
-  expect(await prune(work, 2500)).toEqual([join(work, "clones", "acme", "old")]);
+  expect(await prune(work, 2500)).toEqual([join(work, "repos", "acme", "old")]);
   expect(await prune(work, 5000)).toEqual([]);
-  const index = join(work, "0123456789abcdef");
-  await mkdir(index);
-  await writeFile(join(index, "blocks"), Buffer.alloc(1000));
-  await utimes(index, 500, 500);
-  expect(await prune(work, 2500, [index])).toEqual([join(work, "clones", "acme", "mid")]);
-  expect(await prune(work, 1500)).toEqual([index]);
-});
-
-test("the cache folder's name is commitscape's hash of the clone's git directory", () => {
-  expect(cacheKey("/home/x/proj/.git")).toBe("7429609f670f7aff");
-  expect(cacheKey("/home/x/other/.git")).not.toBe(cacheKey("/home/x/proj/.git"));
-});
-
-test("a name that could be read as a flag never reaches a command", async () => {
-  const work = await mkdtemp(join(tmpdir(), "builder-"));
-  const f = fake(() => ok);
-  expect(await build(req({ owner: "-o" }), cfg(work), f.deps)).toMatchObject({ ok: false, reason: "not_found" });
-  expect(await build(req({ name: ".." }), cfg(work), f.deps)).toMatchObject({ ok: false, reason: "not_found" });
-  expect(f.calls).toEqual([]);
+  expect(await prune(work, 1500, [join(work, "repos", "acme", "mid")])).toEqual([join(work, "repos", "acme", "new")]);
 });
 
 test("a command past its time is stopped with everything it started", async () => {
-  const { run } = await import("./run");
   const started = Date.now();
   const ran = await run("sh", ["-c", "sleep 30 & sleep 30"], {}, 300);
   expect(ran.timedOut).toBe(true);
   expect(Date.now() - started).toBeLessThan(5000);
-});
-
-test("a Connected Repository is cloned with its installation token, from git's environment", async () => {
-  const work = await mkdtemp(join(tmpdir(), "builder-"));
-  const envs: NodeJS.ProcessEnv[] = [];
-  const f = fake(() => ok);
-  const real = f.deps.run;
-  f.deps.run = async (cmd, args, env, t) => {
-    envs.push(env);
-    return real(cmd, args, env, t);
-  };
-  await build(req({ private: true, token: "ghs_abc" }), cfg(work), f.deps);
-  const header = envs[0]?.GIT_CONFIG_VALUE_0 ?? "";
-  expect(envs[0]?.GIT_CONFIG_KEY_0).toBe("http.https://github.com/.extraheader");
-  expect(Buffer.from(header.replace("AUTHORIZATION: basic ", ""), "base64").toString()).toBe("x-access-token:ghs_abc");
-  expect(f.calls[0]?.join(" ")).not.toContain("ghs_abc");
-});
-
-test("a seed's Build carries the Report's numbers and how fast its issues are answered", async () => {
-  const { gzipSync } = await import("node:zlib");
-  const work = await mkdtemp(join(tmpdir(), "builder-"));
-  const stats = { commits: 5, people: 2, bus_factor: 1, maintainers: 1, commits_30d: 4, people_30d: 2, code_lines: 100, untouched_5y: 10 };
-  const f = fake((args) => ({ ...ok, stdout: args[0] === "health" ? JSON.stringify({ answers: { asked: 20, answered: 12, typical_hours: 3.5 } }) : "" }));
-  const real = f.deps.run;
-  f.deps.run = async (cmd, args, env, t) => {
-    const ran = await real(cmd, args, env, t);
-    const out = outOf(args);
-    if (args[0] === "report" && out) await writeFile(out, gzipSync(JSON.stringify({ stats })));
-    return ran;
-  };
-  const outcome = await build(req({ seed: true }), cfg(work), f.deps);
-  expect(outcome).toMatchObject({ ok: true, stats: { ...stats, answered: 12, answer_hours: 3.5 } });
-  expect(f.calls.map((c) => c[0])).toEqual(["report", "health"]);
-  const plain = fake(() => ok);
-  await build(req(), cfg(work), plain.deps);
-  expect(plain.calls.map((c) => c[0])).toEqual(["report"]);
 });
 
 test("the seed list is the most starred per language, each once", async () => {

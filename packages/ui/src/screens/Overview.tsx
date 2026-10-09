@@ -142,7 +142,6 @@ function Builder({ r, commits, lines, solo, onPerson }: { r: PersonRow; commits:
     [grouped(r.commits), r.commits === 1 ? "commit" : "commits", solo ? undefined : `${share(r.commits, commits)} of all`],
     [grouped(r.active_days), r.active_days === 1 ? "active day" : "active days"],
     ...(lines && r.lines_added !== null ? ([[`+${compact(r.lines_added)}`, "lines added", `−${compact(r.lines_removed ?? 0)} removed`]] as [string, string, string][]) : []),
-    ...(r.prs_merged !== null && r.prs_merged > 0 ? ([[grouped(r.prs_merged), r.prs_merged === 1 ? "PR merged" : "PRs merged"]] as [string, string][]) : []),
   ];
   return (
     <li className="flex flex-col gap-4 rounded-md border border-line bg-sunken p-4 sm:flex-row sm:items-center">

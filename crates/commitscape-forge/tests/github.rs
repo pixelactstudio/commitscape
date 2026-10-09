@@ -41,46 +41,14 @@ fn acme() -> GitHub {
 }
 
 #[test]
-fn the_response_becomes_the_repositorys_numbers() {
-    let g = acme();
-    assert_eq!(g.name_with_owner, "acme/rocket");
-    assert_eq!(g.description.as_deref(), Some("A rocket, in Rust."));
-    assert_eq!((g.stars, g.forks, g.watchers), (1234, 56, 12));
-    assert_eq!((g.open_issues, g.closed_issues), (7, 93));
-    assert_eq!((g.open_prs, g.merged_prs, g.closed_prs), (3, 210, 14));
-    assert_eq!(g.releases, 9);
-    let latest = g.latest_release.as_ref().expect("a release");
-    assert_eq!(latest.tag, "v1.2.0");
-    assert_eq!(
-        latest.published,
-        Some(JULY_1_2025 - 30 * 24 * HOUR + 9 * HOUR)
-    );
-    assert_eq!(g.license.as_deref(), Some("MIT"));
-    assert_eq!(g.topics, vec!["cli".to_string(), "git".to_string()]);
-    let languages: Vec<(&str, u64)> = g.languages.iter().map(|(n, b)| (n.as_str(), *b)).collect();
-    assert_eq!(languages, vec![("Rust", 900), ("Shell", 100)]);
-    assert_eq!(g.created, Some(1_704_067_200), "2024-01-01T00:00:00Z");
-}
-
-#[test]
-fn recent_pull_requests_and_issues_give_the_last_thirty_days() {
-    let g = acme();
-    let since = JULY_1_2025 - 30 * 24 * HOUR;
-    assert_eq!(g.prs_merged_since(since), 3);
-    assert_eq!(g.prs_opened_since(since), 5);
-    assert_eq!(g.median_hours_to_merge(), Some(6.0));
-    assert_eq!(g.issues_opened_since(since), 2);
-    assert_eq!(g.issues_closed_since(since), 1);
-    assert_eq!(
-        g.pr_authors(),
-        vec![
-            ("alice".to_string(), 2),
-            ("bob".to_string(), 1),
-            ("carol".to_string(), 1),
-            ("ghost".to_string(), 1),
-        ],
-        "a deleted account is GitHub's ghost"
-    );
+fn the_response_says_whether_the_repository_is_archived() {
+    assert!(!acme().archived);
+    let archived = GitHub::from_graphql(
+        br#"{"data":{"repository":{"isArchived":true,"recentIssues":{"nodes":[]}}}}"#,
+    )
+    .expect("the response parses");
+    assert!(archived.archived);
+    assert!(archived.recent_issues.is_empty());
 }
 
 #[test]
@@ -88,29 +56,26 @@ fn an_issues_first_answer_is_the_first_comment_by_someone_else() {
     let g = acme();
     let may_1 = JULY_1_2025 - 61 * 24 * HOUR;
     let june_28 = JULY_1_2025 - 3 * 24 * HOUR;
-    let answers: Vec<Option<i64>> = g.recent_issues.iter().map(|i| i.first_answer).collect();
+    let asked: Vec<(i64, Option<i64>)> = g
+        .recent_issues
+        .iter()
+        .map(|i| (i.created, i.first_answer))
+        .collect();
     assert_eq!(
-        answers,
-        vec![Some(may_1 + 5 * HOUR), None, Some(june_28 + 2 * HOUR)]
+        asked,
+        vec![
+            (may_1, Some(may_1 + 5 * HOUR)),
+            (JULY_1_2025 - 16 * 24 * HOUR, None),
+            (june_28, Some(june_28 + 2 * HOUR)),
+        ]
     );
 }
 
 #[test]
 fn a_response_github_really_sent_parses() {
     let g = GitHub::from_graphql(include_bytes!("t3code.json")).expect("the response parses");
-    assert_eq!(g.name_with_owner, "pingdotgg/t3code");
-    assert!(g.stars > 20_000, "{}", g.stars);
-    assert_eq!(g.recent_prs.len(), 100);
-}
-
-#[test]
-fn counts_from_recent_issues_say_when_there_were_more() {
-    let since = JULY_1_2025 - 30 * 24 * HOUR;
-    assert!(acme().issues_reach(since));
-    let t3code = GitHub::from_graphql(include_bytes!("t3code.json")).expect("the response parses");
-    let (september_23, september_20) = (1_790_121_600, 1_789_862_400);
-    assert!(!t3code.issues_reach(september_23 - 30 * 24 * HOUR));
-    assert!(t3code.issues_reach(september_20));
+    assert!(!g.archived);
+    assert_eq!(g.recent_issues.len(), 100);
 }
 
 #[test]
@@ -118,6 +83,6 @@ fn counts_from_recent_issues_say_when_there_were_more() {
 fn fetches_a_public_repository_through_gh() {
     let remote = Remote::parse("https://github.com/rust-lang/rust").expect("a GitHub remote");
     let g = GitHub::fetch(&remote).expect("gh answers");
-    assert_eq!(g.name_with_owner, "rust-lang/rust");
-    assert!(g.stars > 90_000, "{}", g.stars);
+    assert!(!g.archived);
+    assert!(!g.recent_issues.is_empty());
 }

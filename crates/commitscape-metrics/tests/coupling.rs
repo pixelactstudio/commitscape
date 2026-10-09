@@ -31,7 +31,7 @@ fn merges_bulk_commits_and_generated_files_do_not_couple() {
             generated("pnpm-lock.yaml", 1, 0),
         ],
     );
-    let a = Analysis::new(&idx, Window::all(EPOCH + 4 * DAY), options(1)).expect("covered");
+    let a = Analysis::new(&idx, Window::all(EPOCH + 4 * DAY), options(1));
     let coupling = a.coupling();
     let found: Vec<(String, String, u32, u32, u32)> = coupling
         .pairs
@@ -66,7 +66,7 @@ fn the_changeset_histogram_counts_non_merge_commits_by_size() {
         ],
         &[h("a.rs", 1, 0)],
     );
-    let a = Analysis::new(&idx, Window::all(EPOCH + 5 * DAY), options(1)).expect("covered");
+    let a = Analysis::new(&idx, Window::all(EPOCH + 5 * DAY), options(1));
     let sizes = a.changeset_sizes();
     assert_eq!(sizes.commits, 5);
     let buckets: Vec<(u32, u32, u32)> = sizes
@@ -98,7 +98,7 @@ fn a_pair_opens_onto_the_commits_it_shared_newest_first() {
         ],
     );
     let file = |p: &str| idx.paths.get(p.as_bytes()).expect("the file exists");
-    let a = Analysis::new(&idx, Window::all(EPOCH + 4 * DAY), options(1)).expect("covered");
+    let a = Analysis::new(&idx, Window::all(EPOCH + 4 * DAY), options(1));
     let days = |files: &[commitscape_core::FileId]| -> Vec<i64> {
         a.commits_touching(files)
             .iter()
@@ -107,48 +107,4 @@ fn a_pair_opens_onto_the_commits_it_shared_newest_first() {
     };
     assert_eq!(days(&[file("a.rs"), file("b.rs")]), vec![3, 0]);
     assert_eq!(days(&[file("a.rs")]), vec![4, 3, 0]);
-}
-
-#[test]
-fn files_that_all_change_together_form_a_group() {
-    let mut commits = Vec::new();
-    for day in 1..=6 {
-        commits.push(c(day, "x@x.org", &["api/a.rs", "api/b.rs", "web/c.ts"]));
-    }
-    for day in 7..=11 {
-        commits.push(c(day, "x@x.org", &["db/d.sql", "db/e.sql"]));
-    }
-    commits.push(c(12, "x@x.org", &["api/a.rs", "db/d.sql"]));
-    let files = ["api/a.rs", "api/b.rs", "web/c.ts", "db/d.sql", "db/e.sql"];
-    let head: Vec<_> = files.iter().map(|f| h(f, 1, 0)).collect();
-    let idx = index(&commits, &head);
-    let a = Analysis::new(&idx, Window::all(EPOCH + 13 * DAY), options(5)).expect("covered");
-    let groups: Vec<(Vec<String>, u32, bool)> = a
-        .change_groups()
-        .iter()
-        .map(|g| {
-            let mut paths: Vec<String> = g.files.iter().map(|f| idx.paths.path_lossy(*f)).collect();
-            paths.sort();
-            (paths, g.together, g.cross_directory)
-        })
-        .collect();
-    assert_eq!(
-        groups,
-        vec![
-            (
-                vec![
-                    "api/a.rs".to_string(),
-                    "api/b.rs".to_string(),
-                    "web/c.ts".to_string()
-                ],
-                6,
-                true
-            ),
-            (
-                vec!["db/d.sql".to_string(), "db/e.sql".to_string()],
-                5,
-                false
-            ),
-        ]
-    );
 }

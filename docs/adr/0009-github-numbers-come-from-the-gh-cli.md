@@ -4,7 +4,7 @@ The tool can show what GitHub knows about a repository (stars, forks, issues, pu
 
 ## Status
 
-accepted, amended in Build Run 3 (Phase 17): see "Amendment: the whole history" below. Reverses "no network calls" in the original brief's v0.1 scope, at the user's request. Amended by ADR-0016: `commitscape share` uploads over HTTPS, so the binary gains an HTTP client and TLS for that command only; GitHub is still asked only through `gh`. ADR-0017 covers GitHub on the Site.
+accepted, amended in Build Run 3 (Phase 17): see "Amendment: the whole history" below. Reverses "no network calls" in the original brief's v0.1 scope, at the user's request. Amended by ADR-0016: `commitscape share` uploads over HTTPS, so the binary gains an HTTP client and TLS for that command only; GitHub is still asked only through `gh`. ADR-0017 covers GitHub on the Site. Since ADR-0025 only `health` asks GitHub through `gh`; the `github` command and the interface's background fetch are gone.
 
 ## Context
 

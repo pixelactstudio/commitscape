@@ -162,12 +162,12 @@ fn an_undone_merge_stays_apart_and_says_so() {
         sig("Dev Talan", "dev.talan@gmail.example"),
         sig("Dev Talan", "84081651+devtalan@users.noreply.github.com"),
     ];
-    let merged = resolve(&sigs, &plain());
-    let person = merged.person_of(SignatureId(0)).expect("resolved");
+    assert_eq!(people(&resolve(&sigs, &plain())), vec![vec![0, 1]]);
     let mut rules = plain();
-    rules.kept_apart.push(commitscape_index::identity::keys_of(
-        &merged, person, &rules,
-    ));
+    rules.kept_apart.push(vec![
+        "dev.talan@gmail.example".to_string(),
+        "github:84081651".to_string(),
+    ]);
 
     let t = resolve(&sigs, &rules);
     assert_eq!(people(&t), vec![vec![0], vec![1]]);
@@ -195,9 +195,7 @@ fn the_mailmap_still_comes_first_and_cannot_be_undone() {
     let merged = resolve(&sigs, &rules);
     let person = merged.person_of(SignatureId(0)).expect("resolved");
     assert!(!merged.get(person).expect("a person").traits.merged());
-    rules.kept_apart.push(commitscape_index::identity::keys_of(
-        &merged, person, &rules,
-    ));
+    rules.kept_apart.push(vec!["alice@example.com".to_string()]);
     assert_eq!(people(&resolve(&sigs, &rules)), vec![vec![0, 1]]);
 }
 

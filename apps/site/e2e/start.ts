@@ -28,6 +28,7 @@ await database.end();
 for (const dir of [work, remotes]) rmSync(dir, { recursive: true, force: true });
 mkdirSync(join(remotes, "acme"), { recursive: true });
 symlinkSync(join(root, "fixtures", "ownership", ".git"), join(remotes, "acme", "ownership.git"));
+symlinkSync(join(root, "fixtures", "ownership", ".git"), join(remotes, "acme", "slow.git"));
 symlinkSync(join(root, "fixtures", "coupling", ".git"), join(remotes, "acme", "private-thing.git"));
 const app = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const appPublic = app.publicKey.export({ type: "spki", format: "pem" }).toString();

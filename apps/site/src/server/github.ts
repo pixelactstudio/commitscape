@@ -1,37 +1,63 @@
 import "@tanstack/react-start/server-only";
+import { cachedGet, type Db } from "@commitscape/server";
 import type { Facts } from "@commitscape/data";
 
-export type GitHubConfig = { api: string; token?: string };
+export type GitHubConfig = { api: string; token?: string; fetcher?: typeof fetch };
+
+export type GitHubDeps = { db: Db; github: GitHubConfig };
 
 export type Asked = { status: "ok"; facts: Facts; githubId: number | null } | { status: "not_found" | "private"; githubId?: undefined };
 
+export type Reader = { token?: string | null; scope?: string };
+
+export const GITHUB_TTL = {
+  repository: 6 * 3600,
+  details: 24 * 3600,
+  access: 0,
+  installations: 60,
+  search: 600,
+  commits: 3600,
+  graphql: 3600,
+};
+
 type Json = Record<string, unknown>;
 
-const headers = (token?: string): Record<string, string> => ({
-  accept: "application/vnd.github+json",
-  "user-agent": "commitscape",
-  "x-github-api-version": "2022-11-28",
-  ...(token ? { authorization: `Bearer ${token}` } : {}),
-});
+export const apiOf = (gh: GitHubConfig) => gh.api.replace(/\/$/, "");
 
-export function asUser(gh: GitHubConfig, token: string, path: string): Promise<Response> {
-  return fetch(`${gh.api.replace(/\/$/, "")}${path}`, { headers: headers(token) });
-}
+const ok = (status: number) => status >= 200 && status < 300;
 
-/** GitHub's public facts about a repository. */
-export async function askGitHub(gh: GitHubConfig, owner: string, name: string, userToken?: string, fetcher: typeof fetch = fetch): Promise<Asked> {
-  const base = gh.api.replace(/\/$/, "");
-  const h = headers(userToken ?? gh.token);
-  const get = (path: string) => fetcher(`${base}/repos/${owner}/${name}${path}`, { headers: h });
-  const repo = await get("");
+/** GitHub's facts about a repository, from the cache while fresh. A visitor's token (`as.token`) is spent first and the Site's follows if GitHub refuses it; without `as.scope` nothing private is kept or told, with a person's scope private facts are kept for that scope only. */
+export async function askGitHub(deps: GitHubDeps, owner: string, name: string, as: Reader = {}): Promise<Asked> {
+  const base = `${apiOf(deps.github)}/repos/${owner}/${name}`;
+  const own = as.scope !== undefined;
+  const scope = as.scope ?? "public";
+  const lent = [...new Set([as.token, own ? undefined : deps.github.token])].filter((t): t is string => !!t);
+  const tokens: (string | undefined)[] = lent.length > 0 ? lent : [undefined];
+  const isPrivate = (r: Json | null) => r?.private === true || r?.visibility === "private";
+  const get = <T,>(token: string | undefined, path: string, ttl: number) =>
+    cachedGet<T>(deps.db, {
+      url: `${base}${path}`,
+      token,
+      scope,
+      ttl,
+      fetcher: deps.github.fetcher,
+      keep: path === "" && !own ? (body) => !isPrivate(body as Json | null) : undefined,
+    });
+  let repo = await get<Json>(tokens[0], "", GITHUB_TTL.repository);
+  let used = tokens[0];
+  for (const token of tokens.slice(1)) {
+    if (![401, 403, 429].includes(repo.status)) break;
+    repo = await get<Json>(token, "", GITHUB_TTL.repository);
+    used = token;
+  }
   if (repo.status === 404) return { status: "not_found" };
-  if (!repo.ok) throw new Error(`GitHub answered ${repo.status}`);
-  const r = (await repo.json()) as Json;
-  if ((r.private === true || r.visibility === "private") && !userToken) return { status: "private" };
+  if (!ok(repo.status) || !repo.body) throw new Error(`GitHub answered ${repo.status}`);
+  const r = repo.body;
+  if (isPrivate(r) && !own) return used === deps.github.token ? { status: "private" } : { status: "not_found" };
   const [languages, contributors, releases] = await Promise.all([
-    get("/languages").then((x) => (x.ok ? (x.json() as Promise<Record<string, number>>) : ({} as Record<string, number>))),
-    get("/contributors?per_page=12").then((x) => (x.ok && x.status !== 204 ? (x.json() as Promise<Json[]>) : [])),
-    get("/releases?per_page=5").then((x) => (x.ok ? (x.json() as Promise<Json[]>) : [])),
+    get<Record<string, number>>(used, "/languages", GITHUB_TTL.details).then((x) => (ok(x.status) && x.body ? x.body : {})),
+    get<Json[]>(used, "/contributors?per_page=12", GITHUB_TTL.details).then((x) => (ok(x.status) && x.status !== 204 && Array.isArray(x.body) ? x.body : [])),
+    get<Json[]>(used, "/releases?per_page=5", GITHUB_TTL.details).then((x) => (ok(x.status) && Array.isArray(x.body) ? x.body : [])),
   ]);
   const text = (v: unknown) => (typeof v === "string" ? v : null);
   const num = (v: unknown) => (typeof v === "number" ? v : 0);
@@ -56,12 +82,12 @@ export async function askGitHub(gh: GitHubConfig, owner: string, name: string, u
         .map(([n, bytes]) => ({ name: n, bytes }))
         .sort((a, b) => b.bytes - a.bytes)
         .slice(0, 8),
-      contributors: (Array.isArray(contributors) ? contributors : []).map((c) => ({
+      contributors: contributors.map((c) => ({
         login: text(c.login) ?? "",
         avatar: text(c.avatar_url) ?? "",
         contributions: num(c.contributions),
       })),
-      releases: (Array.isArray(releases) ? releases : []).map((x) => ({
+      releases: releases.map((x) => ({
         name: text(x.name) || (text(x.tag_name) ?? ""),
         tag: text(x.tag_name) ?? "",
         at: text(x.published_at),

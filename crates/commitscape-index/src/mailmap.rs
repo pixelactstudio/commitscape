@@ -13,14 +13,6 @@ pub struct Mailmap {
 }
 
 impl Mailmap {
-    pub fn is_empty(&self) -> bool {
-        self.rules.is_empty()
-    }
-
-    pub fn len(&self) -> usize {
-        self.rules.len()
-    }
-
     pub fn fingerprint(&self) -> u64 {
         let mut h = xxhash_rust::xxh3::Xxh3::new();
         for rule in &self.rules {
@@ -181,7 +173,7 @@ mod tests {
     #[test]
     fn maps_an_alternate_email_onto_the_canonical_identity() {
         let m = Mailmap::parse(b"Alice Example <alice@example.com> <alice@work.example.org>\n");
-        assert_eq!(m.len(), 1);
+        assert_eq!(m.rules.len(), 1);
         let (name, email) = m.resolve(b"A. Example", b"alice@work.example.org");
         assert_eq!(s(name), "Alice Example");
         assert_eq!(s(email), "alice@example.com");
@@ -232,6 +224,6 @@ mod tests {
               this line has no angle brackets\n\
               Alice <alice@example.com>   # trailing comment\n",
         );
-        assert_eq!(m.len(), 1);
+        assert_eq!(m.rules.len(), 1);
     }
 }

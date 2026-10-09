@@ -5,7 +5,6 @@ members = [
     "crates/commitscape-forge",
     "crates/commitscape-index",
     "crates/commitscape-metrics",
-    "crates/commitscape-tui",
     "crates/commitscape-report",
     "crates/commitscape",
     "xtask",
@@ -25,7 +24,6 @@ commitscape-forge = { path = "crates/commitscape-forge", version = "0.2.1" }
 commitscape-index = { path = "crates/commitscape-index", version = "0.2.1" }
 commitscape-metrics = { path = "crates/commitscape-metrics", version = "0.2.1" }
 commitscape-report = { path = "crates/commitscape-report", version = "0.2.1" }
-commitscape-tui = { path = "crates/commitscape-tui", version = "0.2.1" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

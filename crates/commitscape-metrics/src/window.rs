@@ -1,4 +1,3 @@
-use commitscape_core::Index;
 use serde::Serialize;
 
 const DAY: i64 = 86_400;
@@ -26,13 +25,6 @@ impl Window {
 
     pub fn contains(&self, time: i64) -> bool {
         self.from.is_none_or(|f| f <= time) && time <= self.to
-    }
-
-    pub fn is_loaded(&self, index: &Index) -> bool {
-        match self.from {
-            Some(from) => index.covers(from),
-            None => index.loaded_from.is_none(),
-        }
     }
 }
 

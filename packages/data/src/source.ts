@@ -1,19 +1,21 @@
-import type { Meta } from "./types";
+import { listPager, type CommitPage, type CommitQuery, type Finder } from "./commits";
+import type { CommitList, Meta } from "./types";
 
 export type Params = Record<string, string | number | null | undefined>;
 
 export type Report = {
   meta: Meta;
   data: Record<string, unknown>;
-  cards: Record<string, string>;
 };
 
 export interface DataSource {
   readonly id: string;
   readonly meta: Meta;
   get<T>(path: string, params?: Params): Promise<T>;
-  card(window: string): Promise<string>;
+  commits(query: CommitQuery, cursor?: string): Promise<CommitPage>;
 }
+
+export const COMMIT_LIST_KEY = "/api/commits?";
 
 export function key(path: string, params: Params = {}): string {
   const query = Object.entries(params)
@@ -27,8 +29,9 @@ export function key(path: string, params: Params = {}): string {
 export const NOT_IN_REPORT =
   "This Report was written without it.";
 
-/** A whole Report in memory as a Data Source. */
-export function reportSource(report: Report, id: string): DataSource {
+/** A whole Report in memory as a Data Source; its Commit List is searched by `finder`, on this thread when there is none. */
+export function reportSource(report: Report, id: string, finder?: (list: CommitList) => Finder): DataSource {
+  let pager: ReturnType<typeof listPager> | null = null;
   return {
     id,
     meta: report.meta,
@@ -37,10 +40,13 @@ export function reportSource(report: Report, id: string): DataSource {
       if (found === undefined) throw new Error(NOT_IN_REPORT);
       return found as T;
     },
-    async card(window) {
-      const svg = report.cards[window];
-      if (svg === undefined) throw new Error(NOT_IN_REPORT);
-      return svg;
+    async commits(query, cursor) {
+      if (!pager) {
+        const list = report.data[COMMIT_LIST_KEY] as CommitList | undefined;
+        if (!list) throw new Error(NOT_IN_REPORT);
+        pager = listPager(list, finder?.(list));
+      }
+      return pager(query, cursor);
     },
   };
 }

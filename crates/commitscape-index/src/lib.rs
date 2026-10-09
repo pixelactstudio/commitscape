@@ -18,12 +18,12 @@ pub mod surviving;
 pub use build::IndexBuilder;
 pub use cache::{
     default_cache_root, load, repo_dir, BlameStore, CacheOptions, Freshness, IdentityStore,
-    LineStore, Loaded, OlderHistory, Progress, RebuildReason, Rest, RestUnavailable, Since,
+    LineStore, Loaded, Progress, RebuildReason,
 };
 pub use commitscape_core::LinePass;
 pub use gix_source::{GixError, GixRepo, GixThreads};
 pub use identity::{resolve_authors, IdentityRules};
-pub use lines::{line_pass, line_pass_where};
+pub use lines::line_pass;
 pub use mailmap::Mailmap;
 pub use scripted::{ScriptedChangeSpec, ScriptedRepo};
 pub use source::{

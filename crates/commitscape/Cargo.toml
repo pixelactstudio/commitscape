@@ -1,6 +1,6 @@
 [package]
 name = "commitscape"
-description = "A terminal UI that reads a git repository and reports what changes what you do next."
+description = "Reads a git repository's history and shares what each person built there."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,7 +8,7 @@ rust-version.workspace = true
 repository.workspace = true
 homepage.workspace = true
 readme = "../../README.md"
-keywords = ["git", "cli", "tui", "hotspots", "ownership"]
+keywords = ["git", "cli", "history", "contributors", "report"]
 categories = ["command-line-utilities", "development-tools"]
 
 [lints]
@@ -26,7 +26,6 @@ commitscape-core.workspace = true
 commitscape-forge.workspace = true
 commitscape-index.workspace = true
 commitscape-metrics.workspace = true
-commitscape-tui.workspace = true
 commitscape-report.workspace = true
 flate2 = { version = "1.1.10", default-features = false, features = ["zlib-rs"] }
 getrandom = "0.3"

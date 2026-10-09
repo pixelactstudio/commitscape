@@ -49,7 +49,7 @@ const BENCHMARKS: &[Benchmark] = &[
     },
     Benchmark {
         name: "warm-start-rust",
-        description: "binary start to exit on rust-lang/rust with a warm cache; ADR-0002 budget is 100ms to first paint",
+        description: "binary start to exit on rust-lang/rust with a warm cache, listing its authors; ADR-0002 budget is 100ms",
         default_iterations: 20,
         run: bench_warm_start_rust,
     },
@@ -58,18 +58,6 @@ const BENCHMARKS: &[Benchmark] = &[
         description: "binary start to exit on torvalds/linux with a warm cache; the budget holds at every scale",
         default_iterations: 20,
         run: bench_warm_start_linux,
-    },
-    Benchmark {
-        name: "first-paint-rust",
-        description: "binary start to the interface's first frame on rust-lang/rust with a warm cache, in a pseudo-terminal; ADR-0002 budget is 100ms",
-        default_iterations: 20,
-        run: bench_first_paint_rust,
-    },
-    Benchmark {
-        name: "first-paint-linux",
-        description: "binary start to the interface's first frame on torvalds/linux with a warm cache, in a pseudo-terminal; the budget holds at every scale",
-        default_iterations: 20,
-        run: bench_first_paint_linux,
     },
     Benchmark {
         name: "warm-update-rust",
@@ -92,7 +80,10 @@ fn bench_cache(ctx: &BenchContext, name: &str) -> PathBuf {
 fn time_binary(ctx: &BenchContext, repo: &Path, cache: &Path) -> Result<Duration> {
     let start = Instant::now();
     let out = Command::new(&ctx.binary)
+        .arg("signatures")
         .arg(repo)
+        .arg("--out")
+        .arg(std::env::temp_dir().join("commitscape-bench-signatures.json"))
         .env("COMMITSCAPE_CACHE_DIR", cache)
         .output()
         .with_context(|| format!("spawning {}", ctx.binary.display()))?;
@@ -122,53 +113,6 @@ fn bench_warm_start_rust(ctx: &BenchContext) -> Result<Option<Duration>> {
 
 fn bench_warm_start_linux(ctx: &BenchContext) -> Result<Option<Duration>> {
     warm_start(ctx, "linux")
-}
-
-fn first_paint(ctx: &BenchContext, name: &str) -> Result<Option<Duration>> {
-    let Some(repo) = ctx.repo(name) else {
-        return Ok(None);
-    };
-    let cache = bench_cache(ctx, name);
-    time_binary(ctx, &repo, &cache)?;
-    let command = format!(
-        "{} {} --exit-after-first-paint",
-        quoted(&ctx.binary),
-        quoted(&repo)
-    );
-    let start = Instant::now();
-    let out = match Command::new("script")
-        .args(["-qec", &command, "/dev/null"])
-        .env("COMMITSCAPE_CACHE_DIR", &cache)
-        .output()
-    {
-        Ok(out) => out,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            println!("  `script` (util-linux) is not installed");
-            return Ok(None);
-        }
-        Err(e) => return Err(e).context("spawning script"),
-    };
-    let elapsed = start.elapsed();
-    if !out.status.success() {
-        bail!(
-            "commitscape exited with {}: {}",
-            out.status,
-            String::from_utf8_lossy(&out.stdout)
-        );
-    }
-    Ok(Some(elapsed))
-}
-
-fn quoted(path: &Path) -> String {
-    format!("'{}'", path.display().to_string().replace('\'', "'\\''"))
-}
-
-fn bench_first_paint_rust(ctx: &BenchContext) -> Result<Option<Duration>> {
-    first_paint(ctx, "rust")
-}
-
-fn bench_first_paint_linux(ctx: &BenchContext) -> Result<Option<Duration>> {
-    first_paint(ctx, "linux")
 }
 
 fn bench_cold_index_linux(ctx: &BenchContext) -> Result<Option<Duration>> {

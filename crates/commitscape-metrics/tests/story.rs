@@ -45,7 +45,6 @@ fn week_commits() -> Vec<support::C<'static>> {
 
 fn analysis(idx: &commitscape_core::Index) -> Analysis<'_> {
     Analysis::new(idx, Window::all(EPOCH + 6 * DAY + 23 * 3600), options())
-        .expect("all of it is loaded")
 }
 
 #[test]
@@ -77,7 +76,6 @@ fn the_pulse_counts_each_day_and_hour_on_the_authors_own_clock() {
     assert_eq!(at(2, 22), 1);
     assert_eq!(at(5, 2), 1, "Saturday 02:05 in California");
     assert_eq!(at(6, 12), 1);
-    assert_eq!(pulse.busiest_hour(), Some(10));
     assert_eq!(pulse.weekend(), 2);
     assert_eq!(pulse.night(), 3);
 
@@ -112,8 +110,7 @@ fn a_rebased_commit_counts_on_the_day_it_landed_and_the_hour_it_was_written() {
         &idx,
         Window::last(2, EPOCH + 4 * DAY + 23 * 3600),
         options(),
-    )
-    .expect("all of it is loaded");
+    );
     let pulse = a.pulse(None);
     assert_eq!(pulse.first_day, MONDAY + 2, "Wednesday");
     assert_eq!(pulse.days, vec![0, 1, 1], "Wednesday to Friday");
@@ -360,9 +357,7 @@ fn kinds_of_work_are_judged_from_the_files_first_then_the_message() {
         ],
         &[h("src/a.rs", 10, 2)],
     );
-    let pulse = Analysis::new(&idx, Window::all(EPOCH + 7 * DAY), options())
-        .expect("analysis")
-        .pulse(None);
+    let pulse = Analysis::new(&idx, Window::all(EPOCH + 7 * DAY), options()).pulse(None);
     let work: Vec<(Work, u32)> = pulse
         .work
         .iter()
@@ -397,8 +392,8 @@ fn commits_over_time_are_split_among_the_top_people_and_everyone_else() {
         ],
         &[h("a.rs", 10, 2)],
     );
-    let a = Analysis::new(&idx, Window::all(EPOCH + 3 * DAY + 1), options()).expect("analysis");
-    let split = a.commits_by_person(2);
+    let a = Analysis::new(&idx, Window::all(EPOCH + 3 * DAY + 1), options());
+    let split = a.commits_by_person_in(&a.pulse(None), &a.contributors(), 2);
     let email = |p| {
         idx.authors
             .get(p)
@@ -435,7 +430,7 @@ fn the_timeline_tells_the_projects_life_in_moments() {
     }
     commits.push(c(300, "cal@x.org", &["src/app.ts"]).lines(&[(1, 1)]));
     let idx = index(&commits, &[h("src/app.ts", 1500, 2)]);
-    let a = Analysis::new(&idx, Window::all(EPOCH + 400 * DAY), options()).expect("analysis");
+    let a = Analysis::new(&idx, Window::all(EPOCH + 400 * DAY), options());
     let at = |day: i64| EPOCH + day * DAY;
     let who = |email: &str| person(&idx, email);
     let releases = vec![("v1.0".to_string(), at(50))];
@@ -508,7 +503,7 @@ fn a_window_that_starts_later_tells_no_joining_and_no_first_commit() {
         from: Some(at(110)),
         to: at(400),
     };
-    let a = Analysis::new(&idx, window, options()).expect("analysis");
+    let a = Analysis::new(&idx, window, options());
     let bob = person(&idx, "bob@x.org");
     assert_eq!(
         a.timeline(&[]),

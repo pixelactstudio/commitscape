@@ -6,7 +6,6 @@ use std::path::PathBuf;
 use commitscape_core::{ChangeKind, FileId, Index, Oid};
 use commitscape_index::{
     index_from_scratch, index_incremental, load, CacheOptions, Freshness, GixRepo, RebuildReason,
-    Since,
 };
 
 const EPOCH: i64 = 1_704_067_200;
@@ -95,7 +94,11 @@ fn an_exact_rename_keeps_one_identity_with_the_whole_history() {
 
     let moved = idx.paths.get(b"new/path.txt").expect("the moved file");
     assert_eq!(
-        idx.paths.former_paths(moved).collect::<Vec<_>>(),
+        idx.paths
+            .departures()
+            .filter(|(file, _)| *file == moved)
+            .map(|(_, path)| path)
+            .collect::<Vec<_>>(),
         vec![b"old/path.txt".as_slice()]
     );
     assert_eq!(idx.paths.get(b"old/path.txt"), None);
@@ -259,14 +262,14 @@ fn a_real_repository_loads_warm_the_second_time() {
     let options = CacheOptions {
         root: Some(dir.path().to_path_buf()),
     };
-    let first = load(&repo, &options, Since::All, &mut |_| {}).expect("first load");
+    let first = load(&repo, &options, &mut |_| {}).expect("first load");
     assert_eq!(
         first.freshness,
         Freshness::Built {
             reason: RebuildReason::NoCache
         }
     );
-    let second = load(&repo, &options, Since::All, &mut |_| {}).expect("second load");
+    let second = load(&repo, &options, &mut |_| {}).expect("second load");
     assert_eq!(second.freshness, Freshness::Warm);
     assert_eq!(second.index.commits, first.index.commits);
     assert_eq!(second.index.changes, first.index.changes);

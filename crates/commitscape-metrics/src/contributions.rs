@@ -24,14 +24,6 @@ pub struct Contribution {
 }
 
 impl Analysis<'_> {
-    pub fn contributions(&self) -> Vec<Contribution> {
-        combine(
-            &self.contributors(),
-            &self.ownership(),
-            &self.lines_by_person(),
-        )
-    }
-
     pub fn lines_by_person(&self) -> Vec<(AuthorId, LinesChanged)> {
         let index = self.index();
         let options = self.options();

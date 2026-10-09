@@ -7,7 +7,7 @@ mod location;
 use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 
-use commitscape_core::{CommitMeta, FileChange, Index, Month, RepoIdentity};
+use commitscape_core::{Index, Month, RepoIdentity};
 
 use crate::build::IndexBuilder;
 use crate::head_pass::{head_pass, ClassifyContext, Previous as PreviousHead};
@@ -28,13 +28,6 @@ pub fn repo_dir(options: &CacheOptions, repo: &RepoIdentity) -> Option<PathBuf> 
 #[derive(Debug, Clone, Default)]
 pub struct CacheOptions {
     pub root: Option<PathBuf>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Since {
-    All,
-    Time(i64),
-    BeforeNewest(i64),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,83 +55,24 @@ pub enum Progress {
 pub struct Loaded {
     pub index: Index,
     pub freshness: Freshness,
-    rest: Option<Rest>,
-}
-
-impl Loaded {
-    fn complete(index: Index, freshness: Freshness) -> Self {
-        Loaded {
-            index,
-            freshness,
-            rest: None,
-        }
-    }
-
-    pub fn take_rest(&mut self) -> Option<Rest> {
-        self.rest.take()
-    }
-}
-
-#[derive(Debug)]
-pub struct Rest {
-    dir: PathBuf,
-    data_file: String,
-    blocks: Vec<BlockEntry>,
-}
-
-#[derive(Debug)]
-pub struct OlderHistory {
-    commits: Vec<CommitMeta>,
-    changes: Vec<FileChange>,
-    subjects: Vec<u8>,
-}
-
-#[derive(Debug, thiserror::Error)]
-#[error("older history could not be read from the cache")]
-pub struct RestUnavailable;
-
-impl Rest {
-    pub fn load(self) -> Result<OlderHistory, RestUnavailable> {
-        format::read_blocks(&self.dir, &self.data_file, &self.blocks)
-            .map(|decoded| OlderHistory {
-                commits: decoded.commits,
-                changes: decoded.changes,
-                subjects: decoded.subjects,
-            })
-            .map_err(|_| RestUnavailable)
-    }
-
-    pub fn complete(self, recent: &Index) -> Result<Index, RestUnavailable> {
-        let older = self.load()?;
-        let mut full = recent.clone();
-        older.prepend_to(&mut full);
-        Ok(full)
-    }
-}
-
-impl OlderHistory {
-    pub fn prepend_to(self, index: &mut Index) {
-        index.prepend_history(self.commits, self.changes, self.subjects, None);
-    }
 }
 
 /// Loads a repository's Index from the cache, reading only the history that is new.
 pub fn load<S: RepoSource>(
     source: &S,
     options: &CacheOptions,
-    since: Since,
     progress: &mut dyn FnMut(Progress),
 ) -> Result<Loaded, S::Error> {
     let identity = source.identity()?;
     let Some(root) = options.root.as_deref() else {
         let rules = IdentityRules::from_mailmap(source.mailmap()?);
         let (index, _) = build(source, identity, rules, progress)?;
-        return Ok(Loaded::complete(
+        return Ok(Loaded {
             index,
-            Freshness::Built {
+            freshness: Freshness::Built {
                 reason: RebuildReason::Disabled,
             },
-        ));
+        });
     };
     let dir = root.join(identity.cache_key());
     let fingerprint = source.refs_fingerprint()?;
@@ -176,13 +110,13 @@ pub fn load<S: RepoSource>(
         } else {
             Some(ctx.rules(source)?)
         };
-        let r = warm(&ctx, head, since, rules.as_ref());
+        let r = warm(&ctx, head, rules.as_ref());
         return match r {
             Ok(loaded) => Ok(loaded),
             Err(_) => rebuild(source, ctx, RebuildReason::Unreadable, progress),
         };
     }
-    resume(source, ctx, head, since, reclassify, progress)
+    resume(source, ctx, head, reclassify, progress)
 }
 
 struct Context<'a> {
@@ -240,31 +174,13 @@ fn rebuild<S: RepoSource>(
         new_ids: SortedIds::run_of(index.commits.iter().map(|c| c.id)),
         dir: ctx.dir,
     });
-    Ok(Loaded::complete(index, Freshness::Built { reason }))
+    Ok(Loaded {
+        index,
+        freshness: Freshness::Built { reason },
+    })
 }
 
-fn resolve_since(since: Since, newest: Option<i64>) -> Option<i64> {
-    match since {
-        Since::All => None,
-        Since::Time(t) => Some(t),
-        Since::BeforeNewest(seconds) => newest.map(|n| n.saturating_sub(seconds)),
-    }
-}
-
-fn first_block(blocks: &[BlockEntry], time: Option<i64>) -> (usize, Option<i64>) {
-    let Some(time) = time else {
-        return (0, None);
-    };
-    let month = Month::of(time);
-    let first = blocks.partition_point(|b| b.month < month);
-    if first == 0 {
-        (0, None)
-    } else {
-        (first, Some(month.start()))
-    }
-}
-
-fn index_from(head: Head, decoded: format::Decoded, loaded_from: Option<i64>) -> Index {
+fn index_from(head: Head, decoded: format::Decoded) -> Index {
     Index {
         schema_version: head.schema_version,
         repo: head.repo,
@@ -279,27 +195,15 @@ fn index_from(head: Head, decoded: format::Decoded, loaded_from: Option<i64>) ->
         head_commit: head.head_commit,
         history_truncated: head.history_truncated,
         span: head.span,
-        loaded_from,
     }
 }
 
 fn warm(
     ctx: &Context<'_>,
     head: Head,
-    since: Since,
     changed_rules: Option<&IdentityRules>,
 ) -> Result<Loaded, Unusable> {
-    let (first, loaded_from) = first_block(&head.blocks, resolve_since(since, head.span.newest));
-    let decoded = format::read_blocks(
-        ctx.dir,
-        &head.data_file,
-        head.blocks.get(first..).unwrap_or(&[]),
-    )?;
-    let mut rest = Rest {
-        dir: ctx.dir.to_path_buf(),
-        data_file: head.data_file.clone(),
-        blocks: head.blocks.get(..first).unwrap_or(&[]).to_vec(),
-    };
+    let decoded = format::read_blocks(ctx.dir, &head.data_file, &head.blocks)?;
     let previous = changed_rules.map(|_| PreviousParts {
         data_file: head.data_file.clone(),
         blocks: head.blocks.clone(),
@@ -308,17 +212,12 @@ fn warm(
     });
     let classify = head.classify.clone();
 
-    let mut index = index_from(head, decoded, loaded_from);
+    let mut index = index_from(head, decoded);
     if let (Some(rules), Some(previous)) = (changed_rules, previous) {
         reresolve_authors(&mut index, rules);
         if let Ok(ids) = previous.ids {
-            let written = format::write(format::Writing {
-                head: format::head_of(
-                    &index,
-                    ctx.fingerprint,
-                    ctx.mailmap_fingerprint,
-                    classify.clone(),
-                ),
+            let _ = format::write(format::Writing {
+                head: format::head_of(&index, ctx.fingerprint, ctx.mailmap_fingerprint, classify),
                 previous: Some(format::Previous {
                     data_file: previous.data_file,
                     blocks: previous.blocks,
@@ -329,16 +228,11 @@ fn warm(
                 new_ids: Vec::new(),
                 dir: ctx.dir,
             });
-            if let Ok((data_file, blocks)) = written {
-                rest.data_file = data_file;
-                rest.blocks = blocks.get(..first).unwrap_or(&[]).to_vec();
-            }
         }
     }
     Ok(Loaded {
         index,
         freshness: Freshness::Warm,
-        rest: (first > 0).then_some(rest),
     })
 }
 
@@ -353,7 +247,6 @@ fn resume<S: RepoSource>(
     source: &S,
     ctx: Context<'_>,
     head: Head,
-    since: Since,
     reclassify: bool,
     progress: &mut dyn FnMut(Progress),
 ) -> Result<Loaded, S::Error> {
@@ -362,8 +255,6 @@ fn resume<S: RepoSource>(
         return rebuild(source, ctx, RebuildReason::HistoryRewritten, progress);
     }
 
-    let (mut first, loaded_from) =
-        first_block(&head.blocks, resolve_since(since, head.span.newest));
     let data_file = head.data_file.clone();
     let old_blocks = head.blocks.clone();
     let id_runs = head.id_runs.clone();
@@ -372,12 +263,11 @@ fn resume<S: RepoSource>(
         Ok(ids) => ids,
         Err(_) => return rebuild(source, ctx, RebuildReason::Unreadable, progress),
     };
-    let decoded =
-        match format::read_blocks(ctx.dir, &data_file, old_blocks.get(first..).unwrap_or(&[])) {
-            Ok(d) => d,
-            Err(_) => return rebuild(source, ctx, RebuildReason::Unreadable, progress),
-        };
-    let base = index_from(head, decoded, loaded_from);
+    let decoded = match format::read_blocks(ctx.dir, &data_file, &old_blocks) {
+        Ok(d) => d,
+        Err(_) => return rebuild(source, ctx, RebuildReason::Unreadable, progress),
+    };
+    let base = index_from(head, decoded);
 
     let mut builder = IndexBuilder::resume(base, ctx.rules(source)?);
     let stats = source.walk_history(
@@ -389,22 +279,6 @@ fn resume<S: RepoSource>(
     )?;
     let added = builder.commit_count() as u64;
     let changed_from = builder.oldest_pending_time().map(Month::of);
-
-    if let Some(month) = changed_from {
-        let (needed, needed_from) = first_block(&old_blocks, Some(month.start()));
-        if needed < first {
-            let older = match format::read_blocks(
-                ctx.dir,
-                &data_file,
-                old_blocks.get(needed..first).unwrap_or(&[]),
-            ) {
-                Ok(d) => d,
-                Err(_) => return rebuild(source, ctx, RebuildReason::Unreadable, progress),
-            };
-            builder.prepend_base(older.commits, older.changes, older.subjects, needed_from);
-            first = needed;
-        }
-    }
 
     let new_ids = SortedIds::run_of(builder.added_ids().into_iter());
     let mut index = builder.finish(ctx.identity.clone(), tips, stats.history_truncated);
@@ -444,7 +318,7 @@ fn resume<S: RepoSource>(
         }
         None => (Vec::new(), old_blocks.clone()),
     };
-    let written = format::write(format::Writing {
+    let _ = format::write(format::Writing {
         head: format::head_of(&index, ctx.fingerprint, ctx.mailmap_fingerprint, classify),
         previous: Some(Previous {
             data_file: data_file.clone(),
@@ -456,23 +330,9 @@ fn resume<S: RepoSource>(
         new_ids,
         dir: ctx.dir,
     });
-    let rest = (first > 0).then(|| match written {
-        Ok((data_file, blocks)) => Rest {
-            dir: ctx.dir.to_path_buf(),
-            data_file,
-            blocks: blocks.get(..first).unwrap_or(&[]).to_vec(),
-        },
-        Err(_) => Rest {
-            dir: ctx.dir.to_path_buf(),
-            data_file,
-            blocks: old_blocks.get(..first).unwrap_or(&[]).to_vec(),
-        },
-    });
-
     Ok(Loaded {
         index,
         freshness: Freshness::Updated { added },
-        rest,
     })
 }
 
@@ -504,7 +364,7 @@ mod tests {
         let options = CacheOptions {
             root: Some(root.to_path_buf()),
         };
-        match load(repo, &options, Since::All, &mut |_| {}) {
+        match load(repo, &options, &mut |_| {}) {
             Ok(l) => l,
             Err(never) => match never {},
         }

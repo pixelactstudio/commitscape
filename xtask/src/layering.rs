@@ -10,33 +10,21 @@ struct Rule {
 const RULES: &[Rule] = &[
     Rule {
         package: "commitscape-metrics",
-        forbidden: &[
-            "gix",
-            "commitscape-index",
-            "commitscape-forge",
-            "ratatui",
-            "crossterm",
-        ],
+        forbidden: &["gix", "commitscape-index", "commitscape-forge"],
         why: "The metrics layer is defined as pure functions over the index. If it can see \
               git, or the network, the seam is decorative.",
     },
     Rule {
         package: "commitscape-forge",
-        forbidden: &["gix", "commitscape-index", "ratatui", "crossterm"],
-        why: "The forge turns a remote URL into a host's numbers (ADR-0009). It has no \
-              business with git history or the terminal.",
-    },
-    Rule {
-        package: "commitscape-tui",
         forbidden: &["gix", "commitscape-index"],
-        why: "The interface draws an Index and receives older history through a function \
-              its caller provides. If it can see git or the cache, it can go around both.",
+        why: "The forge turns a remote URL into a host's numbers (ADR-0009). It has no \
+              business with git history.",
     },
     Rule {
         package: "commitscape-report",
-        forbidden: &["gix", "commitscape-index", "ratatui", "crossterm"],
-        why: "The Report is computed from an Index, as the terminal interface is, and is \
-              handed everything else by the binary. It draws in no terminal.",
+        forbidden: &["gix", "commitscape-index", "commitscape-forge"],
+        why: "The Report is computed from an Index and is handed everything else by the \
+              binary. If it can see git or the network, it can go around both.",
     },
 ];
 

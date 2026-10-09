@@ -6,7 +6,7 @@ import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { KeyRound, Lock, Timer, Trash2 } from "lucide-react";
 import { deleteToken, readReport, reportSource, unlock, type DataSource } from "@commitscape/data";
-import { App, Page, PageHead, SCREEN_SKELETONS, ScreenBar, SourceContext, toRoute, toSearch, type Route as Where } from "@commitscape/ui";
+import { App, Page, PageHead, SCREEN_SKELETONS, ScreenBar, searcher, SourceContext, toRoute, toSearch, type Route as Where } from "@commitscape/ui";
 import { Chip } from "#/components/Facts";
 import { shareKey } from "#/share-key";
 
@@ -81,7 +81,7 @@ function SharedReport() {
       } catch {
         return set({ kind: "error", words: "This Shared Report could not be unlocked: the link's key is not its key, or what is stored was changed." });
       }
-      set({ kind: "open", source: reportSource(await readReport(plain), `share:${id}`), expiresAt });
+      set({ kind: "open", source: reportSource(await readReport(plain), `share:${id}`, searcher), expiresAt });
     })().catch((e: Error) => set({ kind: "error", words: e.message }));
     const timer = setInterval(() => tick((n) => n + 1), 30_000);
     return () => {

@@ -1,116 +1,67 @@
-mod check;
 mod clone;
+mod format;
 mod health;
-mod json;
-mod people;
 mod share;
+mod signatures;
 mod surviving;
-mod text;
-mod who;
-mod wrapped;
 
+use std::collections::HashMap;
 use std::io::{IsTerminal, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
 use commitscape_core::Index;
-use commitscape_forge::{GitHub, Remote};
+use commitscape_forge::Remote;
+use commitscape_index::identity::Account;
 use commitscape_index::RepoSource;
 use commitscape_index::{
     default_cache_root, line_pass, load, reresolve_authors, CacheOptions, GixRepo, IdentityRules,
-    IdentityStore, LineStore, Progress, Since,
+    IdentityStore, LineStore, Progress,
 };
-use commitscape_metrics::{Analysis, Options, Span};
-use commitscape_tui::format::grouped;
-use commitscape_tui::{ChangePeople, LinkAccounts, LoadGitHub, LoadOlder, Session};
+use commitscape_metrics::{Options, Span};
+
+use crate::format::grouped;
 
 #[derive(Parser)]
 #[command(
     name = "commitscape",
     version,
-    about = "Reads a git repository and reports what changes what you do next.",
+    about = "Reads a git repository's history and shares what each person built there.",
+    long_about = "Reads a git repository's history and shares what each person built there.\n\n\
+                  Run on its own, it shares the repository: the same as commitscape share.",
     args_conflicts_with_subcommands = true
 )]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
 
-    /// Path to the repository. Defaults to the current directory.
-    #[arg(default_value = ".")]
-    repo: PathBuf,
-
-    /// The Window every number is computed over: 30d, 90d, 1y or all.
-    #[arg(long, default_value = "90d", value_parser = parse_span)]
-    window: Span,
-
-    /// Print every metric as one JSON document. The Window ends at the newest
-    /// commit rather than now, so the same repository gives the same output.
-    #[arg(long)]
-    json: bool,
-
-    /// Print the plain-text summary even in a terminal, instead of opening
-    /// the interface.
-    #[arg(long, conflicts_with = "json")]
-    summary: bool,
-
-    /// Leave out the lines each person added and removed, so the JSON
-    /// output does not wait for them to be counted.
-    #[arg(long, requires = "json")]
-    no_lines: bool,
-
-    /// Rows in each ranking of the JSON output.
-    #[arg(long, default_value_t = 20, value_name = "ROWS")]
-    top: usize,
-
-    /// The interface's colours: terminal (its own colours), dark or light.
-    /// Press t to change them.
-    #[arg(long, default_value = "terminal", value_parser = parse_theme)]
-    theme: commitscape_tui::Theme,
-
     #[command(flatten)]
-    common: Common,
-
-    /// Draw the interface's first frame and exit: what the first-paint
-    /// benchmark times.
-    #[arg(long, hide = true)]
-    exit_after_first_paint: bool,
+    share: share::ShareArgs,
 }
 
 #[derive(Subcommand)]
 enum Command {
-    /// Draw the repository's story on a card to share, as an SVG image.
-    Card(CardArgs),
-    /// What you probably forgot to change: files that nearly always change
-    /// with the ones staged (or on a branch, in a pull request, in a
-    /// commit) and are missing.
-    Check(check::CheckArgs),
-    /// Who to ask about a file or folder: who worked on it most, and most
-    /// recently, and whether they still commit.
-    Who(who::WhoArgs),
-    /// Whether a project on GitHub is alive and whether it depends on one
-    /// person: its maintainers, Bus Factor, releases, issue answers and
-    /// trend, and its card. Keeps a partial clone in the cache directory.
-    Health(health::HealthArgs),
-    /// Your year across every repository under a folder, as a card: your
-    /// own commits only, private repositories included, nothing uploaded.
-    Wrapped(wrapped::WrappedArgs),
-    /// Fetch the repository's pull requests, issues and releases from GitHub
-    /// now, through the gh CLI. The interface does this in the background;
-    /// a fetch that stops, at GitHub's rate limit say, resumes next time.
-    Github(GithubArgs),
+    /// Upload this repository's Report, locked with a key only the printed
+    /// link holds, and open it in the browser. The Site cannot read it, and
+    /// the link works for a few hours. What commitscape does on its own.
+    Share(share::ShareArgs),
     /// Write the repository's Report, every screen for every Window, as
     /// gzipped JSON: what the Site stores and a Shared Report uploads.
     Report(ReportArgs),
-    /// Upload this repository's Report, locked with a key only the printed
-    /// link holds, so any browser can open it for a few hours. The Site
-    /// cannot read it. Exits at once.
-    Share(share::ShareArgs),
+    /// Whether a project on GitHub is alive and whether it depends on one
+    /// person: its maintainers, Bus Factor, releases, issue answers and
+    /// trend. Keeps a partial clone in the cache directory.
+    Health(health::HealthArgs),
     /// Count each person's Surviving Lines: the lines at the head that blame
     /// gives them, passing Bulk Commits and the commits named in
     /// .git-blame-ignore-revs through to who wrote the lines before, and
     /// leaving out Generated Files and Prose Files. Prints one JSON document.
     Surviving(surviving::SurvivingArgs),
+    /// Write every author address in the history, after the mailmap, with
+    /// its name, its commits and its newest commit, as JSON.
+    #[command(hide = true)]
+    Signatures(signatures::SignaturesArgs),
 }
 
 #[derive(Args)]
@@ -124,6 +75,16 @@ struct ReportArgs {
     /// current directory.
     #[arg(long, value_name = "FILE")]
     out: Option<PathBuf>,
+
+    /// Write the commit list here, as gzipped JSON, and leave it out of the
+    /// Report.
+    #[arg(long, value_name = "FILE")]
+    commits_out: Option<PathBuf>,
+
+    /// A JSON object of email addresses to GitHub logins. Addresses with the
+    /// same login are one person, shown with that login.
+    #[arg(long, value_name = "FILE")]
+    accounts: Option<PathBuf>,
 
     /// The Window it opens on: 30d, 90d, 1y or all.
     #[arg(long, default_value = "90d", value_parser = parse_span)]
@@ -143,36 +104,6 @@ struct ReportArgs {
     /// (ADR-0019): people appear by name and GitHub login only.
     #[arg(long)]
     no_emails: bool,
-
-    #[command(flatten)]
-    common: Common,
-}
-
-#[derive(Args)]
-struct GithubArgs {
-    /// Path to the repository. Defaults to the current directory.
-    #[arg(default_value = ".")]
-    repo: PathBuf,
-
-    /// Where to keep the index cache and what is fetched beside it.
-    #[arg(long, value_name = "DIR")]
-    cache_dir: Option<PathBuf>,
-}
-
-#[derive(Args)]
-struct CardArgs {
-    /// Path to the repository. Defaults to the current directory.
-    #[arg(default_value = ".")]
-    repo: PathBuf,
-
-    /// Where to write the card. Defaults to <repository>-card.svg in the
-    /// current directory.
-    #[arg(long, value_name = "FILE")]
-    out: Option<PathBuf>,
-
-    /// The Window the card tells: 30d, 90d, 1y or all.
-    #[arg(long, default_value = "all", value_parser = parse_span)]
-    window: Span,
 
     #[command(flatten)]
     common: Common,
@@ -200,7 +131,7 @@ pub(crate) struct Common {
     #[arg(long)]
     no_cache: bool,
 
-    /// Never ask GitHub (through the gh CLI) about the repository.
+    /// Never ask GitHub about the repository.
     #[arg(long)]
     offline: bool,
 }
@@ -228,11 +159,6 @@ impl Common {
     }
 }
 
-fn parse_theme(s: &str) -> Result<commitscape_tui::Theme, String> {
-    commitscape_tui::Theme::parse(s)
-        .ok_or_else(|| format!("expected terminal, dark or light, got {s:?}"))
-}
-
 fn parse_span(s: &str) -> Result<Span, String> {
     Span::from_label(s).ok_or_else(|| format!("expected 30d, 90d, 1y or all, got {s:?}"))
 }
@@ -250,104 +176,18 @@ fn main() -> ExitCode {
 
 fn run(cli: Cli) -> anyhow::Result<()> {
     match cli.command {
-        Some(Command::Card(args)) => return card(args),
-        Some(Command::Check(args)) => return check::run(args),
-        Some(Command::Who(args)) => return who::run(args),
-        Some(Command::Health(args)) => return health::run(args),
-        Some(Command::Wrapped(args)) => return wrapped::run(args),
-        Some(Command::Github(args)) => return github_history(args),
-        Some(Command::Report(args)) => return report(args),
-        Some(Command::Share(args)) => return share::run(args),
-        Some(Command::Surviving(args)) => return surviving::run(args),
-        None => {}
+        Some(Command::Share(args)) => share::run(args),
+        Some(Command::Report(args)) => report(args),
+        Some(Command::Health(args)) => health::run(args),
+        Some(Command::Surviving(args)) => surviving::run(args),
+        Some(Command::Signatures(args)) => signatures::run(args),
+        None => share::run(cli.share),
     }
-    let repo = GixRepo::open(&cli.repo)?;
-    let options = cli.common.cache();
-    let since = match (cli.window.days(), cli.json) {
-        (None, _) => Since::All,
-        (Some(days), true) => Since::BeforeNewest(i64::from(days) * DAY),
-        (Some(days), false) => Since::Time(now() - i64::from(days) * DAY),
-    };
-
-    let interactive = cli.exit_after_first_paint
-        || (!cli.json
-            && !cli.summary
-            && std::io::stdout().is_terminal()
-            && std::io::stdin().is_terminal());
-
-    let mut meter = ProgressLine::new();
-    let mut loaded = load(&repo, &options, since, &mut |p| meter.show(p))?;
-    meter.clear();
-
-    let anchor = if cli.json {
-        let store = IdentityStore::for_repo(&options, &loaded.index.repo);
-        if store.is_some_and(|s| s.rules(Default::default()).has_extras()) {
-            reresolve_authors(
-                &mut loaded.index,
-                &IdentityRules::from_mailmap(repo.mailmap()?),
-            );
-        }
-        loaded.index.span.newest.unwrap_or(0)
-    } else {
-        now()
-    };
-    let metrics = cli.common.metrics();
-
-    if interactive {
-        let older = loaded.take_rest().map(|rest| -> LoadOlder {
-            Box::new(move |recent: &Index| rest.complete(recent).ok())
-        });
-        let offline = cli.common.offline || cli.exit_after_first_paint;
-        let loaded_repo = loaded.index.repo.clone();
-        let (change, link) = identities(&cli.repo, &repo, &options, &loaded.index, offline);
-        let session = Session {
-            name: repo_name(&loaded.index),
-            index: loaded.index,
-            anchor,
-            span: cli.window,
-            options: metrics,
-            older,
-            github: github(&repo, offline),
-            people: change,
-            link_accounts: link,
-            lines: Some(count_lines(&cli.repo, &options, &loaded_repo)),
-            releases: Some(releases(&cli.repo)),
-            theme: cli.theme,
-        };
-        if cli.exit_after_first_paint {
-            commitscape_tui::paint_once(session)?;
-        } else {
-            commitscape_tui::run(session)?;
-        }
-        return Ok(());
-    }
-
-    let lines = cli.json && !cli.no_lines;
-    if lines {
-        let store = LineStore::for_repo(&options, &loaded.index.repo);
-        let mut meter = ProgressLine::new();
-        let pass = line_pass(&repo, &loaded.index, store.as_ref(), &mut |done, total| {
-            meter.lines(done, total)
-        })?;
-        meter.clear();
-        pass.apply(&mut loaded.index);
-    }
-    let analysis = Analysis::new(&loaded.index, cli.window.window(anchor), metrics)?;
-
-    let mut out = std::io::stdout().lock();
-    if cli.json {
-        let report = json::report(&analysis, cli.window, cli.top, lines);
-        serde_json::to_writer_pretty(&mut out, &report)?;
-        writeln!(out)?;
-    } else {
-        let summary = text::summary(&cli.repo, &loaded.index, loaded.freshness);
-        write!(out, "{summary}{}", text::rankings(&analysis, cli.window))?;
-    }
-    Ok(())
 }
 
 fn report(args: ReportArgs) -> anyhow::Result<()> {
     let options = args.common.cache();
+    let accounts = args.accounts.as_deref().map(read_accounts).transpose()?;
     let path = repo_source(&args.repo, args.partial, &options)?;
     let count_lines = !(args.no_lines || args.partial);
     let (name, report) = make_report(
@@ -356,28 +196,50 @@ fn report(args: ReportArgs) -> anyhow::Result<()> {
         args.window,
         count_lines,
         !args.no_emails,
+        accounts.as_ref(),
     )?;
     let out = args
         .out
         .unwrap_or_else(|| PathBuf::from(format!("{name}-report.json.gz")));
-    let json = commitscape_report::report::data(report);
-    std::fs::write(&out, gzip(json.as_bytes())?)?;
+    let written = commitscape_report::report::write(report, args.commits_out.is_some());
+    std::fs::write(&out, gzip(written.report.as_bytes())?)?;
     println!("wrote {}", out.display());
+    if let (Some(path), Some(commits)) = (&args.commits_out, &written.commits) {
+        std::fs::write(path, gzip(commits.as_bytes())?)?;
+        println!("wrote {}", path.display());
+    }
     Ok(())
+}
+
+pub(crate) fn read_accounts(path: &Path) -> anyhow::Result<HashMap<String, String>> {
+    let bytes = std::fs::read(path)
+        .map_err(|e| anyhow::anyhow!("could not read {}: {e}", path.display()))?;
+    let accounts: HashMap<String, String> = serde_json::from_slice(&bytes).map_err(|e| {
+        anyhow::anyhow!(
+            "{} is not a JSON object of email addresses to logins: {e}",
+            path.display()
+        )
+    })?;
+    Ok(accounts
+        .into_iter()
+        .filter(|(email, login)| !email.is_empty() && !login.is_empty())
+        .map(|(email, login)| (email.to_ascii_lowercase(), login))
+        .collect())
 }
 
 /// Reads a repository and gathers everything its Report is made from.
 pub(crate) fn make_report(
-    path: &std::path::Path,
+    path: &Path,
     common: &Common,
     window: Span,
     count_lines: bool,
     emails: bool,
+    given: Option<&HashMap<String, String>>,
 ) -> anyhow::Result<(String, commitscape_report::report::Report)> {
     let options = common.cache();
     let repo = GixRepo::open(path)?;
     let mut meter = ProgressLine::new();
-    let mut loaded = load(&repo, &options, Since::All, &mut |p| meter.show(p))?;
+    let mut loaded = load(&repo, &options, &mut |p| meter.show(p))?;
     meter.clear();
     let identity = loaded.index.repo.clone();
     if count_lines {
@@ -389,30 +251,89 @@ pub(crate) fn make_report(
         meter.clear();
         pass.apply(&mut loaded.index);
     }
+    let accounts = with_accounts(&repo, &options, &mut loaded.index, given)?;
     let name = repo_name(&loaded.index);
-    let history = github_file(&options, &identity)
-        .map(|p| commitscape_forge::history::History::load(&p))
-        .filter(|h| !h.pull_requests.is_empty() || !h.issues.is_empty());
-    if history.is_none() {
-        eprintln!("No GitHub history is saved for it; run commitscape github first to include pull requests.");
-    }
-    let metrics = common.metrics();
     let report = commitscape_report::report::Report {
         name: name.clone(),
         index: loaded.index,
         anchor: now(),
         span: window,
-        options: metrics,
+        options: common.metrics(),
         releases: repo.version_tags(),
         lines_counted: count_lines,
-        history,
-        accounts: accounts(&options, &identity),
-        card: Some(draw_card(name.clone(), metrics)),
+        accounts,
         avatars: !common.offline,
         commit_link: commit_link(&repo),
         emails,
     };
     Ok((name, report))
+}
+
+/// Joins the addresses given one GitHub login into one person, and returns every known address's login.
+pub(crate) fn with_accounts(
+    repo: &GixRepo,
+    options: &CacheOptions,
+    index: &mut Index,
+    given: Option<&HashMap<String, String>>,
+) -> anyhow::Result<HashMap<String, String>> {
+    let store = IdentityStore::for_repo(options, &index.repo);
+    let mut rules = match &store {
+        Some(store) => store.rules(repo.mailmap()?),
+        None => IdentityRules::from_mailmap(repo.mailmap()?),
+    };
+    if let Some(given) = given {
+        join_accounts(&mut rules, index, given);
+        reresolve_authors(index, &rules);
+    }
+    Ok(rules
+        .accounts
+        .into_iter()
+        .map(|(email, a)| (email, a.login))
+        .collect())
+}
+
+fn join_accounts(rules: &mut IdentityRules, index: &Index, given: &HashMap<String, String>) {
+    let mut ids: HashMap<String, u64> = HashMap::new();
+    for a in rules.accounts.values() {
+        ids.insert(a.login.to_ascii_lowercase(), a.id);
+    }
+    for i in 0..index.authors.signature_count() {
+        let Some(sig) = index
+            .authors
+            .signature(commitscape_core::SignatureId(i as u32))
+        else {
+            continue;
+        };
+        let email = sig.email.to_ascii_lowercase();
+        let Some(local) = email.strip_suffix("@users.noreply.github.com") else {
+            continue;
+        };
+        if let Some((id, login)) = local.split_once('+') {
+            if let Ok(id) = id.parse() {
+                ids.entry(login.to_string()).or_insert(id);
+            }
+        }
+    }
+    for (email, login) in given {
+        let key = login.to_ascii_lowercase();
+        let id = *ids.entry(key.clone()).or_insert_with(|| login_id(&key));
+        rules.accounts.insert(
+            email.clone(),
+            Account {
+                id,
+                login: login.clone(),
+            },
+        );
+    }
+}
+
+fn login_id(login: &str) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in login.bytes() {
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x0100_0000_01b3);
+    }
+    h | 1 << 63
 }
 
 pub(crate) fn repo_source(
@@ -446,150 +367,10 @@ pub(crate) fn repo_source(
 }
 
 pub(crate) fn gzip(bytes: &[u8]) -> std::io::Result<Vec<u8>> {
-    let mut out = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
+    let mut out = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
     out.write_all(bytes)?;
     out.finish()
 }
-
-fn draw_card(name: String, options: Options) -> commitscape_report::DrawCard {
-    std::sync::Arc::new(move |index: &Index, span, anchor| {
-        let session = Session {
-            name: name.clone(),
-            index: index.clone(),
-            anchor,
-            span,
-            options,
-            older: None,
-            github: Err("not asked for a card".to_string()),
-            people: None,
-            link_accounts: None,
-            lines: None,
-            releases: None,
-            theme: commitscape_tui::Theme::Dark,
-        };
-        commitscape_tui::svg(&commitscape_tui::card(session))
-    })
-}
-
-fn github_file(
-    options: &CacheOptions,
-    identity: &commitscape_core::RepoIdentity,
-) -> Option<PathBuf> {
-    commitscape_index::repo_dir(options, identity).map(|d| d.join("github.json"))
-}
-
-fn accounts(
-    options: &CacheOptions,
-    identity: &commitscape_core::RepoIdentity,
-) -> std::collections::HashMap<String, String> {
-    IdentityStore::for_repo(options, identity)
-        .map(|store| {
-            store
-                .rules(Default::default())
-                .accounts
-                .into_iter()
-                .map(|(email, a)| (email, a.login))
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-fn card(args: CardArgs) -> anyhow::Result<()> {
-    let repo = GixRepo::open(&args.repo)?;
-    let mut meter = ProgressLine::new();
-    let options = args.common.cache();
-    let loaded = load(&repo, &options, Since::All, &mut |p| meter.show(p))?;
-    meter.clear();
-    let name = repo_name(&loaded.index);
-    let (change, link) = identities(
-        &args.repo,
-        &repo,
-        &options,
-        &loaded.index,
-        args.common.offline,
-    );
-    let session = Session {
-        name: name.clone(),
-        index: loaded.index,
-        anchor: now(),
-        span: args.window,
-        options: args.common.metrics(),
-        older: None,
-        github: github(&repo, args.common.offline),
-        people: change,
-        link_accounts: link,
-        lines: None,
-        releases: None,
-        theme: commitscape_tui::Theme::Dark,
-    };
-    let out = args
-        .out
-        .unwrap_or_else(|| PathBuf::from(format!("{name}-card.svg")));
-    std::fs::write(&out, commitscape_tui::svg(&commitscape_tui::card(session)))?;
-    println!("wrote {}", out.display());
-    Ok(())
-}
-
-fn github_history(args: GithubArgs) -> anyhow::Result<()> {
-    use commitscape_forge::history::History;
-    let repo = GixRepo::open(&args.repo)?;
-    let url = repo
-        .remote_url()
-        .ok_or_else(|| anyhow::anyhow!("this repository has no remote"))?;
-    let remote = Remote::parse(&url)
-        .ok_or_else(|| anyhow::anyhow!("its remote is not on GitHub ({url})"))?;
-    let options = CacheOptions {
-        root: args.cache_dir.or_else(default_cache_root),
-    };
-    let identity = repo.identity()?;
-    let path = commitscape_index::repo_dir(&options, &identity)
-        .ok_or_else(|| anyhow::anyhow!("there is no cache directory to keep it in"))?
-        .join("github.json");
-    let mut history = History::load(&path);
-    let live = std::io::stderr().is_terminal();
-    let result = history.update(
-        Some(&path),
-        &mut commitscape_forge::history::gh(&remote),
-        &mut |p| {
-            if live {
-                let what = match p.connection {
-                    "pullRequests" => "pull requests",
-                    other => other,
-                };
-                eprint!(
-                    "\r\x1b[2Kreading {what}: {} of {}",
-                    grouped(p.read),
-                    grouped(p.total)
-                );
-            }
-        },
-    );
-    if live {
-        eprint!("\r\x1b[2K");
-    }
-    let merged = history
-        .pull_requests
-        .iter()
-        .filter(|p| p.merged.is_some())
-        .count();
-    let closed = history.issues.iter().filter(|i| i.closed.is_some()).count();
-    println!(
-        "{}/{}: {} pull requests ({} merged), {} issues ({} closed), {} releases",
-        remote.owner,
-        remote.name,
-        grouped(history.pull_requests.len() as u64),
-        grouped(merged as u64),
-        grouped(history.issues.len() as u64),
-        grouped(closed as u64),
-        grouped(history.releases.len() as u64),
-    );
-    if let Err(e) = result {
-        println!("stopped early: {e}. Run it again to carry on from here.");
-    }
-    Ok(())
-}
-
-const DAY: i64 = 86_400;
 
 fn commit_link(repo: &GixRepo) -> Option<String> {
     let remote = Remote::parse(&repo.remote_url()?)?;
@@ -599,62 +380,8 @@ fn commit_link(repo: &GixRepo) -> Option<String> {
     ))
 }
 
-fn github(repo: &GixRepo, offline: bool) -> Result<LoadGitHub, String> {
-    if offline {
-        return Err("--offline was given".to_string());
-    }
-    let url = repo
-        .remote_url()
-        .ok_or_else(|| "this repository has no remote".to_string())?;
-    let remote =
-        Remote::parse(&url).ok_or_else(|| format!("its remote is not on GitHub ({url})"))?;
-    Ok(Box::new(move || {
-        GitHub::fetch(&remote).map_err(|e| e.to_string())
-    }))
-}
-
-fn releases(path: &std::path::Path) -> commitscape_tui::LoadReleases {
-    let path = path.to_path_buf();
-    Box::new(move || {
-        GixRepo::open(&path)
-            .map(|r| r.version_tags())
-            .unwrap_or_default()
-    })
-}
-
-fn count_lines(
-    path: &std::path::Path,
-    options: &CacheOptions,
-    repo: &commitscape_core::RepoIdentity,
-) -> commitscape_tui::CountLines {
-    let path = path.to_path_buf();
-    let store = LineStore::for_repo(options, repo);
-    Box::new(move |index: &Index| {
-        let source = GixRepo::open(&path).ok()?;
-        line_pass(&source, index, store.as_ref(), &mut |_, _| {}).ok()
-    })
-}
-
-fn identities(
-    path: &std::path::Path,
-    repo: &GixRepo,
-    options: &CacheOptions,
-    index: &Index,
-    offline: bool,
-) -> (Option<ChangePeople>, Option<LinkAccounts>) {
-    let Some(store) = IdentityStore::for_repo(options, &index.repo) else {
-        return (None, None);
-    };
-    let path = path.to_path_buf();
-    let remote = repo.remote_url().as_deref().and_then(Remote::parse);
-    let link = remote
-        .filter(|_| !offline)
-        .map(|r| people::link(path.clone(), store.clone(), r));
-    (Some(people::change(path, store)), link)
-}
-
 pub(crate) fn repo_name(index: &Index) -> String {
-    let git_dir = std::path::Path::new(&index.repo.git_dir);
+    let git_dir = Path::new(&index.repo.git_dir);
     let dir = if git_dir.file_name().is_some_and(|n| n == ".git") {
         git_dir.parent()
     } else {

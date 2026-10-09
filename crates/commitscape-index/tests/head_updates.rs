@@ -5,7 +5,7 @@ use std::path::Path;
 use std::process::Command;
 
 use commitscape_core::{FileClass, Index};
-use commitscape_index::{index_from_scratch, load, CacheOptions, Freshness, GixRepo, Since};
+use commitscape_index::{index_from_scratch, load, CacheOptions, Freshness, GixRepo};
 
 fn git(dir: &Path, args: &[&str]) {
     let out = Command::new("git")
@@ -62,7 +62,7 @@ fn cached(repo: &Path, cache: &Path) -> (Index, Freshness) {
     let options = CacheOptions {
         root: Some(cache.to_path_buf()),
     };
-    let loaded = load(&source, &options, Since::All, &mut |_| {}).expect("load");
+    let loaded = load(&source, &options, &mut |_| {}).expect("load");
     (loaded.index, loaded.freshness)
 }
 
