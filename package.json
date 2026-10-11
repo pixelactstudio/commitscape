@@ -16,6 +16,6 @@
     "db:custom": "pnpm --filter @commitscape/server db:custom"
   },
   "devDependencies": {
-    "turbo": "2.11.4"
+    "turbo": "2.11.7"
   }
 }
