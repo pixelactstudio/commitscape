@@ -9,12 +9,14 @@ export type Db = PgDatabase<PgQueryResultHKT, typeof schema>;
 /** A Drizzle client on a pooled Postgres connection. */
 export function createDb(url: string, max = 10): { db: Db; pool: pg.Pool } {
   const pool = new pg.Pool({ connectionString: url, max });
+  pool.on("error", (e) => console.error("postgres:", e.message));
   return { db: drizzle(pool, { schema }), pool };
 }
 
 /** Applies the migrations in `migrationsFolder` that have not run yet. */
 export async function runMigrations(url: string, migrationsFolder: string): Promise<void> {
   const pool = new pg.Pool({ connectionString: url, max: 1 });
+  pool.on("error", (e) => console.error("postgres:", e.message));
   try {
     await migrate(drizzle(pool), { migrationsFolder });
   } finally {
