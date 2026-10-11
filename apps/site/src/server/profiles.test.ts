@@ -206,7 +206,7 @@ describe("a Profile from GitHub", () => {
     expect(await lookupProfile({ db, github: { api: "http://github.test", token: "t", fetcher: missing.fetcher } }, anonymous, "nobody")).toMatchObject({ status: "not_found" });
     const org = fakeGitHub({ owner: { __typename: "Organization", login: "acme", databaseId: 9, name: "Acme", avatarUrl: "https://a/acme", description: "Rockets", createdAt: "2019-01-01T00:00:00Z" } });
     expect(await lookupProfile({ db, github: { api: "http://github.test", token: "t", fetcher: org.fetcher } }, anonymous, "acme")).toMatchObject({ status: "organization", identity: { kind: "organization", bio: "Rockets" } });
-    await expect(lookupProfile({ db, github: { api: "http://github.test", token: "t", fetcher: org.fetcher } }, anonymous, "-x")).rejects.toThrow("not a GitHub username");
+    expect(await lookupProfile({ db, github: { api: "http://github.test", token: "t", fetcher: org.fetcher } }, anonymous, "-x")).toMatchObject({ status: "not_found", requests: 0 });
   });
 
   test("with no token at all it says how to get one", async () => {
