@@ -237,7 +237,7 @@ export async function githubGraphql<T = unknown>(db: Db | null, q: GitHubQuery):
         if (answer.status === 429 || answer.status === 403) return "limited";
         if (answer.status !== 200) return "plain";
         const body = parse(text) as (GraphqlBody<{ rateLimit?: { limit: number; remaining: number; resetAt: string } }>) | null;
-        if (body?.errors?.some((e) => e.type === "RATE_LIMITED")) return "limited";
+        if (body?.errors?.some((e) => e.type === "RATE_LIMITED" || /rate limit/i.test(e.message ?? ""))) return "limited";
         const field = body?.data?.rateLimit;
         if (field && !answer.headers.has("x-ratelimit-remaining")) {
           const resetAt = Math.floor(Date.parse(field.resetAt) / 1000);
