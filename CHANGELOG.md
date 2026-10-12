@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/pixelactstudio/commitscape/compare/v0.3.0...v0.3.1) (2026-10-12)
+
+
+### Fixes
+
+* Sentry issues and the GitHub rate limit ([#34](https://github.com/pixelactstudio/commitscape/issues/34)) ([d6d24c4](https://github.com/pixelactstudio/commitscape/commit/d6d24c438ee0ea24d470460ba8e16eea151c26c8))
+
 ## [0.3.0](https://github.com/pixelactstudio/commitscape/compare/v0.2.1...v0.3.0) (2026-10-09)
 
 
