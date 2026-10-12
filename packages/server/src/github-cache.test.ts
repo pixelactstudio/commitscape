@@ -258,6 +258,7 @@ describe("githubGraphql", () => {
   test.each([
     ["a 403", { status: 403 }],
     ["a RATE_LIMITED error", { body: { errors: [{ type: "RATE_LIMITED", message: "API rate limit exceeded" }] } }],
+    ["a rate limit error without its type", { body: { errors: [{ message: "API rate limit already exceeded for user ID 1." }] } }],
     ["a 502", { status: 502 }],
   ] satisfies [string, Step][])("%s serves the stale answer, and with none kept is reported as a limit or failure", async (_, step) => {
     const db = await testDb();

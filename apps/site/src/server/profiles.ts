@@ -479,7 +479,7 @@ async function choices(db: Db, login: string): Promise<{ hidden: boolean; namePr
 
 /** Who a GitHub login is, from the stored copy when it is a day old or less, else from GitHub; a hidden person is only "hidden", except to themselves. */
 export async function lookupProfile(deps: ProfileDeps, viewer: ProfileViewer, login: string): Promise<ProfileLookup & { requests: number }> {
-  nameOf(login);
+  if (!isLogin(login)) return { status: "not_found", login, requests: 0 };
   const self = (await scopeOf(viewer, login)) === "self";
   const chosen = await choices(deps.db, login);
   if (chosen.hidden && !self) return { status: "hidden", login, requests: 0 };

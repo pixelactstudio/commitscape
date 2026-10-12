@@ -5,6 +5,7 @@ export class SiteError extends Error {
   readonly detail: Record<string, unknown>;
   constructor(status: number, message: string, detail: Record<string, unknown> = {}) {
     super(message);
+    this.name = "SiteError";
     this.status = status;
     this.detail = detail;
   }

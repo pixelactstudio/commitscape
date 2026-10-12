@@ -6,7 +6,7 @@ import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { Briefcase, ExternalLink, Link2, MoreHorizontal, Share2, Sparkles } from "lucide-react";
-import { PRODUCT, type Identity } from "@commitscape/data";
+import { isLogin, PRODUCT, type Identity } from "@commitscape/data";
 import {
   ArchetypePill,
   Cell,
@@ -71,6 +71,7 @@ function ProfilePage() {
   const { login } = Route.useParams();
   const { data: lookup } = useSuspenseQuery(profileLookupQuery(login));
   useRemember(lookup.status === "ok" ? { kind: "person", id: lookup.identity.login } : null);
+  if (lookup.status === "not_found" && !isLogin(login)) return <Missing title="That is not a GitHub username." words="GitHub usernames are letters, digits and single hyphens, up to 39 characters. Check the address, or search for them." />;
   if (lookup.status === "not_found") return <Missing title={`No one called @${login}`} words="GitHub has no person by that name. Check its spelling, or search for them." />;
   if (lookup.status === "hidden") return <Missing title="This Profile is hidden" words="This person has chosen to stay out of comparisons, so their Profile shows nothing." />;
   if (lookup.status === "organization" && lookup.identity) return <Organization identity={lookup.identity} />;
