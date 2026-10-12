@@ -25,10 +25,10 @@
     "@gsap/react": "2.1.2",
     "@stylexjs/stylex": "catalog:",
     "gsap": "3.15.0",
-    "lucide-react": "1.48.0",
+    "lucide-react": "1.53.0",
     "motion": "14.0.0",
     "recharts": "3.10.1",
-    "satori": "0.35.0"
+    "satori": "0.41.0"
   },
   "peerDependencies": {
     "@tanstack/react-query": "catalog:",
