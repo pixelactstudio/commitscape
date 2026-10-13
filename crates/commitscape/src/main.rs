@@ -48,6 +48,7 @@ enum Command {
     Share(share::ShareArgs),
     /// Write the repository's Report, every screen for every Window, as
     /// gzipped JSON: what the Site stores and a Shared Report uploads.
+    #[command(hide = true)]
     Report(ReportArgs),
     /// Whether a project on GitHub is alive and whether it depends on one
     /// person: its maintainers, Bus Factor, releases, issue answers and
@@ -62,6 +63,43 @@ enum Command {
     /// its name, its commits and its newest commit, as JSON.
     #[command(hide = true)]
     Signatures(signatures::SignaturesArgs),
+    /// Write the Index as Postgres COPY files for the Site: every commit
+    /// with its Changeset, its people, folders, daily sums and HEAD, or only
+    /// what is new since the commits a previous export held.
+    #[command(hide = true)]
+    Export(ExportArgs),
+}
+
+#[derive(Args)]
+struct ExportArgs {
+    /// Path to the repository.
+    #[arg(default_value = ".")]
+    repo: PathBuf,
+
+    /// The folder to write the files into.
+    #[arg(long, value_name = "DIR")]
+    out: PathBuf,
+
+    /// A JSON object of email addresses to GitHub logins.
+    #[arg(long, value_name = "FILE")]
+    accounts: Option<PathBuf>,
+
+    /// Leave out the lines each change added and removed.
+    #[arg(long)]
+    no_lines: bool,
+
+    /// A file of commit ids, one per line: the frontier of the previous
+    /// export. Only commits not reachable from them are written.
+    #[arg(long, value_name = "FILE", requires = "lineage")]
+    after: Option<PathBuf>,
+
+    /// The lineage of the cache the previous export came from. When the
+    /// cache has another, everything is written.
+    #[arg(long)]
+    lineage: Option<u64>,
+
+    #[command(flatten)]
+    common: Common,
 }
 
 #[derive(Args)]
@@ -181,6 +219,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         Some(Command::Health(args)) => health::run(args),
         Some(Command::Surviving(args)) => surviving::run(args),
         Some(Command::Signatures(args)) => signatures::run(args),
+        Some(Command::Export(args)) => export(args),
         None => share::run(cli.share),
     }
 }
@@ -208,6 +247,67 @@ fn report(args: ReportArgs) -> anyhow::Result<()> {
         std::fs::write(path, gzip(commits.as_bytes())?)?;
         println!("wrote {}", path.display());
     }
+    Ok(())
+}
+
+fn export(args: ExportArgs) -> anyhow::Result<()> {
+    let options = args.common.cache();
+    let given = args.accounts.as_deref().map(read_accounts).transpose()?;
+    let repo = GixRepo::open(&args.repo)?;
+    let mut meter = ProgressLine::new();
+    let mut loaded = load(&repo, &options, &mut |p| meter.show(p))?;
+    meter.clear();
+    let count_lines = !args.no_lines;
+    if count_lines {
+        let store = LineStore::for_repo(&options, &loaded.index.repo);
+        let mut meter = ProgressLine::new();
+        let pass = line_pass(&repo, &loaded.index, store.as_ref(), &mut |done, total| {
+            meter.lines(done, total)
+        })?;
+        meter.clear();
+        pass.apply(&mut loaded.index);
+    }
+    let accounts = with_accounts(&repo, &options, &mut loaded.index, given.as_ref())?;
+    let known = match (&args.after, args.lineage) {
+        (Some(file), Some(lineage)) if lineage == loaded.lineage => {
+            let text = std::fs::read_to_string(file)?;
+            let frontier: Vec<commitscape_core::Oid> = text
+                .split_whitespace()
+                .map(|t| {
+                    commitscape_core::Oid::from_hex(t)
+                        .ok_or_else(|| anyhow::anyhow!("{t} is not a commit id"))
+                })
+                .collect::<anyhow::Result<_>>()?;
+            repo.ancestors(&frontier)?
+        }
+        _ => None,
+    };
+    let releases = repo.version_tags();
+    let manifest = commitscape_report::export::write(
+        &commitscape_report::export::Export {
+            index: &loaded.index,
+            accounts: &accounts,
+            options: args.common.metrics(),
+            anchor: now(),
+            releases: &releases,
+            lines_counted: count_lines,
+            known: known.as_ref(),
+            lineage: loaded.lineage,
+            kept: loaded.kept,
+        },
+        &args.out,
+    )?;
+    println!(
+        "exported {} of {} commits ({}) to {}",
+        manifest.commits,
+        manifest.total,
+        if manifest.full {
+            "everything"
+        } else {
+            "new since the last export"
+        },
+        args.out.display()
+    );
     Ok(())
 }
 

@@ -1,0 +1,3 @@
+ALTER TABLE "index_folder_days" ADD CONSTRAINT "index_folder_days_si_folder_day_pk" PRIMARY KEY("si","folder","day");--> statement-breakpoint
+ALTER TABLE "index_folders" ADD CONSTRAINT "index_folders_si_id_pk" PRIMARY KEY("si","id");--> statement-breakpoint
+ALTER TABLE "index_signature_folder_days" ADD CONSTRAINT "index_signature_folder_days_si_folder_day_signature_pk" PRIMARY KEY("si","folder","day","signature");

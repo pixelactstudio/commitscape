@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{AuthorId, FileId, Oid, PathId, SignatureId};
 
-pub const SCHEMA_VERSION: u32 = 10;
+pub const SCHEMA_VERSION: u32 = 11;
 
 pub const SUBJECT_CAP: usize = 200;
 

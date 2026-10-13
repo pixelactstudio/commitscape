@@ -17,7 +17,7 @@ pub use code_map::{CodeMap, MapNode};
 pub use contributions::{combine, Contribution, LinesChanged};
 pub use coupling::{ChangesetSizes, CoupledPair, Coupling, SizeBucket};
 pub use health::{Answers, Health, Maintainer, Releases, Trend};
-pub use languages::{Language, Languages};
+pub use languages::{language_of, Language, Languages};
 pub use people::{Contributor, DirectoryOwnership, Owner, Ownership, SuspectedDuplicate};
 pub use pulse::{CommitsByPerson, KindCount, Pulse, Streak, Work, WorkCount};
 pub use roles::{is_lockfile, looks_generated, role_of, Role};

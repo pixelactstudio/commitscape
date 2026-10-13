@@ -1,6 +1,9 @@
-import { bigint, boolean, index, integer, pgTable, primaryKey, real, smallint, text, timestamp } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { bigint, boolean, customType, index, integer, jsonb, pgTable, primaryKey, real, serial, smallint, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 
 const seconds = (name: string) => bigint(name, { mode: "number" });
+
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({ dataType: () => "bytea" });
 
 export const user = pgTable("user", {
   id: text("id").primaryKey(),
@@ -107,6 +110,10 @@ export const repositories = pgTable(
     answerHours: real("answer_hours"),
     pullsAt: text("pulls_at"),
     pullsReadAt: seconds("pulls_read_at"),
+    pullsCursor: text("pulls_cursor"),
+    pullsMark: text("pulls_mark"),
+    pullsVersion: integer("pulls_version").notNull().default(0),
+    indexId: integer("index_id"),
   },
   (t) => [index("repositories_installation").on(t.installationId), index("repositories_seed").on(t.seed, t.reportAt), index("repositories_github_id").on(t.githubId)],
 );
@@ -192,29 +199,7 @@ export const repoPeople = pgTable(
     last: seconds("last"),
     reportKey: text("report_key").notNull(),
   },
-  (t) => [primaryKey({ columns: [t.repoId, t.personId] }), index("repo_people_login").on(t.login)],
-);
-
-export const commits = pgTable(
-  "commits",
-  {
-    repoId: text("repo_id")
-      .notNull()
-      .references(() => repositories.id, { onDelete: "cascade" }),
-    reportKey: text("report_key").notNull(),
-    seq: integer("seq").notNull(),
-    sha: text("sha").notNull(),
-    at: seconds("at").notNull(),
-    offset: smallint("offset").notNull(),
-    personId: integer("person_id").notNull(),
-    subject: text("subject").notNull(),
-    kind: smallint("kind").notNull(),
-    merge: boolean("merge").notNull(),
-    files: integer("files").notNull(),
-    added: integer("added"),
-    removed: integer("removed"),
-  },
-  (t) => [primaryKey({ columns: [t.repoId, t.reportKey, t.seq] }), index("commits_person").on(t.repoId, t.reportKey, t.personId, t.seq), index("commits_at").on(t.repoId, t.reportKey, t.at)],
+  (t) => [primaryKey({ columns: [t.repoId, t.personId] }), index("repo_people_lower_login").on(sql`lower(${t.login})`)],
 );
 
 export const githubCache = pgTable(
@@ -266,6 +251,8 @@ export const surviving = pgTable(
   (t) => [primaryKey({ columns: [t.repoId, t.reportKey, t.personId] }), index("surviving_status").on(t.status, t.askedAt)],
 );
 
+export type PullLabel = { name: string; colour: string };
+
 export const pullRequests = pgTable(
   "pull_requests",
   {
@@ -281,8 +268,21 @@ export const pullRequests = pgTable(
     updatedAt: seconds("updated_at").notNull(),
     additions: integer("additions").notNull(),
     deletions: integer("deletions").notNull(),
+    headRef: text("head_ref"),
+    closedAt: seconds("closed_at"),
+    mergedBy: text("merged_by"),
+    baseRef: text("base_ref"),
+    draft: boolean("draft"),
+    changedFiles: integer("changed_files"),
+    commits: integer("commits"),
+    headOwner: text("head_owner"),
+    fromFork: boolean("from_fork"),
+    labels: jsonb("labels").$type<PullLabel[]>(),
+    reviewDecision: text("review_decision"),
+    mergeCommit: text("merge_commit"),
+    comments: integer("comments"),
   },
-  (t) => [primaryKey({ columns: [t.repoId, t.number] }), index("pull_requests_author").on(t.author, t.mergedAt)],
+  (t) => [primaryKey({ columns: [t.repoId, t.number] }), index("pull_requests_head").on(t.repoId, t.headRef)],
 );
 
 export const pullReviews = pgTable(
@@ -295,8 +295,11 @@ export const pullReviews = pgTable(
     reviewer: text("reviewer").notNull(),
     reviews: integer("reviews").notNull(),
     firstAt: seconds("first_at").notNull(),
+    lastAt: seconds("last_at"),
+    state: text("state"),
+    approvedAt: seconds("approved_at"),
   },
-  (t) => [primaryKey({ columns: [t.repoId, t.number, t.reviewer] }), index("pull_reviews_reviewer").on(t.reviewer, t.firstAt)],
+  (t) => [primaryKey({ columns: [t.repoId, t.number, t.reviewer] })],
 );
 
 export const people = pgTable(
@@ -401,4 +404,338 @@ export const seasonStandings = pgTable(
     at: seconds("at").notNull(),
   },
   (t) => [primaryKey({ columns: [t.crewId, t.season] })],
+);
+
+export const lentTokens = pgTable("lent_tokens", {
+  repoId: text("repo_id")
+    .primaryKey()
+    .references(() => repositories.id, { onDelete: "cascade" }),
+  userId: text("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  token: text("token").notNull(),
+  until: seconds("until").notNull(),
+});
+
+export const repoEvents = pgTable(
+  "repo_events",
+  {
+    id: text("id").primaryKey(),
+    repoId: text("repo_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    actor: text("actor"),
+    title: text("title"),
+    url: text("url"),
+    count: integer("count"),
+    at: seconds("at").notNull(),
+  },
+  (t) => [index("repo_events_repo_at").on(t.repoId, t.at)],
+);
+
+export const privateWork = pgTable(
+  "private_work",
+  {
+    login: text("login").notNull(),
+    repo: text("repo").notNull(),
+    show: text("show").notNull(),
+    updatedAt: seconds("updated_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.login, t.repo] })],
+);
+
+export const repoGit = pgTable("repo_git", {
+  repoId: text("repo_id")
+    .primaryKey()
+    .references(() => repositories.id, { onDelete: "cascade" }),
+  prefix: text("prefix").notNull(),
+  buildId: text("build_id").notNull(),
+  builtAt: seconds("built_at").notNull(),
+  head: text("head").notNull(),
+  branch: text("branch").notNull(),
+  branches: integer("branches").notNull().default(0),
+  tags: integer("tags").notNull().default(0),
+  files: integer("files").notNull().default(0),
+  stored: integer("stored").notNull().default(0),
+  pulls: integer("pulls").notNull().default(0),
+  bytes: bigint("bytes", { mode: "number" }).notNull().default(0),
+  logged: integer("logged").notNull().default(0),
+  complete: boolean("complete").notNull().default(false),
+  seconds: real("seconds").notNull().default(0),
+  steps: text("steps").notNull().default("[]"),
+  branchesTotal: integer("branches_total").notNull().default(0),
+  tagsTotal: integer("tags_total").notNull().default(0),
+  inferred: boolean("inferred").notNull().default(false),
+});
+
+const repoRef = () =>
+  text("repo_id")
+    .notNull()
+    .references(() => repositories.id, { onDelete: "cascade" });
+
+export const repoBlobs = pgTable(
+  "repo_blobs",
+  {
+    repoId: repoRef(),
+    sha: text("sha").notNull(),
+    lines: integer("lines").notNull(),
+    binary: boolean("binary").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.repoId, t.sha] })],
+);
+
+export const repoBranches = pgTable(
+  "repo_branches",
+  {
+    repoId: repoRef(),
+    position: integer("position").notNull(),
+    name: text("name").notNull(),
+    sha: text("sha").notNull(),
+    at: seconds("at").notNull(),
+    author: text("author").notNull(),
+    login: text("login"),
+    subject: text("subject").notNull(),
+    ahead: integer("ahead").notNull(),
+    behind: integer("behind").notNull(),
+    base: text("base").notNull(),
+    baseAt: seconds("base_at").notNull(),
+    merged: boolean("merged").notNull(),
+    squashed: boolean("squashed").notNull().default(false),
+    parent: text("parent"),
+    shared: integer("shared").notNull(),
+    bot: boolean("bot").notNull().default(false),
+  },
+  (t) => [primaryKey({ columns: [t.repoId, t.position] })],
+);
+
+export const repoBranchDetails = pgTable(
+  "repo_branch_details",
+  {
+    repoId: repoRef(),
+    position: integer("position").notNull(),
+    against: text("against").notNull(),
+    commits: jsonb("commits").$type<{ sha: string; subject: string; author: string; at: number }[]>().notNull(),
+    commitsTotal: integer("commits_total").notNull(),
+    files: jsonb("files").$type<{ path: string; added: number | null; removed: number | null }[]>().notNull(),
+    filesTotal: integer("files_total").notNull(),
+    added: integer("added").notNull(),
+    removed: integer("removed").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.repoId, t.position] })],
+);
+
+export const repoTags = pgTable(
+  "repo_tags",
+  {
+    repoId: repoRef(),
+    position: integer("position").notNull(),
+    name: text("name").notNull(),
+    sha: text("sha").notNull(),
+    at: seconds("at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.repoId, t.position] })],
+);
+
+export type IndexOptions = { max_changeset_size: number; coupling_support: number; ownership_min_commits: number };
+
+export type IndexSnapshot = {
+  commits: number;
+  merges: number;
+  oldest: number | null;
+  newest: number | null;
+  languages: { name: string; lines: number }[];
+  code_age: { year: number; quarter: number; lines: number }[];
+  suspects: number[][];
+  releases: [string, number][];
+  release_shas?: Record<string, string>;
+};
+
+export const storedIndexes = pgTable(
+  "stored_indexes",
+  {
+    id: serial("id").primaryKey(),
+    repoId: text("repo_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    lineage: text("lineage").notNull(),
+    kept: boolean("kept").notNull(),
+    state: text("state").notNull(),
+    head: text("head"),
+    frontier: text("frontier").array().notNull().default([]),
+    lines: boolean("lines").notNull(),
+    commits: integer("commits").notNull().default(0),
+    builtAt: seconds("built_at").notNull(),
+    loadedAt: seconds("loaded_at"),
+    anchor: seconds("anchor").notNull().default(0),
+    options: jsonb("options").$type<IndexOptions>().notNull().default({ max_changeset_size: 50, coupling_support: 5, ownership_min_commits: 10 }),
+    snapshot: jsonb("snapshot").$type<IndexSnapshot>(),
+  },
+  (t) => [index("stored_indexes_repo").on(t.repoId)],
+);
+
+const si = () => integer("si").notNull();
+
+export const indexCommits = pgTable(
+  "index_commits",
+  {
+    si: si(),
+    sha: bytea("sha").notNull(),
+    at: seconds("at").notNull(),
+    offset: smallint("offset").notNull(),
+    authorDelta: integer("author_delta").notNull(),
+    signature: integer("signature").notNull(),
+    kind: smallint("kind").notNull(),
+    flags: smallint("flags").notNull(),
+    arrival: seconds("arrival"),
+    subject: text("subject").notNull(),
+    files: integer("files").array().notNull(),
+    changes: smallint("changes").array().notNull(),
+    added: integer("added").array(),
+    removed: integer("removed").array(),
+  },
+  (t) => [primaryKey({ columns: [t.si, t.sha] }), index("index_commits_at").on(t.si, t.at), index("index_commits_signature").on(t.si, t.signature, t.at)],
+);
+
+export const indexFiles = pgTable(
+  "index_files",
+  {
+    si: si(),
+    file: integer("file").notNull(),
+    path: text("path").notNull(),
+    folder: integer("folder").notNull(),
+    born: seconds("born").notNull(),
+    last: seconds("last").notNull(),
+    alive: boolean("alive").notNull(),
+    role: smallint("role").notNull().default(0),
+    language: text("language"),
+    guessedGenerated: boolean("guessed_generated").notNull().default(false),
+    lockfile: boolean("lockfile").notNull().default(false),
+  },
+  (t) => [primaryKey({ columns: [t.si, t.file] }), index("index_files_folder").on(t.si, t.folder)],
+);
+
+export const indexFilePaths = pgTable(
+  "index_file_paths",
+  {
+    si: si(),
+    file: integer("file").notNull(),
+    path: text("path").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.si, t.file, t.path] })],
+);
+
+export const indexFolders = pgTable(
+  "index_folders",
+  {
+    si: si(),
+    id: integer("id").notNull(),
+    path: text("path").notNull(),
+    parent: integer("parent"),
+    depth: smallint("depth").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.si, t.id] }), uniqueIndex("index_folders_path").on(t.si, t.path), index("index_folders_parent").on(t.si, t.parent)],
+);
+
+export const indexPersons = pgTable(
+  "index_persons",
+  {
+    si: si(),
+    person: integer("person").notNull(),
+    traits: smallint("traits").notNull(),
+    identities: integer("identities").notNull(),
+    commits: integer("commits").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.si, t.person] })],
+);
+
+export const indexPeople = pgTable(
+  "index_people",
+  {
+    si: si(),
+    signature: integer("signature").notNull(),
+    name: text("name").notNull(),
+    person: integer("person"),
+    personName: text("person_name"),
+    colour: smallint("colour"),
+    login: text("login"),
+    bot: boolean("bot").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.si, t.signature] }), index("index_people_person").on(t.si, t.person)],
+);
+
+const sums = () => ({
+  commits: integer("commits").notNull(),
+  merges: integer("merges").notNull(),
+  bulk: integer("bulk").notNull(),
+  changes: integer("changes").notNull(),
+  added: bigint("added", { mode: "number" }).notNull(),
+  removed: bigint("removed", { mode: "number" }).notNull(),
+});
+
+const folderSums = () => ({
+  commits: integer("commits").notNull(),
+  changes: integer("changes").notNull(),
+  added: bigint("added", { mode: "number" }).notNull(),
+  removed: bigint("removed", { mode: "number" }).notNull(),
+});
+
+export const indexDays = pgTable(
+  "index_days",
+  {
+    si: si(),
+    day: integer("day").notNull(),
+    ...sums(),
+  },
+  (t) => [primaryKey({ columns: [t.si, t.day] })],
+);
+
+export const indexSignatureDays = pgTable(
+  "index_signature_days",
+  {
+    si: si(),
+    day: integer("day").notNull(),
+    signature: integer("signature").notNull(),
+    ...sums(),
+  },
+  (t) => [primaryKey({ columns: [t.si, t.day, t.signature] }), index("index_signature_days_signature").on(t.si, t.signature, t.day)],
+);
+
+export const indexFolderDays = pgTable(
+  "index_folder_days",
+  {
+    si: si(),
+    day: integer("day").notNull(),
+    folder: integer("folder").notNull(),
+    ...folderSums(),
+  },
+  (t) => [primaryKey({ columns: [t.si, t.folder, t.day] }), index("index_folder_days_day").on(t.si, t.day)],
+);
+
+export const indexSignatureFolderDays = pgTable(
+  "index_signature_folder_days",
+  {
+    si: si(),
+    day: integer("day").notNull(),
+    signature: integer("signature").notNull(),
+    folder: integer("folder").notNull(),
+    ...folderSums(),
+  },
+  (t) => [primaryKey({ columns: [t.si, t.folder, t.day, t.signature] }), index("index_signature_folder_days_day").on(t.si, t.day)],
+);
+
+export const indexHeadFiles = pgTable(
+  "index_head_files",
+  {
+    si: si(),
+    file: integer("file").notNull(),
+    blob: bytea("blob").notNull(),
+    bytes: bigint("bytes", { mode: "number" }).notNull(),
+    lines: integer("lines").notNull(),
+    class: text("class").notNull(),
+    indentLevels: integer("indent_levels").notNull(),
+    indentMean: real("indent_mean").notNull(),
+    indentStddev: real("indent_stddev").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.si, t.file] })],
 );

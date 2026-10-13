@@ -43,6 +43,7 @@ pub(super) struct BlockEntry {
 pub(super) struct Head {
     pub schema_version: u32,
     pub generation: u64,
+    pub lineage: u64,
     pub repo: RepoIdentity,
     pub refs_fingerprint: u64,
     pub mailmap_fingerprint: u64,
@@ -64,6 +65,7 @@ pub(super) struct Head {
 struct HeadMeta {
     schema_version: u32,
     generation: u64,
+    lineage: u64,
     repo: RepoIdentity,
     refs_fingerprint: u64,
     mailmap_fingerprint: u64,
@@ -81,6 +83,7 @@ fn encode_head(head: &Head) -> std::io::Result<Vec<u8>> {
     let meta = HeadMeta {
         schema_version: head.schema_version,
         generation: head.generation,
+        lineage: head.lineage,
         repo: head.repo.clone(),
         refs_fingerprint: head.refs_fingerprint,
         mailmap_fingerprint: head.mailmap_fingerprint,
@@ -159,6 +162,7 @@ fn decode_head(payload: &[u8]) -> Result<Head, Unusable> {
     Ok(Head {
         schema_version: meta.schema_version,
         generation: meta.generation,
+        lineage: meta.lineage,
         repo: meta.repo,
         refs_fingerprint: meta.refs_fingerprint,
         mailmap_fingerprint: meta.mailmap_fingerprint,
@@ -550,7 +554,7 @@ fn data_file_of(dir: &Path, generation: u64) -> Result<String, Unusable> {
     decode::<HeadMeta>(meta).map(|m| m.data_file)
 }
 
-fn new_generation() -> u64 {
+pub(super) fn new_generation() -> u64 {
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos() as u64)
@@ -570,6 +574,7 @@ static GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::
 
 pub(super) fn head_of(
     index: &Index,
+    lineage: u64,
     refs_fingerprint: u64,
     mailmap_fingerprint: u64,
     classify: ClassifyContext,
@@ -577,6 +582,7 @@ pub(super) fn head_of(
     Head {
         schema_version: SCHEMA_VERSION,
         generation: 0,
+        lineage,
         repo: index.repo.clone(),
         refs_fingerprint,
         mailmap_fingerprint,

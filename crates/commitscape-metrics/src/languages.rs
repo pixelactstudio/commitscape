@@ -89,7 +89,7 @@ fn file_name(path: &[u8]) -> &[u8] {
     }
 }
 
-pub(crate) fn language_of(path: &[u8]) -> Option<&'static str> {
+pub fn language_of(path: &[u8]) -> Option<&'static str> {
     let name = path.rsplit(|&b| b == b'/').next().unwrap_or(path);
     let written = by_name(name).or_else(|| extension(name).map(by_extension))?;
     match written {
