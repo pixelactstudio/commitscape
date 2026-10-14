@@ -13,6 +13,7 @@ import {
   runMigrations,
   s3Storage,
   schema,
+  siteToken,
   startQueue,
   LONGEST_JOB_SECONDS,
   SURVIVAL_QUEUE,
@@ -42,7 +43,10 @@ const storage = s3Storage({
 });
 const app = env.GITHUB_APP_ID && env.GITHUB_APP_PRIVATE_KEY ? { appId: env.GITHUB_APP_ID, privateKey: env.GITHUB_APP_PRIVATE_KEY, api: env.GITHUB_API } : null;
 
+const site = siteToken(app, env.GITHUB_APP_INSTALLATION_ID ?? null, env.GITHUB_TOKEN);
+
 const REAP_EVERY = 5 * 60 * 1000;
+const PULLS_AGAIN_SECONDS = 60;
 
 /** The lane a Build runs in: large repositories wait for each other, never for small ones. */
 async function laneOf(db: Db, config: Config, buildId: string): Promise<{ queue: string; seed: boolean; repoId: string } | null> {
@@ -59,7 +63,12 @@ async function work() {
   await runMigrations(env.DATABASE_URL, env.MIGRATIONS_DIR);
   const { db, pool } = createDb(env.DATABASE_URL, cfg.concurrency + cfg.largeConcurrency + 3);
   const boss = await startQueue(env.DATABASE_URL, { worker: true, expireInSeconds: Math.min(LONGEST_JOB_SECONDS, jobLimitOf(cfg, 1)) });
-  const github = { api: env.GITHUB_API, token: env.GITHUB_TOKEN ?? null };
+  const github = {
+    api: env.GITHUB_API,
+    get token() {
+      return site.current() ?? null;
+    },
+  };
   const queuePulls = async (repoId: string) => {
     await boss.send(PULLS_QUEUE, { repoId }, { singletonKey: repoId });
   };
@@ -86,12 +95,13 @@ async function work() {
     });
     if (reaped && reaped.failed + reaped.resent > 0) console.log(`reaper: ${reaped.failed} Builds ended, ${reaped.resent} sent again`);
   };
-  const ctx = { db, storage, cfg, app, run, github, log: console.log, queuePulls, queueCounts, queueBuild };
+  const ctx = { db, pool, storage, cfg, app, run, github, tokenSecret: env.TOKEN_SECRET, log: console.log, queuePulls, queueCounts, queueBuild };
   await reap();
   await tidy();
   const reaper = setInterval(() => void reap(), REAP_EVERY);
   await boss.work<BuildJob>(BUILD_QUEUE, { localConcurrency: cfg.concurrency, batchSize: 1 }, async ([job]) => {
     if (!job) return;
+    await site.ready();
     const lane = await laneOf(db, cfg, job.data.buildId);
     if (lane?.queue === BUILD_LARGE_QUEUE) {
       await sendBuild(BUILD_LARGE_QUEUE, { ...job.data, repoId: lane.repoId }, lane.seed ? PRIORITY.seed : PRIORITY.person);
@@ -102,24 +112,31 @@ async function work() {
   });
   await boss.work<BuildJob>(BUILD_LARGE_QUEUE, { localConcurrency: cfg.largeConcurrency, batchSize: 1 }, async ([job]) => {
     if (!job) return;
+    await site.ready();
     await runJob(job.data.buildId, ctx, job.data.attempt ?? 1);
     await tidy();
   });
   await boss.work<SurvivalJob>(SURVIVAL_QUEUE, { localConcurrency: 1, batchSize: 1 }, async ([job]) => {
     if (!job) return;
+    await site.ready();
     await runSurvival(job.data, { ...ctx, budget: env.SURVIVING_BUDGET_SECONDS });
   });
   await boss.work<PullsJob>(PULLS_QUEUE, { localConcurrency: 1, batchSize: 1 }, async ([job]) => {
     if (!job) return;
+    await site.ready();
     const [repo] = await db.select().from(schema.repositories).where(eq(schema.repositories.id, job.data.repoId));
     if (!repo) return;
-    const token = await pullsToken(app, repo, github.token);
+    const token = await pullsToken(db, app, env.TOKEN_SECRET, repo, github.token);
     if (!token) return;
-    const read = await readPulls(db, { ...github, token }, repo.id, repo.owner, repo.name, Date.now() + env.PULLS_TIME_LIMIT_SECONDS * 1000).catch((e: unknown) => {
+    const before = repo.pullsCursor;
+    const read = await readPulls(db, { ...github, token }, repo.id, repo.owner, repo.name, Date.now() + env.PULLS_TIME_LIMIT_SECONDS * 1000).catch(async (e: unknown) => {
       console.log(`pulls ${repo.id}: ${(e as Error).message}`);
+      const [after] = await db.select({ cursor: schema.repositories.pullsCursor }).from(schema.repositories).where(eq(schema.repositories.id, repo.id));
+      if (after?.cursor && after.cursor !== before) await boss.send(PULLS_QUEUE, { repoId: repo.id }, { singletonKey: repo.id, startAfter: PULLS_AGAIN_SECONDS }).catch(() => undefined);
       return null;
     });
-    if (read) console.log(`pulls ${repo.id}: ${read.pulls} pull requests in ${read.pages} pages, ${read.seconds.toFixed(1)} s${read.done ? "" : ", stopped at the time limit"}`);
+    if (read) console.log(`pulls ${repo.id}: ${read.pulls} pull requests in ${read.pages} pages, ${read.seconds.toFixed(1)} s${read.whole ? ", all of them" : ""}${read.done ? "" : ", stopped at the time limit"}`);
+    if (read && !read.done && read.pages > 0) await boss.send(PULLS_QUEUE, { repoId: repo.id }, { singletonKey: repo.id, startAfter: PULLS_AGAIN_SECONDS }).catch(() => undefined);
   });
   console.log(`builder working, ${cfg.concurrency} Build${cfg.concurrency > 1 ? "s" : ""} at a time and ${cfg.largeConcurrency} over ${cfg.largeMb} MB; clones in ${cfg.work}`);
   const stop = async () => {
@@ -139,7 +156,7 @@ async function once(what: string) {
     if (what === "cleanup") {
       console.log("cleanup:", JSON.stringify(await cleanup(db, storage)));
     } else if (what === "seed") {
-      const s = seedConfig(env);
+      const s = { ...seedConfig(env), token: await site.ready() };
       const list = await seedList(s);
       const boss = await startQueue(env.DATABASE_URL, { worker: false });
       const queued = await queueSeeds(db, bossQueue(boss), list, s.budget, storage);

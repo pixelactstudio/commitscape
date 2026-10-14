@@ -1,12 +1,12 @@
 import { and, eq } from "drizzle-orm";
 import {
-  dropCommits,
-  installationToken,
+  type createDb,
+  liveIndex,
+  loadExport,
   now,
   PRIORITY,
   reportPrefix,
   schema,
-  storeCommits,
   storeReport,
   type BuildJob,
   type Db,
@@ -16,24 +16,31 @@ import {
 } from "@commitscape/server";
 import type { BuildFailure } from "@commitscape/data";
 import { accountsFor } from "./accounts";
+import { replaceIndex } from "./atlas";
 import { issueAnswers, type Answers } from "./answers";
 import type { Config } from "./config";
 import type { GitHubApi } from "./github";
+import { buildGitData } from "./gitdata";
+import { markMainline } from "./mainline";
 import { peopleOf, type RepoPerson } from "./people";
+import { pullsToken } from "./pulls";
 import { build, BUILD_ATTEMPTS, type Deps, type Made, type Phase } from "./run";
 
 const { builds, repoPeople, repositories, surviving } = schema;
 
 export const SEED_COUNTED = 30;
+const MAINLINE_SECONDS = 300;
 const COUNTED_AT_ONCE = 10;
 
 export type JobContext = {
   db: Db;
+  pool?: ReturnType<typeof createDb>["pool"];
   storage: Storage;
   cfg: Config;
   app: GitHubApp | null;
   run: Deps["run"];
   github: GitHubApi;
+  tokenSecret?: string;
   log: (line: string) => void;
   queuePulls?: (repoId: string) => Promise<void>;
   queueCounts?: (job: SurvivalJob) => Promise<void>;
@@ -77,13 +84,10 @@ async function claimedJob(buildId: string, ctx: JobContext, attempt: number): Pr
       .set({ state, step: null, finishedAt: now(), reason: set.reason ?? null, detail: set.detail ?? null, ...(set.seconds !== undefined ? { seconds: Math.round(set.seconds) } : {}), ...(set.partial !== undefined ? { partial: set.partial } : {}) })
       .where(eq(builds.id, buildId));
 
-  let token: string | null = null;
-  if (repo.isPrivate) {
-    token = repo.installationId && ctx.app ? await installationToken(ctx.app, repo.installationId, repo.name) : null;
-    if (!token) {
-      await end("failed", { reason: "private", detail: "no installation token" });
-      return;
-    }
+  const token = await pullsToken(db, ctx.app, ctx.tokenSecret, repo, null);
+  if (repo.isPrivate && !token) {
+    await end("failed", { reason: "private", detail: "no installation token" });
+    return;
   }
   const scope = repo.isPrivate ? repo.id : "public";
   const gh: GitHubApi = { ...ctx.github, token: token ?? ctx.github.token };
@@ -108,8 +112,10 @@ async function claimedJob(buildId: string, ctx: JobContext, attempt: number): Pr
     return true;
   };
 
+  const gitCfg = ctx.cfg.git;
+  const pool = ctx.pool;
   const outcome = await build(
-    { id: buildId, owner: repo.owner, name: repo.name, sizeKb: repo.sizeKb ?? 0, private: repo.isPrivate, token, seed: repo.seed, attempt },
+    { id: buildId, owner: repo.owner, name: repo.name, sizeKb: repo.sizeKb ?? 0, private: repo.isPrivate, token: repo.isPrivate ? token : null, seed: repo.seed, attempt },
     ctx.cfg,
     {
       run: ctx.run,
@@ -126,6 +132,29 @@ async function claimedJob(buildId: string, ctx: JobContext, attempt: number): Pr
         return found.accounts;
       },
       publish,
+      ...(pool
+        ? {
+            index: {
+              live: () => liveIndex(db, repo.id),
+              load: async (dir: string) => {
+                const before = await liveIndex(db, repo.id);
+                return replaceIndex(ctx.storage, before, () => loadExport(pool, repo.id, dir));
+              },
+              mainline: async (clone: string, env: NodeJS.ProcessEnv, si: number) => {
+                const m = await markMainline(db, { dir: clone, env, deadline: Date.now() + MAINLINE_SECONDS * 1000 }, si);
+                if (m) log(`mainline of ${repo.id}: ${m.commits} commits from HEAD, ${m.firstParent} first-parent, ${m.changed} rows changed, ${m.releases} releases in ${m.seconds.toFixed(1)} s`);
+              },
+            },
+          }
+        : {}),
+      ...(gitCfg
+        ? {
+            git: async (dir: string, env: NodeJS.ProcessEnv) => {
+              await end("done", { seconds: (Date.now() - started) / 1000, partial: false });
+              await buildGitData({ db, storage: ctx.storage, cfg: gitCfg, repoId: repo.id, buildId, dir, env, log, private: repo.isPrivate });
+            },
+          }
+        : {}),
     },
   );
   const why = outcome.failure;
@@ -157,12 +186,7 @@ async function publishReport(ctx: JobContext, buildId: string, phase: Phase, mad
   if (!named) return null;
   if (phase === "quick" && named.reportKey && named.reportLines !== false) return null;
   const prefix = reportPrefix(named.id, phase === "full" ? buildId : `${buildId}-quick`);
-  const stored = await (async () => {
-    const written = await storeReport(storage, prefix, made.report);
-    if (made.commits) await storeCommits(db, storage, named.id, prefix, made.commits);
-    return written;
-  })().catch(async (e: unknown) => {
-    await dropCommits(db, named.id, named.reportKey ?? "").catch(() => undefined);
+  const stored = await storeReport(storage, prefix, made.report, { entries: !made.indexed }).catch(async (e: unknown) => {
     await storage.deletePrefix(`${prefix}/`).catch(() => undefined);
     throw e;
   });
@@ -205,7 +229,6 @@ async function publishReport(ctx: JobContext, buildId: string, phase: Phase, mad
     await storage.deletePrefix(`${prefix}/`);
     return null;
   }
-  await dropCommits(db, target.id, prefix);
   if (target.reportKey && target.reportKey !== prefix) await storage.deletePrefix(`${target.reportKey}/`);
   return { id: target.id, prefix, people };
 }

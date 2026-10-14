@@ -23,12 +23,14 @@
     "drizzle-orm": "catalog:",
     "lru-cache": "catalog:",
     "pg": "catalog:",
-    "pg-boss": "catalog:"
+    "pg-boss": "catalog:",
+    "pg-copy-streams": "catalog:"
   },
   "devDependencies": {
     "@electric-sql/pglite": "catalog:",
     "@types/node": "catalog:",
     "@types/pg": "catalog:",
+    "@types/pg-copy-streams": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "drizzle-kit": "catalog:",
     "oxlint": "catalog:",

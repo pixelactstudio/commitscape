@@ -27,11 +27,25 @@ export function loadEnv(runtimeEnv: Record<string, string | undefined> = process
       DISK_BUDGET_GB: positive(20),
       SURVIVING_BUDGET_SECONDS: positive(60),
       PULLS_TIME_LIMIT_SECONDS: positive(1800),
+      GIT_DATA: z.stringbool().default(true),
+      GIT_TIME_LIMIT_SECONDS: positive(300),
+      GIT_BRANCHES_MAX: positive(300),
+      GIT_TAGS_MAX: positive(200),
+      GIT_BRANCH_DETAILS: positive(120),
+      GIT_FILE_MAX_KB: positive(256),
+      GIT_REPO_MAX_MB: positive(48),
+      GIT_WARM_FILES: positive(500),
+      GIT_PULLS_OPEN_MAX: positive(150),
+      GIT_PULLS_OTHER_MAX: positive(100),
+      GIT_PULL_DIFF_KB: positive(200),
+      GIT_PULLS_MAX_MB: positive(40),
       GIT_BASE: z.string().optional(),
       GITHUB_API: z.url().default("https://api.github.com"),
       GITHUB_TOKEN: z.string().optional(),
       GITHUB_APP_ID: z.string().optional(),
       GITHUB_APP_PRIVATE_KEY: z.string().optional(),
+      TOKEN_SECRET: z.string().min(32).optional(),
+      GITHUB_APP_INSTALLATION_ID: z.coerce.number().int().positive().optional(),
       SEED_LANGUAGES: z.string().default("JavaScript,TypeScript,Python,Go,Rust,Java,C,C++,Ruby"),
       SEED_PER_LANGUAGE: positive(10),
       SEED_BUDGET: positive(50),
@@ -42,6 +56,24 @@ export function loadEnv(runtimeEnv: Record<string, string | undefined> = process
 }
 
 export type Env = ReturnType<typeof loadEnv>;
+
+export type GitSettings = {
+  seconds: number;
+  branches: number;
+  tags: number;
+  branchDetails: number;
+  fileBytes: number;
+  repoBytes: number;
+  warmFiles: number;
+  branchCommits: number;
+  pullsOpen: number;
+  pullsOthers: number;
+  patchBytes: number;
+  pullFileBytes: number;
+  pullCommits: number;
+  pullFiles: number;
+  pullsBytes: number;
+};
 
 export type Config = {
   bin: string;
@@ -55,6 +87,7 @@ export type Config = {
   logins: number;
   diskGb: number;
   gitBase: string | undefined;
+  git?: GitSettings | undefined;
 };
 
 export function configOf(env: Env): Config {
@@ -70,5 +103,24 @@ export function configOf(env: Env): Config {
     logins: env.LOGINS_ASKED,
     diskGb: env.DISK_BUDGET_GB,
     gitBase: env.GIT_BASE,
+    git: env.GIT_DATA
+      ? {
+          seconds: env.GIT_TIME_LIMIT_SECONDS,
+          branches: env.GIT_BRANCHES_MAX,
+          tags: env.GIT_TAGS_MAX,
+          branchDetails: env.GIT_BRANCH_DETAILS,
+          fileBytes: env.GIT_FILE_MAX_KB * 1024,
+          repoBytes: env.GIT_REPO_MAX_MB * 1024 * 1024,
+          warmFiles: env.GIT_WARM_FILES,
+          branchCommits: 250_000,
+          pullsOpen: env.GIT_PULLS_OPEN_MAX,
+          pullsOthers: env.GIT_PULLS_OTHER_MAX,
+          patchBytes: env.GIT_PULL_DIFF_KB * 1024,
+          pullFileBytes: 60 * 1024,
+          pullCommits: 250,
+          pullFiles: 300,
+          pullsBytes: env.GIT_PULLS_MAX_MB * 1024 * 1024,
+        }
+      : undefined,
   };
 }
