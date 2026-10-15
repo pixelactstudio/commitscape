@@ -18,6 +18,7 @@ export const GITHUB_TTL = {
   search: 600,
   commits: 3600,
   graphql: 3600,
+  pull: 300,
 };
 
 type Json = Record<string, unknown>;

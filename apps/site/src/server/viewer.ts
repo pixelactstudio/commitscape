@@ -1,6 +1,6 @@
 import "@tanstack/react-start/server-only";
 import { auth, githubTokenOf } from "./auth";
-import { builds, db, githubApp, reports } from "./context";
+import { builds, db, githubApp, reports, siteGitHub } from "./context";
 import { env } from "./env";
 import { clientAddress, sameOrigin } from "./http";
 import { loginOf } from "./logins";
@@ -8,7 +8,7 @@ import type { ProfileDeps, ProfileViewer } from "./profiles";
 import type { Deps, Viewer } from "./repos";
 
 export function deps(): Deps {
-  return { db: db(), storage: reports(), github: { api: env.GITHUB_API, token: env.GITHUB_TOKEN }, app: githubApp(), queue: builds };
+  return { db: db(), storage: reports(), github: siteGitHub(), app: githubApp(), queue: builds, tokenSecret: env.TOKEN_SECRET };
 }
 
 /** Who a request is from; their session and GitHub token are read only when needed. */
@@ -29,7 +29,7 @@ export function viewerOf(request: Request): Viewer {
 }
 
 export function profileDeps(): ProfileDeps {
-  return { db: db(), github: { api: env.GITHUB_API, token: env.GITHUB_TOKEN } };
+  return { db: db(), github: siteGitHub() };
 }
 
 /** A signed-in person's GitHub login, never their display name; null when GitHub cannot say. */

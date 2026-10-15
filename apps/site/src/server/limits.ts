@@ -15,3 +15,5 @@ export async function allow(db: Db, limit: Limit, address: string): Promise<bool
     .returning({ count: schema.rateLimits.count });
   return (row?.count ?? 1) <= limit.max;
 }
+
+export const RANGE_LIMIT: Limit = { action: "range", max: 240, seconds: 3600 };

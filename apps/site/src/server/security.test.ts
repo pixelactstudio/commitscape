@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { now, reportPrefix, schema, sha256 } from "@commitscape/server";
-import { fakeGitHub, repoFacts, testDeps, viewer } from "#/test/deps";
+import { fakeGitHub, repoFacts, signedIn, testDeps, viewer } from "#/test/deps";
 import { clientAddress, sameOrigin, SiteError } from "./http";
 import { allow } from "./limits";
 import { known, LOOKUP_LIMIT, lookup, reportEntry, requestBuild, WAITING_MAX } from "./repos";
@@ -87,15 +87,15 @@ describe("repositories", () => {
     vi.stubGlobal("fetch", fakeGitHub({ "/repos/acme/rocket": repoFacts(1), "/repos/acme/other": repoFacts(3, { full_name: "acme/other" }) }).fetcher);
     await deps.db.insert(repositories).values({ id: "busy/one", owner: "busy", name: "one" });
     for (let i = 0; i < WAITING_MAX; i++) await deps.db.insert(builds).values({ id: `w${i}`, repoId: "busy/one", state: "queued", requestedAt: now() });
-    await expect(requestBuild(deps, viewer(), "acme", "rocket")).rejects.toThrow("many repositories to read");
+    await expect(requestBuild(deps, signedIn(), "acme", "rocket")).rejects.toThrow("many repositories to read");
     await deps.db.delete(builds);
 
-    const started = await requestBuild(deps, viewer(), "acme", "rocket");
+    const started = await requestBuild(deps, signedIn(), "acme", "rocket");
     expect(started.build?.state).toBe("queued");
     expect(deps.sent).toHaveLength(1);
 
     const down = { ...deps, queue: () => Promise.reject(new Error("down")) };
-    const paused = await requestBuild(down, viewer(), "acme", "other");
+    const paused = await requestBuild(down, signedIn(), "acme", "other");
     expect(paused.build).toMatchObject({ state: "failed", reason: "paused" });
   });
 
@@ -107,15 +107,22 @@ describe("repositories", () => {
     ]);
     expect(await lookup(deps, viewer(), "acme", "rocket")).toMatchObject({ stale: true, canBuild: true, report: { lines: false } });
     expect(await lookup(deps, viewer(), "acme", "other")).toMatchObject({ stale: false, canBuild: false });
-    const started = await requestBuild(deps, viewer(), "acme", "rocket");
+    const started = await requestBuild(deps, signedIn(), "acme", "rocket");
     expect(started.build?.state).toBe("queued");
     expect(deps.sent).toHaveLength(1);
+  });
+
+  test("a Build asked for by someone signed out is refused, and nothing is queued", async () => {
+    const deps = await testDeps();
+    vi.stubGlobal("fetch", fakeGitHub({ "/repos/acme/rocket": repoFacts(1) }).fetcher);
+    await expect(requestBuild(deps, viewer(), "acme", "rocket")).rejects.toThrow("Sign in to read this repository");
+    expect(deps.sent).toHaveLength(0);
   });
 
   test("a Build asked for from another site is refused", async () => {
     const deps = await testDeps();
     vi.stubGlobal("fetch", fakeGitHub({ "/repos/acme/rocket": repoFacts(1) }).fetcher);
-    await expect(requestBuild(deps, viewer({ sameOrigin: false }), "acme", "rocket")).rejects.toThrow("Not from this Site");
+    await expect(requestBuild(deps, signedIn({ sameOrigin: false }), "acme", "rocket")).rejects.toThrow("Not from this Site");
   });
 });
 
