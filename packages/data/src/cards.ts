@@ -5,7 +5,7 @@ import type { Achievement, Archetype } from "./traits";
 import type { Wrapped } from "./wrapped";
 import type { VersusRow, VersusSide } from "./versus";
 
-export type CardKind = "totals" | "repositories" | "survival" | "calendar" | "languages" | "standing" | "hall-of-fame" | "preview" | "versus" | "archetype" | "achievement" | "race" | "season" | "wrapped" | "wrapped-calendar";
+export type CardKind = "totals" | "repositories" | "survival" | "calendar" | "languages" | "standing" | "hall-of-fame" | "repo-compact" | "repo-stats" | "repo-faces" | "preview" | "versus" | "archetype" | "achievement" | "race" | "season" | "wrapped" | "wrapped-calendar";
 
 export type ProfileCardData = {
   identity: Pick<Identity, "login" | "name">;
@@ -31,7 +31,10 @@ export type HallOfFameData = {
   repo: { owner: string; name: string; stars: number; forks?: number | null; description?: string | null; language?: string | null };
   people: { login: string | null; name: string; surviving: number | null; prsMerged: number | null; commits: number | null }[];
   total: number;
+  stats?: RepoCardStats | null;
 };
+
+export type RepoCardStats = { commits: number | null; codeLines: number | null; maintainers: number | null; busFactor: number | null; commits30d: number | null };
 
 export type CardImages = Record<string, string>;
 

@@ -101,6 +101,20 @@ describe("Standings", () => {
     expect(both.people.find((r) => r.key === "alice")).toMatchObject({ surviving: 420, survivingStatus: "counted" });
   });
 
+  test("cut to the first in each view, the viewer and the person in focus, with places counted over everyone", async () => {
+    const deps = await seeded();
+    const all = await standingsOf(deps, anyone, "acme", "rocket");
+    const cut = await standingsOf(deps, anyone, "acme", "rocket", undefined, 1);
+    expect(cut.total).toBe(all.people.length);
+    expect(cut.people.map((r) => r.key).sort()).toEqual(["alice", "bob"]);
+    expect(cut.places?.alice).toEqual(expect.arrayContaining([{ view: "commits", place: 1, of: 3, value: 30 }, { view: "surviving", place: 2, of: 2, value: 400 }, { view: "reviews", place: 1, of: 2, value: 2 }]));
+    expect(cut.places?.bob).toEqual(expect.arrayContaining([{ view: "prsMerged", place: 1, of: 3, value: 2 }, { view: "commits", place: 2, of: 3, value: 20 }]));
+    const focused = await standingsOf(deps, anyone, "acme", "rocket", "carol", 1);
+    expect(focused.people.map((r) => r.key)).toContain("carol");
+    expect(focused.places?.carol).toEqual([{ view: "prsMerged", place: 2, of: 3, value: 1 }]);
+    expect(focused.counted).toBe(all.counted);
+  });
+
   test("a repository not read yet has no Standings", async () => {
     const deps = await seeded();
     await expect(standingsOf(deps, anyone, "acme", "nothing")).rejects.toThrow("No Standings here");

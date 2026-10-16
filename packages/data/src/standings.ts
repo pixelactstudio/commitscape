@@ -34,6 +34,8 @@ export type Standings = {
   people: StandingRow[];
   counted: number;
   hidden: number;
+  total?: number;
+  places?: Record<string, Place[]>;
 };
 
 /** Where each person stands in each view, counted from the top; those tied share the higher place, and people with nothing in a view have no place in it. */
@@ -42,8 +44,19 @@ export function placesOf(people: StandingRow[], view: View): Map<string, Place> 
     const v = p[view];
     return typeof v === "number" && v > 0 ? [{ key: p.key, value: v }] : [];
   });
+  const values = valued.map((p) => p.value).sort((a, b) => b - a);
+  const above = (value: number) => {
+    let lo = 0;
+    let hi = values.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if ((values[mid] ?? 0) > value) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  };
   const out = new Map<string, Place>();
-  for (const p of valued) out.set(p.key, { view, place: 1 + valued.filter((o) => o.value > p.value).length, of: valued.length, value: p.value });
+  for (const p of valued) out.set(p.key, { view, place: 1 + above(p.value), of: valued.length, value: p.value });
   return out;
 }
 

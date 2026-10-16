@@ -11,8 +11,23 @@ export type CommitQuery = {
   kind?: number;
   from?: number;
   to?: number;
+  since?: number;
+  until?: number;
+  weekday?: number;
+  hour?: number;
+  merges?: 0 | 1;
+  under?: string;
   limit?: number;
 };
+
+const DAY = 86_400;
+
+/** The weekday, Monday as 0, and the hour a commit was made on its author's own clock. */
+export function localTime(at: number, offset: number): { day: number; weekday: number; hour: number } {
+  const local = at + offset * 60;
+  const day = Math.floor(local / DAY);
+  return { day, weekday: (((day + 3) % 7) + 7) % 7, hour: Math.floor((local - day * DAY) / 3600) };
+}
 
 export type CommitRow = {
   sha: string;
@@ -44,6 +59,11 @@ export type Query = {
   from?: number;
   to?: number;
   kind?: number;
+  since?: number;
+  until?: number;
+  weekday?: number;
+  hour?: number;
+  merges?: 0 | 1;
 };
 
 export type Prepared = {
@@ -51,6 +71,8 @@ export type Prepared = {
   who: string[];
   person: number[];
   times: number[];
+  offsets: number[];
+  merge: boolean[];
   kind: number[];
 };
 
@@ -71,13 +93,15 @@ export function seqOf(cursor: string | null | undefined): number | null {
   return /^\d{1,10}$/.test(text) ? Number(text) : null;
 }
 
-export function prepare(list: Pick<CommitList, "subjects" | "people" | "person" | "times" | "kind">): Prepared {
+export function prepare(list: Pick<CommitList, "subjects" | "people" | "person" | "times" | "offsets" | "merge" | "kind">): Prepared {
   const who = list.people.map((p) => [p.person.name, p.person.login ?? "", ...p.emails].join(" ").toLowerCase());
   return {
     subjects: list.subjects.map((s) => s.toLowerCase()),
     who,
     person: list.person,
     times: list.times,
+    offsets: list.offsets,
+    merge: list.merge,
     kind: list.kind,
   };
 }
@@ -93,6 +117,14 @@ export function search(p: Prepared, q: Query): Int32Array {
     const t = p.times[i] ?? 0;
     if (q.from !== undefined && t < q.from) continue;
     if (q.to !== undefined && t > q.to) continue;
+    if (q.merges === 0 && p.merge[i]) continue;
+    if (q.weekday !== undefined || q.hour !== undefined || q.since !== undefined || q.until !== undefined) {
+      const local = localTime(t, p.offsets[i] ?? 0);
+      if (q.since !== undefined && local.day < q.since) continue;
+      if (q.until !== undefined && local.day > q.until) continue;
+      if (q.weekday !== undefined && local.weekday !== q.weekday) continue;
+      if (q.hour !== undefined && local.hour !== q.hour) continue;
+    }
     if (words.length > 0) {
       const subject = p.subjects[i] ?? "";
       const who = p.who[p.person[i] ?? -1] ?? "";
@@ -127,7 +159,7 @@ export function listPager(list: CommitList, finder?: Finder): (query: CommitQuer
   const found = new Map<string, Promise<Int32Array>>();
   return async (query, cursor) => {
     const person = query.person === undefined ? undefined : list.people.findIndex((p) => p.person.id === query.person);
-    const q: Query = { text: wordsOf(query.q).join(" "), person: person === -1 ? -2 : person, kind: query.kind, from: query.from, to: query.to };
+    const q: Query = { text: wordsOf(query.q).join(" "), person: person === -1 ? -2 : person, kind: query.kind, from: query.from, to: query.to, since: query.since, until: query.until, weekday: query.weekday, hour: query.hour, merges: query.merges };
     const k = JSON.stringify(q);
     let rows = found.get(k);
     if (!rows) {

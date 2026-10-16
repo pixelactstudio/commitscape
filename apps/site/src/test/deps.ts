@@ -48,3 +48,7 @@ export const repoFacts = (id: number, extra: Record<string, unknown> = {}) => ({
   created_at: "2020-01-01T00:00:00Z",
   ...extra,
 });
+
+export function signedIn(over: Partial<Viewer> = {}): Viewer {
+  return viewer({ session: async () => ({ id: "s1", userId: "u1" }), ...over });
+}

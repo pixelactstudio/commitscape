@@ -1,7 +1,8 @@
 import "@tanstack/react-start/server-only";
 import { and, count, eq, isNotNull } from "drizzle-orm";
-import { key, type Person, type StandingRow, type Standings } from "@commitscape/data";
+import { key, VIEWS, type Person, type Place, type StandingRow, type Standings, type View } from "@commitscape/data";
 import { readEntry, repoId as idOfRepo, schema } from "@commitscape/server";
+import { indexAnswer } from "./answers";
 import { askCounts, wantsCount } from "./engine";
 import { hiddenAmong } from "./people";
 import { SiteError } from "./http";
@@ -17,8 +18,53 @@ const COUNT_ORDER: Counted[] = ["counting", "stale", "over_budget", "failed", "n
 
 export type StandingsViewer = Viewer & { login: () => Promise<string | null> };
 
-/** Everyone's Standings in one repository the Site has built, view by view and never combined; a private one only for people GitHub shows it to, and nobody who chose to hide but the viewer. */
-export async function standingsOf(deps: Deps, viewer: StandingsViewer, owner: string, name: string, focus?: string): Promise<Standings> {
+const asking = new Map<string, Promise<boolean>>();
+
+function askOnce(deps: Deps, address: string, repoId: string, reportKey: string, ids: number[]): Promise<boolean> {
+  const id = `${repoId}#${reportKey}`;
+  if (asking.has(id)) return Promise.resolve(false);
+  const asked = askCounts(deps, address, repoId, reportKey, ids).finally(() => asking.delete(id));
+  asking.set(id, asked);
+  return asked;
+}
+
+const valueOf = (r: StandingRow, view: View): number => {
+  const v = r[view];
+  return typeof v === "number" && v > 0 ? v : 0;
+};
+
+/** The people of Standings cut to the first `limit` in each view, the viewer and the person in focus, with every one's place in each view counted over everyone. */
+export function limitStandings(people: StandingRow[], limit: number, focus?: string): { people: StandingRow[]; places: Record<string, Place[]> } {
+  const keep = new Set<string>();
+  const ranked = VIEWS.map(({ id }) => {
+    const order = people.filter((r) => valueOf(r, id) > 0).sort((a, b) => valueOf(b, id) - valueOf(a, id));
+    for (const r of order.slice(0, limit)) keep.add(r.key);
+    return { id, values: order.map((r) => valueOf(r, id)) };
+  });
+  for (const r of people) if (r.you || (focus && r.login?.toLowerCase() === focus.toLowerCase())) keep.add(r.key);
+  const places: Record<string, Place[]> = {};
+  for (const r of people) {
+    if (!keep.has(r.key)) continue;
+    const mine: Place[] = [];
+    for (const { id, values } of ranked) {
+      const value = valueOf(r, id);
+      if (value === 0) continue;
+      let lo = 0;
+      let hi = values.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if ((values[mid] ?? 0) > value) lo = mid + 1;
+        else hi = mid;
+      }
+      mine.push({ view: id, place: lo + 1, of: values.length, value });
+    }
+    places[r.key] = mine;
+  }
+  return { people: people.filter((r) => keep.has(r.key)), places };
+}
+
+/** Everyone's Standings in one repository the Site has built, view by view and never combined; a private one only for people GitHub shows it to, and nobody who chose to hide but the viewer. With `limit`, only the first in each view, the viewer and the person in focus, with their places and how many there are. */
+export async function standingsOf(deps: Deps, viewer: StandingsViewer, owner: string, name: string, focus?: string, limit?: number): Promise<Standings> {
   const named = idOfRepo(owner, name);
   const repo = named ? await rowOf(deps.db, named) : undefined;
   if (!repo?.reportKey) throw new SiteError(404, NO_STANDINGS);
@@ -115,19 +161,24 @@ export async function standingsOf(deps: Deps, viewer: StandingsViewer, owner: st
     .slice(0, COUNTED_FOR);
   const chosen = [...top, ...list.filter((r) => focus && r.login?.toLowerCase() === focus.toLowerCase() && r.personId !== null)];
   const ids = [...new Set(chosen.flatMap((r) => identities.get(r.key) ?? []))].filter((p) => wantsCount(counts.find((x) => x.personId === p), repo.reportLines));
-  if (await askCounts(deps, viewer.address, id, repo.reportKey, ids)) for (const r of list) if ((identities.get(r.key) ?? []).some((p) => ids.includes(p))) r.survivingStatus = "counting";
-  for (const r of list) if (r.personId !== null && r.survivingStatus === null) r.survivingStatus = "not_asked";
 
   const reportKey = repo.reportKey;
-  await Promise.all(
-    top.map(async (r) => {
-      const p = await readEntry<Person>(deps.storage, reportKey, key("/api/person", { id: r.personId ?? -1, window: "all" })).catch(() => null);
+  const [asked] = await Promise.all([
+    askOnce(deps, viewer.address, id, reportKey, ids),
+    ...top.map(async (r) => {
+      const question = key("/api/person", { id: r.personId ?? -1, window: "all" });
+      const fromIndex = repo.indexId !== null ? ((await indexAnswer(deps.db, repo.indexId, question).catch(() => undefined)) as Person | undefined) : undefined;
+      const p = fromIndex ?? (await readEntry<Person>(deps.storage, reportKey, question).catch(() => null));
       r.worksOn = worksOn(p);
     }),
-  );
+  ]);
+  if (asked) for (const r of list) if ((identities.get(r.key) ?? []).some((p) => ids.includes(p))) r.survivingStatus = "counting";
+  for (const r of list) if (r.personId !== null && r.survivingStatus === null) r.survivingStatus = "not_asked";
+  const people = list.sort((a, b) => (b.surviving ?? -1) - (a.surviving ?? -1) || (b.prsMerged ?? -1) - (a.prsMerged ?? -1) || (b.commits ?? -1) - (a.commits ?? -1));
+  const shown = limit === undefined ? { people } : { ...limitStandings(people, limit, focus), total: people.length };
   return {
     repo: { owner: repo.owner, name: repo.name, private: repo.isPrivate, builtAt: repo.reportAt ?? 0, pullsReadAt: repo.pullsReadAt ?? null, stars: repo.stars ?? 0 },
-    people: list.sort((a, b) => (b.surviving ?? -1) - (a.surviving ?? -1) || (b.prsMerged ?? -1) - (a.prsMerged ?? -1) || (b.commits ?? -1) - (a.commits ?? -1)),
+    ...shown,
     counted: list.filter((r) => r.survivingStatus === "counted").length,
     hidden: hidden.size,
   };

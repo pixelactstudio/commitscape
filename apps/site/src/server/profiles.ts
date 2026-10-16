@@ -6,6 +6,8 @@ import { cachedGet, now, schema, type Db } from "@commitscape/server";
 import { GITHUB_TTL } from "./github";
 import { graphql, type GraphQL } from "./graphql";
 import { SiteError } from "./http";
+import { allow } from "./limits";
+import { withPrivateWork } from "./private-work";
 
 const { people, profiles } = schema;
 
@@ -17,8 +19,21 @@ const AT_ONCE = 10;
 const YEARS_A_REQUEST = 2;
 const DAY = 86_400;
 
-export type ProfileDeps = { db: Db; github: { api: string; token?: string; fetcher?: typeof fetch } };
-export type ProfileViewer = { login: () => Promise<string | null>; token: () => Promise<string | null> };
+export type ProfileDeps = { db: Db; github: { api: string; token?: string; fetcher?: typeof fetch }; visitorReads?: number };
+export type ProfileViewer = { login: () => Promise<string | null>; token: () => Promise<string | null>; member?: () => Promise<boolean> };
+
+export const VISITOR_WORDS = "Sign in with GitHub to read someone commitscape has not read yet. Reading a person takes many GitHub requests, so new ones are read for people signed in.";
+const VISITOR_READS = 60;
+
+/** Whether a signed-in person is behind a request; their reads may spend the Site's token. */
+export async function isMember(viewer: ProfileViewer): Promise<boolean> {
+  if (await viewer.token().catch(() => null)) return true;
+  return (await viewer.member?.().catch(() => false)) ?? false;
+}
+
+async function visitorMayRead(deps: ProfileDeps, what: string, max = deps.visitorReads ?? VISITOR_READS): Promise<boolean> {
+  return allow(deps.db, { action: `visitor-${what}`, max, seconds: 3600 }, "site");
+}
 
 type Owner = {
   __typename: "User" | "Organization";
@@ -489,6 +504,12 @@ export async function lookupProfile(deps: ProfileDeps, viewer: ProfileViewer, lo
     if (identity.kind === "organization") return { status: "organization", login: identity.login, identity, requests: 0 };
     return { status: "ok", identity, hidden: chosen.hidden, self, fetchedAt: kept.fetchedAt ?? null, requests: 0 };
   }
+  if (!(await isMember(viewer)) && !(await visitorMayRead(deps, "lookup", (deps.visitorReads ?? VISITOR_READS) * 5))) {
+    if (!kept) throw new SiteError(401, VISITOR_WORDS, { gate: "visitor" });
+    const identity = JSON.parse(kept.identity) as Identity;
+    if (identity.kind === "organization") return { status: "organization", login: identity.login, identity, requests: 0 };
+    return { status: "ok", identity, hidden: chosen.hidden, self, fetchedAt: kept.fetchedAt ?? null, requests: 0 };
+  }
   const count = { requests: 0 };
   const owner = await fetchOwner(gh(deps, await viewer.token().catch(() => null), count), login).catch((e: unknown) => {
     if (kept) return "kept" as const;
@@ -527,20 +548,29 @@ async function save(db: Db, scope: Profile["scope"], profile: Profile, raw: Raw)
     .onConflictDoUpdate({ target: [profiles.login, profiles.scope], set: fields });
 }
 
-/** A person's Profile, their own private work only when they are the viewer, from a copy at most a day old; `full` waits for their pull requests too. */
-export async function readProfile(deps: ProfileDeps, viewer: ProfileViewer, login: string, full = false): Promise<Profile> {
+/** A person's Profile, their own private work only when they are the viewer and what private work they chose to show otherwise, from a copy at most a day old; `full` waits for their pull requests too. */
+export async function readProfile(deps: ProfileDeps, viewer: ProfileViewer, login: string, wanted = false): Promise<Profile> {
+  const p = await readOne(deps, viewer, login, wanted);
+  return p.scope === "public" ? withPrivateWork(deps.db, p) : p;
+}
+
+async function readOne(deps: ProfileDeps, viewer: ProfileViewer, login: string, wanted: boolean): Promise<Profile> {
   nameOf(login);
+  const member = await isMember(viewer);
   const scope = await scopeOf(viewer, login);
   const chosen = await choices(deps.db, login);
   if (chosen.hidden && scope !== "self") throw new SiteError(404, "This person has chosen to stay out of comparisons, so their Profile is hidden.");
   if (chosen.namePrivate && scope === "public") {
     const own = await stored(deps.db, login, "self");
     const kept = own?.data ? upgraded(JSON.parse(own.data) as Profile) : null;
-    if (kept && (!full || kept.read.complete)) return { ...kept, scope: "public", read: { ...kept.read, requests: 0 } };
+    if (kept && (!wanted || kept.read.complete)) return { ...kept, scope: "public", read: { ...kept.read, requests: 0 } };
   }
   const kept = await stored(deps.db, login, scope);
   const fresh = !!kept?.data && (kept.fetchedAt ?? 0) > now() - PROFILE_FOR;
   const keptProfile = kept?.data ? upgraded(JSON.parse(kept.data) as Profile) : null;
+  if (!member && keptProfile) return { ...keptProfile, read: { ...keptProfile.read, requests: 0 } };
+  if (!member && !(await visitorMayRead(deps, "profile"))) throw new SiteError(401, VISITOR_WORDS, { gate: "visitor" });
+  const full = wanted && member;
   const key = `${login.toLowerCase()}:${scope}`;
   const count = { requests: 0 };
   const client = async () => gh(deps, await viewer.token().catch(() => null), count);

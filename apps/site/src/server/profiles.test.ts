@@ -118,19 +118,20 @@ function fakeGitHub(answers: { owner?: unknown; clock?: () => Response | Promise
   return { asked, tokens, fetcher };
 }
 
-const anonymous: ProfileViewer = { login: async () => null, token: async () => null };
+const member: ProfileViewer = { login: async () => null, token: async () => null, member: async () => true };
+const visitor: ProfileViewer = { login: async () => null, token: async () => null };
 const as = (login: string, token: string): ProfileViewer => ({ login: async () => login, token: async () => token });
 
 describe("a Profile from GitHub", () => {
   test("its totals, worked out by hand, and private work named to nobody else", async () => {
     const gh = fakeGitHub();
     const deps = { db: await testDb(), github: { api: "http://github.test", token: "site", fetcher: gh.fetcher } };
-    const quick = await readProfile(deps, anonymous, "alice");
+    const quick = await readProfile(deps, member, "alice");
     expect(quick.read.complete).toBe(false);
     expect(quick.totals).toMatchObject({ prsMerged: 3, reviews: 4, commits: 12, linesAdded: null, hoursToMerge: null });
     expect(quick.repositories.find((r) => r.name === "rocket")).toMatchObject({ prsOpened: 4, prsMerged: 0 });
     expect(gh.asked).toEqual(["owner", "years:y2026,y2025"]);
-    const p = await readProfile(deps, anonymous, "alice", true);
+    const p = await readProfile(deps, member, "alice", true);
     expect(p.read.complete).toBe(true);
     expect(p.scope).toBe("public");
     expect(p.totals).toMatchObject({ prsOpened: 5, prsMerged: 3, prsClosed: 1, prsOpen: 1, reviews: 4, commits: 12, issues: 1, hidden: 5, linesAdded: 150, linesRemoved: 35, activeDays: 5, contributions: 9 });
@@ -174,24 +175,38 @@ describe("a Profile from GitHub", () => {
     const gh = fakeGitHub();
     const db = await testDb();
     const deps = { db, github: { api: "http://github.test", token: "site", fetcher: gh.fetcher } };
-    await readProfile(deps, anonymous, "alice", true);
+    await readProfile(deps, member, "alice", true);
     const before = gh.asked.length;
-    const again = await readProfile(deps, anonymous, "Alice", true);
+    const again = await readProfile(deps, member, "Alice", true);
     expect(gh.asked.length).toBe(before);
     expect(again.read.requests).toBe(0);
-    expect((await lookupProfile(deps, anonymous, "alice")).requests).toBe(0);
+    expect((await lookupProfile(deps, member, "alice")).requests).toBe(0);
     await db.update(schema.profiles).set({ fetchedAt: now() - PROFILE_FOR - 1, identityAt: now() - PROFILE_FOR - 1 });
     await db.update(schema.githubCache).set({ until: now() - 1 });
-    await readProfile(deps, anonymous, "alice", true);
+    await readProfile(deps, member, "alice", true);
     expect(gh.asked.length).toBe(before + 7);
+  });
+
+  test("someone signed out gets the stored copy however old and never pull requests, and reading someone new stops at the hourly budget", async () => {
+    const gh = fakeGitHub();
+    const db = await testDb();
+    const deps = { db, github: { api: "http://github.test", token: "site", fetcher: gh.fetcher }, visitorReads: 1 };
+    const first = await readProfile(deps, visitor, "alice", true);
+    expect(first.read.complete).toBe(false);
+    expect(gh.asked).toEqual(["owner", "years:y2026,y2025"]);
+    await db.update(schema.profiles).set({ fetchedAt: now() - PROFILE_FOR - 1 });
+    await readProfile(deps, visitor, "alice", true);
+    expect(gh.asked).toHaveLength(2);
+    await expect(readProfile(deps, visitor, "bob")).rejects.toThrow("Sign in with GitHub");
+    expect(gh.asked).toHaveLength(2);
   });
 
   test("the Site's token reads a person once for the lookup and the Profile together, and a visitor's own token is spent apart", async () => {
     const gh = fakeGitHub();
     const db = await testDb();
     const deps = { db, github: { api: "http://github.test", token: "site", fetcher: gh.fetcher } };
-    await lookupProfile(deps, anonymous, "alice");
-    await readProfile(deps, anonymous, "alice");
+    await lookupProfile(deps, member, "alice");
+    await readProfile(deps, member, "alice");
     expect(gh.asked.filter((a) => a === "owner")).toHaveLength(1);
     expect(gh.tokens.every((t) => t === "Bearer site")).toBe(true);
     await db.delete(schema.profiles);
@@ -203,15 +218,15 @@ describe("a Profile from GitHub", () => {
   test("a name GitHub does not know, an organization, and a name that cannot be a login", async () => {
     const missing = fakeGitHub({ owner: null });
     const db = await testDb();
-    expect(await lookupProfile({ db, github: { api: "http://github.test", token: "t", fetcher: missing.fetcher } }, anonymous, "nobody")).toMatchObject({ status: "not_found" });
+    expect(await lookupProfile({ db, github: { api: "http://github.test", token: "t", fetcher: missing.fetcher } }, member, "nobody")).toMatchObject({ status: "not_found" });
     const org = fakeGitHub({ owner: { __typename: "Organization", login: "acme", databaseId: 9, name: "Acme", avatarUrl: "https://a/acme", description: "Rockets", createdAt: "2019-01-01T00:00:00Z" } });
-    expect(await lookupProfile({ db, github: { api: "http://github.test", token: "t", fetcher: org.fetcher } }, anonymous, "acme")).toMatchObject({ status: "organization", identity: { kind: "organization", bio: "Rockets" } });
-    expect(await lookupProfile({ db, github: { api: "http://github.test", token: "t", fetcher: org.fetcher } }, anonymous, "-x")).toMatchObject({ status: "not_found", requests: 0 });
+    expect(await lookupProfile({ db, github: { api: "http://github.test", token: "t", fetcher: org.fetcher } }, member, "acme")).toMatchObject({ status: "organization", identity: { kind: "organization", bio: "Rockets" } });
+    expect(await lookupProfile({ db, github: { api: "http://github.test", token: "t", fetcher: org.fetcher } }, member, "-x")).toMatchObject({ status: "not_found", requests: 0 });
   });
 
   test("with no token at all it says how to get one", async () => {
     const gh = fakeGitHub();
-    await expect(readProfile({ db: await testDb(), github: { api: "http://github.test", fetcher: gh.fetcher } }, anonymous, "alice")).rejects.toThrow("Sign in with GitHub");
+    await expect(readProfile({ db: await testDb(), github: { api: "http://github.test", fetcher: gh.fetcher } }, member, "alice")).rejects.toThrow("Sign in with GitHub");
   });
 });
 
@@ -243,21 +258,21 @@ describe("when they commit", () => {
       const gh = fakeGitHub({ clock: () => (failing ? clock() : Response.json(commitTimes)) });
       const db = await testDb();
       const deps = { db, github: { api: "http://github.test", token: "site", fetcher: gh.fetcher } };
-      const first = await readProfile(deps, anonymous, "alice", true);
+      const first = await readProfile(deps, member, "alice", true);
       expect(first.clock).toBeNull();
       expect((await stored(db)).clock).toBeNull();
       failing = false;
-      const soon = await readProfile(deps, anonymous, "alice", true);
+      const soon = await readProfile(deps, member, "alice", true);
       expect(soon.clock).toBeNull();
       expect(gh.asked.filter((a) => a === "clock")).toHaveLength(1);
       await age(db, CLOCK_RETRY + 1);
-      const later = await readProfile(deps, anonymous, "alice", true);
+      const later = await readProfile(deps, member, "alice", true);
       expect(later.clock?.sampled).toBe(3);
       expect(later.read.requests).toBe(1);
       expect(gh.asked.filter((a) => a === "clock")).toHaveLength(2);
       expect((await stored(db)).clock?.sampled).toBe(3);
       await age(db, CLOCK_RETRY + 1);
-      await readProfile(deps, anonymous, "alice", true);
+      await readProfile(deps, member, "alice", true);
       expect(gh.asked.filter((a) => a === "clock")).toHaveLength(2);
     });
 
@@ -265,10 +280,10 @@ describe("when they commit", () => {
     const gh = fakeGitHub({ clock: () => Response.json({ items: [] }) });
     const db = await testDb();
     const deps = { db, github: { api: "http://github.test", token: "site", fetcher: gh.fetcher } };
-    const p = await readProfile(deps, anonymous, "alice", true);
+    const p = await readProfile(deps, member, "alice", true);
     expect(p.clock).toMatchObject({ sampled: 0 });
     await age(db, CLOCK_RETRY + 1);
-    await readProfile(deps, anonymous, "alice", true);
+    await readProfile(deps, member, "alice", true);
     expect(gh.asked.filter((a) => a === "clock")).toHaveLength(1);
   });
 
@@ -276,10 +291,10 @@ describe("when they commit", () => {
     const gh = fakeGitHub({ clock: () => new Response("{}", { status: 403 }) });
     const db = await testDb();
     const deps = { db, github: { api: "http://github.test", token: "site", fetcher: gh.fetcher } };
-    await readProfile(deps, anonymous, "alice", true);
+    await readProfile(deps, member, "alice", true);
     await age(db, CLOCK_RETRY + 1);
-    expect((await readProfile(deps, anonymous, "alice", true)).clock).toBeNull();
-    await readProfile(deps, anonymous, "alice", true);
+    expect((await readProfile(deps, member, "alice", true)).clock).toBeNull();
+    await readProfile(deps, member, "alice", true);
     expect(gh.asked.filter((a) => a === "clock")).toHaveLength(2);
   });
 });

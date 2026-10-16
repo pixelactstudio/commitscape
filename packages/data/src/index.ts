@@ -1,6 +1,7 @@
 export type * from "./boards";
 export * from "./builds";
 export * from "./commits";
+export * from "./git";
 export * from "./github";
 export type * from "./lookup";
 export type * from "./profile";
