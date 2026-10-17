@@ -11,8 +11,8 @@ export function Person({ login, name, size = 32, ring, glow, note, className = "
     <span className={`inline-flex min-w-0 items-center gap-3 ${className}`}>
       <Face login={login} name={shown} size={size} ring={ring} glow={glow} />
       <span className="flex min-w-0 flex-col">
-        <span className="truncate text-sm font-semibold">{shown}</span>
-        {sub && <span className="truncate text-xs text-secondary">{sub}</span>}
+        <span className="truncate type-ui font-medium text-primary"><bdi>{shown}</bdi></span>
+        {sub && <span className="truncate type-caption">{sub}</span>}
       </span>
     </span>
   );

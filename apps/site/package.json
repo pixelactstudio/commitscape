@@ -22,7 +22,7 @@
     "@commitscape/data": "workspace:*",
     "@commitscape/server": "workspace:*",
     "@commitscape/ui": "workspace:*",
-    "@fontsource-variable/inter": "5.3.0",
+    "@fontsource-variable/jetbrains-mono": "5.3.0",
     "@gsap/react": "2.1.2",
     "@modelcontextprotocol/sdk": "1.32.1",
     "@posthog/react": "1.11.2",

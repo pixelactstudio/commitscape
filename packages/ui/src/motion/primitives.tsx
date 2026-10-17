@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ElementType, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { animate, motion, MotionConfig, useInView, useReducedMotion, type Variants } from "motion/react";
 import { BLUR, DISTANCE, DURATION, EASE, SPRING, STAGGER, VIEWPORT } from "./constants";
 
@@ -18,7 +18,7 @@ const revealVariants = (y: number, blur: boolean, delay = 0): Variants => ({
 
 /** Fades, lifts and unblurs its children the first time they scroll into view. For content below the fold. */
 export function Reveal({ children, as = "div", y = DISTANCE.rise, blur = true, delay = 0, className }: { children: ReactNode; as?: "div" | "section" | "li" | "span" | "p" | "h2"; y?: number; blur?: boolean; delay?: number; className?: string }) {
-  const Tag = motion[as] as ElementType;
+  const Tag = motion[as] as ComponentType<Record<string, unknown>>;
   return (
     <Tag className={className} initial="hidden" whileInView="shown" viewport={VIEWPORT} variants={revealVariants(y, blur, delay)}>
       {children}
@@ -28,7 +28,7 @@ export function Reveal({ children, as = "div", y = DISTANCE.rise, blur = true, d
 
 /** Reveals its StaggerItem children one after another when the group scrolls into view. */
 export function Stagger({ children, as = "div", gap = STAGGER.base, delay = 0, className }: { children: ReactNode; as?: "div" | "ul" | "ol" | "section"; gap?: number; delay?: number; className?: string }) {
-  const Tag = motion[as] as ElementType;
+  const Tag = motion[as] as ComponentType<Record<string, unknown>>;
   return (
     <Tag className={className} initial="hidden" whileInView="shown" viewport={VIEWPORT} variants={{ hidden: {}, shown: { transition: { staggerChildren: gap, delayChildren: delay } } }}>
       {children}
@@ -38,7 +38,7 @@ export function Stagger({ children, as = "div", gap = STAGGER.base, delay = 0, c
 
 /** One member of a Stagger group. */
 export function StaggerItem({ children, as = "div", y = DISTANCE.rise, blur = false, className }: { children: ReactNode; as?: "div" | "li" | "span" | "article"; y?: number; blur?: boolean; className?: string }) {
-  const Tag = motion[as] as ElementType;
+  const Tag = motion[as] as ComponentType<Record<string, unknown>>;
   return (
     <Tag className={className} variants={revealVariants(y, blur)}>
       {children}
@@ -71,7 +71,7 @@ export function CountUp({ value, format = (n) => Math.round(n).toLocaleString("e
 
 /** Lifts a card slightly under the pointer and presses it on click. */
 export function Lift({ children, className, as = "div" }: { children: ReactNode; className?: string; as?: "div" | "li" | "article" }) {
-  const Tag = motion[as] as ElementType;
+  const Tag = motion[as] as ComponentType<Record<string, unknown>>;
   return (
     <Tag className={className} whileHover={{ y: -3 }} whileTap={{ scale: 0.985 }} transition={SPRING.snappy}>
       {children}

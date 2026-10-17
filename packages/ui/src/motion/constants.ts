@@ -1,7 +1,8 @@
 export const DURATION = {
-  instant: 0.12,
-  fast: 0.2,
-  base: 0.36,
+  instant: 0.1,
+  fast: 0.15,
+  exit: 0.15,
+  base: 0.3,
   slow: 0.6,
   reveal: 0.8,
   scene: 1.2,
@@ -25,8 +26,8 @@ export const GSAP_EASE = {
 
 export const SPRING = {
   gentle: { type: "spring", stiffness: 170, damping: 26, mass: 1 },
-  snappy: { type: "spring", stiffness: 420, damping: 32, mass: 0.8 },
-  bouncy: { type: "spring", stiffness: 300, damping: 15, mass: 0.9 },
+  snappy: { type: "spring", stiffness: 420, damping: 37, mass: 0.8 },
+  icon: { type: "spring", duration: 0.3, bounce: 0 },
 } as const;
 
 export const STAGGER = {
@@ -37,12 +38,12 @@ export const STAGGER = {
 
 export const DISTANCE = {
   nudge: 6,
-  rise: 16,
+  rise: 12,
   travel: 40,
 } as const;
 
 export const BLUR = {
-  reveal: 8,
+  reveal: 4,
 } as const;
 
 export const BEAT = {

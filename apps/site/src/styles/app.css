@@ -1,4 +1,4 @@
-@import "@fontsource-variable/inter";
+@import "@fontsource-variable/jetbrains-mono/wght.css";
 @import "tailwindcss/theme.css" layer(theme);
 @import "@astryxdesign/core/tailwind-theme.css";
 @import "tailwindcss/utilities.css" layer(utilities) source(none);
@@ -9,3 +9,18 @@
 @source not inline("{sm,md,lg}:size-{16,20,24,32,36,40,48,60,64,72,96,128,144,180}");
 
 @import "../../../../packages/ui/src/design/theme.css";
+
+@font-face {
+  font-family: InterVariable;
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/InterVariable.woff2") format("woff2");
+}
+@font-face {
+  font-family: InterVariable;
+  font-style: italic;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/InterVariable-Italic.woff2") format("woff2");
+}
