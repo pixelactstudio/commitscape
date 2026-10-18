@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { grouped, compact, share } from "./format";
+import { compact, date, day, grouped, share } from "./format";
 
 describe("numbers in words", () => {
   it("groups thousands with commas", () => {
@@ -16,5 +16,13 @@ describe("numbers in words", () => {
   it("says a share as a whole percentage, and nothing when there is no whole", () => {
     expect(share(1, 3)).toBe("33%");
     expect(share(0, 0)).toBe("—");
+  });
+});
+
+describe("dates in words", () => {
+  it("writes a day as day, three-letter month and year, September included", () => {
+    expect(day(Date.UTC(2024, 8, 19) / 86_400_000)).toBe("19 Sep 2024");
+    expect(day(Date.UTC(2026, 7, 4) / 86_400_000)).toBe("4 Aug 2026");
+    expect(date(Date.UTC(2016, 2, 11) / 1000)).toBe("11 Mar 2016");
   });
 });

@@ -14,7 +14,7 @@ export function searcher(list: CommitList): Searcher {
     try {
       const worker = new SearchWorker();
       worker.postMessage({
-        list: { subjects: list.subjects, people: list.people, person: list.person, times: list.times, kind: list.kind },
+        list: { subjects: list.subjects, people: list.people, person: list.person, times: list.times, offsets: list.offsets, merge: list.merge, kind: list.kind },
       });
       let next = 0;
       const waiting = new Map<number, (rows: Int32Array) => void>();

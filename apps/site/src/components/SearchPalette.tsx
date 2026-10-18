@@ -52,7 +52,7 @@ export function SearchPalette({ isOpen, onOpenChange }: { isOpen: boolean; onOpe
         if (to) void navigate({ to: to as "/" });
       }}
       width={600}
-      input={<CommandPaletteInput placeholder="Search people or repositories, or type owner/repo" />}
+      input={<CommandPaletteInput placeholder="Search a person or owner/repo" />}
     />
   );
 }

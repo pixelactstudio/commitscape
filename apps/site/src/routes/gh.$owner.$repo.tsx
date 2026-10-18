@@ -4,21 +4,28 @@ import { Button } from "@astryxdesign/core/Button";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { Spinner } from "@astryxdesign/core/Spinner";
-import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
-import { createFileRoute, Link, redirect, useNavigate } from "@tanstack/react-router";
-import { Check, Download, ExternalLink, History, Share2 } from "lucide-react";
-import { FAILURE_WORDS, PRODUCT, type Lookup, type View } from "@commitscape/data";
-import { App, hallOfFameCardSize, Leaderboard, Page, Panel, SCREEN_SKELETONS, ScreenBar, SourceContext, toRoute, toSearch, type Route as Where } from "@commitscape/ui";
+import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { createFileRoute, Link, redirect, useNavigate, useRouteContext } from "@tanstack/react-router";
+import { Locked } from "#/components/Locked";
+import { GATES } from "#/lib/gates";
+import { Check, Download, ExternalLink, FileCode, History } from "lucide-react";
+import { FAILURE_WORDS, PRODUCT, VIEWS, type GitStatus, type Lookup, type View } from "@commitscape/data";
+import { App, CARDS, codeLink, dataQuery, date, GIT_SCREENS, gitKeyOf, hallOfFameCardSize, InlineLink, paramsOf, primaryRequest, pullAskOf, pullStatsAskOf, queryOf, Quiet, screensOf, REPO_CARDS, REPO_COMPACT_SIZE, REPO_STATS_SIZE, repoFacesCardSize, Leaderboard, Panel, SCREEN_SKELETONS, ScreenColumn, ScreenHeader, SourceContext, TITLES, toRoute, toSearch, Workspace, type Route as Where, type WorkspaceSlots } from "@commitscape/ui";
 import { startBuild } from "#/functions/repos";
-import { lookupQuery, reportHeadQuery, running, standingsQuery } from "#/lib/queries";
+import { gitStatusQuery, lookupQuery, reportHeadQuery, running, standingsQuery } from "#/lib/queries";
+import { getPull, getPulls, getPullStats } from "#/functions/pulls";
+import { gitId, prefetchTree, siteGit, warmCode } from "#/lib/git-source";
+import { PullConversation } from "#/components/PullConversation";
 import { siteSource } from "#/lib/source";
 import { signIn } from "#/lib/auth-client";
 import { useHydrated } from "#/lib/hydrated";
 import { useRemember } from "#/lib/recent";
 import { Section } from "#/components/Boundary";
-import { Chip, GitHubFacts, RepoHero } from "#/components/Facts";
+import { Chip, GitHubFacts, RepoBarName, RepoHero, RepoIdentity } from "#/components/Facts";
 import { Missing } from "#/components/Missing";
 import { ShareButton } from "#/components/ShareDialog";
+import type { CardChoice } from "#/components/CardStudio";
+import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
 import { ThemedCard } from "#/components/ThemedCard";
 
 const STEPS = [
@@ -28,22 +35,27 @@ const STEPS = [
   { id: "uploading", title: "Storing its Report", doing: "Writing every screen, for every Window, ahead of time." },
 ] as const;
 
-const built = (at: number) => new Date(at * 1000).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+const STANDINGS_FIRST = 20;
 
 export const Route = createFileRoute("/gh/$owner/$repo")({
+  staticData: { frame: "workspace" },
   validateSearch: (search: Record<string, unknown>) => toSearch(search),
-  loader: async ({ params, context }) => {
+  loaderDeps: ({ search }) => ({ screen: search.screen, path: search.path, pr: search.pr, state: search.state, by: search.by, q: search.q, page: search.page, window: search.window, from: search.from, to: search.to, person: search.person, folder: search.folder, id: search.id, code: search.code, author: search.author, label: search.label, size: search.size, review: search.review, stale: search.stale, draft: search.draft }),
+  loader: async ({ params, context, deps }) => {
     const lookup = await context.queryClient.ensureQueryData(lookupQuery(params.owner, params.repo));
     if (lookup.id !== `${params.owner}/${params.repo}`.toLowerCase()) throw redirect({ to: "/gh/$owner/$repo", params: { owner: lookup.owner, repo: lookup.name }, search: true, replace: true });
+    if (lookup.report) await warm(context.queryClient, params.owner, params.repo, lookup.report.at, deps);
     return {
       name: `${lookup.owner}/${lookup.name}`,
       description: lookup.facts?.description ?? null,
       card: !!lookup.report && lookup.access === "public",
       origin: context.origin ?? "",
+      screen: toRoute(deps).screen,
     };
   },
   head: ({ loaderData, params }) => {
-    const title = `${loaderData?.name ?? `${params.owner}/${params.repo}`} on ${PRODUCT}`;
+    const name = loaderData?.name ?? `${params.owner}/${params.repo}`;
+    const title = loaderData && loaderData.screen !== "overview" ? `${TITLES[loaderData.screen]} · ${name} · ${PRODUCT}` : `${name} on ${PRODUCT}`;
     const words = loaderData?.description || "Who built it, and how each of them stands.";
     return {
       meta: [
@@ -61,129 +73,201 @@ export const Route = createFileRoute("/gh/$owner/$repo")({
   component: Repository,
 });
 
+type Deps = Partial<Record<"screen" | "path" | "state" | "by" | "q" | "window" | "folder" | "code" | "author" | "label" | "size" | "review" | "stale" | "draft", string | undefined> & Record<"pr" | "page" | "from" | "to" | "person" | "id", number | undefined>>;
+
+async function warm(queryClient: ReturnType<typeof useQueryClient>, owner: string, repo: string, at: number, deps: Deps): Promise<void> {
+  const [status, head] = await Promise.all([queryClient.ensureQueryData(gitStatusQuery(owner, repo, at)).catch(() => null), queryClient.ensureQueryData(reportHeadQuery(owner, repo, at)).catch(() => null)]);
+  if (head) {
+    const route = toRoute(deps);
+    const asked = primaryRequest(route, paramsOf(route, head.meta));
+    if (asked) void queryClient.prefetchQuery(dataQuery(siteSource(owner, repo, head.at, head.meta, head.ranges), asked[0], asked[1]));
+  }
+  if (deps.screen === "people") void queryClient.prefetchQuery(standingsQuery(owner, repo, undefined, STANDINGS_FIRST));
+  if (!status) return;
+  const id = gitId(owner, repo, status.builtAt);
+  if (deps.screen === "pulls") {
+    const work =
+      deps.pr !== undefined
+        ? queryClient.ensureQueryData({ queryKey: gitKeyOf(id, "pull", deps.pr), queryFn: () => getPull({ data: { owner, repo, number: deps.pr as number } }), staleTime: 60_000 })
+        : Promise.all([
+            queryClient.ensureQueryData({ queryKey: gitKeyOf(id, "pulls", JSON.stringify(pullAskOf(deps, head?.meta.window))), queryFn: () => getPulls({ data: { owner, repo, ...pullAskOf(deps, head?.meta.window) } }), staleTime: 60_000 }),
+            queryClient.ensureQueryData({ queryKey: gitKeyOf(id, "pull-stats", JSON.stringify(pullStatsAskOf(deps, head?.meta.window))), queryFn: () => getPullStats({ data: { owner, repo, ...pullStatsAskOf(deps, head?.meta.window) } }), staleTime: 60_000 }),
+          ]);
+    await work.catch(() => null);
+  }
+  if (deps.code) {
+    const code = warmCode(queryClient, owner, repo, status, deps.code).catch(() => null);
+    if (typeof window === "undefined") await code;
+  }
+}
+
+const github = (owner: string, repo: string) => `https://github.com/${owner}/${repo}`;
+
+function GitHubButton({ owner, repo }: { owner: string; repo: string }) {
+  return <Button label="View on GitHub" variant="secondary" icon={<Icon icon={ExternalLink} size="sm" />} href={github(owner, repo)} target="_blank" rel="noopener noreferrer" />;
+}
+
+function slotsOf(lookup: Lookup, status: ReactNode): WorkspaceSlots {
+  return {
+    label: `${lookup.owner}/${lookup.name}`,
+    identity: <RepoIdentity owner={lookup.owner} name={lookup.name} facts={lookup.facts} status={status} />,
+    bar: <RepoBarName owner={lookup.owner} name={lookup.name} />,
+    actions: <GitHubButton owner={lookup.owner} repo={lookup.name} />,
+    link: (r) => `/gh/${lookup.owner}/${lookup.name}${queryOf(r)}`,
+  };
+}
+
+function BuildState({ lookup, busy, pill = false }: { lookup: Lookup; busy: boolean; pill?: boolean }) {
+  const words = lookup.report ? (busy ? "updating…" : `built ${date(lookup.report.at)}`) : busy ? "building…" : null;
+  if (!words) return null;
+  const title = lookup.report ? (busy ? "A newer Report is being built; this one shows meanwhile" : "When this Report was built") : "Its first Report is being built";
+  const icon = busy ? <Spinner size="sm" /> : <History size={12} aria-hidden />;
+  if (pill)
+    return (
+      <Chip icon={icon} tone={busy ? "brand" : undefined} title={title}>
+        {words}
+      </Chip>
+    );
+  return (
+    <span className={`inline-flex items-center gap-1 ${busy ? "text-brand" : ""}`} title={title}>
+      {icon}
+      {words}
+    </span>
+  );
+}
+
 function Repository() {
   const { owner, repo } = Route.useParams();
-  const { card } = Route.useLoaderData();
+  const where = toRoute(Route.useSearch());
   const queryClient = useQueryClient();
   const { data: lookup } = useSuspenseQuery(lookupQuery(owner, repo));
+  const { user } = useRouteContext({ from: "__root__" });
+  const mayBuild = !!user || !GATES.build.on;
   const build = useMutation({
     mutationFn: () => startBuild({ data: { owner, repo } }),
     onSuccess: (next) => queryClient.setQueryData(lookupQuery(owner, repo).queryKey, next),
   });
   const asked = useRef(false);
   useEffect(() => {
-    if (lookup.canBuild && !asked.current) {
+    if (lookup.canBuild && mayBuild && !asked.current) {
       asked.current = true;
       build.mutate();
     }
-  }, [lookup.canBuild, build]);
+  }, [lookup.canBuild, mayBuild, build]);
   useRemember(lookup.status === "ok" ? { kind: "repo", id: `${lookup.owner}/${lookup.name}` } : null);
+  const busy = running(lookup);
+  const slots = slotsOf(lookup, <BuildState lookup={lookup} busy={busy} />);
 
   if (lookup.status === "not_found" && !lookup.facts) return <NotFound lookup={lookup} owner={owner} repo={repo} />;
-  const busy = running(lookup);
-  const status = lookup.report ? (
-    busy ? (
-      <Chip icon={<Spinner size="sm" />} tone="brand" title="A newer Report is being built; this one shows meanwhile">
-        updating…
-      </Chip>
-    ) : (
-      <Chip icon={<History size={12} aria-hidden />} title="When this Report was built">
-        built {built(lookup.report.at)}
-      </Chip>
-    )
-  ) : busy ? (
-    <Chip icon={<Spinner size="sm" />} tone="brand" title="Its first Report is being built">
-      building…
-    </Chip>
-  ) : null;
-  const github = `https://github.com/${lookup.owner}/${lookup.name}`;
+  if (lookup.report)
+    return (
+      <Suspense fallback={<ReportSkeleton owner={owner} repo={repo} at={lookup.report.at} slots={slots} />}>
+        <Report lookup={lookup} owner={owner} repo={repo} at={lookup.report.at} busy={busy} slots={slots} counting={!lookup.report.lines} notice={<LinesNotice counting={!lookup.report.lines} busy={busy} />} />
+      </Suspense>
+    );
   return (
-    <>
-      <RepoHero
-        attached={!!lookup.report}
-        owner={lookup.owner}
-        name={lookup.name}
-        facts={lookup.facts}
-        status={status}
-        actions={
-          <>
-            {card && (
-              <Section fallback={<Button label="Share" variant="primary" icon={<Icon icon={Share2} size="sm" />} isDisabled />}>
-                <HallShare owner={lookup.owner} repo={lookup.name} label="Share" variant="primary" />
-              </Section>
-            )}
-            <Button label="View on GitHub" variant="secondary" icon={<Icon icon={ExternalLink} size="sm" />} href={github} target="_blank" rel="noopener noreferrer" />
-          </>
-        }
-      />
-      {lookup.report ? (
-        <Suspense fallback={<ReportSkeleton />}>
-          <Report
-            owner={owner}
-            repo={repo}
-            at={lookup.report.at}
-            notice={
-              !lookup.report.lines && (
-                <div className="pt-5">
-                  <Banner
-                    status="info"
-                    title={busy ? "A fresh read that counts every line is under way." : "A fresh read with line counts is on its way."}
-                    description="This Report was written before every line was counted, so lines added, removed and still running are left out below until the new one lands. The page updates by itself."
-                  />
-                </div>
-              )
-            }
-          />
-        </Suspense>
-      ) : (
-        <Page className="pb-6">
+    <Workspace slots={slots} route={where} screens={screensOf(false)} picker={null}>
+      <ScreenColumn>
+        <ScreenHeader title={`${lookup.owner}/${lookup.name}`} counts={busy ? "Its first Report is being built" : "It has no Report yet"} />
+        {!mayBuild && !busy && !(lookup.status === "ok" && lookup.build?.state === "failed" && lookup.build.reason === "too_big") ? (
+          <div className="pt-5">
+            <Locked gate="build" height={320} />
+          </div>
+        ) : (
           <Waiting lookup={lookup} owner={owner} repo={repo} error={build.error?.message ?? null} />
-        </Page>
-      )}
-    </>
+        )}
+      </ScreenColumn>
+    </Workspace>
   );
 }
 
-function ReportSkeleton() {
-  const where = toRoute(Route.useSearch());
-  const Screen = SCREEN_SKELETONS[where.screen];
+/** The note above a Report whose lines are still being counted; once they land it says so in the same place until dismissed, so the screen below does not move. */
+function LinesNotice({ counting, busy }: { counting: boolean; busy: boolean }) {
+  const [seen, setSeen] = useState(counting);
+  const [gone, setGone] = useState(false);
+  if (counting && !seen) setSeen(true);
+  if (!counting && (!seen || gone)) return null;
   return (
-    <div aria-busy="true" aria-label="Loading the Report" className="pb-16">
-      <ScreenBar route={where} />
-      <Page>
-        <Screen />
-      </Page>
+    <div className="pt-5">
+      {counting ? (
+        <Banner
+          status="info"
+          title={busy ? "A fresh read that counts every line is under way." : "A fresh read with line counts is on its way."}
+          description="This Report was written before every line was counted. Lines added, removed and still running shimmer in their places below until the new one lands; the page updates by itself."
+        />
+      ) : (
+        <Banner status="success" title="Every line is counted now." description="Lines added, removed and still running below are from the new Report." isDismissable onDismiss={() => setGone(true)} />
+      )}
     </div>
   );
 }
 
-function Report({ owner, repo, at, notice }: { owner: string; repo: string; at: number; notice?: ReactNode }) {
+function ReportSkeleton({ owner, repo, at, slots }: { owner: string; repo: string; at: number; slots: WorkspaceSlots }) {
   const where = toRoute(Route.useSearch());
+  const Screen = SCREEN_SKELETONS[where.screen];
+  const { data: git } = useQuery(gitStatusQuery(owner, repo, at));
+  return (
+    <Workspace slots={slots} route={where} screens={screensOf(!!git)}>
+      <div aria-busy="true" aria-label="Loading the Report">
+        <ScreenColumn wide={where.screen === "universe"}>
+          {where.screen === "overview" ? <div className="h-(--screen-header-height)" /> : <ScreenHeader title={TITLES[where.screen]} />}
+          <Screen />
+        </ScreenColumn>
+      </div>
+    </Workspace>
+  );
+}
+
+function Report({ lookup, owner, repo, at, busy, slots: base, notice, counting }: { lookup: Lookup; owner: string; repo: string; at: number; busy: boolean; slots: WorkspaceSlots; notice?: ReactNode; counting: boolean }) {
+  const asked = toRoute(Route.useSearch());
+  const queryClient = useQueryClient();
+  const { data: status } = useQuery(gitStatusQuery(owner, repo, at));
+  const git = useMemo(() => (status ? siteGit(owner, repo, status, (number) => <PullConversation owner={owner} repo={repo} number={number} />) : null), [owner, repo, status]);
+  const where = git || !(GIT_SCREENS as readonly string[]).includes(asked.screen) ? asked : { ...asked, screen: "overview" as const };
   const navigate = useNavigate({ from: Route.fullPath });
   const { card } = Route.useLoaderData();
   const { data: head } = useSuspenseQuery(reportHeadQuery(owner, repo, at));
-  const source = useMemo(() => siteSource(owner, repo, head.at, head.meta), [owner, repo, head.at, head.meta]);
+  const source = useMemo(() => siteSource(owner, repo, head.at, head.meta, head.ranges), [owner, repo, head.at, head.meta, head.ranges]);
   const logins = useMemo(() => new Map(head.logins), [head.logins]);
   const standing = useMemo(() => (login: string) => `/u/${login}/${owner}/${repo}`, [owner, repo]);
+  const people = head.logins.length;
+  const shareable = card && !head.private && people > 0;
   const go = (change: Partial<Where>, replace = false) => void navigate({ search: (prev) => toSearch({ ...prev, ...change }), replace, resetScroll: false });
+  const actions = (
+    <>
+      {shareable && <HallShare owner={lookup.owner} repo={lookup.name} people={people} label="Share" variant="primary" />}
+      <GitHubButton owner={lookup.owner} repo={lookup.name} />
+    </>
+  );
+  const slots: WorkspaceSlots = {
+    ...base,
+    actions,
+    counts: countsOf(status),
+    hero: <RepoHero owner={lookup.owner} name={lookup.name} facts={lookup.facts} status={<BuildState lookup={lookup} busy={busy} pill />} actions={actions} browse={git ? <Button label="Browse code" variant="secondary" icon={<Icon icon={FileCode} size="sm" />} href={base.link(codeLink(where, "/"))} /> : undefined} />,
+  };
   const extras = {
     people: (
       <Section fallback={<Fallback title="Leaderboard" height={10 * 53} />}>
-        <Standings owner={owner} repo={repo} />
+        <Standings owner={owner} repo={repo} view={VIEW_IDS.includes(where.rank as View) ? (where.rank as View) : "surviving"} onView={(rank) => go({ rank }, true)} />
       </Section>
     ),
-    overview:
-      card && !head.private ? (
-        <Section fallback={<Fallback title="Its Card, for a README or a post" height={360} />}>
-          <HallOfFame owner={owner} repo={repo} />
-        </Section>
-      ) : undefined,
+    overview: shareable ? <HallOfFame owner={owner} repo={repo} people={people} template={where.card ?? "hall-of-fame"} onTemplate={(card) => go({ card: card === "hall-of-fame" ? undefined : card }, true)} /> : undefined,
+  };
+  const warmCode = (e: { target: EventTarget }) => {
+    if (status && e.target instanceof Element && e.target.closest('a[href*="code="]')) void prefetchTree(queryClient, owner, repo, status).catch(() => null);
   };
   return (
     <SourceContext value={source}>
-      <App route={where} go={go} logins={logins} standing={standing} extras={extras} notice={notice} />
+      <div onPointerOver={warmCode} onFocus={warmCode}>
+        <App route={where} go={go} slots={slots} logins={logins} standing={standing} extras={extras} notice={notice} counting={counting} {...(git ? { git } : {})} />
+      </div>
     </SourceContext>
   );
+}
+
+function countsOf(status: GitStatus | undefined | null): WorkspaceSlots["counts"] {
+  if (!status) return undefined;
+  return { branches: { n: status.openBranches, noun: "open branches" }, pulls: { n: status.openPulls, noun: "open pull requests" } };
 }
 
 function Fallback({ title, height }: { title: string; height: number }) {
@@ -194,51 +278,73 @@ function Fallback({ title, height }: { title: string; height: number }) {
   );
 }
 
-function Standings({ owner, repo }: { owner: string; repo: string }) {
-  const { data } = useSuspenseQuery(standingsQuery(owner, repo));
-  const [view, setView] = useState<View>("surviving");
-  if (data.people.length === 0) return null;
-  return <Leaderboard standings={data} view={view} onView={setView} />;
+const VIEW_IDS: string[] = VIEWS.map((v) => v.id);
+
+function Standings({ owner, repo, view, onView }: { owner: string; repo: string; view: View; onView: (v: View) => void }) {
+  const [all, setAll] = useState(false);
+  const { data: first } = useSuspenseQuery(standingsQuery(owner, repo, undefined, STANDINGS_FIRST));
+  const everyone = useQuery({ ...standingsQuery(owner, repo), enabled: all });
+  const data = all && everyone.data ? everyone.data : first;
+  if (data.people.length === 0) return <Quiet>GitHub links no commits to an account in this repository yet, so there are no Standings.</Quiet>;
+  return <Leaderboard standings={data} view={view} onView={onView} onAll={setAll} loadingAll={all && !everyone.data} />;
 }
 
-function HallShare({ owner, repo, label, variant }: { owner: string; repo: string; label: string; variant: "primary" | "secondary" }) {
-  const { origin } = Route.useLoaderData();
-  const { data } = useSuspenseQuery(standingsQuery(owner, repo));
-  const choice = {
-    id: "hall-of-fame",
-    title: "Repository card",
-    about: "What it is, its stars and forks, and the people who built it, with their faces and numbers.",
-    url: `/api/cards/gh/${owner}/${repo}/hall-of-fame`,
-    ...hallOfFameCardSize(data.people.length),
+const TEMPLATES = REPO_CARDS.map((kind) => ({ kind, title: CARDS[kind].title, about: CARDS[kind].about }));
+
+function repoChoices(owner: string, repo: string, people: number): CardChoice[] {
+  const sizes: Record<(typeof REPO_CARDS)[number], { width: number; height: number }> = {
+    "hall-of-fame": hallOfFameCardSize(people),
+    "repo-compact": REPO_COMPACT_SIZE,
+    "repo-stats": REPO_STATS_SIZE,
+    "repo-faces": repoFacesCardSize(people),
+  };
+  return TEMPLATES.map((t) => ({
+    id: t.kind,
+    title: t.title,
+    about: t.about,
+    url: `/api/cards/gh/${owner}/${repo}/${t.kind}`,
+    ...sizes[t.kind],
     link: `/gh/${owner}/${repo}`,
     share: `The people who built ${owner}/${repo}.`,
-    alt: `The people who built ${owner}/${repo}`,
-  };
-  return <ShareButton choices={[choice]} origin={origin} label={label} title={`Share ${owner}/${repo}'s hall of fame`} variant={variant} />;
+    alt: `${owner}/${repo}: ${t.title.toLowerCase()} Card`,
+  }));
 }
 
-function HallOfFame({ owner, repo }: { owner: string; repo: string }) {
-  const { data } = useSuspenseQuery(standingsQuery(owner, repo));
-  if (data.people.length === 0) return null;
-  const size = hallOfFameCardSize(data.people.length);
-  const src = `/api/cards/gh/${owner}/${repo}/hall-of-fame`;
+function HallShare({ owner, repo, people, label, variant, first = "hall-of-fame" }: { owner: string; repo: string; people: number; label: string; variant: "primary" | "secondary"; first?: string }) {
+  const { origin } = Route.useLoaderData();
+  const all = repoChoices(owner, repo, people);
+  const choices = [...all.filter((c) => c.id === first), ...all.filter((c) => c.id !== first)];
+  return <ShareButton choices={choices} origin={origin} label={label} title={`Share ${owner}/${repo}'s Card`} variant={variant} />;
+}
+
+function HallOfFame({ owner, repo, people, template, onTemplate }: { owner: string; repo: string; people: number; template: string; onTemplate: (t: string) => void }) {
+  const choices = repoChoices(owner, repo, people);
+  const chosen = choices.find((c) => c.id === template) ?? choices[0];
+  if (!chosen) return null;
   return (
     <Panel
       title="Its Card, for a README or a post"
-      description="What it is, its stars, forks and language, and the people who built it with their faces and numbers; light and dark, refreshed every six hours."
+      description={`${chosen.about} Light and dark, refreshed every six hours.`}
       actions={
         <>
-          <a href={`${src}.png`} download={`${owner}-${repo}-hall-of-fame.png`} className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium text-primary no-underline transition-colors hover:bg-sunken">
+          <a href={`${chosen.url}.png`} download={`${owner}-${repo}-${chosen.id}.png`} className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium text-primary no-underline transition-colors duration-(--duration-instant) hover:bg-hover">
             <Download size={14} aria-hidden />
             Download PNG
           </a>
-          <HallShare owner={owner} repo={repo} label="Put it in a README" variant="secondary" />
+          <HallShare owner={owner} repo={repo} people={people} label="Put it in a README" variant="secondary" first={chosen.id} />
         </>
       }
     >
-      <div className="studio-stage flex justify-center rounded-md border border-line px-4 py-8 sm:px-8">
-        <div className="w-full drop-shadow-[0_18px_40px_rgb(0_0_0/0.22)]" style={{ maxWidth: size.width }}>
-          <ThemedCard src={src} alt={`The people who built ${owner}/${repo}`} width={size.width} height={size.height} />
+      <div className="max-w-full overflow-x-auto [scrollbar-width:none]">
+        <SegmentedControl label="Card" size="sm" value={chosen.id} onChange={onTemplate}>
+          {choices.map((c) => (
+            <SegmentedControlItem key={c.id} value={c.id} label={c.title} />
+          ))}
+        </SegmentedControl>
+      </div>
+      <div className="studio-stage grid min-h-[22rem] place-items-center rounded-md border border-line px-4 py-8 sm:px-8">
+        <div className="w-full drop-shadow-[0_18px_40px_rgb(0_0_0/0.22)]" style={{ maxWidth: chosen.width }}>
+          <ThemedCard key={chosen.id} src={chosen.url} alt={chosen.alt} width={chosen.width} height={chosen.height} />
         </div>
       </div>
     </Panel>
@@ -247,18 +353,17 @@ function HallOfFame({ owner, repo }: { owner: string; repo: string }) {
 
 function NotFound({ lookup, owner, repo }: { lookup: Lookup; owner: string; repo: string }) {
   return (
-    <>
-      <Missing title={`Nothing at ${owner}/${repo}`} words={FAILURE_WORDS.not_found} />
-      {lookup.access === "signed_out" && (
-        <p className="-mt-12 pb-16 text-center type-caption">
-          If it is a private repository of yours,{" "}
-          <button type="button" className="cursor-pointer border-0 bg-transparent p-0 font-[inherit] font-medium text-primary underline underline-offset-[3px]" onClick={() => signIn(`/gh/${owner}/${repo}`)}>
-            sign in with GitHub
-          </button>{" "}
-          to see it.
-        </p>
-      )}
-    </>
+    <Missing
+      title={`Nothing at ${owner}/${repo}`}
+      words={FAILURE_WORDS.not_found}
+      note={
+        lookup.access === "signed_out" ? (
+          <>
+            If it is a private repository of yours, <InlineLink onClick={() => signIn(`/gh/${owner}/${repo}`)}>sign in with GitHub</InlineLink> to see it.
+          </>
+        ) : undefined
+      }
+    />
   );
 }
 

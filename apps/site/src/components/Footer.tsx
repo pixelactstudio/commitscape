@@ -7,9 +7,30 @@ const SOURCE = "https://github.com/pixelactstudio/commitscape";
 
 type Column = { title: string; links: [string, string][] };
 
-/** Every page's footer: what commitscape is, who makes it, and where to go next. */
-export function Footer() {
+/** Every page's footer: what commitscape is, who makes it, and where to go next; one line under a workspace. */
+export function Footer({ compact = false }: { compact?: boolean }) {
   const { user } = useRouteContext({ from: "__root__" });
+  if (compact)
+    return (
+      <footer className="border-t border-line px-(--frame-inset) py-4">
+        <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 type-micro">
+          <span>
+            © {YEAR} Dev Talan · Numbers from GitHub and git history, never guessed.
+          </span>
+          <nav aria-label="Footer" className="flex flex-wrap items-center gap-x-5 gap-y-1">
+            <Link to="/privacy" className="text-secondary no-underline hover:text-primary">
+              What we keep
+            </Link>
+            <a href={SOURCE} className="text-secondary no-underline hover:text-primary">
+              Source
+            </a>
+            <a href={`${SOURCE}/blob/main/CHANGELOG.md`} className="text-secondary no-underline hover:text-primary">
+              Changelog
+            </a>
+          </nav>
+        </div>
+      </footer>
+    );
   const me = user?.login ? `/u/${user.login}` : null;
   const columns: Column[] = [
     { title: "Explore", links: [["/leaderboards", "Leaderboards"], ["/vs", "Versus"], ["/races", "Races"], ["/crews", "Crews"]] },
@@ -44,7 +65,7 @@ export function Footer() {
   ];
   return (
     <footer className="overflow-hidden border-t border-line">
-      <div className="mx-auto grid max-w-[var(--page)] gap-12 px-5 pt-section pb-10 sm:px-10 lg:grid-cols-[1.1fr_2fr]">
+      <div className="grid gap-12 px-(--frame-inset) pt-section pb-10 lg:grid-cols-[1.1fr_2fr]">
         <div className="flex max-w-sm flex-col gap-4">
           <Link to="/" className="flex w-fit items-center gap-2 type-panel text-primary no-underline">
             <Logo size={24} />
@@ -53,11 +74,11 @@ export function Footer() {
           <p className="m-0 type-description">What you have built on GitHub, where you stand among the people you build with, and Cards to share it. Every number says what it counts. Open source under MIT or Apache-2.0.</p>
           <p className="m-0 type-description">
             Built by{" "}
-            <a href="https://damnlabs.com" className="text-primary underline decoration-line-strong underline-offset-4 hover:decoration-current">
+            <a href="https://damnlabs.com" className="inline-link">
               Damn Labs
             </a>
             , a{" "}
-            <a href="https://pixelactstudio.com" className="text-primary underline decoration-line-strong underline-offset-4 hover:decoration-current">
+            <a href="https://pixelactstudio.com" className="inline-link">
               Pixelact Studio
             </a>{" "}
             product.
@@ -69,11 +90,11 @@ export function Footer() {
               <span className="type-label">{c.title}</span>
               {c.links.map(([to, label]) =>
                 to.startsWith("http") ? (
-                  <a key={label} href={to} className="w-fit text-secondary no-underline transition-colors hover:text-primary">
+                  <a key={label} href={to} className="w-fit py-0.5 text-secondary no-underline transition-colors duration-(--duration-instant) hover:text-primary">
                     {label}
                   </a>
                 ) : (
-                  <Link key={label} to={to as "/"} className="w-fit text-secondary no-underline transition-colors hover:text-primary">
+                  <Link key={label} to={to as "/"} className="w-fit py-0.5 text-secondary no-underline transition-colors duration-(--duration-instant) hover:text-primary">
                     {label}
                   </Link>
                 ),
@@ -82,13 +103,13 @@ export function Footer() {
           ))}
         </nav>
       </div>
-      <div className="mx-auto flex max-w-[var(--page)] flex-wrap items-center justify-between gap-2 px-5 pb-6 type-micro sm:px-10">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-(--frame-inset) pb-6 type-micro">
         <span>
           © {YEAR} Dev Talan
         </span>
         <span>Numbers from GitHub and git history, never guessed.</span>
       </div>
-      <div aria-hidden className="wordmark mx-auto -mb-[0.12em] max-w-[var(--page)] px-3 text-center whitespace-nowrap">
+      <div aria-hidden className="wordmark -mb-[0.12em] text-center whitespace-nowrap">
         {PRODUCT}
       </div>
     </footer>

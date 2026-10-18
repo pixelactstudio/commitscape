@@ -17,3 +17,10 @@ test("⌘K matches every word typed, in any order, once the list arrives", async
   expect((await source.search("BOB")).map((j) => j.id)).toEqual(["person:1", "file:src/bob.rs", "commits:BOB"]);
   expect((await source.bootstrap()).map((j) => j.id)).toEqual(["screen:people"]);
 });
+
+test("matches that begin with the first word come before the others", async () => {
+  const source = jumpSource(
+    Promise.resolve([jump("file:src/dana.rs", "src/dana.rs", "Files"), jump("person:2", "Jordan Danford", "People"), jump("person:1", "Dana Wood", "People")]),
+  );
+  expect((await source.search("dan")).map((j) => j.id)).toEqual(["person:1", "file:src/dana.rs", "person:2", "commits:dan"]);
+});

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { GitCommitHorizontal } from "lucide-react";
-import { AddedRemoved, Chip, Eyebrow, LangDot, Meter, Page, PageHead, Panel, Stat } from "@commitscape/ui";
-import { COLOR, DURATION, EASE, FLAME, HEAT, ICON, RADIUS, SERIES, SPACE, STAGE_HEAT, TYPE, Z } from "@commitscape/ui/design";
+import { AddedRemoved, Eyebrow, InlineLink, LangDot, Meter, Page, PageHead, Panel, Pill, PlainButton, Quiet, RowButton, ScreenHeader, Stat, Surface } from "@commitscape/ui";
+import { COLOR, DURATION, EASE, FLAME, FRAME, HEAT, ICON, MOTION, RADIUS, SERIES, SPACE, STAGE_HEAT, TYPE, Z } from "@commitscape/ui/design";
 import { useReducedMotion } from "@commitscape/ui/motion";
 
 export const Route = createFileRoute("/design")({
@@ -13,11 +13,13 @@ export const Route = createFileRoute("/design")({
 const TEXT_STYLES = [
   "type-hero",
   "type-display",
+  "type-page",
   "type-title",
   "type-heading",
   "type-panel",
   "type-lead",
   "type-body",
+  "type-ui",
   "type-description",
   "type-label",
   "type-caption",
@@ -30,10 +32,30 @@ const TEXT_STYLES = [
 ] as const;
 
 const FLUID = [
-  ["3xl", "text-3xl", "28–36"],
-  ["4xl", "text-4xl", "34–44"],
-  ["5xl", "text-5xl", "44–76"],
+  ["3xl", "text-3xl", "28–32"],
+  ["4xl", "text-4xl", "36–44"],
+  ["5xl", "text-5xl", "44–72"],
 ] as const;
+
+const FEATURES = [
+  ["normal", "normal", "Il1 0O aa gaearon/react 2,184"],
+  ["cv11, ss01 (the root)", '"cv11", "ss01"', "Il1 0O aa gaearon/react 2,184"],
+  ["type-id: cv05, cv08 too", '"cv11", "ss01", "cv05", "cv08"', "Il1 0O aa gaearon/react 2,184"],
+] as const;
+
+const CHROME: [string, string, string][] = [
+  ["--page", `${FRAME.page}rem`, "the page frame's column: top bar, page and footer"],
+  ["--page-narrow", `${FRAME.pageNarrow}rem`, "reading pages, centred"],
+  ["--content", `${FRAME.content}rem`, "a workspace screen's column"],
+  ["--gutter", "16 / 24", "the one side inset, 24 from 640px; 16 in a workspace"],
+  ["--main-pad", "16 / 24 / 32", "a workspace screen's inset"],
+  ["--header-height", `${FRAME.header}rem`, "the top bar"],
+  ["--sidebar-width", `${FRAME.sidebar}rem`, "the workspace sidebar"],
+  ["--repo-bar-height", `${FRAME.repoBar}rem`, "the slim bar below 1024px"],
+  ["--screen-header-height", `${FRAME.screenHeader}rem`, "a screen's one-line header"],
+  ["--chrome-top", "header (+ bar)", "every sticky offset and scroll margin"],
+  ["--main-height", "100dvh − chrome", "the sidebar and anything that fills the window"],
+];
 
 const SHADOWS = [
   ["shadow-xs", "shadow-xs"],
@@ -45,39 +67,56 @@ const SHADOWS = [
 
 const PALETTE: { group: string; swatches: [string, string][] }[] = [
   {
-    group: "Ink",
+    group: "Text",
     swatches: [
-      ["--ink-1", COLOR.ink],
-      ["--ink-2", COLOR.ink2],
-      ["--ink-3", COLOR.ink3],
-      ["--ink-quiet", "var(--ink-quiet)"],
+      ["text-primary", COLOR.ink],
+      ["text-secondary", COLOR.ink2],
+      ["text-tertiary", COLOR.ink3],
+      ["text-disabled", "var(--color-text-disabled)"],
     ],
   },
   {
-    group: "Surface",
+    group: "Background",
     swatches: [
-      ["--surface-body", "var(--surface-body)"],
-      ["--surface", COLOR.surface],
-      ["--surface-raised", "var(--surface-raised)"],
-      ["--surface-sunken", "var(--surface-sunken)"],
-      ["--surface-hover", "var(--surface-hover)"],
+      ["bg-body", "var(--color-bg-page)"],
+      ["bg-surface", COLOR.surface],
+      ["bg-raised", "var(--color-bg-raised)"],
+      ["bg-sunken", "var(--color-bg-sunken)"],
+      ["bg-hover", "var(--color-bg-hover)"],
+      ["bg-active", "var(--color-bg-active)"],
+      ["bg-inverse", "var(--color-bg-inverse)"],
     ],
   },
   {
-    group: "Line",
+    group: "Border",
     swatches: [
-      ["--line", COLOR.line],
-      ["--line-strong", COLOR.lineStrong],
+      ["border-separator", "var(--color-border-separator)"],
+      ["border-line", COLOR.line],
+      ["border-line-strong", COLOR.lineStrong],
+      ["border-strong (inputs)", "var(--color-border-strong)"],
+      ["outline-focus", "var(--color-border-focus)"],
     ],
   },
   {
-    group: "Brand",
+    group: "Accent",
     swatches: [
-      ["--brand", COLOR.brand],
-      ["--brand-strong", "var(--brand-strong)"],
-      ["--brand-soft", COLOR.brandSoft],
-      ["--brand-line", "var(--brand-line)"],
-      ["--on-brand", "var(--on-brand)"],
+      ["bg-brand", COLOR.brand],
+      ["bg-brand-strong", "var(--brand-strong)"],
+      ["text-brand", "var(--brand-text)"],
+      ["bg-brand-soft", COLOR.brandSoft],
+      ["border-brand-line", "var(--brand-line)"],
+      ["text-on-brand", "var(--on-brand)"],
+    ],
+  },
+  {
+    group: "Changes",
+    swatches: [
+      ["text-added", COLOR.added],
+      ["bg-added-solid", "var(--added-solid)"],
+      ["bg-added-soft", "var(--added-soft)"],
+      ["text-removed", COLOR.removed],
+      ["bg-removed-solid", "var(--removed-solid)"],
+      ["bg-removed-soft", "var(--removed-soft)"],
     ],
   },
   {
@@ -86,15 +125,13 @@ const PALETTE: { group: string; swatches: [string, string][] }[] = [
       ...SERIES.map((value, i): [string, string] => [`--s${i + 1}`, value]),
       ["--side-a", COLOR.sideA],
       ["--side-b", COLOR.sideB],
-      ["--added", COLOR.added],
-      ["--removed", COLOR.removed],
       ["--other", COLOR.other],
     ],
   },
   {
-    group: "Astryx",
+    group: "Astryx, pointed at the same tokens",
     swatches: [
-      ["--color-text-primary", "var(--color-text-primary)"],
+      ["--color-accent", "var(--color-accent)"],
       ["--color-background-body", "var(--color-background-body)"],
       ["--color-background-surface", "var(--color-background-surface)"],
       ["--color-border", "var(--color-border)"],
@@ -110,22 +147,49 @@ function Design() {
     <Page className="pb-band">
       <PageHead eyebrow="Internal" title="Design system" description="Every token and primitive the Site draws with, rendered from the tokens themselves." />
       <div className="flex flex-col gap-section">
+        <Group title="Frames">
+          <Panel title="Two frames, one set of edges" description="A page sits in the page frame: the top bar, the page and the footer share one centred column. A repository or a Shared Report sits in the workspace frame: the top bar runs the full width, a sidebar holds the repository, the Window and the screens, and each screen reads in a centred column beside it. Every sticky offset reads the chrome tokens.">
+            <div className="grid gap-gutter md:grid-cols-2">
+              <FrameSketch kind="page" />
+              <FrameSketch kind="workspace" />
+            </div>
+            <Table head={["Token", "Value", "For"]} end={false} rows={CHROME.map(([name, value, words]) => [<code key={name}>{name}</code>, value, words])} />
+          </Panel>
+          <ScreenHeader title="ScreenHeader" counts="Its title, what it counts, and its actions, on one line" actions={<Pill tone="quiet">actions</Pill>} />
+        </Group>
+
         <Group title="Type">
-          <Panel title="Scale" description="Each TYPE step at its size, with size and leading in px. 3xl and up grow with the viewport.">
+          <Panel title="Fonts" description="Inter 4.1 for the interface, self-hosted with its optical size axis and every feature; JetBrains Mono for code, hashes, paths, branch and tag names and keys, without ligatures.">
+            <div className="flex flex-col gap-3">
+              {FEATURES.map(([name, features, sample]) => (
+                <div key={name} className="flex flex-col gap-1 border-b border-separator pb-3 md:flex-row md:items-baseline md:gap-4">
+                  <span className="w-48 flex-none type-code text-secondary">{name}</span>
+                  <span className="type-title" style={{ fontFeatureSettings: features }}>
+                    {sample}
+                  </span>
+                </div>
+              ))}
+              <div className="flex flex-col gap-1 md:flex-row md:items-baseline md:gap-4">
+                <span className="w-48 flex-none type-code text-secondary">mono · type-code</span>
+                <code className="type-code">3fce3b5 src/main.rs != =&gt; ag/index-design-wip</code>
+              </div>
+            </div>
+          </Panel>
+          <Panel title="Scale" description="Each TYPE step at its size, with its unitless line height. 3xl and up grow with the viewport; nothing is smaller than 12px.">
             <div className="flex flex-col gap-3">
               {Object.entries(TYPE).map(([name, step]) => (
                 <div key={name} className="flex items-baseline gap-4 border-b border-line pb-3 last:border-b-0">
-                  <span className="w-28 flex-none type-code text-secondary">
+                  <span className="w-40 flex-none type-code text-secondary">
                     {name} · {step.size}/{step.leading}
                   </span>
-                  <span className="min-w-0 truncate" style={{ fontSize: step.size, lineHeight: `${step.leading}px` }}>
+                  <span className="min-w-0 truncate" style={{ fontSize: step.size, lineHeight: step.leading }}>
                     Every commit, counted
                   </span>
                 </div>
               ))}
               {FLUID.map(([name, cls, range]) => (
                 <div key={name} className="flex items-baseline gap-4 border-b border-line pb-3 last:border-b-0">
-                  <span className="w-28 flex-none type-code text-secondary">
+                  <span className="w-40 flex-none type-code text-secondary">
                     {name} · {range}
                   </span>
                   <span className={`min-w-0 truncate ${cls}`}>Every commit</span>
@@ -187,7 +251,7 @@ function Design() {
           <Panel title="Palette" description="Each swatch drawn twice, in a light and a dark colour scheme, with the value the browser resolved there. Astryx's own --color-* variables follow the nested colour scheme too.">
             <div className="grid gap-gutter md:grid-cols-2">
               {SCHEMES.map((scheme) => (
-                <div key={scheme} className="flex flex-col gap-stack rounded-lg border border-line p-panel" style={{ colorScheme: scheme, background: "var(--surface-body)", color: COLOR.ink }}>
+                <div key={scheme} className="flex flex-col gap-stack rounded-lg border border-line p-panel" style={{ colorScheme: scheme, background: "var(--color-bg-page)", color: COLOR.ink }}>
                   <Eyebrow>{scheme}</Eyebrow>
                   {PALETTE.map(({ group, swatches }) => (
                     <div key={group} className="flex flex-col gap-2">
@@ -219,7 +283,7 @@ function Design() {
         </Group>
 
         <Group title="Motion and layers">
-          <Panel title="Durations" description="Hover or tap a track: the dot crosses it in that duration with EASE.out.">
+          <Panel title="Durations" description={`Hover or tap a track: the dot crosses it in that duration with EASE.out. Hovers and rows take instant, presses fast (Astryx's own fast is ${MOTION.fast}ms, the same), enters base, exits exit; transitions name their properties, and a theme switch runs none.`}>
             <div className="flex flex-col gap-3">
               {Object.entries(DURATION).map(([name, seconds]) => (
                 <Track key={name} name={name} seconds={seconds} />
@@ -241,7 +305,7 @@ function Design() {
 
         <Group title="Kit">
           <div className="grid gap-gutter md:grid-cols-2">
-            <Panel title="Panel" description="A titled surface with a description and its own actions." actions={<Chip tone="quiet">actions</Chip>}>
+            <Panel title="Panel" description="A titled surface with a description and its own actions." actions={<Pill tone="quiet">actions</Pill>}>
               <p className="m-0 type-body">The body of a panel sits a stack below its head, a panel's padding from its edge.</p>
             </Panel>
             <Panel title="Stat">
@@ -252,16 +316,39 @@ function Design() {
                 <Stat size="md" tone="brand" value="41" label="Streak" />
               </div>
             </Panel>
-            <Panel title="Chip and Eyebrow">
+            <Panel title="Pill and Eyebrow" description="One size of Pill, in five tones.">
               <div className="flex flex-col gap-stack">
                 <div className="flex flex-wrap gap-cluster">
-                  <Chip>neutral</Chip>
-                  <Chip tone="brand" icon={<GitCommitHorizontal size={ICON.xs} aria-hidden />}>
+                  <Pill>neutral</Pill>
+                  <Pill tone="strong">strong</Pill>
+                  <Pill tone="brand" icon={<GitCommitHorizontal size={ICON.xs} aria-hidden />}>
                     brand
-                  </Chip>
-                  <Chip tone="quiet">quiet</Chip>
+                  </Pill>
+                  <Pill tone="quiet">quiet</Pill>
+                  <Pill tone="warning">warning</Pill>
                 </div>
                 <Eyebrow>Eyebrow above a heading</Eyebrow>
+              </div>
+            </Panel>
+            <Panel title="Surface, buttons and links" description="The bordered box, the button with no chrome, the row that acts with the one row hover, and a link in running text.">
+              <div className="flex flex-col gap-stack">
+                <Surface padded>
+                  <p className="m-0 type-body">
+                    A Surface holds content that is not a titled Panel. Inside text, an <InlineLink href="/design">inline link</InlineLink> keeps the line colour until hovered.
+                  </p>
+                </Surface>
+                <div className="flex flex-col">
+                  <RowButton>
+                    <GitCommitHorizontal size={ICON.md} aria-hidden /> A RowButton
+                  </RowButton>
+                  <RowButton>
+                    <GitCommitHorizontal size={ICON.md} aria-hidden /> Another, hovered with bg-hover
+                  </RowButton>
+                </div>
+                <PlainButton pressable className="w-fit rounded-md bg-sunken px-3 py-1.5 text-sm font-medium">
+                  A PlainButton that presses to 0.96
+                </PlainButton>
+                <Quiet>A Quiet line, for an empty place and why it is empty.</Quiet>
               </div>
             </Panel>
             <Panel title="Meter, AddedRemoved and LangDot">
@@ -295,6 +382,34 @@ function Design() {
         </Group>
       </div>
     </Page>
+  );
+}
+
+function FrameSketch({ kind }: { kind: "page" | "workspace" }) {
+  const bar = <span className="block h-3 rounded-xs bg-active" />;
+  return (
+    <figure className="m-0 flex flex-col gap-2">
+      <div className="flex aspect-video flex-col gap-1.5 rounded-md border border-line bg-sunken p-2" aria-hidden>
+        {kind === "page" ? (
+          <>
+            <div className="mx-8">{bar}</div>
+            <div className="mx-8 flex-1 rounded-xs border border-dashed border-line-strong" />
+            <div className="mx-8">{bar}</div>
+          </>
+        ) : (
+          <>
+            {bar}
+            <div className="flex flex-1 gap-1.5">
+              <div className="w-1/5 rounded-xs bg-active" />
+              <div className="flex flex-1 justify-center">
+                <div className="w-4/5 rounded-xs border border-dashed border-line-strong" />
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+      <figcaption className="type-caption">{kind === "page" ? "Page frame: bar, page and footer on --page" : "Workspace frame: full-width bar, sidebar, --content column"}</figcaption>
+    </figure>
   );
 }
 
@@ -356,7 +471,7 @@ function Track({ name, seconds }: { name: string; seconds: number }) {
     transition: reduce ? "none" : `left ${seconds * 1000}ms cubic-bezier(${EASE.out.join(", ")})`,
   };
   return (
-    <button type="button" onClick={() => setOn((v) => !v)} onPointerEnter={() => setOn(true)} onPointerLeave={() => setOn(false)} className="flex w-full cursor-pointer items-center gap-4 border-0 bg-transparent p-0 text-start">
+    <button type="button" onClick={() => setOn((v) => !v)} onPointerEnter={() => setOn(true)} onPointerLeave={() => setOn(false)} className="plain-button flex min-h-6 w-full items-center gap-4 text-start">
       <span className="w-28 flex-none type-code text-secondary">
         {name} · {Math.round(seconds * 1000)}ms
       </span>
@@ -367,14 +482,14 @@ function Track({ name, seconds }: { name: string; seconds: number }) {
   );
 }
 
-function Table({ head, rows }: { head: string[]; rows: ReactNode[][] }) {
+function Table({ head, rows, end = true }: { head: string[]; rows: ReactNode[][]; end?: boolean }) {
   return (
     <table className="w-full border-collapse type-body">
       <thead>
         <tr>
           {head.map((h, i) => (
             <th key={i} className="border-b border-line pb-2 text-start type-eyebrow">
-              {h}
+              {h || <span className="sr-only">Sample</span>}
             </th>
           ))}
         </tr>
@@ -383,7 +498,7 @@ function Table({ head, rows }: { head: string[]; rows: ReactNode[][] }) {
         {rows.map((row, i) => (
           <tr key={i}>
             {row.map((cell, j) => (
-              <td key={j} className="border-b border-line py-2 tnum last:text-end">
+              <td key={j} className={`border-b border-line py-2 pe-4 tnum ${end ? "last:text-end" : ""}`}>
                 {cell}
               </td>
             ))}
