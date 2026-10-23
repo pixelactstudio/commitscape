@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Carousel, type CarouselHandle } from "@astryxdesign/core/Carousel";
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
+import { ScrollRow } from "@commitscape/ui";
 import { cardSrc } from "#/lib/markdown";
 import type { CardChoice } from "./types";
 
@@ -14,9 +15,10 @@ export function Shelf({ choices, value, query, mode, onPick, layout = "strip" }:
     return [...out.entries()];
   }, [choices]);
   const groupOf = (id: string) => choices.find((c) => c.id === id)?.group ?? groups[0]?.[0] ?? "Cards";
-  const [group, setGroup] = useState(() => groupOf(value));
   const own = groupOf(value);
-  useEffect(() => setGroup(own), [own]);
+  const [picked, setPicked] = useState<{ from: string; group: string } | null>(null);
+  const group = picked && picked.from === own ? picked.group : own;
+  const setGroup = (g: string) => setPicked({ from: own, group: g });
   const list = groups.find(([g]) => g === group)?.[1] ?? groups[0]?.[1] ?? [];
   const root = useRef<HTMLDivElement>(null);
   const handle = useRef<CarouselHandle>(null);
@@ -32,13 +34,15 @@ export function Shelf({ choices, value, query, mode, onPick, layout = "strip" }:
   return (
     <div className="flex min-w-0 flex-col gap-3">
       {groups.length > 1 && (
-        <div className="flex min-w-0 items-center gap-3">
-          <SegmentedControl label="Kind of Card" size="sm" layout={layout === "grid" ? "fill" : "hug"} value={group} onChange={setGroup}>
-            {groups.map(([g, cards]) => (
-              <SegmentedControlItem key={g} value={g} label={`${g} ${cards.length}`} />
-            ))}
-          </SegmentedControl>
-        </div>
+        <ScrollRow className="min-w-0">
+          <div className={layout === "grid" ? "min-w-max" : "w-max"}>
+            <SegmentedControl label="Kind of Card" size="md" layout={layout === "grid" ? "fill" : "hug"} value={group} onChange={setGroup}>
+              {groups.map(([g, cards]) => (
+                <SegmentedControlItem key={g} value={g} label={`${g} ${cards.length}`} />
+              ))}
+            </SegmentedControl>
+          </div>
+        </ScrollRow>
       )}
       {layout === "grid" ? (
         <div className="grid grid-cols-2 gap-2">{tiles}</div>
@@ -65,7 +69,7 @@ function Tile({ choice, on, src, onPick, grid }: { choice: CardChoice; on: boole
       </span>
       <span className="flex min-w-0 flex-col px-1.5 pb-1">
         <span title={choice.title} className="truncate text-sm font-medium text-primary">{choice.title}</span>
-        {!grid && <span title={choice.about} className="truncate text-xs text-secondary">{choice.about}</span>}
+        {!grid && <span title={choice.about} className="line-clamp-2 text-xs text-secondary">{choice.about}</span>}
       </span>
     </button>
   );

@@ -26,7 +26,7 @@ export function CardStudio({ choices, state, onChange, origin }: { choices: Card
             onSurprise={s.surprise}
             onReset={s.reset}
             step={{ at: s.at, of: choices.length, go: s.step }}
-            className="sticky top-[calc(var(--header-height)-0.25rem)] z-[var(--z-sticky)] -mx-4 rounded-none [--card-h:21dvh] sm:top-[var(--header-height)] sm:mx-0 sm:rounded-xl sm:[--card-h:15rem] lg:relative lg:top-auto lg:z-auto lg:h-[26rem] lg:[--card-h:15.5rem]"
+            className="sticky top-[calc(var(--header-height)-0.25rem)] z-[var(--z-sticky)] -mx-4 rounded-none [--card-h:21dvh] sm:top-[var(--header-height)] sm:mx-0 sm:rounded-xl sm:[--card-h:15rem] lg:relative lg:top-auto lg:z-auto lg:h-104 lg:[--card-h:15.5rem]"
           />
           {choices.length > 1 && (
             <section aria-label="Pick a Card" className="min-w-0 rounded-xl border border-line bg-surface p-4">

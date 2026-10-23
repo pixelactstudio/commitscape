@@ -15,11 +15,11 @@ export function Style({ style, mode, set }: Props) {
   return (
     <div className="flex flex-col divide-y divide-line">
       <Group label="Preset" value={PRESETS[style.preset].label} first>
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-3 gap-2 max-[380px]:grid-cols-2">
           {(Object.keys(PRESETS) as PresetId[]).map((id) => {
             const look = lookOf(mode, { preset: id, accent: null, background: null, corner: null });
             return (
-              <Tile key={id} on={style.preset === id} onPick={() => set({ preset: id, accent: null, background: null })} paint={paint(look)} tick={look.t.accent} className="h-[4.5rem]">
+              <Tile key={id} on={style.preset === id} onPick={() => set({ preset: id, accent: null, background: null })} paint={paint(look)} tick={look.t.accent} className="h-18">
                 <span aria-hidden className="flex items-center gap-1">
                   <span className="size-2 rounded-full" style={{ background: look.t.accent }} />
                   <span className="h-1 w-7 rounded-full opacity-40" style={{ background: look.t.text }} />
@@ -39,9 +39,9 @@ export function Style({ style, mode, set }: Props) {
           })}
         </div>
       </Group>
-      <Group label="Accent" value={style.accent ? style.accent.toUpperCase() : "The preset's"}>
+      <Group label="Accent" value={style.accent ? style.accent.toUpperCase() : "The preset’s"}>
         <div className="grid grid-cols-6 justify-items-center gap-y-2.5">
-          <Swatch colour={own} label="The preset's colour" on={style.accent === null} onPick={() => set({ accent: null })} ring />
+          <Swatch colour={own} label="The preset’s colour" on={style.accent === null} onPick={() => set({ accent: null })} ring />
           {SWATCHES.map((s) => (
             <Swatch key={s} colour={s} label={`Accent ${s}`} on={style.accent === s} onPick={() => set({ accent: s })} />
           ))}

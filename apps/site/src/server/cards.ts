@@ -3,7 +3,7 @@ import { Resvg } from "@resvg/resvg-js";
 import { and, eq } from "drizzle-orm";
 import { monthName, type AchievementCardData, type ArchetypeCardData, type CardImages, type WindowCardData, type WrappedCardData, type CardKind, type Facts, type HallOfFameData, type Profile, type ProfileCardData, type StandingCardData, type VersusCardData } from "@commitscape/data";
 import { now, repoId, schema } from "@commitscape/server";
-import { CARD_DESIGN, CARDS, DEFAULT_STYLE, isOffered, placesFor, styleKey, topLine, type CardSpec, type CardStyle, type CardTheme } from "@commitscape/ui";
+import { CARD_DESIGN, CARDS, FACES_SHOWN, HALL_SHOWN, DEFAULT_STYLE, isOffered, placesFor, styleKey, topLine, type CardSpec, type CardStyle, type CardTheme } from "@commitscape/ui";
 import { renderCard, renderPending } from "@commitscape/ui/cards/render";
 import { SiteError } from "./http";
 import { survivingTotal } from "./engine";
@@ -16,7 +16,7 @@ import { traitsOf } from "./traits";
 import { wrappedFor } from "./wrapped";
 import { versusOf } from "./versus";
 
-const { profiles, repositories } = schema;
+const { profiles, repositories, storedIndexes } = schema;
 
 export const CARD_FOR = 6 * 3600;
 const PENDING_FOR = 60;
@@ -108,13 +108,21 @@ export async function standingCardData(deps: CardDeps, login: string, owner: str
 export async function hallOfFameData(deps: CardDeps, owner: string, repo: string): Promise<HallOfFameData> {
   const s = await standingsOf(deps, anonymous, owner, repo);
   const id = repoId(s.repo.owner, s.repo.name);
-  const [row] = id ? await deps.db.select({ facts: repositories.facts, language: repositories.language }).from(repositories).where(eq(repositories.id, id)) : [];
+  const [row] = id
+    ? await deps.db
+        .select({ facts: repositories.facts, language: repositories.language, indexId: repositories.indexId, codeLines: repositories.codeLines, maintainers: repositories.maintainers, busFactor: repositories.busFactor, commits30d: repositories.commits30d })
+        .from(repositories)
+        .where(eq(repositories.id, id))
+    : [];
   const facts = factsOf(row?.facts ?? null);
-  const top = s.people.slice(0, 10);
+  const top = s.people.slice(0, FACES_SHOWN);
+  const [indexed] = id && row?.indexId ? await deps.db.select({ snapshot: storedIndexes.snapshot }).from(storedIndexes).where(eq(storedIndexes.id, row.indexId)) : [];
+  const counted = indexed?.snapshot ? { n: indexed.snapshot.commits - indexed.snapshot.merges } : null;
   return {
     repo: { owner: s.repo.owner, name: s.repo.name, stars: facts?.stars ?? s.repo.stars, forks: facts?.forks ?? null, description: facts?.description ?? null, language: facts?.languages[0]?.name ?? row?.language ?? null },
     people: top.map((r) => ({ login: r.login, name: r.login && top.filter((o) => o.name === r.name).length > 1 ? `@${r.login}` : r.name, surviving: r.surviving, prsMerged: r.prsMerged, commits: r.commits })),
     total: s.people.length,
+    stats: row ? { commits: counted && counted.n > 0 ? counted.n : null, codeLines: row.codeLines, maintainers: row.maintainers, busFactor: row.busFactor, commits30d: row.commits30d } : null,
   };
 }
 
@@ -176,10 +184,10 @@ async function draw(deps: CardDeps, kind: CardKind, subject: Subject, theme: Car
     const v = await versusOf(deps, subject.login ?? "", subject.versus ?? "");
     data = { a: { identity: v.a.identity }, b: { identity: v.b.identity }, rows: v.rows };
     logins = [v.a.identity.login, v.b.identity.login];
-  } else if (kind === "hall-of-fame") {
+  } else if (kind === "hall-of-fame" || kind === "repo-compact" || kind === "repo-stats" || kind === "repo-faces") {
     const d = await hallOfFameData(deps, subject.owner ?? "", subject.repo ?? "");
     data = d;
-    logins = [d.repo.owner, ...d.people.map((p) => p.login)];
+    logins = [d.repo.owner, ...(kind === "repo-stats" ? [] : d.people.slice(0, kind === "repo-faces" ? FACES_SHOWN : HALL_SHOWN).map((p) => p.login))];
   } else if (kind === "standing") {
     data = await standingCardData(deps, subject.login ?? "", subject.owner ?? "", subject.repo ?? "");
     logins = [data.identity.login];

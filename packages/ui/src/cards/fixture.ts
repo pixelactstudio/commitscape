@@ -40,9 +40,14 @@ export const HALL: HallOfFameData = {
   people: [
     { login: "BurntSushi", name: "Andrew Gallant", surviving: 61_148, prsMerged: 106, commits: 1_551 },
     { login: "dana", name: "dana", surviving: 893, prsMerged: 33, commits: 56 },
+    { login: "lucas", name: "Lucas Trzesniewski", surviving: 656, prsMerged: 4, commits: 5 },
+    { login: "behnam", name: "Behnam Esfahbod", surviving: 519, prsMerged: 2, commits: 3 },
+    { login: "tmccombs", name: "Thayne McCombs", surviving: 271, prsMerged: 5, commits: 5 },
+    { login: "epage", name: "Ed Page", surviving: 172, prsMerged: 3, commits: 4 },
     { login: null, name: "Igor Gnatenko", surviving: null, prsMerged: null, commits: 10 },
   ],
   total: 478,
+  stats: { commits: 2_265, codeLines: 69_120, maintainers: 2, busFactor: 1, commits30d: 14 },
 };
 
 export const VERSUS: VersusCardData = {

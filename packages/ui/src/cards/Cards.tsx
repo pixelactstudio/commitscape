@@ -1,9 +1,10 @@
 import type { ReactNode } from "react";
-import { ordinal, type CardImages, type HallOfFameData, type ProfileCardData, type ProfileRepo, type StandingCardData, type VersusCardData, type ArchetypeCardData, type AchievementCardData, type WindowCardData, type WrappedCardData, leadersOf, WINDOW_VIEWS } from "@commitscape/data";
+import { ordinal, type CardImages, type ProfileCardData, type ProfileRepo, type StandingCardData, type VersusCardData, type ArchetypeCardData, type AchievementCardData, type WindowCardData, type WrappedCardData, leadersOf, WINDOW_VIEWS } from "@commitscape/data";
 import { compact, grouped, many } from "../format";
 import { STILL, type Paint } from "./paint";
 import { versusValue } from "./values";
-import { calendarSize, CELL, GAP, hallOfFameSize, languagesSize, repositoriesSize, STANDING_SIZE, SURVIVAL_SIZE, TOTALS_SIZE, versusSize, ARCHETYPE_SIZE, ACHIEVEMENT_SIZE, windowSize, WRAPPED_CALENDAR_SIZE } from "./sizes";
+import { clip, glass, inner, STAR } from "./parts";
+import { calendarSize, CELL, GAP, languagesSize, repositoriesSize, STANDING_SIZE, SURVIVAL_SIZE, TOTALS_SIZE, versusSize, ARCHETYPE_SIZE, ACHIEVEMENT_SIZE, windowSize, WRAPPED_CALENDAR_SIZE } from "./sizes";
 import { alpha, lookOf, mix, type CardStyle, type Look } from "./style";
 import type { CardTheme, Tokens } from "./tokens";
 
@@ -20,16 +21,7 @@ function paper(look: Look, width: number, height: number) {
   return b.backgroundImage ? { backgroundImage: b.backgroundImage, backgroundSize: b.backgroundSize } : {};
 }
 
-const inner = (look: Look, less = 10) => (look.radius === 0 ? 0 : Math.max(6, look.radius - less));
-
-function glass(look: Look, lead = false) {
-  const t = look.t;
-  const dark = look.theme === "dark";
-  if (lead) return { backgroundColor: alpha(mix(t.bg, t.accent, dark ? 0.16 : 0.1), look.background === "plain" ? 1 : 0.84), border: `1px solid ${alpha(t.accent, dark ? 0.4 : 0.32)}` };
-  return { backgroundColor: look.background === "plain" ? t.surface : alpha(t.bg, dark ? 0.62 : 0.74), border: `1px solid ${alpha(t.text, dark ? 0.1 : 0.08)}` };
-}
-
-function Eyebrow({ t, p, children, delay = 0 }: { t: Tokens; p: Paint; children: string; delay?: number }) {
+export function Eyebrow({ t, p, children, delay = 0 }: { t: Tokens; p: Paint; children: string; delay?: number }) {
   return (
     <div style={{ display: "flex", alignItems: "center" }}>
       <div style={{ display: "flex", width: 7, height: 7, borderRadius: 2, marginRight: 8, background: p.mark("rise", t.accent, delay) }} />
@@ -40,7 +32,7 @@ function Eyebrow({ t, p, children, delay = 0 }: { t: Tokens; p: Paint; children:
 
 type ShellProps = { look: Look; paint: Paint; width: number; height: number; children: ReactNode; site: string; login?: string; link?: string; eyebrow?: string; meta?: string; padX?: number };
 
-function Shell({ look, paint, width, height, children, site, login, link, eyebrow, meta, padX = 26 }: ShellProps) {
+export function Shell({ look, paint, width, height, children, site, login, link, eyebrow, meta, padX = 26 }: ShellProps) {
   const t = look.t;
   return (
     <div style={{ display: "flex", flexDirection: "column", width, height, padding: `22px ${padX}px 18px`, backgroundColor: t.bg, ...paper(look, width, height), border: `1px solid ${t.border}`, borderRadius: look.radius, fontFamily: font, color: t.text, boxSizing: "border-box" }}>
@@ -449,131 +441,8 @@ export function StandingCard({ data, theme, paint, images, site, style }: CardPr
   );
 }
 
-const LANGUAGE_COLOURS: Record<string, string> = {
-  TypeScript: "#3178c6",
-  JavaScript: "#f1e05a",
-  Python: "#3572a5",
-  Rust: "#dea584",
-  Go: "#00add8",
-  Java: "#b07219",
-  Kotlin: "#a97bff",
-  Swift: "#f05138",
-  C: "#555555",
-  "C++": "#f34b7d",
-  "C#": "#178600",
-  Ruby: "#701516",
-  PHP: "#4f5d95",
-  Shell: "#89e051",
-  HTML: "#e34c26",
-  CSS: "#663399",
-  Vue: "#41b883",
-  Svelte: "#ff3e00",
-  Dart: "#00b4ab",
-  Elixir: "#6e4a7e",
-  Haskell: "#5e5086",
-  Scala: "#c22d40",
-  Lua: "#000080",
-  Zig: "#ec915c",
-  Nix: "#7e7eff",
-  "Objective-C": "#438eff",
-  OCaml: "#ef7a08",
-  Clojure: "#db5855",
-  "Jupyter Notebook": "#da5b0b",
-  MDX: "#fcb32c",
-};
-
-const STAR = "M12 2.5l2.94 5.96 6.56.95-4.75 4.63 1.12 6.54L12 17.5l-5.87 3.08 1.12-6.54L2.5 9.41l6.56-.95L12 2.5z";
-
-function clip(text: string, most: number): string {
-  const flat = text.replace(/\s+/g, " ").trim();
-  return flat.length <= most ? flat : `${flat.slice(0, most - 1).trimEnd()}…`;
-}
-
-function Pill({ look, children }: { look: Look; children: ReactNode }) {
+export function Pill({ look, children }: { look: Look; children: ReactNode }) {
   return <div style={{ display: "flex", alignItems: "center", height: 30, padding: "0 12px", marginLeft: 8, borderRadius: look.radius === 0 ? 0 : 30, fontSize: 14, ...glass(look) }}>{children}</div>;
-}
-
-/** A repository's Card: its owner's face, its name, what it is, its stars, forks and main language, then the people who built it with their faces and numbers. */
-export function HallOfFameCard({ data, theme, paint, images, site, style }: CardProps<HallOfFameData>) {
-  const look = lookOf(theme, style);
-  const t = look.t;
-  const people = data.people.slice(0, 10);
-  const owner = images[data.repo.owner.toLowerCase()];
-  const language = data.repo.language ?? null;
-  const dot = language ? (LANGUAGE_COLOURS[language] ?? t.faint) : null;
-  const lines = people.some((p) => p.surviving !== null);
-  const most = Math.max(1, ...people.map((p) => (lines ? (p.surviving ?? 0) : (p.commits ?? 0))));
-  return (
-    <Shell look={look} paint={paint} {...hallOfFameSize(data)} site={site} link={`${site}/gh/${data.repo.owner}/${data.repo.name}`}>
-      <div style={{ display: "flex", alignItems: "center", height: 64 }}>
-        {owner ? <img src={owner} width={60} height={60} style={{ borderRadius: inner(look, 6), border: `1px solid ${t.border}` }} /> : <div style={{ display: "flex", width: 60, height: 60, borderRadius: inner(look, 6), background: t.surface, border: `1px solid ${t.border}` }} />}
-        <div style={{ display: "flex", flexDirection: "column", marginLeft: 16, flexGrow: 1, minWidth: 0 }}>
-          <span style={{ fontSize: 15, color: paint.mark("rise", t.muted, 0) }}>{`${data.repo.owner} /`}</span>
-          <span style={{ fontSize: 30, fontWeight: 700, letterSpacing: -0.8, lineHeight: 1.1, color: paint.mark("rise", t.text, 40) }}>{clip(data.repo.name, 28)}</span>
-        </div>
-        <div style={{ display: "flex", alignItems: "center" }}>
-          <Pill look={look}>
-            <svg width={15} height={15} viewBox="0 0 24 24">
-              <path d={STAR} fill={t.accent} />
-            </svg>
-            <span style={{ marginLeft: 6, fontWeight: 700, color: t.text }}>{compact(data.repo.stars)}</span>
-            <span style={{ marginLeft: 4, color: t.muted }}>{data.repo.stars === 1 ? "star" : "stars"}</span>
-          </Pill>
-          {data.repo.forks !== null && data.repo.forks !== undefined && (
-            <Pill look={look}>
-              <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke={t.muted} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="18" r="3" />
-                <circle cx="6" cy="6" r="3" />
-                <circle cx="18" cy="6" r="3" />
-                <path d="M18 9v2c0 .6-.4 1-1 1H7c-.6 0-1-.4-1-1V9" />
-                <path d="M12 12v3" />
-              </svg>
-              <span style={{ marginLeft: 6, fontWeight: 700, color: t.text }}>{compact(data.repo.forks)}</span>
-              <span style={{ marginLeft: 4, color: t.muted }}>{data.repo.forks === 1 ? "fork" : "forks"}</span>
-            </Pill>
-          )}
-        </div>
-      </div>
-      <span style={{ display: "flex", height: 20, marginTop: 12, fontSize: 15, color: paint.mark("rise", data.repo.description ? t.text : t.faint, 80) }}>{data.repo.description ? clip(data.repo.description, 86) : "No description on GitHub"}</span>
-      <div style={{ display: "flex", alignItems: "center", height: 20, marginTop: 12, fontSize: 14, color: t.muted }}>
-        {language && dot && (
-          <div style={{ display: "flex", alignItems: "center", marginRight: 18 }}>
-            <div style={{ display: "flex", width: 10, height: 10, borderRadius: 10, background: dot, marginRight: 7 }} />
-            <span style={{ color: t.text }}>{language}</span>
-          </div>
-        )}
-        <span>{many(data.total, "contributor", "contributors")}</span>
-      </div>
-      <div style={{ display: "flex", height: 1, marginTop: 16, marginBottom: 14, background: t.border }} />
-      <div style={{ display: "flex", alignItems: "center", height: 18, marginBottom: 4, fontSize: 11, fontWeight: 700, letterSpacing: 1.2, color: t.faint }}>
-        <span style={{ flexGrow: 1, color: t.accent }}>{people.length === 1 ? "BUILT BY" : `TOP ${people.length} CONTRIBUTORS`}</span>
-        <span style={{ display: "flex", justifyContent: "flex-end", width: 110 }}>{lines ? "LINES RUNNING" : ""}</span>
-        <span style={{ display: "flex", justifyContent: "flex-end", width: 80 }}>PRS</span>
-        <span style={{ display: "flex", justifyContent: "flex-end", width: 96 }}>COMMITS</span>
-      </div>
-      <div style={{ display: "flex", flexDirection: "column" }}>
-        {people.map((p, i) => {
-          const face = p.login ? images[p.login.toLowerCase()] : undefined;
-          const value = lines ? (p.surviving ?? 0) : (p.commits ?? 0);
-          return (
-            <div key={`${p.login ?? p.name}${i}`} style={{ display: "flex", alignItems: "center", height: 40, fontSize: 15 }}>
-              <span style={{ width: 24, fontSize: 13, fontWeight: 700, color: i === 0 ? t.accent : t.faint }}>{String(i + 1)}</span>
-              {face ? <img src={face} width={28} height={28} style={{ borderRadius: 28 }} /> : <div style={{ display: "flex", width: 28, height: 28, borderRadius: 28, background: t.surface, border: `1px solid ${t.border}` }} />}
-              <div style={{ display: "flex", flexDirection: "column", flexGrow: 1, marginLeft: 12, marginRight: 16 }}>
-                <span style={{ fontWeight: 600, color: paint.mark("rise", t.text, 140 + i * 60) }}>{clip(p.name, 30)}</span>
-                <div style={{ display: "flex", height: 3, marginTop: 4, width: 220, background: t.empty, borderRadius: 3 }}>
-                  <div style={{ display: "flex", width: `${Math.max(value > 0 ? 3 : 0, (value * 100) / most)}%`, height: 3, borderRadius: 3, background: paint.mark("grow", t.accent, 180 + i * 60) }} />
-                </div>
-              </div>
-              <span style={{ display: "flex", justifyContent: "flex-end", width: 110, fontWeight: 700, color: paint.mark("rise", t.accent, 160 + i * 60) }}>{p.surviving !== null ? compact(p.surviving) : lines ? "—" : ""}</span>
-              <span style={{ display: "flex", justifyContent: "flex-end", width: 80, color: paint.mark("rise", t.muted, 180 + i * 60) }}>{p.prsMerged ? compact(p.prsMerged) : "—"}</span>
-              <span style={{ display: "flex", justifyContent: "flex-end", width: 96, color: paint.mark("rise", t.muted, 200 + i * 60) }}>{p.commits ? compact(p.commits) : "—"}</span>
-            </div>
-          );
-        })}
-      </div>
-    </Shell>
-  );
 }
 
 /** A Profile's link preview, as GitHub's are. */
@@ -810,7 +679,7 @@ export function WindowCard({ data, theme, paint, images, site, style }: CardProp
       <div style={{ display: "flex", marginTop: 16, fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", color: t.faint }}>
         <span style={{ display: "flex", flexGrow: 1 }}>Person</span>
         {WINDOW_VIEWS.map((v) => (
-          <span key={v.id} style={{ display: "flex", width: 110, justifyContent: "flex-end" }}>
+          <span key={v.id} style={{ display: "flex", width: 122, justifyContent: "flex-end" }}>
             {SHORT[v.id]}
           </span>
         ))}
@@ -826,7 +695,7 @@ export function WindowCard({ data, theme, paint, images, site, style }: CardProp
             {WINDOW_VIEWS.map((v) => {
               const lead = leaders[v.id].includes(r.login);
               return (
-                <div key={v.id} style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", width: 110 }}>
+                <div key={v.id} style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", width: 122 }}>
                   {lead && <div style={{ display: "flex", width: 8, height: 8, borderRadius: 8, marginRight: 6, background: paint.mark("rise", t.accent, 160 + i * 60) }} />}
                   <span style={{ fontWeight: lead ? 700 : 400, color: paint.mark("rise", lead ? t.text : t.muted, 160 + i * 60) }}>{grouped(r[v.id])}</span>
                 </div>
