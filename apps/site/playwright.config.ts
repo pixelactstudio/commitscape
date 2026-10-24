@@ -16,6 +16,10 @@ export default defineConfig({
     viewport: { width: 1280, height: 900 },
     userAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36",
   },
+  projects: [
+    { name: "setup", testMatch: /build\.setup\.ts$/ },
+    { name: "site", dependencies: ["setup"], testMatch: /\.spec\.ts$/ },
+  ],
   webServer: {
     command: "node e2e/start.ts",
     url: `http://127.0.0.1:${port}/privacy`,

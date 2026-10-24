@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 import pg from "pg";
+import { signInAs } from "./accounts";
 
 const root = resolve(import.meta.dirname, "../../..");
 const site = `http://127.0.0.1:${process.env.SITE_PORT ?? 8790}`;
@@ -56,7 +57,7 @@ test("a pasted link shows GitHub's facts at once, then the Report once it is bui
   await expect(page).toHaveURL(/\/gh\/acme\/ownership$/);
   await expect(page.getByText("Three people and two folders")).toBeVisible();
   await expect(commits(page)).toHaveText("21", { timeout: 20_000 });
-  await expect(page.getByText(/^built /)).toBeVisible();
+  await expect(page.getByText(/^built /).first()).toBeVisible();
 });
 
 test("each screen is drawn on the server from its address, with no email address", async ({ page, request }) => {
@@ -67,7 +68,7 @@ test("each screen is drawn on the server from its address, with no email address
   await expect(commits(page)).toHaveText("21");
   await press(page, "2", /screen=people/);
   await expect(page.getByRole("table", { name: "People" }).locator("tbody tr")).toHaveCount(3);
-  await page.getByRole("table", { name: "People" }).getByRole("button", { name: "Alice Example" }).click();
+  await page.getByRole("table", { name: "People" }).getByRole("button", { name: "Alice Example", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Alice Example" })).toBeVisible();
   await expect(page.getByText("alice@example.com")).toHaveCount(0);
   await page.reload();
@@ -91,12 +92,13 @@ test("the repository's page carries its social preview, and the card is served",
   expect(card.headers()["content-type"]).toBe("image/png");
 });
 
-test("each way a lookup can fail says so plainly", async ({ page }) => {
+test("each way a lookup can fail says so plainly", async ({ page, context }) => {
   test.setTimeout(180_000);
   await page.goto("/gh/nobody/nothing");
   await expect(page.getByText("GitHub has no public repository of that name.")).toBeVisible();
   await page.goto("/gh/acme/secret");
   await expect(page.getByText("GitHub has no public repository of that name.")).toBeVisible();
+  await signInAs(context, "alice");
   await page.goto("/gh/acme/huge");
   await expect(page.getByText("This repository is too big for the Site to read.")).toBeVisible({ timeout: 20_000 });
   await page.goto("/gh/acme/slow");
@@ -104,12 +106,13 @@ test("each way a lookup can fail says so plainly", async ({ page }) => {
   await expect(page.getByText("took longer than the Site allows")).toBeVisible({ timeout: 120_000 });
 });
 
-test("a Report more than a day old shows while a newer one is built", async ({ page }) => {
+test("a Report more than a day old shows while a newer one is built", async ({ page, context }) => {
+  await signInAs(context, "alice");
   await sql("UPDATE repositories SET report_at = report_at - 2 * 86400 WHERE id = 'acme/ownership'");
   await page.goto("/gh/acme/ownership");
   await expect(commits(page)).toHaveText("21");
-  await expect(page.getByText("updating…")).toBeVisible();
-  await expect(page.getByText(/^built /)).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText("updating…").first()).toBeVisible();
+  await expect(page.getByText(/^built /).first()).toBeVisible({ timeout: 20_000 });
 });
 
 test("the API answers in plain words", async ({ request }) => {
@@ -146,7 +149,7 @@ test("a Shared Report opens from the link commitscape share printed, and its key
   page.on("request", (r) => seen.push([r.url(), JSON.stringify(r.headers()), r.postData() ?? ""].join("\n")));
   await page.goto(link);
   await expect(commits(page)).toHaveText("21");
-  await expect(page.getByText(/shared · expires in (1 h 5\d|2 h 0) min/)).toBeVisible();
+  await expect(page.getByText(/expires in (1 h 5\d|2 h 0) min/).first()).toBeVisible();
   expect(page.url()).not.toContain("#");
   expect(seen.length).toBeGreaterThan(3);
   for (const request of seen) expect(request).not.toContain(key);
@@ -179,7 +182,8 @@ test("the page's Delete button, and share --delete, take a Shared Report down", 
   await page.goto(link);
   await expect(commits(page)).toHaveText("21");
   await page.getByRole("button", { name: "Delete" }).click();
-  await expect(page.getByText("Deleted: this link no longer opens anything.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Deleted", level: 1 })).toBeVisible();
+  await expect(page.getByText("This link no longer opens anything.")).toBeVisible();
   expect((await request.get(link.split("#")[0]?.replace("/s/", "/api/shares/") ?? "")).status()).toBe(404);
 
   const other = share("--yes", join(root, "fixtures/ownership"));

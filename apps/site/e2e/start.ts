@@ -80,6 +80,8 @@ children.push(
       BETTER_AUTH_SECRET: "e2e-secret-e2e-secret-e2e-secret-e2e",
       BOARDS_CACHE_SECONDS: "0",
       GITHUB_TOKEN: "ghs_site",
+      GITHUB_APP_CLIENT_ID: "Iv1.test",
+      GITHUB_APP_CLIENT_SECRET: "test-client-secret",
     },
   }),
 );
