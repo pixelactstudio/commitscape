@@ -44,6 +44,18 @@ _Avoid_: range, period, timeframe, filter.
 The complete set of facts extracted from a repository by walking its history once and reading its HEAD tree once. Everything the tool displays is derived from the Index alone.
 _Avoid_: database, cache, model, store.
 
+**Stored Index**:
+A repository's Index as the Site keeps it, in Postgres: every commit with its Changeset as arrays, its files and folders, its people, daily sums by Landing Day, and its HEAD. A Build appends the commits it has not seen; a rebuilt engine cache starts a new one. The Site answers every screen from it, for any Window.
+_Avoid_: index tables, commit store.
+
+**Mainline**:
+The commits of a Stored Index that the default branch holds: every commit reachable from HEAD, and among them the first-parent line, the commits HEAD itself went through. The Stored Index also holds commits only other branches and tags reach, which never reached the default branch; the Mainline tells them apart. A Build works it out again each time, since a merge brings older commits into it.
+_Avoid_: main branch, trunk, reachable commits.
+
+**Main Arrival**:
+When a commit of the Mainline reached the default branch: the committer time of the first-parent commit that brought it there. A commit on the first-parent line arrives by itself; a commit made on a branch arrives with the merge that first brought it in, however long before it was written.
+_Avoid_: merge date, landing, integration time.
+
 **Changeset**:
 The set of files a single commit touched, along with how each was touched. The Index stores Changesets rather than aggregates, which is what makes the Window changeable without re-reading the repository. A Merge Commit's Changeset holds only the files it changed relative to every parent, such as a conflict resolution, never the branch it merged.
 _Avoid_: diff, commit contents, file list.
@@ -137,6 +149,34 @@ _Avoid_: year in review, stats, recap.
 **Moment**:
 One event in the project's life, on the Overview's story line: the first commit, a release, someone who made a real share of the commits joining or leaving, the busiest day, the biggest clean-up, a quiet stretch, a change of main language.
 _Avoid_: event, milestone.
+
+**Code window**:
+A window that floats over any screen of a repository to read its files at the Build's head: a file tree, tabs, a file's story (born, commits, last change, Staleness, who holds it, its share of fixes), its History and Insights. It opens from any link to a file, and the address says when it is open.
+_Avoid_: code tab, file viewer, explorer.
+
+**Universe**:
+The repository's whole default-branch history as a map to explore: one hex for every file the default branch ever had, laid out by folder, rising from the sea when a file is born and sinking when it is deleted, replayed by Main Arrival and coloured by who holds it, by role, by Staleness or by language. It is made from the Atlas.
+_Avoid_: galaxy, 3D view, city.
+
+**Atlas**:
+The compact binary history the Universe is made from: the files, folders and people of a Stored Index and every commit on the Mainline by when it arrived, Merge Commits left out. It is made once per load of a Stored Index.
+_Avoid_: payload, snapshot, graph.
+
+**Branch state**:
+What a branch other than the default one is doing at the Build: In flight (an open pull request, or a commit within 30 days), Waiting (no open pull request, a commit 30 to 90 days old), Abandoned (older still), or Merged (the default branch already holds its work, by merge, squash or rebase, so it is safe to delete). A Bot's branches are left out of the open ones.
+_Avoid_: stale branch, active branch, dead branch.
+
+**Version line**:
+The tags a repository named only by a version (`v19.1.0`, `15.2.0`) gathered by their major number: `v19.x`, `v15.x`, `v0.x`. Tags named by a prefix before the version (`ignore-0.4.3`) are a family of their own. A line's usual gap is the middle of the gaps between its newest days with a release, counting tags made on one day once.
+_Avoid_: release train, release family.
+
+**Size bucket**:
+How large a pull request is by the lines it added and removed together: XS under 10, S under 50, M under 250, L under 1,000, XL beyond.
+_Avoid_: T-shirt size, diff size.
+
+**Idle**:
+An open pull request with no update on GitHub for 90 days or more.
+_Avoid_: stale pull request, abandoned.
 
 ### Where it runs
 

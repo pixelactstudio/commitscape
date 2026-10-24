@@ -37,11 +37,11 @@ against the real services. Without them those tests are skipped.
   run `pnpm db:generate` to write the migration.
 - Never edit a generated migration or add comments to one.
 - SQL that Drizzle cannot generate goes in a custom migration: run
-  `pnpm db:custom`, which writes an empty migration file, and put the SQL in
-  that file only.
-- Application code queries through Drizzle's query builder. `sql` fragments
-  are for expressions inside a Drizzle query. Never run a hand-written SQL
-  statement string.
+  `pnpm db:custom`, which writes an empty migration file, and write the SQL
+  in that file.
+- Prefer Drizzle's query builder. Raw SQL is allowed where it is the better
+  tool (`sql` fragments, `db.execute(sql\`…\`)`, bulk loads with `COPY`),
+  always with parameters, never by pasting values into the string.
 - The Builder applies migrations when it starts (`node builder.mjs work`).
 
 ## The Site
