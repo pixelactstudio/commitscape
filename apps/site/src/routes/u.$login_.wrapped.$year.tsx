@@ -4,7 +4,9 @@ import { Icon } from "@astryxdesign/core/Icon";
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useRouteContext } from "@tanstack/react-router";
+import { LockedPage } from "#/components/Locked";
+import { GATES } from "#/lib/gates";
 import { ChevronLeft, ChevronRight, GitMerge, Lock } from "lucide-react";
 import { PRODUCT, type Wrapped } from "@commitscape/data";
 import { AreaTrend, compact, Donut, Face, grouped, many, Outcomes, Page, Panel, RepoTiles, StackedColumns, Stat, TipLayer, WeekBars, WRAPPED_CALENDAR_CARD_SIZE, WRAPPED_CARD_SIZE, YearGrid, type Slice } from "@commitscape/ui";
@@ -23,8 +25,8 @@ export const Route = createFileRoute("/u/$login_/wrapped/$year")({
   loader: async ({ params, context }) => ({ lookup: await context.queryClient.ensureQueryData(profileLookupQuery(params.login)), origin: context.origin ?? "" }),
   head: ({ params, loaderData }) => ({
     meta: [
-      { title: `@${params.login}'s ${params.year} · ${PRODUCT}` },
-      { property: "og:title", content: `@${params.login}'s ${params.year} on GitHub` },
+      { title: `@${params.login}’s ${params.year} · ${PRODUCT}` },
+      { property: "og:title", content: `@${params.login}’s ${params.year} on GitHub` },
       { property: "og:image", content: `${loaderData?.origin ?? ""}/api/cards/u/${params.login}/wrapped/${params.year}/wrapped.png` },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -35,8 +37,10 @@ export const Route = createFileRoute("/u/$login_/wrapped/$year")({
 function WrappedPage() {
   const { year } = Route.useParams();
   const { lookup, origin } = Route.useLoaderData();
+  const { user } = useRouteContext({ from: "__root__" });
   const y = Number(year);
   if (!Number.isInteger(y) || y < 2008 || y > THIS_YEAR) return <Missing title="No such year" words={`Wrapped covers the years from 2008 to ${THIS_YEAR}.`} />;
+  if (!user && GATES.wrapped.on) return <LockedPage gate="wrapped" />;
   if (lookup.status === "hidden") return <Missing title="This Wrapped is hidden" words="This person has chosen to stay out, so their Wrapped is hidden." />;
   if (lookup.status !== "ok") return <Missing title="No one by that name" words="GitHub has no person by that name." />;
   const id = lookup.identity;
@@ -51,7 +55,7 @@ function WrappedPage() {
               <Face login={id.login} name={name} size={56} ring="var(--stage-cell-2)" />
               <span className="flex flex-col">
                 <span className="type-panel">{name}</span>
-                <span className="text-xs text-on-stage-2">@{id.login}'s year on GitHub</span>
+                <span className="type-caption text-on-stage-2">@{id.login}’s year on GitHub</span>
               </span>
             </Link>
             <div className="flex items-center gap-1">
@@ -60,10 +64,13 @@ function WrappedPage() {
             </div>
           </div>
           <div className="flex flex-col gap-2">
-            <span className="text-[clamp(5rem,18vw,12rem)] leading-[0.82] font-bold tracking-[-0.07em]">{y}</span>
-            <span className="text-lg text-on-stage-2">{y === THIS_YEAR ? "So far, and still going." : "The whole year, day by day."}</span>
+            <h1 tabIndex={-1} className="m-0 wrapped-year text-on-stage outline-offset-8">
+              {y}
+              <span className="sr-only"> on GitHub, by {name}</span>
+            </h1>
+            <p className="m-0 type-lead text-on-stage-2">{y === THIS_YEAR ? "So far, and still going." : "The whole year, day by day."}</p>
           </div>
-          <Section fallback={<Skeleton height={36} width={360} radius={4} />}>
+          <Section fallback={<HeadlineSkeleton />}>
             <Headline login={id.login} year={y} />
           </Section>
         </Page>
@@ -79,11 +86,21 @@ function WrappedPage() {
 
 function Headline({ login, year }: { login: string; year: number }) {
   const { data: w } = useSuspenseQuery(wrappedQuery(login, year));
-  if (w.contributions === 0) return <p className="m-0 max-w-3xl text-2xl leading-snug font-medium text-pretty text-white">A quiet year on GitHub: nothing public to count.</p>;
+  if (w.contributions === 0) return <p className="m-0 max-w-3xl text-2xl leading-snug font-medium text-pretty text-on-stage">A quiet year on GitHub: nothing public to count.</p>;
+  const merged = w.complete ? `${grouped(w.prsMerged)} pull requests merged` : w.prsMerged > 0 ? `at least ${grouped(w.prsMerged)} pull requests merged` : null;
   return (
-    <p className="m-0 max-w-3xl text-2xl leading-snug font-medium text-pretty text-white">
-      {grouped(w.contributions)} contributions on {many(w.activeDays, "day", "days")}, {grouped(w.prsMerged)} pull requests merged and {grouped(w.reviews)} reviews given{w.languages[0] ? `, mostly in ${w.languages[0].name}` : ""}.
+    <p className="m-0 max-w-3xl text-2xl leading-snug font-medium text-pretty text-on-stage">
+      {grouped(w.contributions)} contributions on {many(w.activeDays, "day", "days")}, {merged ? `${merged} and ` : ""}{grouped(w.reviews)} reviews given{w.languages[0] ? `, mostly in ${w.languages[0].name}` : ""}.
     </p>
+  );
+}
+
+function HeadlineSkeleton() {
+  return (
+    <div className="flex max-w-3xl flex-col gap-2">
+      <Skeleton height={36} radius={2} />
+      <Skeleton height={36} width="62%" radius={2} index={1} />
+    </div>
   );
 }
 
@@ -127,20 +144,20 @@ function Body({ login, year, name, origin, joined }: { login: string; year: numb
         <ShareButton
           origin={origin}
           label="Share my year"
-          title={`Share ${name}'s ${year}`}
+          title={`Share ${name}’s ${year}`}
           choices={[
-            { id: "wrapped", title: "Wrapped", about: "The year in one image.", url: `/api/cards/u/${login}/wrapped/${year}/wrapped`, ...WRAPPED_CARD_SIZE, link: `/u/${login}/wrapped/${year}`, share: `My ${year} on GitHub: ${grouped(w.contributions)} contributions, ${grouped(w.prsMerged)} pull requests merged.`, alt: `${name}'s ${year}` },
-            { id: "wrapped-calendar", title: "The year's calendar", about: "A square a day.", url: `/api/cards/u/${login}/wrapped/${year}/wrapped-calendar`, ...WRAPPED_CALENDAR_CARD_SIZE, link: `/u/${login}/wrapped/${year}`, share: `My ${year} on GitHub, a square a day.`, alt: `${name}'s ${year}, a square a day` },
+            { id: "wrapped", title: "Wrapped", about: "The year in one image.", url: `/api/cards/u/${login}/wrapped/${year}/wrapped`, ...WRAPPED_CARD_SIZE, link: `/u/${login}/wrapped/${year}`, share: `My ${year} on GitHub: ${grouped(w.contributions)} contributions${w.complete ? `, ${grouped(w.prsMerged)} pull requests merged` : ""}.`, alt: `${name}’s ${year}` },
+            { id: "wrapped-calendar", title: "The year’s calendar", about: "A square a day.", url: `/api/cards/u/${login}/wrapped/${year}/wrapped-calendar`, ...WRAPPED_CALENDAR_CARD_SIZE, link: `/u/${login}/wrapped/${year}`, share: `My ${year} on GitHub, a square a day.`, alt: `${name}’s ${year}, a square a day` },
           ]}
         />
       </div>
       <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line bg-line lg:grid-cols-4">
         {[
           <Stat key="c" size="lg" tone="brand" value={grouped(w.contributions)} label="Contributions" note={`on ${many(w.activeDays, "day", "days")}`} />,
-          <Stat key="p" size="lg" value={grouped(w.prsMerged)} label="Pull requests merged" note={`of ${grouped(w.prsOpened)} opened`} />,
-          <Stat key="r" size="lg" value={grouped(w.reviews)} label="Reviews given" note="on others' pull requests" />,
+          <Stat key="p" size="lg" value={w.complete || w.prsMerged > 0 ? grouped(w.prsMerged) : "—"} label="Pull requests merged" note={w.complete ? `of ${grouped(w.prsOpened)} opened` : w.prsMerged > 0 ? `so far, of ${grouped(w.prsOpened)} opened` : "not read yet"} />,
+          <Stat key="r" size="lg" value={grouped(w.reviews)} label="Reviews given" note="on others’ pull requests" />,
           <Stat key="m" size="lg" value={grouped(w.commits)} label="Commits" note="as GitHub counts them" />,
-          <Stat key="l" size="md" value={`+${compact(w.linesAdded)}`} label="Lines added, merged" note={`and −${compact(w.linesRemoved)} removed`} />,
+          <Stat key="l" size="md" value={w.complete || w.linesAdded > 0 ? `+${compact(w.linesAdded)}` : "—"} label="Lines added, merged" note={w.complete || w.linesAdded > 0 ? `and −${compact(w.linesRemoved)} removed` : "not read yet"} />,
           <Stat key="s" size="md" value={many(w.longestStreak, "day", "days")} label="Longest streak" note="days in a row" />,
           <Stat key="b" size="md" value={busiest ?? "—"} label="Busiest day" note={w.busiest ? many(w.busiest.contributions, "contribution", "contributions") : "no contributions"} />,
           <Stat key="g" size="md" value={w.languages[0]?.name ?? "—"} label="Most written in" note={w.languages[0] ? `${Math.round((w.languages[0].commits * 100) / Math.max(1, languages))}% of commits` : "no commits"} />,
@@ -150,7 +167,7 @@ function Body({ login, year, name, origin, joined }: { login: string; year: numb
           </div>
         ))}
       </div>
-      {!w.complete && <p className="m-0 type-caption">Merged pull requests and their lines come from the pull requests read so far; the other totals are GitHub's.</p>}
+      {!w.complete && <p className="m-0 type-caption">Merged pull requests and their lines come from the pull requests read so far; the other totals are GitHub’s.</p>}
       <Story w={w} year={year} />
     </>
   );
@@ -188,20 +205,20 @@ function Story({ w, year }: { w: Wrapped; year: number }) {
           <Months w={w} busiest={busiestMonth} />
         </Reveal>
         <Reveal delay={0.08}>
-          <Panel title="How it added up" description={half ? `Half of the year's contributions were in by ${half.label}.` : "Contributions so far, day by day"}>
+          <Panel title="How it added up" description={half ? `Half of the year’s contributions were in by ${half.label}.` : "Contributions so far, day by day"}>
             <AreaTrend points={points} series={{ key: "total", label: "Contributions so far", colour: "var(--brand)" }} unit="contributions so far" height={220} title={(p) => `By ${p.label}`} />
           </Panel>
         </Reveal>
       </div>
       <div className="grid gap-gutter lg:grid-cols-2">
         <Reveal>
-          <Panel title="What it was made of" description="The year's contributions by kind, as GitHub counts them">
+          <Panel title="What it was made of" description="The year’s contributions by kind, as GitHub counts them">
             <Donut slices={mix} unit="contributions" />
           </Panel>
         </Reveal>
         <Reveal delay={0.08}>
-          <Panel title="Languages" description="The languages of the year's commits, by the repositories they went into">
-            {langs.length > 0 ? <Donut slices={langs} unit="commits" /> : <Nothing compact title="No languages to show" words="GitHub names no language for this year's commits." />}
+          <Panel title="Languages" description="The languages of the year’s commits, by the repositories they went into">
+            {langs.length > 0 ? <Donut slices={langs} unit="commits" /> : <Nothing compact title="No languages to show" words="GitHub names no language for this year’s commits." />}
           </Panel>
         </Reveal>
       </div>
@@ -226,14 +243,14 @@ function Story({ w, year }: { w: Wrapped; year: number }) {
       </div>
       {w.repositories.length > 0 ? (
         <Reveal>
-          <Panel title="Where it went" description={`The repositories with most of the year's commits, sized by them${w.repositories.length > 8 ? `: the top 8 of ${w.repositories.length}` : ""}`}>
+          <Panel title="Where it went" description={`The repositories with most of the year’s commits, sized by them${w.repositories.length > 8 ? `: the top 8 of ${w.repositories.length}` : ""}`}>
             <RepoTiles repositories={w.repositories} link={(repo) => `/gh/${repo}`} />
           </Panel>
         </Reveal>
       ) : (
         w.mergedIn.length > 0 && (
           <Reveal>
-            <Panel title="Where it went" description={`The repositories with most of the year's merged pull requests, sized by them${w.mergedIn.length > 8 ? `: the top 8 of ${w.mergedIn.length}` : ""}`}>
+            <Panel title="Where it went" description={`The repositories with most of the year’s merged pull requests, sized by them${w.mergedIn.length > 8 ? `: the top 8 of ${w.mergedIn.length}` : ""}`}>
               <RepoTiles repositories={w.mergedIn.map((r) => ({ repo: r.repo, commits: r.prs, private: r.private }))} link={(repo) => `/gh/${repo}`} unit={["pull request merged", "pull requests merged"]} />
             </Panel>
           </Reveal>
@@ -252,7 +269,7 @@ function Months({ w, busiest }: { w: Wrapped; busiest: number }) {
       title="Month by month"
       description={show === "contributions" ? `${MONTH_NAMES[busiest]} was the busiest month, with ${many(w.months[busiest] ?? 0, "contribution", "contributions")}.` : w.prsMerged > 0 ? `Most pull requests were merged in ${MONTH_NAMES[best]}: ${grouped(w.merges[best] ?? 0)}.` : "No pull requests merged this year."}
       actions={
-        <SegmentedControl label="Show" size="sm" value={show} onChange={(v) => setShow(v as "contributions" | "merges")}>
+        <SegmentedControl label="Show" size="md" value={show} onChange={(v) => setShow(v as "contributions" | "merges")}>
           <SegmentedControlItem value="contributions" label="Contributions" />
           <SegmentedControlItem value="merges" label="Merged" />
         </SegmentedControl>
@@ -271,7 +288,7 @@ function Months({ w, busiest }: { w: Wrapped; busiest: number }) {
 function Biggest({ b }: { b: NonNullable<Wrapped["biggest"]> }) {
   return (
     <div className="flex items-start gap-3 rounded-md border border-line p-3">
-      <span className="mt-0.5 flex size-7 flex-none items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--s7)_18%,transparent)] text-[var(--s7)]">
+      <span className="mt-0.5 flex size-7 flex-none items-center justify-center rounded-full bg-sunken text-(--s7)">
         <GitMerge size={ICON.sm} aria-hidden />
       </span>
       <div className="flex min-w-0 flex-col gap-0.5">

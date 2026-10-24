@@ -9,6 +9,7 @@ import { Link } from "@tanstack/react-router";
 import { LogOut, Mail, UserPlus } from "lucide-react";
 import { isLogin, type Member } from "@commitscape/data";
 import { Face, Panel } from "@commitscape/ui";
+import { ICON } from "@commitscape/ui/design";
 import { namesIn } from "#/lib/window";
 import { answerInvitation, inviteMore, leaveIt } from "#/functions/races";
 import { signIn } from "#/lib/auth-client";
@@ -29,7 +30,7 @@ export function InviteField({ label, value, onChange, description }: { label: st
           {names.map((n) => {
             const ok = isLogin(n);
             return (
-              <li key={n} className={`inline-flex items-center gap-1.5 rounded-full border py-0.5 ps-0.5 pe-2.5 text-2xs ${ok ? "border-line bg-surface" : "border-removed text-removed"}`}>
+              <li key={n} className={`inline-flex items-center gap-1.5 rounded-full border py-0.5 ps-0.5 pe-2.5 type-caption ${ok ? "border-line bg-surface" : "border-removed text-removed"}`}>
                 {ok ? <Face login={n} name={n} size={20} /> : <span className="w-1" />}
                 {ok ? `@${n}` : `${n} is not a GitHub username`}
               </li>
@@ -60,7 +61,7 @@ export function InvitationCallout({ kind, id, you }: { kind: Kind; id: string; y
         <div className="flex min-w-0 flex-col">
           <span className="font-semibold">@{you.invitedBy} invited you to this {WORD[kind]}</span>
           <span className="type-caption">You appear in it only once you accept, and you can leave at any time.</span>
-          {reply.error && <span className="text-xs text-removed">{reply.error.message}</span>}
+          {reply.error && <span className="type-caption text-removed" role="alert">{reply.error.message}</span>}
         </div>
       </div>
       <div className="flex flex-none gap-2">
@@ -107,14 +108,14 @@ export function People({ kind, id, members, you, signedIn, createdBy }: { kind: 
         {members.map((m) => (
           <li key={m.login} className="flex items-center gap-3 border-t border-line py-2.5 first:border-t-0 first:pt-0">
             <Face login={m.login} name={m.login} size={32} />
-            <Link to="/u/$login" params={{ login: m.login }} className="min-w-0 truncate text-sm font-medium text-primary no-underline hover:underline">
+            <Link to="/u/$login" params={{ login: m.login }} className="min-w-0 type-ui font-medium text-primary no-underline [overflow-wrap:anywhere] hover:underline">
               @{m.login}
             </Link>
             {m.login === createdBy && <span className="type-caption">started it</span>}
             {you && m.login === you.login && <Badge label="you" variant="neutral" />}
             {m.state === "invited" && (
               <span className="ms-auto inline-flex items-center gap-1.5 type-caption">
-                <Mail size={12} aria-hidden /> invited by @{m.invitedBy}
+                <Mail size={ICON.xs} aria-hidden /> invited by @{m.invitedBy}
               </span>
             )}
           </li>
@@ -129,7 +130,11 @@ export function People({ kind, id, members, you, signedIn, createdBy }: { kind: 
           }}
         >
           <InviteField label="Invite people by GitHub username" value={names} onChange={setNames} />
-          {add.error && <p className="m-0 text-xs text-removed">{add.error.message}</p>}
+          {add.error && (
+            <p className="m-0 type-caption text-removed" role="alert">
+              {add.error.message}
+            </p>
+          )}
           <div>
             <Button label="Invite" variant="secondary" type="submit" icon={<Icon icon={UserPlus} size="sm" />} isLoading={add.isPending} isDisabled={namesIn(names).length === 0} />
           </div>

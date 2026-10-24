@@ -66,7 +66,7 @@ export function StandingScene() {
   );
   return (
     <div ref={ref} className="relative flex size-full items-center justify-center">
-      <Mini className="w-full max-w-[20rem] overflow-hidden">
+      <Mini className="w-full max-w-80 overflow-hidden">
         <div className="flex items-center justify-between gap-2 px-4 pt-3.5 text-xs">
           <span className="font-medium text-primary">react/react</span>
           <span className="text-secondary">

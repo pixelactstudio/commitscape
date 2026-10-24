@@ -38,7 +38,7 @@ export function WorkView({ work, look, onLook, footer }: { work: Work; look?: Wo
   const days = span(work.from, work.to);
   const capped = cappedWords(work.capped);
   return (
-    <article className="overflow-clip rounded-lg border border-line bg-surface" aria-label={`${name}'s Proof of Work`}>
+    <article className="overflow-clip surface" aria-label={`${name}’s Proof of Work`}>
       <div className="grid grid-cols-2 lg:grid-cols-4">
         <Cell>
           <Stat value={grouped(t.prs)} label="Pull requests merged" note={`in ${many(t.repositories, "repository", "repositories")}`} />
@@ -46,8 +46,12 @@ export function WorkView({ work, look, onLook, footer }: { work: Work; look?: Wo
         <Cell>
           <Stat
             value={
-              <span className="whitespace-nowrap max-sm:text-xl">
-                <span className="text-added">+{compact(t.additions)}</span> <span className="text-secondary">/</span> <span className="text-removed">−{compact(t.deletions)}</span>
+              <span className="inline-flex flex-wrap items-baseline gap-x-2">
+                <span className="text-added">+{compact(t.additions)}</span>
+                <span className="text-secondary max-sm:hidden" aria-hidden>
+                  /
+                </span>
+                <span className="text-removed">−{compact(t.deletions)}</span>
               </span>
             }
             label="Lines merged"
@@ -58,7 +62,7 @@ export function WorkView({ work, look, onLook, footer }: { work: Work; look?: Wo
           <Stat value={grouped(t.commits)} label="Commits" note="besides the merges of those pull requests" />
         </Cell>
         <Cell>
-          <Stat value={grouped(summary.activeDays)} label="Active days" note={`of the period's ${many(days, "day", "days")}`} />
+          <Stat value={grouped(summary.activeDays)} label="Active days" note={`of the period’s ${many(days, "day", "days")}`} />
         </Cell>
       </div>
       {summary.kinds.length > 0 && <Kinds kinds={summary.kinds} active={kind} onPick={(k) => change({ kind: k === kind ? null : k })} />}
@@ -86,7 +90,7 @@ export function WorkView({ work, look, onLook, footer }: { work: Work; look?: Wo
                 </button>
               )}
             </div>
-            <SegmentedControl label="Group by" size="sm" value={view.group} onChange={(g) => change({ group: g as WorkGroup })}>
+            <SegmentedControl label="Group by" size="md" value={view.group} onChange={(g) => change({ group: g as WorkGroup })}>
               <SegmentedControlItem value="month" label="By month" />
               <SegmentedControlItem value="repository" label="By repository" />
             </SegmentedControl>
@@ -300,7 +304,7 @@ function Row({ item }: { item: WorkItem }) {
 /** A Proof of Work's stand-in while it is read from GitHub, the same shape as the document. */
 export function WorkSkeleton() {
   return (
-    <div className="overflow-hidden rounded-lg border border-line bg-surface">
+    <div className="overflow-hidden surface">
       <div className="grid grid-cols-2 lg:grid-cols-4">
         {[0, 1, 2, 3].map((i) => (
           <Cell key={i}>

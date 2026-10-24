@@ -6,7 +6,9 @@ import { Icon } from "@astryxdesign/core/Icon";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { useMutation, useQuery, useSuspenseQuery } from "@tanstack/react-query";
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate, useRouteContext } from "@tanstack/react-router";
+import { LockedPage } from "#/components/Locked";
+import { GATES } from "#/lib/gates";
 import { ArrowLeft, Copy, Download, Link2, Lock, LogIn, Share2 } from "lucide-react";
 import { groupWork, inFilter, isWorkGate, periodDates, periodWords, PRODUCT, WORK_KINDS, type Work, type WorkGate, type WorkKind } from "@commitscape/data";
 import { Face, grouped, many, Page, PageHead, Panel, PeriodPicker, RepoPicker, WorkSkeleton, WorkView, type WorkLook } from "@commitscape/ui";
@@ -35,7 +37,7 @@ export const Route = createFileRoute("/u/$login_/work")({
     };
   },
   loader: async ({ params, context }) => ({ lookup: await context.queryClient.ensureQueryData(profileLookupQuery(params.login)), origin: context.origin ?? "" }),
-  head: ({ params }) => ({ meta: [{ title: `@${params.login}'s Proof of Work on ${PRODUCT}` }, { name: "robots", content: "noindex" }] }),
+  head: ({ params }) => ({ meta: [{ title: `@${params.login}’s Proof of Work on ${PRODUCT}` }, { name: "robots", content: "noindex" }] }),
   component: ProofOfWork,
 });
 
@@ -45,6 +47,8 @@ function ProofOfWork() {
   const { login } = Route.useParams();
   const search = Route.useSearch();
   const { data: lookup } = useSuspenseQuery(profileLookupQuery(login));
+  const { user } = useRouteContext({ from: "__root__" });
+  if (!user && GATES.work.on) return <LockedPage gate="work" />;
   if (lookup.status === "hidden") return <Missing title="This Proof of Work is hidden" words="This person has chosen to stay out, so their Proof of Work shows nothing." />;
   if (lookup.status !== "ok") return <Missing title={`No one called @${login}`} words="GitHub has no person by that name. Check its spelling, or search for them." />;
   const id = lookup.identity;
@@ -76,7 +80,7 @@ function Proof({ login, name, self, search }: { login: string; name: string; sel
             <ArrowLeft size={14} aria-hidden /> {name}
           </Link>
         }
-        title={self ? "Your Proof of Work" : `${name}'s Proof of Work`}
+        title={self ? "Your Proof of Work" : `${name}’s Proof of Work`}
         description={
           self
             ? "Every pull request you merged and every commit you made, with links. Your private work shows to you alone, and goes into a shared link only if you choose it."
@@ -139,7 +143,7 @@ function Gated({ gate, onAsk, onShorter }: { gate: WorkGate; onAsk: () => void; 
   return (
     <Panel
       title={gate.signedIn ? "This period needs you to sign in again" : "This period needs a sign-in"}
-      description={`${many(gate.prs, "merged pull request", "merged pull requests")} and ${gate.atLeast ? "at least" : "about"} ${many(gate.commits, "commit", "commits")}${gate.filter ? ` in ${gate.filter}` : ""}: reading them takes ${gate.atLeast ? "at least" : "about"} ${many(gate.requests, "request", "requests")} to GitHub, more than the ${gate.budget} the Site's shared allowance gives one Proof of Work. Sign in${gate.signedIn ? " again" : ""} to read it with your own GitHub allowance, or pick a shorter period or one repository.`}
+      description={`${many(gate.prs, "merged pull request", "merged pull requests")} and ${gate.atLeast ? "at least" : "about"} ${many(gate.commits, "commit", "commits")}${gate.filter ? ` in ${gate.filter}` : ""}: reading them takes ${gate.atLeast ? "at least" : "about"} ${many(gate.requests, "request", "requests")} to GitHub, more than the ${gate.budget} the Site’s shared allowance gives one Proof of Work. Sign in${gate.signedIn ? " again" : ""} to read it with your own GitHub allowance, or pick a shorter period or one repository.`}
     >
       <div className="flex flex-wrap gap-cluster">
         <Button label="Sign in with GitHub" variant="primary" icon={<Icon icon={LogIn} size="sm" />} onClick={() => signIn(here())} />
@@ -305,7 +309,7 @@ function Shown({ work, search }: { work: Work; search: Search }) {
       work={work}
       look={look}
       onLook={(l) => void navigate({ search: (s) => ({ ...s, group: l.group === "repository" ? "repository" : undefined, kind: l.kind ?? undefined }), replace: true, resetScroll: false })}
-      footer={`Read from GitHub on ${read} UTC. Pull requests are counted on the day they were merged. Commits are the ones on each repository's main branch today, on the day their author made them, so GitHub's own contribution count can be higher: it keeps commits that were later squashed or rewritten away.`}
+      footer={`Read from GitHub on ${read} UTC. Pull requests are counted on the day they were merged. Commits are the ones on each repository’s main branch today, on the day their author made them, so GitHub’s own contribution count can be higher: it keeps commits that were later squashed or rewritten away.`}
     />
   );
 }

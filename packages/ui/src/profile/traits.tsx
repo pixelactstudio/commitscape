@@ -45,7 +45,7 @@ export function ArchetypePanel({ archetypes, complete, checks }: { archetypes: A
             {shown.evidence.map((e) => (
               <li key={e.label} className="flex flex-col gap-1.5">
                 <span className="flex items-baseline justify-between gap-3 text-sm">
-                  <span className="truncate text-on-stage-2">{e.label}</span>
+                  <span className="min-w-0 text-on-stage-2">{e.label}</span>
                   <span className="flex-none font-semibold tnum text-on-stage">{e.value}</span>
                 </span>
                 <span role="meter" aria-label={`${e.label}: ${e.value}, needs ${e.goal}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(e.share * 100)} className="archetype-track block h-1.5 overflow-hidden rounded-full">
@@ -101,7 +101,7 @@ function RulesDialog({ open, onOpenChange, archetypes, checks }: { open: boolean
           const check = byId.get(a.id);
           return (
             <div key={a.id} className={`grid grid-cols-[1.75rem_1fr] gap-x-3 gap-y-0.5 rounded-md border px-3 py-2.5 ${a.id === main ? "border-brand-line bg-brand-soft" : "border-line"}`}>
-              <span className={`row-span-3 grid size-7 place-items-center rounded-full ${yes ? "bg-brand text-on-brand" : "bg-[var(--color-track)] text-secondary"}`} aria-label={yes ? "Met" : "Not met"}>
+              <span className={`row-span-3 grid size-7 place-items-center rounded-full ${yes ? "bg-brand text-on-brand" : "bg-(--color-track) text-secondary"}`} aria-label={yes ? "Met" : "Not met"}>
                 {yes ? <Check size={ICON.sm} strokeWidth={3} aria-hidden /> : <Minus size={ICON.sm} aria-hidden />}
               </span>
               <dt className="flex flex-wrap items-center gap-2 text-sm font-semibold">
@@ -128,7 +128,7 @@ export function AchievementsPanel({ achievements, onCard }: { achievements: Achi
       <ul className="m-0 grid list-none gap-2 p-0 sm:grid-cols-2">
         {achievements.map((a) => (
           <li key={a.id} className={`flex items-start gap-3 rounded-md border p-3 ${a.earned ? "border-line bg-body" : "border-dashed border-line"}`}>
-            <span className={`grid size-9 flex-none place-items-center rounded-full ${a.earned ? "medal-earned" : "bg-[var(--color-track)] text-secondary"}`}>{a.earned ? <Award size={ICON.md} aria-hidden /> : <Lock size={ICON.sm} aria-hidden />}</span>
+            <span className={`grid size-9 flex-none place-items-center rounded-full ${a.earned ? "medal-earned" : "bg-(--color-track) text-secondary"}`}>{a.earned ? <Award size={ICON.md} aria-hidden /> : <Lock size={ICON.sm} aria-hidden />}</span>
             <span className="flex min-w-0 flex-1 flex-col gap-0.5">
               <span className="text-sm font-semibold">{a.title}</span>
               <span className="type-caption text-pretty">{a.earned ? [a.detail, a.at ? `reached ${a.at}` : null].filter(Boolean).join(" · ") || a.rule : a.rule}</span>

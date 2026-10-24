@@ -61,9 +61,9 @@ function Me() {
         <SignedOut />
       ) : (
         <div className="grid items-start gap-8 lg:grid-cols-[13rem_minmax(0,1fr)]">
-          <nav aria-label="Settings sections" className="hidden lg:sticky lg:top-20 lg:flex lg:flex-col lg:gap-0.5">
+          <nav aria-label="Settings sections" className="hidden lg:sticky lg:top-[calc(var(--chrome-top)+1.5rem)] lg:flex lg:flex-col lg:gap-0.5">
             {SECTIONS.map(([id, label]) => (
-              <a key={id} href={`#${id}`} className={`rounded-md px-3 py-1.5 text-sm no-underline transition-colors hover:bg-overlay-hover ${id === "danger" ? "text-removed" : "text-secondary hover:text-primary"}`}>
+              <a key={id} href={`#${id}`} className={`row-hover rounded-md px-3 py-1.5 type-ui no-underline ${id === "danger" ? "text-removed" : "text-secondary hover:text-primary"}`}>
                 {label}
               </a>
             ))}
@@ -117,8 +117,8 @@ function SignedOut() {
     <div className="flex flex-col gap-gutter">
       <div className="grid gap-gutter sm:grid-cols-2">
         {perks.map(([Glyph, title, words]) => (
-          <div key={title} className="flex gap-3 rounded-lg border border-line bg-surface p-panel">
-            <span className="grid h-8 w-8 flex-none place-items-center rounded-md bg-brand-soft text-brand">
+          <div key={title} className="flex gap-3 surface p-panel">
+            <span className="grid size-8 flex-none place-items-center rounded-md bg-brand-soft text-brand">
               <Glyph size={ICON.md} aria-hidden />
             </span>
             <span className="flex flex-col gap-1">
@@ -128,7 +128,7 @@ function SignedOut() {
           </div>
         ))}
       </div>
-      <div className="cta-backdrop flex flex-col items-start gap-4 rounded-lg border border-line p-panel sm:flex-row sm:items-center sm:justify-between">
+      <div className="cta-backdrop surface flex flex-col items-start gap-4 p-panel sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-col gap-1">
           <span className="type-panel">Sign in with GitHub to see your settings</span>
           <span className="type-description">
@@ -175,7 +175,7 @@ function Choices() {
         <div className="pb-4">
           <Switch
             label="Stay out of comparisons"
-            description="You appear in no one else's Standings, Versus, Leaderboards, Races or Crews, and your Profile says only that it is hidden. You still see your own."
+            description="You appear in no one else’s Standings, Versus, Leaderboards, Races or Crews, and your Profile says only that it is hidden. You still see your own."
             value={choices?.hidden ?? false}
             isDisabled={choose.isPending}
             onChange={(hidden) => choose.mutate({ hidden })}
@@ -217,7 +217,7 @@ function RivalList() {
   return (
     <Panel id="rivals" title="Rivals" description={`The people your Profile measures you against: ${mine.logins.length} of 5. They are not told.`}>
       {mine.logins.length === 0 ? (
-        <Quiet icon={Swords} words={'None yet. Open someone\'s Profile and choose "Make my Rival".'} />
+        <NoneYet icon={Swords} words="None yet. Open someone’s Profile and choose “Make my Rival”." />
       ) : (
         <List>
           {mine.logins.map((l) => (
@@ -247,7 +247,7 @@ function Competing() {
     <Panel id="competing" title="Races and Crews" description="Where you compare yourself with friends. You join only by accepting, and leave at any time.">
       <div className="grid gap-gutter sm:grid-cols-2">
         {links.map(([Glyph, to, label, n, waiting]) => (
-          <Link key={to} to={to as "/races"} className="flex items-center gap-3 rounded-md border border-line p-4 text-primary no-underline transition-colors hover:border-line-strong">
+          <Link key={to} to={to as "/races"} className="surface row-hover flex items-center gap-3 p-4 text-primary no-underline">
             <Glyph size={ICON.md} className="text-brand" aria-hidden />
             <span className="flex flex-1 flex-col">
               <span className="type-label">{label}</span>
@@ -269,11 +269,11 @@ function Repositories({ installations, install, tokenLost }: { installations: In
     <Panel
       id="repositories"
       title="Connected repositories"
-      description="Private repositories you let commitscape's GitHub App read, which can only read. Each one's Report and Standings show only to people GitHub shows it to, checked on every visit."
+      description="Private repositories you let commitscape’s GitHub App read, which can only read. Each one’s Report and Standings show only to people GitHub shows it to, checked on every visit."
       actions={install ? <Button label="Add repositories" variant="secondary" size="sm" icon={<Icon icon={Plus} size="sm" />} href={install} target="_blank" /> : undefined}
     >
       {tokenLost && <Banner status="warning" title="GitHub no longer accepts this sign-in for reading your repositories. Sign out and in again to see them." />}
-      {count === 0 && !tokenLost && <Quiet icon={FolderGit2} words="None yet. Choose repositories in the GitHub App to see their Reports here." />}
+      {count === 0 && !tokenLost && <NoneYet icon={FolderGit2} words="None yet. Choose repositories in the GitHub App to see their Reports here." />}
       {installations.map((i) => (
         <div key={i.id} className="flex flex-col gap-2">
           <span className="flex items-center gap-2 type-caption font-medium">
@@ -315,15 +315,17 @@ function Danger({ onDone }: { onDone: () => void }) {
     },
   });
   return (
-    <section id="danger" className="scroll-mt-20 rounded-lg border border-removed/45 p-panel">
+    <section id="danger" className="surface scroll-mt-(--chrome-top) border-removed/45! p-panel">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex max-w-2xl flex-col gap-1">
+        <div className="flex min-w-0 max-w-2xl flex-col gap-1">
           <h2 className="m-0 type-panel text-removed">Delete my data</h2>
           <p className="m-0 type-description">
             Removes your account, every session, your choices (so you are no longer hidden), your own copy of your Profile, and the Reports of the repositories you connected, at once. Removing the App on GitHub deletes those Reports too.
           </p>
         </div>
-        <Button label="Delete my data" variant="destructive" icon={<Icon icon={Trash2} size="sm" />} onClick={() => setAsking(true)} />
+        <div className="flex-none">
+          <Button label="Delete my data" variant="destructive" icon={<Icon icon={Trash2} size="sm" />} onClick={() => setAsking(true)} />
+        </div>
       </div>
       <AlertDialog
         isOpen={asking}
@@ -343,9 +345,9 @@ function List({ children }: { children: ReactNode }) {
   return <ul className="m-0 flex list-none flex-col p-0">{children}</ul>;
 }
 
-function Quiet({ icon: Glyph, words }: { icon: typeof Flag; words: string }) {
+function NoneYet({ icon: Glyph, words }: { icon: typeof Flag; words: string }) {
   return (
-    <p className="m-0 flex items-center gap-2.5 rounded-md border border-dashed border-line px-4 py-3 type-description">
+    <p className="m-0 flex items-center gap-2.5 rounded-md border border-dashed border-strong px-4 py-3 type-description">
       <Glyph size={ICON.md} aria-hidden className="flex-none" />
       {words}
     </p>

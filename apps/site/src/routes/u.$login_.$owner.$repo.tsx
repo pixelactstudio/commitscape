@@ -64,20 +64,24 @@ function PersonInRepository() {
                 <Face login={owner} name={owner} size={36} wide={40} shape="rounded" edge="body" />
               </span>
             </span>
-            <div className="flex min-w-0 flex-col gap-1.5">
-              <span className="type-caption">
-                <Link to="/u/$login" params={{ login: where.login }} className="font-medium text-secondary no-underline hover:text-primary">
+            <div className="flex min-w-0 flex-col gap-2">
+              <span className="type-eyebrow">Standing</span>
+              <h1 tabIndex={-1} className="m-0 type-page [overflow-wrap:anywhere] outline-offset-4">
+                <Link to="/u/$login" params={{ login: where.login }} className="text-primary no-underline hover:underline">
                   {where.name}
-                </Link>{" "}
-                in
-              </span>
-              <h1 className="m-0 truncate type-title">
+                </Link>
+                <span className="font-normal text-secondary"> in </span>
                 <Link to="/gh/$owner/$repo" params={{ owner, repo }} className="text-primary no-underline hover:underline">
-                  <span className="text-secondary">{owner}/</span>
-                  {repo}
+                  {owner}/{repo}
                 </Link>
               </h1>
-              <Section fallback={<Skeleton height={26} width={300} radius={4} />}>
+              <Section
+                fallback={
+                  <div className="h-11 sm:h-7">
+                    <Skeleton height="100%" width="min(24rem, 100%)" radius={4} />
+                  </div>
+                }
+              >
                 <Headline {...where} />
               </Section>
             </div>
@@ -126,9 +130,10 @@ function Place({ login, owner, repo }: Where) {
   const top = row ? topLine(standings, placesFor(standings, row.key)) : null;
   if (!top) return null;
   return (
-    <Chip tone="brand" icon={<Trophy size={ICON.xs} aria-hidden />} className="w-fit">
+    <span className="inline-flex w-fit max-w-full items-start gap-1.5 rounded-lg border border-brand-line bg-brand-soft px-2.5 py-1 type-caption font-medium text-brand text-pretty">
+      <Trophy size={ICON.sm} aria-hidden className="mt-0.5 flex-none" />
       {top}
-    </Chip>
+    </span>
   );
 }
 
@@ -148,7 +153,7 @@ function ShareStanding({ login, name, owner, repo }: Where) {
       title="Share where they stand"
       choices={[
         { id: "standing", title: "Standing", about: "Their place in each view.", url: `/api/cards/u/${login}/${owner}/${repo}/standing`, ...STANDING_CARD_SIZE, link: `/u/${login}/${owner}/${repo}`, share: `Where I stand in ${owner}/${repo}.`, alt: `${name} in ${owner}/${repo}` },
-        { id: "hall", title: "Hall of fame", about: "The repository's people.", url: `/api/cards/gh/${owner}/${repo}/hall-of-fame`, ...hallOfFameCardSize(standings.people.length), link: `/gh/${owner}/${repo}`, share: `The people who built ${owner}/${repo}.`, alt: `The people who built ${owner}/${repo}` },
+        { id: "hall", title: "Hall of fame", about: "The repository’s people.", url: `/api/cards/gh/${owner}/${repo}/hall-of-fame`, ...hallOfFameCardSize(standings.people.length), link: `/gh/${owner}/${repo}`, share: `The people who built ${owner}/${repo}.`, alt: `The people who built ${owner}/${repo}` },
       ]}
     />
   );
@@ -177,7 +182,7 @@ function Standing(where: Where) {
 function WayOut({ login, name, owner, repo, tone = "secondary" }: Where & { tone?: "secondary" | "ghost" }) {
   return (
     <>
-      <Button label={`${name}'s profile`} variant={tone} icon={<Icon icon={UserRound} size="sm" />} href={`/u/${login}`} />
+      <Button label={`${name}’s profile`} variant={tone} icon={<Icon icon={UserRound} size="sm" />} href={`/u/${login}`} />
       <Button label={`${owner}/${repo}`} variant={tone} icon={<Icon icon={BookMarked} size="sm" />} href={`/gh/${owner}/${repo}`} />
     </>
   );
@@ -198,7 +203,7 @@ function NotRead({ found, ...where }: Where & { found: Lookup }) {
     onSuccess: (next) => queryClient.setQueryData(lookupQuery(owner, repo).queryKey, next),
   });
   const full = `${owner}/${repo}`;
-  const profile = <Button label={`${name}'s profile`} variant="secondary" icon={<Icon icon={UserRound} size="sm" />} href={`/u/${where.login}`} />;
+  const profile = <Button label={`${name}’s profile`} variant="secondary" icon={<Icon icon={UserRound} size="sm" />} href={`/u/${where.login}`} />;
   if (found.status === "not_found")
     return (
       <Boxed>
@@ -220,7 +225,7 @@ function NotRead({ found, ...where }: Where & { found: Lookup }) {
       <Boxed>
         <Nothing
           title={`${PRODUCT} has not read ${full} yet`}
-          words={`Once its history is read, ${name}'s place in it shows here: commits, lines changed, pull requests merged, reviews and the lines of theirs that still run. Most repositories take under a minute.`}
+          words={`Once its history is read, ${name}’s place in it shows here: commits, lines changed, pull requests merged, reviews and the lines of theirs that still run. Most repositories take under a minute.`}
           action={
             <Actions>
               {found.canBuild && <Button label={`Read ${full}`} variant="primary" icon={<Icon icon={Play} size="sm" />} isLoading={build.isPending} onClick={() => build.mutate()} />}
@@ -234,7 +239,7 @@ function NotRead({ found, ...where }: Where & { found: Lookup }) {
 }
 
 function Boxed({ children }: { children: ReactNode }) {
-  return <div className="rounded-lg border border-line bg-surface px-4">{children}</div>;
+  return <div className="surface px-4">{children}</div>;
 }
 
 function Actions({ children }: { children: ReactNode }) {
@@ -258,7 +263,7 @@ function Building({ build, ...where }: Where & { build: NonNullable<Lookup["buil
   return (
     <Panel
       title={`Reading ${owner}/${repo}`}
-      description={`${name}'s place in it shows here by itself when it is done; you can leave this page open.`}
+      description={`${name}’s place in it shows here by itself when it is done; you can leave this page open.`}
       actions={
         <Chip icon={<Spinner size="sm" />} className="tnum">
           <span className="text-secondary" aria-live="off">{since === null ? " " : since >= 60 ? `${Math.floor(since / 60)} min ${String(since % 60).padStart(2, "0")} s` : `${since} s`}</span>
@@ -271,7 +276,7 @@ function Building({ build, ...where }: Where & { build: NonNullable<Lookup["buil
         </p>
         <div className="flex flex-wrap gap-cluster">
           <Button label="Watch it on the repository page" variant="secondary" icon={<Icon icon={ArrowRight} size="sm" />} href={`/gh/${owner}/${repo}`} />
-          <Button label={`${name}'s profile`} variant="ghost" icon={<Icon icon={UserRound} size="sm" />} href={`/u/${where.login}`} />
+          <Button label={`${name}’s profile`} variant="ghost" icon={<Icon icon={UserRound} size="sm" />} href={`/u/${where.login}`} />
         </div>
       </div>
     </Panel>

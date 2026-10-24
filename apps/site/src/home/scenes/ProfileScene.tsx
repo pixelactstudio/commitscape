@@ -43,7 +43,7 @@ export function ProfileScene() {
   );
   return (
     <div ref={ref} className="flex size-full items-center justify-center">
-      <Mini className="w-full max-w-[38rem] p-4 sm:p-5">
+      <Mini className="w-full max-w-152 p-4 sm:p-5">
         <div className="flex items-center gap-3">
           <Face login={DAN.login} name={DAN.name} size={36} />
           <div className="flex min-w-0 flex-col">

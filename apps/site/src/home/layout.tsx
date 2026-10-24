@@ -6,7 +6,7 @@ import { Reveal, STAGGER } from "@commitscape/ui/motion";
 
 /** The home page's frame: a centred column ruled on both sides that every band sits in. */
 export function Rails({ children }: { children: ReactNode }) {
-  return <div className="mx-auto max-w-[var(--page)] border-line sm:border-x">{children}</div>;
+  return <div className="mx-auto max-w-(--page) border-line sm:border-x">{children}</div>;
 }
 
 /** One band of the home page, ruled above, with a cross where the rule meets each side. */

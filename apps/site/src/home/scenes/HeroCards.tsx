@@ -6,9 +6,9 @@ import { BEAT, DISTANCE, DURATION, GSAP_EASE, motion, SPRING, useReducedMotion, 
 import { ThemedCard } from "#/components/ThemedCard";
 
 const CARDS = [
-  { src: "/api/cards/u/gaearon/repositories", alt: "gaearon's top repositories", width: 600, height: 400, place: "top-0 right-0 w-[80%]", turn: 5, depth: 10, chip: { icon: FileText, label: "In your README" }, chipPlace: "-top-3 left-6" },
-  { src: "/api/cards/u/gaearon/calendar", alt: "gaearon's last year", width: 855, height: 236, place: "top-[43%] left-0 w-[90%]", turn: -3, depth: 18, chip: { icon: BriefcaseBusiness, label: "On LinkedIn" }, chipPlace: "-top-3 right-8" },
-  { src: "/api/cards/u/gaearon/totals", alt: "gaearon's totals", width: 600, height: 236, place: "bottom-0 right-[4%] w-[72%]", turn: 1.5, depth: 26, chip: { icon: AtSign, label: "In a post on X" }, chipPlace: "-bottom-3 left-8" },
+  { src: "/api/cards/u/gaearon/repositories", alt: "gaearon’s top repositories", width: 600, height: 400, place: "top-0 right-0 w-[80%]", turn: 5, depth: 10, chip: { icon: FileText, label: "In your README" }, chipPlace: "-top-3 left-6" },
+  { src: "/api/cards/u/gaearon/calendar", alt: "gaearon’s last year", width: 855, height: 236, place: "top-[43%] left-0 w-[90%]", turn: -3, depth: 18, chip: { icon: BriefcaseBusiness, label: "On LinkedIn" }, chipPlace: "-top-3 right-8" },
+  { src: "/api/cards/u/gaearon/totals", alt: "gaearon’s totals", width: 600, height: 236, place: "bottom-0 right-[4%] w-[72%]", turn: 1.5, depth: 26, chip: { icon: AtSign, label: "In a post on X" }, chipPlace: "-bottom-3 left-8" },
 ];
 
 const CLEAR = 14;
@@ -96,7 +96,7 @@ export function HeroCards() {
     y.set(0);
   };
   return (
-    <div ref={box} onPointerMove={move} onPointerLeave={leave} className="relative mx-auto w-full max-w-[34rem]">
+    <div ref={box} onPointerMove={move} onPointerLeave={leave} className="relative mx-auto w-full max-w-136">
       <div ref={ref} className="hero-cards relative aspect-[1.02] w-full" role="group" aria-label="Cards made for gaearon">
         {CARDS.map((c, i) => (
           <div key={c.src} data-hero-slot className={`rise absolute ${c.place}`} style={{ zIndex: i + 1, animationDelay: `${(i + 2) * 60}ms` }}>

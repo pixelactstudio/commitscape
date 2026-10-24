@@ -3,6 +3,8 @@ import { grouped } from "../format";
 
 /** Every view's place for one person, in the order the views lead. */
 export function placesFor(standings: Standings, key: string): Place[] {
+  const given = standings.places?.[key];
+  if (given) return VIEWS.flatMap((v) => given.filter((p) => p.view === v.id));
   return VIEWS.flatMap((v) => {
     const p = placesOf(standings.people, v.id).get(key);
     return p ? [p] : [];
@@ -16,5 +18,5 @@ export function topLine(standings: Standings, places: Place[]): string | null {
   const share = Math.max(1, Math.ceil((best.place * 100) / best.of));
   if (share > 10) return null;
   const view = VIEWS.find((v) => v.id === best.view);
-  return `Top ${share}% of ${standings.repo.owner}/${standings.repo.name}'s ${grouped(best.of)} contributors by ${view?.label.toLowerCase()}`;
+  return `Top ${share}% of ${standings.repo.owner}/${standings.repo.name}’s ${grouped(best.of)} contributors by ${view?.label.toLowerCase()}`;
 }

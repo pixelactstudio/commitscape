@@ -6,8 +6,9 @@ const LINK = "https://commitscape.damnlabs.com/s/k3f9q2x7#0dbf…";
 const COMMITS = 412;
 const TOLD = [
   "This uploads my-project's Report to commitscape.damnlabs.com.",
-  "  It holds file paths, people's names and GitHub logins, and commit subjects. No email addresses.",
-  "  It is locked with a key only the link holds, so the Site cannot read it.",
+  "  It holds paths, people's names, logins and commit subjects.",
+  "  No email addresses.",
+  "  Locked with a key only the link holds: the Site cannot read it.",
   "  The link works for 4 hours.",
 ];
 
@@ -46,7 +47,7 @@ export function TerminalScene() {
         ))}
         <span className="terminal-dim ms-3 text-2xs">~/code/my-project</span>
       </div>
-      <div className="relative h-66 font-mono text-xs leading-relaxed sm:h-72 sm:text-sm">
+      <div className="relative h-80 font-mono text-xs leading-relaxed sm:h-72 sm:text-sm">
         <div data-first className="absolute inset-0 flex flex-col gap-1.5 p-4 sm:p-5">
           <div>
             <span className="terminal-go">$ </span>
@@ -54,7 +55,7 @@ export function TerminalScene() {
             <span className="terminal-caret" />
           </div>
           {TOLD.map((line) => (
-            <div key={line} data-told className={`truncate ${line.startsWith(" ") ? "terminal-dim" : "terminal-soft"}`}>
+            <div key={line} data-told className={`whitespace-pre-wrap [overflow-wrap:anywhere] ${line.startsWith(" ") ? "terminal-dim" : "terminal-soft"}`}>
               {line}
             </div>
           ))}
@@ -70,7 +71,7 @@ export function TerminalScene() {
             <span className="terminal-go">$ </span>
             <span>{RUN}</span>
           </div>
-          <div data-out className="terminal-link truncate">
+          <div data-out className="terminal-link [overflow-wrap:anywhere]">
             {LINK}
           </div>
           <div data-out className="terminal-soft">

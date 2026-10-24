@@ -2,7 +2,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { Button } from "@astryxdesign/core/Button";
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
 import { Award, Flame, Lock, MessagesSquare } from "lucide-react";
-import { ICON } from "../design/tokens";
+import { CHART, ICON } from "../design/tokens";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { Achievement, SharedRepo, SharedWork, VersusFull, VersusPerson } from "@commitscape/data";
 import { useTip } from "../charts/tip";
@@ -10,6 +10,7 @@ import { Face } from "../components/Face";
 import { compact, day, grouped, many } from "../format";
 import { A } from "../kit/A";
 import { LangDot, Panel } from "../kit/layout";
+import { ScrollRow } from "../kit/scroll";
 import { Nothing, Reveal } from "../motion";
 import { DuelRows, GrowBar } from "./duel";
 import { toneOf, TONE, type Duel, type Side } from "./tone";
@@ -43,7 +44,7 @@ function Pair({ a, b, children }: { a: ReactNode; b: ReactNode; children?: React
 function Fact({ value, label }: { value: ReactNode; label: string }) {
   return (
     <span className="flex flex-col">
-      <span className="text-md font-semibold tnum">{value}</span>
+      <span className="text-md font-semibold whitespace-nowrap tnum">{value}</span>
       <span className="type-micro">{label}</span>
     </span>
   );
@@ -70,7 +71,7 @@ function Calendar({ p, side }: { p: VersusPerson; side: Side }) {
           <Fact
             value={
               <span className="inline-flex items-center gap-1">
-                {p.totals.currentStreak > 0 && <Flame size={ICON.xs} className="text-[var(--s2)]" aria-hidden />}
+                {p.totals.currentStreak > 0 && <Flame size={ICON.xs} className="text-(--s2)" aria-hidden />}
                 {days(p.totals.currentStreak)}
               </span>
             }
@@ -131,11 +132,15 @@ function Years({ v }: { v: VersusFull }) {
       title="Over the years"
       description={`${label} on GitHub each year, side by side`}
       actions={
-        <SegmentedControl label="Count" size="sm" value={metric} onChange={(m) => setMetric(m as Metric)}>
-          {METRICS.map(([m, l]) => (
-            <SegmentedControlItem key={m} value={m} label={l} />
-          ))}
-        </SegmentedControl>
+        <ScrollRow>
+          <div className="w-max">
+            <SegmentedControl label="Count" size="md" value={metric} onChange={(m) => setMetric(m as Metric)}>
+              {METRICS.map(([m, l]) => (
+                <SegmentedControlItem key={m} value={m} label={l} />
+              ))}
+            </SegmentedControl>
+          </div>
+        </ScrollRow>
       }
     >
       <div className="flex flex-wrap gap-4">
@@ -146,8 +151,8 @@ function Years({ v }: { v: VersusFull }) {
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={points} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
             <CartesianGrid vertical={false} stroke="var(--color-border)" />
-            <XAxis dataKey="year" tick={{ fontSize: 11, fill: "var(--color-text-secondary)" }} tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={14} />
-            <YAxis tickFormatter={(n: number) => compact(n)} tick={{ fontSize: 11, fill: "var(--color-text-secondary)" }} tickLine={false} axisLine={false} width={40} allowDecimals={false} />
+            <XAxis dataKey="year" tick={CHART.tick} tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={14} />
+            <YAxis tickFormatter={(n: number) => compact(n)} tick={CHART.tick} tickLine={false} axisLine={false} width={40} allowDecimals={false} />
             <Tooltip content={<YearTip a={a.identity.login} b={b.identity.login} unit={label.toLowerCase()} />} cursor={{ stroke: "var(--color-border-emphasized)" }} />
             <Line type="monotone" dataKey="a" name={a.identity.login} stroke={TONE.a} strokeWidth={2.5} dot={false} activeDot={{ r: 4, strokeWidth: 2, stroke: "var(--color-background-surface)" }} connectNulls={false} isAnimationActive={false} />
             <Line type="monotone" dataKey="b" name={b.identity.login} stroke={TONE.b} strokeWidth={2.5} dot={false} activeDot={{ r: 4, strokeWidth: 2, stroke: "var(--color-background-surface)" }} connectNulls={false} isAnimationActive={false} />
@@ -187,7 +192,8 @@ function pullDuels(v: VersusFull): Duel[] {
   const { a, b } = v.people;
   const t = (p: VersusPerson) => p.totals;
   const rate = (p: VersusPerson) => (t(p).prsOpened > 0 ? (t(p).prsMerged * 100) / t(p).prsOpened : null);
-  const capped = [a, b].filter((p) => p.read.prs < p.read.prsTotal);
+  const capped = [a, b].filter((p) => p.read.prs > 0 && p.read.prs < p.read.prsTotal);
+  const unread = [a, b].filter((p) => p.read.prs === 0 && p.read.prsTotal > 0);
   return [
     { key: "opened", label: "Opened", a: t(a).prsOpened, b: t(b).prsOpened, format: grouped },
     { key: "merged", label: "Merged", a: t(a).prsMerged, b: t(b).prsMerged, format: grouped },
@@ -195,7 +201,7 @@ function pullDuels(v: VersusFull): Duel[] {
     { key: "open", label: "Open now", a: t(a).prsOpen, b: t(b).prsOpen, format: grouped, winner: null },
     { key: "closed", label: "Closed unmerged", a: t(a).prsClosed, b: t(b).prsClosed, format: grouped, winner: null },
     { key: "lines", label: "Lines merged", a: t(a).linesAdded === null ? null : (t(a).linesAdded ?? 0) + (t(a).linesRemoved ?? 0), b: t(b).linesAdded === null ? null : (t(b).linesAdded ?? 0) + (t(b).linesRemoved ?? 0), format: compact },
-    { key: "merge", label: "Time to merge", a: t(a).hoursToMerge, b: t(b).hoursToMerge, lowerWins: true, format: hours, note: capped.length > 0 ? `From the newest ${capped.map((p) => `${grouped(p.read.prs)} of @${p.identity.login}'s`).join(" and ")} pull requests.` : undefined },
+    { key: "merge", label: "Time to merge", a: t(a).hoursToMerge, b: t(b).hoursToMerge, lowerWins: true, format: hours, note: [capped.length > 0 && `From the newest ${capped.map((p) => `${grouped(p.read.prs)} of @${p.identity.login}’s`).join(" and ")} pull requests.`, unread.length > 0 && `Not read yet for ${unread.map((p) => `@${p.identity.login}`).join(" and ")}.`].filter(Boolean).join(" ") || undefined },
   ];
 }
 
@@ -326,13 +332,13 @@ function SharedRow({ r, a, b }: { r: SharedRepo; a: string; b: string }) {
     const w = s === "a" ? r.a : r.b;
     const login = s === "a" ? a : b;
     return (
-      <div className={`flex min-w-0 flex-col gap-1.5 ${s === "a" ? "md:items-end md:text-end" : ""}`}>
-        <div className={`flex w-full items-center justify-between gap-2 md:justify-start ${s === "a" ? "md:flex-row-reverse" : ""}`}>
-          <span className="truncate type-micro tnum">
-            <span className="font-medium text-primary md:hidden">@{login} </span>
+      <div className={`flex min-w-0 flex-col gap-1.5 ${s === "a" ? "lg:items-end lg:text-end" : ""}`}>
+        <div className={`flex w-full items-center justify-between gap-2 lg:justify-start ${s === "a" ? "lg:flex-row-reverse" : ""}`}>
+          <span className="min-w-0 type-micro text-pretty tnum">
+            <span className="font-medium text-primary lg:hidden">@{login} </span>
             {workWords(w)}
           </span>
-          <A href={`/u/${login}/${r.owner}/${r.name}`} className="flex-none text-2xs font-medium text-brand no-underline hover:underline" aria-label={`@${login}'s Standing in ${r.owner}/${r.name}`}>
+          <A href={`/u/${login}/${r.owner}/${r.name}`} className="flex-none text-2xs font-medium text-brand no-underline hover:underline" aria-label={`@${login}’s Standing in ${r.owner}/${r.name}`}>
             Standing →
           </A>
         </div>
@@ -341,27 +347,29 @@ function SharedRow({ r, a, b }: { r: SharedRepo; a: string; b: string }) {
     );
   };
   return (
-    <li className="grid gap-3 px-5 py-3 md:grid-cols-[minmax(0,1fr)_minmax(0,17rem)_minmax(0,17rem)] md:items-center md:gap-6">
+    <li className="grid gap-3 px-5 py-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,17rem)_minmax(0,17rem)] lg:items-center lg:gap-6">
       <A href={`/gh/${r.owner}/${r.name}`} className="flex min-w-0 items-center gap-3 text-primary no-underline hover:underline">
         <Face login={r.owner} name={r.owner} size={32} shape="rounded" />
         <span className="flex min-w-0 flex-col">
-          <span className="truncate text-xs font-medium">
+          <span className="text-xs font-medium [overflow-wrap:anywhere]">
             <span className="text-secondary">{r.owner}/</span>
             {r.name}
           </span>
-          <span className="flex items-center gap-3 type-micro">
+          <span className="flex flex-wrap items-center gap-x-3 type-micro">
             {r.language && (
               <span className="inline-flex items-center gap-1.5">
                 <LangDot colour={r.colour} />
                 {r.language}
               </span>
             )}
-            {r.stars > 0 && <span>★ {compact(r.stars)}</span>}
+            {r.stars > 0 && <span className="whitespace-nowrap">★ {compact(r.stars)}</span>}
           </span>
         </span>
       </A>
-      {side("a")}
-      {side("b")}
+      <div className="grid gap-3 sm:grid-cols-2 sm:gap-6 lg:contents">
+        {side("a")}
+        {side("b")}
+      </div>
     </li>
   );
 }
@@ -379,7 +387,7 @@ function Shared({ v }: { v: VersusFull }) {
         <p className="m-0 mx-5 flex items-start gap-2 rounded-md bg-overlay-hover px-3 py-2 text-xs">
           <MessagesSquare size={ICON.md} className="mt-0.5 flex-none text-secondary" aria-hidden />
           <span>
-            {[v.between.aReviewedB > 0 && `@${la} reviewed @${lb}'s pull requests ${many(v.between.aReviewedB, "time", "times")}`, v.between.bReviewedA > 0 && `@${lb} reviewed @${la}'s ${many(v.between.bReviewedA, "time", "times")}`].filter(Boolean).join("; ")}
+            {[v.between.aReviewedB > 0 && `@${la} reviewed @${lb}’s pull requests ${many(v.between.aReviewedB, "time", "times")}`, v.between.bReviewedA > 0 && `@${lb} reviewed @${la}’s ${many(v.between.bReviewedA, "time", "times")}`].filter(Boolean).join("; ")}
             <span className="text-secondary">, as far as their newest reviews show.</span>
           </span>
         </p>
@@ -388,7 +396,7 @@ function Shared({ v }: { v: VersusFull }) {
         <Nothing compact title="No repository in common yet." words={`@${la} and @${lb} have no public repository where both have merged, committed or reviewed.`} />
       ) : (
         <>
-          <div className="hidden grid-cols-[minmax(0,1fr)_minmax(0,17rem)_minmax(0,17rem)] gap-6 border-b border-line px-5 pb-2 text-2xs font-medium text-secondary md:grid">
+          <div className="hidden grid-cols-[minmax(0,1fr)_minmax(0,17rem)_minmax(0,17rem)] gap-6 border-b border-line px-5 pb-2 text-2xs font-medium text-secondary lg:grid">
             <span>{many(v.shared.length, "repository", "repositories")}</span>
             <span className="text-end">@{la}</span>
             <span>@{lb}</span>
@@ -446,7 +454,7 @@ function Only({ p, side, other }: { p: VersusPerson; side: Side; other: VersusPe
       <span className="text-2xs font-medium text-secondary">Only @{p.identity.login}</span>
       {only.length === 0 ? (
         <p className="m-0 flex items-center gap-2 type-caption">
-          <Lock size={ICON.xs} aria-hidden /> {p.achievements.some((x) => x.earned) ? "Nothing the other has not reached too." : `No Achievement reached yet, of ${p.achievements.length}.`}
+          <Lock size={ICON.xs} aria-hidden /> {p.achievements.some((x) => x.earned) ? `Everything @${p.identity.login} has reached, @${other.identity.login} has too.` : `No Achievement reached yet, of ${p.achievements.length}.`}
         </p>
       ) : (
         <ul className="m-0 flex list-none flex-col gap-2 p-0">
@@ -518,7 +526,7 @@ export function VersusSections({ v }: { v: VersusFull }) {
         <div className={`grid gap-gutter ${anyLanguages && anyClock ? "lg:grid-cols-2" : ""}`}>
           {anyLanguages && (
             <Reveal className="flex">
-              <Panel className="flex-1" title="Languages" description="Each repository's main language, weighted by their commits to it, over every year">
+              <Panel className="flex-1" title="Languages" description="Each repository’s main language, weighted by their commits to it, over every year">
                 <Pair a={<Languages p={a} side="a" shared={shared} />} b={<Languages p={b} side="b" shared={shared} />}>
                   {shared.size > 0 && <p className="m-0 type-caption">Both write {[...shared].join(", ")}.</p>}
                 </Pair>
@@ -527,7 +535,7 @@ export function VersusSections({ v }: { v: VersusFull }) {
           )}
           {anyClock && (
             <Reveal className="flex">
-              <Panel className="flex-1" title="When they commit" description="The hour of their newest commits, on each commit's own clock; darker is busier">
+              <Panel className="flex-1" title="When they commit" description="The hour of their newest commits, on each commit’s own clock; darker is busier">
                 <div className="flex flex-col gap-stack">
                   <Hours p={a} side="a" />
                   <Hours p={b} side="b" />

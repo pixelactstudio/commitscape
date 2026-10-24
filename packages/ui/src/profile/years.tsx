@@ -3,12 +3,19 @@ import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/Segme
 import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { Profile } from "@commitscape/data";
-import { StackedColumns, type Point } from "../charts/Trend";
+import { SeriesLegend, StackedColumns, type Point } from "../charts/Trend";
 import { CHART } from "../design/tokens";
 import { compact, grouped, many } from "../format";
 import { Panel } from "../kit/layout";
 import { Nothing } from "../motion";
 import { DAY, monthKey, monthLabel, monthsBetween } from "./days";
+
+const YEAR_SERIES = [
+  { key: "commits", label: "Commits", colour: "var(--s1)" },
+  { key: "prs", label: "Pull requests", colour: "var(--s7)" },
+  { key: "reviews", label: "Reviews", colour: "var(--s3)" },
+  { key: "issues", label: "Issues", colour: "var(--s4)" },
+];
 
 const OUTCOMES = [
   { key: "merged", label: "Merged", colour: "var(--s7)" },
@@ -97,7 +104,7 @@ function Fact({ label, value, note }: { label: string; value: ReactNode; note?: 
     <div className="flex min-w-0 flex-col gap-0.5">
       <span className="type-caption">{label}</span>
       <span className="truncate type-stat-sm">{value}</span>
-      {note && <span className="truncate type-micro">{note}</span>}
+      {note && <span className="type-micro text-pretty">{note}</span>}
     </div>
   );
 }
@@ -133,7 +140,7 @@ export function OverTheYears({ profile, full: given = null }: { profile: Profile
       className="h-full [&>*]:h-full"
       actions={
         years.length > 0 && (
-        <SegmentedControl label="Show the years by" size="sm" value={by} onChange={(v) => setBy(v as "month" | "year")}>
+        <SegmentedControl label="Show the years by" size="md" value={by} onChange={(v) => setBy(v as "month" | "year")}>
           <SegmentedControlItem value="month" label="By month" />
           <SegmentedControlItem value="year" label="By year" />
         </SegmentedControl>
@@ -150,7 +157,7 @@ export function OverTheYears({ profile, full: given = null }: { profile: Profile
           {contributed && (
           <div className="flex flex-col gap-1">
             <span className="type-caption font-medium">Contributions a month</span>
-            <div className="fade -mx-1 h-[140px]">
+            <div className="fade -mx-1 h-35">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={months} syncId={sync} margin={{ top: 6, right: 8, bottom: 0, left: 0 }}>
                   <defs>
@@ -181,7 +188,7 @@ export function OverTheYears({ profile, full: given = null }: { profile: Profile
                       type="button"
                       aria-pressed={on}
                       onClick={() => setHidden(on ? [...hidden, o.key] : hidden.filter((h) => h !== o.key))}
-                      className={`inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-2 py-0.5 text-2xs transition-colors ${on ? "border-line bg-body text-primary" : "border-dashed border-line bg-transparent text-secondary line-through"}`}
+                      className={`inline-flex min-h-6 cursor-pointer items-center gap-1.5 rounded-full border px-2.5 text-2xs transition-colors duration-(--duration-instant) ${on ? "border-line bg-body text-primary" : "border-dashed border-line bg-transparent text-secondary line-through"}`}
                     >
                       <span className="size-2 rounded-full" style={{ background: on ? o.colour : "var(--color-track)" }} />
                       {o.label}
@@ -193,7 +200,7 @@ export function OverTheYears({ profile, full: given = null }: { profile: Profile
             {full && opened === 0 ? (
               <p className="m-0 rounded-md border border-dashed border-line px-4 py-5 text-center type-caption">No pull requests opened yet. Each one they open lands here, in its month.</p>
             ) : full ? (
-              <div className="fade -mx-1 h-[124px]">
+              <div className="fade -mx-1 h-31">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={months} syncId={sync} margin={{ top: 6, right: 8, bottom: 0, left: 0 }} barCategoryGap="12%">
                     <CartesianGrid vertical={false} stroke={CHART.grid} />
@@ -215,17 +222,10 @@ export function OverTheYears({ profile, full: given = null }: { profile: Profile
           </div>
         </div>
       ) : (
-        <StackedColumns
-          points={years}
-          unit="contributions"
-          height={318}
-          series={[
-            { key: "commits", label: "Commits", colour: "var(--s1)" },
-            { key: "prs", label: "Pull requests", colour: "var(--s7)" },
-            { key: "reviews", label: "Reviews", colour: "var(--s3)" },
-            { key: "issues", label: "Issues", colour: "var(--s4)" },
-          ]}
-        />
+        <div className="flex flex-col gap-2">
+          <StackedColumns points={years} unit="contributions" height={294} series={YEAR_SERIES} />
+          <SeriesLegend series={YEAR_SERIES} />
+        </div>
       )}
     </Panel>
   );

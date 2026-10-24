@@ -100,7 +100,7 @@ export function WeekBars({ days, unit = "contributions" }: { days: number[]; uni
       <p className="m-0 type-description">
         Most on <span className="font-medium text-primary">{WEEK_LONG[best]}</span>: {pct(days[best] ?? 0, total)}% of the year. Weekends hold {pct((days[5] ?? 0) + (days[6] ?? 0), total)}%.
       </p>
-      <div className="grid h-[180px] grid-cols-7 items-end gap-2 sm:gap-3" role="img" aria-label={WEEK.map((d, i) => `${d} ${grouped(days[i] ?? 0)}`).join(", ")}>
+      <div className="grid h-45 grid-cols-7 items-end gap-2 sm:gap-3" role="img" aria-label={WEEK.map((d, i) => `${d} ${grouped(days[i] ?? 0)}`).join(", ")}>
         {days.map((n, i) => (
           <div key={WEEK[i]} className="group flex h-full flex-col items-center justify-end gap-1.5" {...tip(
             <>

@@ -43,7 +43,7 @@ export function RivalGaps() {
   const { data: mine } = useSuspenseQuery(rivalsQuery());
   if (gaps.length === 0) return null;
   return (
-    <Panel padding={0} title="Your Rivals" description="This month on GitHub's calendar, and lines that still run over all time. Rivals see nothing of this.">
+    <Panel padding={0} title="Your Rivals" description="This month on GitHub’s calendar, and lines that still run over all time. Rivals see nothing of this.">
       <ul className="m-0 mt-1 flex list-none flex-col p-0">
         {gaps.map((r) => (
           <li key={r.login} className="flex flex-col gap-3 border-t border-line px-5 py-3.5 md:flex-row md:items-center">
