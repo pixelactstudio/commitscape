@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/pixelactstudio/commitscape/compare/v0.3.1...v0.4.0) (2026-10-24)
+
+
+### Features
+
+* rebuild the repository pages on a Stored Index in Postgres ([#38](https://github.com/pixelactstudio/commitscape/issues/38)) ([c5430af](https://github.com/pixelactstudio/commitscape/commit/c5430af9fc7abe6c5d9e5898e6800ad6a59e11d1))
+
 ## [0.3.1](https://github.com/pixelactstudio/commitscape/compare/v0.3.0...v0.3.1) (2026-10-12)
 
 
