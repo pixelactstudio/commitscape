@@ -24,20 +24,166 @@ function Dot({ colour }: { colour: string | null }) {
   return <span className="inline-block size-2 flex-none rounded-full" style={{ background: colour ?? "var(--other)" }} aria-hidden />;
 }
 
-/** The small card that follows the pointer over a hex: the file's path, who holds it and its counts at the playhead. */
-export function HoverCard({ facts, at, range, who, x, y, width, height }: { facts: FileAnswer | null; at: number; range: [number, number] | null; who: (p: number) => Who; x: number; y: number; width: number; height: number }) {
-  const left = Math.min(Math.max(8, x + 16), width - 296);
-  const top = y + 16 + 150 > height ? Math.max(8, y - 150) : y + 16;
+const CARD = "pointer-events-none absolute z-20 flex w-80 flex-col overflow-hidden rounded-lg border border-line bg-surface/95 shadow-(--shadow-lg) backdrop-blur-md";
+
+function placeCard(x: number, y: number, width: number, height: number, tall: number): { left: number; top: number } {
+  const left = x + 20 + 320 > width - 8 ? Math.max(8, x - 20 - 320) : x + 20;
+  const top = Math.min(Math.max(8, y - 24), Math.max(8, height - tall - 8));
+  return { left, top };
+}
+
+function Spark({ list, colour }: { list: { year: number; commits: number }[]; colour: string | null }) {
+  if (list.length === 0) return null;
+  const last = list.at(-1)?.year ?? 0;
+  const first = Math.max(list[0]?.year ?? last, last - 15);
+  const by = new Map(list.map((y) => [y.year, y.commits]));
+  const years = Array.from({ length: last - first + 1 }, (_, i) => first + i);
+  const most = Math.max(1, ...years.map((y) => by.get(y) ?? 0));
   return (
-    <div className="pointer-events-none absolute z-20 w-72 rounded-md bg-surface p-2.5 shadow-(--shadow-lg)" style={{ left, top }} role="tooltip">
-      {!facts ? (
-        <div className="flex flex-col gap-1.5">
-          <Skeleton width="80%" height={14} />
-          <Skeleton width="60%" height={12} />
-        </div>
-      ) : (
-        <FileLines facts={facts} at={at} range={range} who={who} compact />
+    <span className="flex h-6 w-24 flex-none items-end justify-end gap-0.5" aria-hidden>
+      {years.map((y) => {
+        const k = by.get(y) ?? 0;
+        return <span key={y} className="w-1 flex-none rounded-t-[1px]" style={{ height: `${k > 0 ? Math.max(14, (k * 100) / most) : 6}%`, background: k > 0 ? (colour ?? "var(--brand)") : "var(--track)" }} />;
+      })}
+    </span>
+  );
+}
+
+function Slashed({ path }: { path: string }) {
+  const parts = path.split("/");
+  return (
+    <>
+      {parts.map((p, i) => (
+        <span key={i}>
+          {p}
+          {i < parts.length - 1 && (
+            <>
+              /<wbr />
+            </>
+          )}
+        </span>
+      ))}
+    </>
+  );
+}
+
+function Where({ path, name }: { path: string; name: string }) {
+  const cut = path.lastIndexOf("/");
+  const folder = cut < 0 ? "" : path.slice(0, cut + 1);
+  return (
+    <div className="flex min-w-0 flex-col">
+      {folder && (
+        <span className="truncate mono type-caption text-tertiary" style={{ direction: "rtl", textAlign: "left" }}>
+          <bdi>{folder}</bdi>
+        </span>
       )}
+      <span className="truncate mono type-label font-semibold text-primary">{name || path.slice(cut + 1)}</span>
+    </div>
+  );
+}
+
+/** The card beside the pointer over a file: where it is, who holds it, how busy it has been year by year and when it was last touched, at the playhead. */
+export function HoverCard({ facts, at, range, who, x, y, width, height }: { facts: FileAnswer | null; at: number; range: [number, number] | null; who: (p: number) => Who; x: number; y: number; width: number; height: number }) {
+  const { left, top } = placeCard(x, y, width, height, 170);
+  if (!facts)
+    return (
+      <div className={`${CARD} gap-2 p-3`} style={{ left, top }} role="tooltip">
+        <Skeleton width="55%" height={12} />
+        <Skeleton width="80%" height={14} />
+        <Skeleton width="65%" height={12} />
+      </div>
+    );
+  const holder = facts.holder ? who(facts.holder.person) : null;
+  const gone = !facts.alive && facts.died !== null && at >= facts.died;
+  const span = range ? "in the range" : "in the year";
+  return (
+    <div className={CARD} style={{ left, top }} role="tooltip">
+      <div className="flex flex-col gap-1.5 px-3 pt-2.5 pb-2">
+        <Where path={facts.path} name={facts.name} />
+        <div className="flex flex-wrap items-center gap-1.5 type-caption text-secondary">
+          <span className="rounded-sm bg-track px-1.5 py-px">{ROLE_NAMES[facts.role] ?? "Code"}</span>
+          {facts.language && <span className="rounded-sm bg-track px-1.5 py-px">{facts.language}</span>}
+          {facts.lines !== null && !gone && <span className="tabular-nums">{grouped(facts.lines)} lines</span>}
+        </div>
+      </div>
+      <div className="flex items-center gap-2.5 border-t border-line px-3 py-2">
+        {gone ? (
+          <p className="m-0 type-caption text-secondary">{facts.dated ? `Deleted ${date(facts.died ?? at)}. Its foundations lie under the water.` : `Gone by HEAD after ${date(facts.died ?? at)}, removed by a merge or a move.`}</p>
+        ) : holder && facts.holder ? (
+          <>
+            <Face login={holder.login} name={holder.name} size={32} ring={holder.colour ?? undefined} />
+            <div className="flex min-w-0 flex-1 flex-col">
+              <span className="truncate type-ui font-semibold text-primary">{holder.name}</span>
+              <span className="type-caption text-secondary tabular-nums">
+                holds it: {grouped(facts.holder.commits)} of {grouped(facts.inYear)} commits {span}
+              </span>
+            </div>
+          </>
+        ) : (
+          <p className="m-0 type-caption text-secondary">Nobody holds it: no commits {span}.</p>
+        )}
+      </div>
+      <div className="flex items-center gap-3 border-t border-line bg-sunken/60 px-3 py-2">
+        <Spark list={facts.perYear} colour={holder?.colour ?? null} />
+        <span className="min-w-0 type-caption text-secondary">
+          <span className="font-semibold text-primary tabular-nums">{grouped(facts.commits)}</span> commits
+          {facts.lastTouch !== null && <> · last {date(facts.lastTouch)}</>}
+          <span className="block text-tertiary">{gone ? "under the water" : staleWords(facts.lastTouch, at)}</span>
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/** The card beside the pointer over a folder seen from afar: its files alive and frozen, its commits in the year split by who made them, and that a click flies in. */
+export function FolderHoverCard({ facts, at, who, top, right }: { facts: FolderFacts | null; at: number; who: (p: number) => Who; top: number; right: boolean }) {
+  const place = right ? { right: 60, top } : { left: 12, top };
+  if (!facts)
+    return (
+      <div className={`${CARD} gap-2 p-3`} style={place} role="tooltip">
+        <Skeleton width="60%" height={14} />
+        <Skeleton width="85%" height={10} />
+        <Skeleton width="70%" height={12} />
+      </div>
+    );
+  const holders = facts.holders.slice(0, 5);
+  const counted = holders.reduce((n, h) => n + h.commits, 0);
+  const rest = Math.max(0, facts.commits - counted);
+  return (
+    <div className={CARD} style={place} role="tooltip">
+      <div className="flex flex-col gap-0.5 px-3 pt-2.5 pb-2">
+        <span className="type-caption text-tertiary">Folder</span>
+        <span className="truncate mono type-label font-semibold text-primary">{facts.path ? `${facts.path}/` : "The whole repository"}</span>
+        <span className="type-caption text-secondary tabular-nums">
+          {grouped(facts.alive)} files alive{facts.alive > 0 ? ` · ${share(facts.frozen, facts.alive)} frozen` : ""} · {grouped(facts.commits)} commits in the year to {date(at)}
+        </span>
+      </div>
+      {facts.commits > 0 && (
+        <div className="flex flex-col gap-1.5 border-t border-line px-3 py-2">
+          <span className="flex h-1.5 overflow-hidden rounded-full bg-track" aria-hidden>
+            {holders.map((h) => (
+              <span key={h.person} className="h-full" style={{ width: `${(h.commits * 100) / facts.commits}%`, background: who(h.person).colour ?? "var(--other)" }} />
+            ))}
+            {rest > 0 && <span className="h-full bg-(--other) opacity-50" style={{ width: `${(rest * 100) / facts.commits}%` }} />}
+          </span>
+          <ol className="m-0 flex list-none flex-col gap-1 p-0">
+            {holders.slice(0, 3).map((h) => {
+              const w = who(h.person);
+              return (
+                <li key={h.person} className="flex items-center gap-2">
+                  <Face login={w.login} name={w.name} size={20} ring={w.colour ?? undefined} />
+                  <span className="min-w-0 flex-1 truncate type-caption text-primary">{w.name}</span>
+                  <span className="type-caption text-secondary tabular-nums">{share(h.commits, facts.commits)}</span>
+                </li>
+              );
+            })}
+          </ol>
+        </div>
+      )}
+      <div className="flex items-center justify-between gap-2 border-t border-line bg-sunken/60 px-3 py-1.5 type-caption text-tertiary">
+        <span>Bus Factor {facts.busFactor === null ? "none" : grouped(facts.busFactor)}</span>
+        <span>Click to fly in</span>
+      </div>
     </div>
   );
 }
@@ -49,7 +195,7 @@ function FileLines({ facts, at, range, who, compact = false, path = true }: { fa
     <div className="flex min-w-0 flex-col gap-1">
       {path && <p className={`m-0 mono type-caption break-all text-primary ${compact ? "line-clamp-2" : ""}`}>{facts.path || facts.name}</p>}
       {!facts.alive && facts.died !== null && at >= facts.died ? (
-        <p className="m-0 type-caption text-secondary">{facts.dated ? `Deleted ${date(facts.died)}: on the seabed now` : `Gone by HEAD, last changed ${date(facts.died)} (removed by a Merge Commit or a move)`}</p>
+        <p className="m-0 type-caption text-secondary">{facts.dated ? `Deleted ${date(facts.died)}: its foundations lie under the water` : `Gone by HEAD, last changed ${date(facts.died)} (removed by a Merge Commit or a move)`}</p>
       ) : facts.holder && holder ? (
         <p className="m-0 flex items-center gap-1.5 type-caption text-secondary">
           <Dot colour={holder.colour} />
@@ -78,7 +224,7 @@ function Panel({ title, label, sub, onClose, children, actions }: { title: React
     <section className="pointer-events-auto flex max-h-full min-h-0 w-full flex-col overflow-hidden rounded-lg bg-surface shadow-(--shadow-lg)" aria-label={label}>
       <header className="flex items-start gap-2 border-b border-line px-3.5 pt-3 pb-2.5">
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <h2 className="m-0 type-heading break-all text-primary">{title}</h2>
+          <h2 className="m-0 type-heading [overflow-wrap:anywhere] text-primary">{title}</h2>
           {sub && <p className="m-0 type-caption text-secondary">{sub}</p>}
         </div>
         <IconButton label="Close (Esc)" size="sm" variant="ghost" icon={<Icon icon={X} size="sm" />} onClick={onClose} />
@@ -202,7 +348,7 @@ export function FolderPanel({ facts, at, who, onClose, onPerson, onMap, onCommit
   return (
     <Panel
       label={`Folder ${facts.path || "the whole repository"}`}
-      title={<span className="mono">{facts.path ? `${facts.path}/` : "The whole repository"}</span>}
+      title={<span className="mono">{facts.path ? <Slashed path={`${facts.path}/`} /> : "The whole repository"}</span>}
       sub={`${grouped(facts.files)} files ever · first commit ${date(facts.first)}`}
       onClose={onClose}
       actions={

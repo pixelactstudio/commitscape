@@ -155,7 +155,7 @@ A window that floats over any screen of a repository to read its files at the Bu
 _Avoid_: code tab, file viewer, explorer.
 
 **Universe**:
-The repository's whole default-branch history as a map to explore: one hex for every file the default branch ever had, laid out by folder, rising from the sea when a file is born and sinking when it is deleted, replayed by Main Arrival and coloured by who holds it, by role, by Staleness or by language. It is made from the Atlas.
+The repository's whole default-branch history as a map to explore: one hex for every file the default branch ever had, laid out by folder, rising from the sea when a file is born and sinking when it is deleted, its foundations left under shallow water, replayed by Main Arrival and coloured by who holds it, by role, by Staleness or by language. It is made from the Atlas.
 _Avoid_: galaxy, 3D view, city.
 
 **Atlas**:

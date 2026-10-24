@@ -1,5 +1,4 @@
-import type { Field } from "./field";
-import type { Beacon, Described, FileFacts, FolderFacts, Found, PersonFacts, SlotSpan, Strike } from "@commitscape/data/universe";
+import type { Beacon, Described, FileFacts, FolderFacts, Found, PersonFacts, SlotSpan } from "@commitscape/data/universe";
 
 export type Region = { folder: number; path: string; name: string; x: number; z: number; radius: number; files: number; depth: number; from: number; to: number; island: boolean };
 
@@ -27,7 +26,9 @@ export type Summary = {
   history: SlotSpan[][];
   releases: { names: string[]; time: Float64Array };
   supers: { x: Float32Array; z: Float32Array; start: Uint32Array } | null;
-  field: Field;
+  area: [number, number, number, number];
+  folders: { parent: Int32Array; from: Int32Array; to: Int32Array; radius: Float32Array };
+  fileFolder: Int32Array;
 };
 
 export type FrameAnswer = {
@@ -39,12 +40,11 @@ export type FrameAnswer = {
   slots: number[];
   beacons: Beacon[];
   tallest: number;
-  strikes: Strike[];
 };
 
 export type Ask =
   | { type: "open"; url: string }
-  | { type: "frame"; id: number; at: number; from: number | null; solo: number | null; after: number | null }
+  | { type: "frame"; id: number; at: number; from: number | null; solo: number | null }
   | { type: "bots"; id: number; hide: boolean }
   | { type: "file"; id: number; rank: number; at: number }
   | { type: "folder"; id: number; folder: number; at: number }

@@ -117,7 +117,10 @@ export function Reading({ tallest, range, mainline, commits, files }: { tallest:
         <span className="font-semibold text-primary">Frost</span> is Staleness: time since the file's last commit, Bulk Commits counted.
       </p>
       <p className="m-0">
-        <span className="font-semibold text-primary">Time</span>: {mainline ? `the ${grouped(commits)} commits that reached the default branch, each at the moment it arrived there (its Main Arrival)` : `all ${grouped(commits)} commits on every branch, by commit time, as the default branch is not worked out yet`}. A file rises when it is first added and sinks to the seabed when it is deleted. Beacons are people who hold a colour and made a commit in the 28 days before; they stand over the folder that holds most of those changes.
+        <span className="font-semibold text-primary">Time</span>: {mainline ? `the ${grouped(commits)} commits that reached the default branch, each at the moment it arrived there (its Main Arrival)` : `all ${grouped(commits)} commits on every branch, by commit time, as the default branch is not worked out yet`}. A file rises out of the sea when it is first added and sinks when it is deleted, leaving its foundations under shallow water; the sea is deep wherever no file has been yet. A tower glows when it changes, and a light sweeps over the land when a release is tagged. Beacons are people who hold a colour and made a commit in the 28 days before; they stand, with a pool of their colour, over the folder that holds most of those changes.
+      </p>
+      <p className="m-0">
+        <span className="font-semibold text-primary">Pointing</span>: from afar the pointer picks a whole folder, the largest one that fits in view; come closer to pick single files. Click to fly in.
       </p>
     </div>
   );

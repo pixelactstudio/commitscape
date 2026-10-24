@@ -16,7 +16,6 @@ export class FrameRequester {
   private busy = false;
   private again = false;
   private key = "";
-  private lastAt: number | null = null;
   private version = 0;
 
   constructor(client: AtlasClient, clock: Clock, feed: Feed<FrameAnswer | null>, origin: number, onFrame: (f: FrameAnswer) => void) {
@@ -58,10 +57,8 @@ export class FrameRequester {
     if (key === this.key) return;
     this.key = key;
     this.busy = true;
-    const after = c.playing && !c.intro ? this.lastAt : null;
-    void this.client.ask("frame", { at, from, solo, after }).then((f) => {
+    void this.client.ask("frame", { at, from, solo }).then((f) => {
       this.busy = false;
-      this.lastAt = f.at;
       this.feed.set(f);
       this.onFrame(f);
       if (this.again) {

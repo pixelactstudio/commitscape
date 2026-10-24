@@ -1,37 +1,44 @@
 import * as THREE from "three";
-import { COLOUR, WEEK_SECONDS, type Beacon } from "@commitscape/data/universe";
+import { cellKey, COLOUR, DIRECTIONS, hexAt, WEEK_SECONDS, type Beacon } from "@commitscape/data/universe";
 import { avatarUrl } from "../components/avatar";
 import { clampCam, EL_REST, fitDistance, fitted, FOV, groundAt, MapCamera, place, restingCam, sampleOf, type Cam, type Insets } from "./camera";
-import { beamStrip, fieldTexture, groundQuad, hexPrism, SUPER_SCALE, SUPER_TURN } from "./geometry";
+import { groundGrid, hexPrism, SUPER_SCALE, SUPER_TURN } from "./geometry";
 import type { Look, Rgb } from "./look";
+import { LOWER, Pipeline, type Detail, type ShadowUniforms, type Variant } from "./pipeline";
 import type { FrameAnswer, Region, Summary } from "./protocol";
-import { HEX_FRAGMENT, HEX_VERTEX, RING_FRAGMENT, RING_VERTEX, SEA_FRAGMENT, SEA_VERTEX, STRIKE_FRAGMENT, STRIKE_VERTEX } from "./shaders";
+import { HEX_FRAGMENT, HEX_VERTEX, SEABED_FRAGMENT, SEABED_VERTEX } from "./shaders";
 
 export type StageClock = { at: number; playing: boolean; speed: number; intro: boolean };
 
 export type StageApi = { fly: (x: number, z: number, radius: number) => void; home: () => void; zoom: (factor: number) => void; turn: (by: number) => void; tilt: (by: number) => void; pan: (dx: number, dy: number) => void; wake: () => void; intro: (seconds: number) => void; cam: () => Cam };
 
-export type View = { lens: number; focus: [number, number] | null; roleMask: number; selected: number | null; soloSlot: number | null; top: boolean; reduced: boolean; insets: Insets };
+export type View = { lens: number; focus: [number, number] | null; roleMask: number; selected: number | null; solo: boolean; soloSlot: number | null; top: boolean; reduced: boolean; insets: Insets };
 
 export type Caption = { key: number; text: string; detail: string; until: number };
 
+export type Target = { kind: "file"; rank: number } | { kind: "folder"; folder: number };
+
 export type Hooks = {
-  onHover: (rank: number | null, x: number, y: number) => void;
-  onPick: (rank: number | null, double: boolean) => void;
+  onHover: (target: Target | null, x: number, y: number) => void;
+  onPick: (target: Target | null, double: boolean) => void;
   onFolder: (folder: number) => void;
   onPerson: (person: number) => void;
   onCam: (cam: Cam) => void;
   onCaption: (c: Caption) => void;
+  onSlow: (next: Detail) => void;
   avatars: (person: number) => { name: string; login: string | null };
 };
 
 export type Layers = { labels: HTMLDivElement; beacons: HTMLDivElement; pin: HTMLDivElement };
 
-const STRIKES = 2048;
 const CHUNK = 4096;
 const SUPER_VISIBLE = 60_000;
-const RINGS = 48;
 const BEACON_HEIGHT = 9;
+const BEACONS = 8;
+const SUN = new THREE.Vector3(-0.78, 0.6, 0.18).normalize();
+const DEEP = 8;
+const SWEEP_SECONDS = 1.7;
+const VARIANTS: Variant[] = ["main", "reflect", "depth", "mask", "pick"];
 
 const colourOf = (c: Rgb) => new THREE.Color().setRGB(c[0], c[1], c[2], THREE.SRGBColorSpace);
 
@@ -65,7 +72,11 @@ function show(el: HTMLElement, visible: boolean, transform?: string): void {
   styled.set(el, { t: transform ?? was.t, v });
 }
 
+const same = (a: Target | null, b: Target | null) => (a === null || b === null ? a === b : a.kind === b.kind && (a.kind === "file" ? a.rank === (b as { rank: number }).rank : a.folder === (b as { folder: number }).folder));
+
 type BeaconState = { x: number; z: number; tx: number; tz: number; vx: number; vz: number; b: Beacon };
+
+type Variants = Record<Variant, THREE.ShaderMaterial>;
 
 export class AtlasRenderer {
   readonly api: StageApi;
@@ -83,27 +94,28 @@ export class AtlasRenderer {
   private readonly control: MapCamera;
   private readonly scale: number;
   private readonly uniforms: Record<string, { value: unknown }>;
+  private readonly shared: Record<string, { value: unknown }>;
+  private readonly shadow: ShadowUniforms;
+  private readonly seabedUniforms: Record<string, { value: unknown }>;
+  private readonly waterUniforms: Record<string, { value: unknown }>;
   private readonly supers: THREE.InstancedBufferGeometry | null;
-  private readonly chunks: { mesh: THREE.Mesh; pick: THREE.Mesh; geometry: THREE.InstancedBufferGeometry; count: number; sphere: THREE.Sphere }[] = [];
+  private readonly chunks: { mesh: THREE.Mesh; geometry: THREE.InstancedBufferGeometry; count: number; sphere: THREE.Sphere; from: number }[] = [];
   private readonly hexGroup = new THREE.Group();
   private readonly frustum = new THREE.Frustum();
   private readonly viewProjection = new THREE.Matrix4();
   private readonly nowArray: Float32Array;
   private readonly wasArray: Float32Array;
+  private readonly edgeArray: Float32Array;
   private readonly superMesh: THREE.Mesh | null;
-  private readonly sea: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
-  private readonly strikes: THREE.Mesh<THREE.InstancedBufferGeometry, THREE.ShaderMaterial>;
-  private readonly rings: THREE.Mesh<THREE.InstancedBufferGeometry, THREE.ShaderMaterial>;
+  private readonly floor: THREE.Mesh[];
   private readonly poles: THREE.LineSegments;
-  private readonly scene = new THREE.Scene();
-  private readonly pickScene = new THREE.Scene();
-  private readonly superPickScene = new THREE.Scene();
+  private readonly world = new THREE.Scene();
+  private readonly overlay = new THREE.Scene();
+  private readonly pipeline: Pipeline;
   private readonly pickTarget = new THREE.WebGLRenderTarget(1, 1);
   private readonly materials: THREE.Material[] = [];
-  private strikeNext = 0;
-  private strikeUntil = -100;
-  private ringNext = 0;
-  private ringUntil = -100;
+  private readonly mains: THREE.ShaderMaterial[] = [];
+  private readonly variants = new Map<THREE.Mesh, Variants>();
   private blendStart = -10;
   private flashUntil = 0;
   private lastFrame: FrameAnswer | null = null;
@@ -112,9 +124,13 @@ export class AtlasRenderer {
   private labels: { region: Region; el: HTMLButtonElement }[] = [];
   private covers: { at: number; rects: [number, number, number, number][] } = { at: -1, rects: [] };
   private readonly pointer = { x: 0, y: 0, dirty: false, inside: false };
-  private hovered: number | null = null;
+  private hovered: Target | null = null;
+  private region: [number, number] | null = null;
+  private regionMix = 0;
+  private neighbours: Int32Array | null = null;
   private lastPick = 0;
   private captionKey = 0;
+  private sweep = { start: -100, dx: 1, dz: 0, min: 0, max: 0 };
   private readonly projected = new THREE.Vector3();
   private beaconBoxes: [number, number, number, number][] = [];
   private readonly pixel = new Uint8Array(4);
@@ -124,9 +140,15 @@ export class AtlasRenderer {
   private readonly cells: Float32Array;
   private resting: boolean;
   private restDist = 0;
-  private wasIntro = false;
+  private dirty = true;
+  private readonly lastView = new THREE.Matrix4();
+  private readonly lastProjection = new THREE.Matrix4();
+  private lastDraw = 0;
+  private auto: boolean;
+  private slowSince = 0;
+  private readonly slow: number[] = [];
 
-  constructor(o: { gl: THREE.WebGLRenderer; camera: THREE.PerspectiveCamera; summary: Summary; layers: Layers; hooks: Hooks; clock: { current: StageClock }; view: View; width: number; height: number; initial: Cam | null; wake: () => void }) {
+  constructor(o: { gl: THREE.WebGLRenderer; camera: THREE.PerspectiveCamera; summary: Summary; layers: Layers; hooks: Hooks; clock: { current: StageClock }; view: View; width: number; height: number; initial: Cam | null; wake: () => void; detail: Detail; auto: boolean }) {
     this.gl = o.gl;
     this.camera = o.camera;
     this.summary = o.summary;
@@ -137,6 +159,7 @@ export class AtlasRenderer {
     this.wake = o.wake;
     this.width = o.width;
     this.height = o.height;
+    this.auto = o.auto;
     this.scale = heightScaleOf(o.summary.count);
     this.cells = sampleOf(o.summary.x, o.summary.z);
     this.resting = o.initial === null;
@@ -147,6 +170,7 @@ export class AtlasRenderer {
     const info = new Float32Array(n * 4);
     const now = new Float32Array(n * 3);
     const was = new Float32Array(n * 2);
+    const edge = new Float32Array(n);
     for (let i = 0; i < n; i++) {
       cell.set([s.x[i] as number, s.z[i] as number, s.born[i] as number, s.died[i] as number], i * 4);
       info.set([s.borders[i] as number, s.role[i] as number, s.language[i] as number, i], i * 4);
@@ -154,6 +178,9 @@ export class AtlasRenderer {
       now[i * 3 + 2] = -1e6;
       was[i * 2 + 1] = COLOUR.nobody;
     }
+    this.nowArray = now;
+    this.wasArray = was;
+    this.edgeArray = edge;
     const prism = hexPrism();
     if (s.supers) {
       const k = s.supers.x.length;
@@ -171,16 +198,29 @@ export class AtlasRenderer {
         sc.set([s.supers.x[i] as number, s.supers.z[i] as number, born, died], i * 4);
         si.set([0, s.role[lo] as number, s.language[lo] as number, lo], i * 4);
       }
-      this.supers = instanced(prism, k, { iCell: [sc, 4, false], iInfo: [si, 4, false], iNow: [new Float32Array(k * 3), 3, true], iWas: [new Float32Array(k * 2), 2, true] });
+      this.supers = instanced(prism, k, { iCell: [sc, 4, false], iInfo: [si, 4, false], iNow: [new Float32Array(k * 3), 3, true], iWas: [new Float32Array(k * 2), 2, true], iEdge: [new Float32Array(k), 1, false] });
     } else this.supers = null;
 
+    this.shadow = { uShadowMap: { value: null }, uShadowMatrix: { value: new THREE.Matrix4() }, uShadowTexel: { value: 1 / 2048 }, uShadowBias: { value: 0.0002 } };
+    this.shared = {
+      uSkyTop: { value: new THREE.Color() },
+      uSkyHorizon: { value: new THREE.Color() },
+      uSunDir: { value: SUN.clone() },
+      uSun: { value: new THREE.Color() },
+      uGround: { value: new THREE.Color() },
+      uSkyLight: { value: new THREE.Color() },
+      uAbsorb: { value: new THREE.Vector3(0.5, 0.15, 0.1) },
+      uNight: { value: 0 },
+      ...this.shadow,
+    };
     const u: Record<string, { value: unknown }> = {
+      ...this.shared,
       uNow: { value: 0 },
       uRise: { value: 0 },
       uBlend: { value: 1 },
       uHeightScale: { value: this.scale },
       uFlat: { value: 0 },
-      uCellScale: { value: 0.985 },
+      uCellScale: { value: 0.955 },
       uRotate: { value: 0 },
       uLens: { value: 0 },
       uSlots: { value: Array.from({ length: 11 }, () => new THREE.Color()) },
@@ -188,41 +228,46 @@ export class AtlasRenderer {
       uLangs: { value: Array.from({ length: 10 }, () => new THREE.Color()) },
       uStale: { value: Array.from({ length: 4 }, () => new THREE.Color()) },
       uSnow: { value: new THREE.Color() },
-      uSeabed: { value: new THREE.Color() },
+      uRuin: { value: new THREE.Color() },
       uDim: { value: new THREE.Color() },
       uFrost: { value: 1 },
       uFocus: { value: new THREE.Vector2(-1, -1) },
+      uRegion: { value: new THREE.Vector2(-1, -1) },
+      uRegionMix: { value: 0 },
       uRoleMask: { value: 31 },
+      uSolo: { value: 0 },
       uHover: { value: -10 },
       uSelected: { value: -10 },
       uFlashSpan: { value: 1 },
       uFlashGain: { value: 0 },
-      uNight: { value: 0 },
-      uKeyDir: { value: new THREE.Vector3(-0.5, Math.SQRT1_2, 0.5).normalize() },
-      uSky: { value: new THREE.Color() },
-      uGround: { value: new THREE.Color() },
+      uBottom: { value: -DEEP - 0.5 },
       uBorder: { value: new THREE.Vector4() },
-      uFog: { value: new THREE.Color() },
-      uFogNear: { value: 1000 },
-      uFogFar: { value: 3000 },
       uGlow: { value: new THREE.Color() },
       uMarkColour: { value: new THREE.Color() },
+      uOutline: { value: new THREE.Color() },
+      uRelease: { value: new THREE.Color() },
+      uBeacons: { value: Array.from({ length: BEACONS }, () => new THREE.Vector4()) },
+      uBeaconColours: { value: Array.from({ length: BEACONS }, () => new THREE.Color()) },
+      uBeaconCount: { value: 0 },
+      uSweep: { value: new THREE.Vector4() },
     };
     this.uniforms = u;
-    const superU = { ...u, uCellScale: { value: SUPER_SCALE * 0.97 }, uRotate: { value: SUPER_TURN }, uHover: { value: -10 }, uSelected: { value: -10 } };
-    const material = (uniforms: Record<string, { value: unknown }>, pick: boolean) => {
-      const m = new THREE.ShaderMaterial({ vertexShader: HEX_VERTEX, fragmentShader: HEX_FRAGMENT, uniforms, ...(pick ? { defines: { PICK: 1 } } : {}) });
-      this.materials.push(m);
-      return m;
+    const superU = { ...u, uCellScale: { value: SUPER_SCALE * 0.96 }, uRotate: { value: SUPER_TURN }, uHover: { value: -10 }, uSelected: { value: -10 } };
+    const variantsOf = (uniforms: Record<string, { value: unknown }>): Variants => {
+      const make = (defines: Record<string, number>, side: THREE.Side = THREE.FrontSide) => {
+        const m = new THREE.ShaderMaterial({ vertexShader: HEX_VERTEX, fragmentShader: HEX_FRAGMENT, uniforms, defines, side });
+        this.materials.push(m);
+        return m;
+      };
+      const main = make({});
+      this.mains.push(main);
+      return { main, reflect: make({ REFLECT: 1 }, THREE.BackSide), depth: make({ DEPTH: 1 }, THREE.BackSide), mask: make({ MASK: 1 }), pick: make({ PICK: 1 }) };
     };
-    this.nowArray = now;
-    this.wasArray = was;
-    const hexMaterial = material(u, false);
-    const pickMaterial = material(u, true);
+    const hexVariants = variantsOf(u);
     const top = this.scale * 6;
     for (let from = 0; from < n; from += CHUNK) {
       const to = Math.min(n, from + CHUNK);
-      const geometry = instanced(prism, to - from, { iCell: [cell.subarray(from * 4, to * 4), 4, false], iInfo: [info.subarray(from * 4, to * 4), 4, false], iNow: [now.subarray(from * 3, to * 3), 3, true], iWas: [was.subarray(from * 2, to * 2), 2, true] });
+      const geometry = instanced(prism, to - from, { iCell: [cell.subarray(from * 4, to * 4), 4, false], iInfo: [info.subarray(from * 4, to * 4), 4, false], iNow: [now.subarray(from * 3, to * 3), 3, true], iWas: [was.subarray(from * 2, to * 2), 2, true], iEdge: [edge.subarray(from, to), 1, true] });
       let minX = Infinity;
       let maxX = -Infinity;
       let minZ = Infinity;
@@ -233,76 +278,78 @@ export class AtlasRenderer {
         minZ = Math.min(minZ, s.z[i] as number);
         maxZ = Math.max(maxZ, s.z[i] as number);
       }
-      const sphere = new THREE.Sphere(new THREE.Vector3((minX + maxX) / 2, top / 2, (minZ + maxZ) / 2), Math.hypot(maxX - minX + 2, maxZ - minZ + 2, top) / 2);
+      const sphere = new THREE.Sphere(new THREE.Vector3((minX + maxX) / 2, top / 2 - DEEP / 2, (minZ + maxZ) / 2), Math.hypot(maxX - minX + 2, maxZ - minZ + 2, top + DEEP) / 2);
       geometry.boundingSphere = sphere;
-      const mesh = new THREE.Mesh(geometry, hexMaterial);
-      const pick = new THREE.Mesh(geometry, pickMaterial);
+      const mesh = new THREE.Mesh(geometry, hexVariants.main);
+      this.variants.set(mesh, hexVariants);
       this.hexGroup.add(mesh);
-      this.pickScene.add(pick);
-      this.chunks.push({ mesh, pick, geometry, count: to - from, sphere });
+      this.chunks.push({ mesh, geometry, count: to - from, sphere, from });
     }
     if (this.supers) {
-      this.superMesh = new THREE.Mesh(this.supers, material(superU, false));
+      this.superMesh = new THREE.Mesh(this.supers, undefined);
+      const sv = variantsOf(superU);
+      this.superMesh.material = sv.main;
+      this.variants.set(this.superMesh, sv);
       this.superMesh.frustumCulled = false;
       this.superMesh.visible = false;
-      const superPick = new THREE.Mesh(this.supers, material(superU, true));
-      superPick.frustumCulled = false;
-      this.superPickScene.add(superPick);
     } else this.superMesh = null;
 
     const b = s.bounds;
+    const area = s.area;
+    this.seabedUniforms = { ...this.shared, tLand: { value: null }, uArea: { value: new THREE.Vector4(...area) }, uDeep: { value: DEEP }, uSand: { value: new THREE.Color() }, uSeabed: { value: new THREE.Color() } };
+    const seabed = (far: boolean) => {
+      const m = new THREE.ShaderMaterial({ vertexShader: SEABED_VERTEX, fragmentShader: SEABED_FRAGMENT, uniforms: this.seabedUniforms, defines: far ? { FAR: 1 } : {} });
+      this.materials.push(m);
+      this.mains.push(m);
+      return m;
+    };
     const span = Math.max(b.maxX - b.minX, b.maxZ - b.minZ);
-    const texture = fieldTexture(s.field);
-    const area = s.field.area;
-    const seaMaterial = new THREE.ShaderMaterial({
-      vertexShader: SEA_VERTEX,
-      fragmentShader: SEA_FRAGMENT,
-      transparent: true,
-      depthWrite: false,
-      uniforms: { uDistance: { value: texture }, uArea: { value: new THREE.Vector4(...area) }, uDeep: { value: new THREE.Color() }, uShallow: { value: new THREE.Color() }, uFoam: { value: new THREE.Color() }, uFog: u.uFog, uFogNear: u.uFogNear, uFogFar: u.uFogFar, uTime: { value: 0 }, uNight: u.uNight, uKeyDir: u.uKeyDir },
-    });
-    this.materials.push(seaMaterial);
-    this.sea = new THREE.Mesh(new THREE.PlaneGeometry(span * 12 + 4000, span * 12 + 4000), seaMaterial);
-    this.sea.rotation.x = -Math.PI / 2;
-    this.sea.position.set((b.minX + b.maxX) / 2, 0, (b.minZ + b.maxZ) / 2);
-    this.sea.renderOrder = 2;
-
-    const strikeMaterial = new THREE.ShaderMaterial({ vertexShader: STRIKE_VERTEX, fragmentShader: STRIKE_FRAGMENT, transparent: true, depthWrite: false, uniforms: { uWall: { value: 0 }, uWidth: { value: 0.12 }, uNight: u.uNight } });
-    this.materials.push(strikeMaterial);
-    this.strikes = new THREE.Mesh(instanced(beamStrip(8), STRIKES, { iFrom: [new Float32Array(STRIKES * 3), 3, true], iTo: [new Float32Array(STRIKES * 3), 3, true], iColour: [new Float32Array(STRIKES * 3), 3, true], iTime: [new Float32Array(STRIKES * 2).fill(-100), 2, true] }), strikeMaterial);
-    this.strikes.frustumCulled = false;
-    this.strikes.renderOrder = 4;
-
-    const ringMaterial = new THREE.ShaderMaterial({ vertexShader: RING_VERTEX, fragmentShader: RING_FRAGMENT, transparent: true, depthWrite: false, uniforms: { uWall: { value: 0 }, uNight: u.uNight } });
-    this.materials.push(ringMaterial);
-    this.rings = new THREE.Mesh(instanced(groundQuad(), RINGS, { iRing: [new Float32Array(RINGS * 4), 4, true], iColour: [new Float32Array(RINGS * 3), 3, true], iTime: [new Float32Array(RINGS * 2).fill(-100), 2, true] }), ringMaterial);
-    this.rings.frustumCulled = false;
-    this.rings.renderOrder = 3;
+    const grid = new THREE.Mesh(groundGrid(area, 192, Math.max(16, Math.round((192 * area[3]) / Math.max(1, area[2])))), seabed(false));
+    grid.frustumCulled = false;
+    const outer = span * 12 + 4000;
+    const far = new THREE.Mesh(groundGrid([area[0] + area[2] / 2 - outer / 2, area[1] + area[3] / 2 - outer / 2, outer, outer], 1, 1), seabed(true));
+    far.frustumCulled = false;
+    far.renderOrder = -1;
+    this.floor = [grid, far];
 
     const poleGeometry = new THREE.BufferGeometry();
-    poleGeometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(48), 3).setUsage(THREE.DynamicDrawUsage));
-    poleGeometry.setAttribute("color", new THREE.BufferAttribute(new Float32Array(48), 3).setUsage(THREE.DynamicDrawUsage));
+    poleGeometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(BEACONS * 6), 3).setUsage(THREE.DynamicDrawUsage));
+    poleGeometry.setAttribute("color", new THREE.BufferAttribute(new Float32Array(BEACONS * 6), 3).setUsage(THREE.DynamicDrawUsage));
     poleGeometry.setDrawRange(0, 0);
-    const poleMaterial = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.85 });
+    const poleMaterial = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.7 });
     this.materials.push(poleMaterial);
     this.poles = new THREE.LineSegments(poleGeometry, poleMaterial);
     this.poles.frustumCulled = false;
-    this.poles.renderOrder = 5;
 
-    for (const obj of [this.hexGroup, this.superMesh, this.sea, this.rings, this.strikes, this.poles]) if (obj) this.scene.add(obj);
+    for (const obj of [this.hexGroup, this.superMesh, grid, far]) if (obj) this.world.add(obj);
+    this.overlay.add(this.poles);
+
+    this.waterUniforms = {
+      ...this.shared,
+      uArea: { value: new THREE.Vector4(...area) },
+      uTime: { value: 0 },
+      uScatter: { value: new THREE.Color() },
+      uFoam: { value: new THREE.Color() },
+      uFog: { value: new THREE.Color() },
+      uFogNear: { value: 1000 },
+      uFogFar: { value: 3000 },
+      uCaustics: { value: 1 },
+      uWaves: { value: 1 },
+    };
+    this.pipeline = new Pipeline({ gl: o.gl, camera: o.camera, scenes: { world: this.world, overlay: this.overlay, floor: this.floor, variant: (v) => this.variant(v) }, area, detail: o.detail, water: this.waterUniforms, shadow: this.shadow });
+    this.seabedUniforms.tLand!.value = this.pipeline.landTexture;
+    this.applyShadows();
 
     const start = o.initial ? clampCam(o.initial, b, this.aspect, this.view.top) : this.rest();
     this.control = new MapCamera(start, () => b, () => this.aspect, () => this.view.top, () => (this.restDist > 0 ? Math.max(this.restDist * 1.6, fitDistance(b, this.aspect, EL_REST) * 1.2) : undefined));
     this.buildLabels();
     this.unlisten = this.listen();
     place(this.camera, this.control.cam);
-    void Promise.all([o.gl.compileAsync(this.scene, this.camera), o.gl.compileAsync(this.pickScene, this.camera), this.superMesh ? o.gl.compileAsync(this.superPickScene, this.camera) : null])
-      .catch(() => undefined)
-      .then(() => {
-        if (this.gone) return;
-        this.compiled = true;
-        this.wake();
-      });
+    void this.compile().then(() => {
+      if (this.gone) return;
+      this.compiled = true;
+      this.wake();
+    });
     this.setView(o.view);
     this.api = {
       fly: (x, z, radius) => {
@@ -349,6 +396,47 @@ export class AtlasRenderer {
     };
   }
 
+  private async compile(): Promise<void> {
+    for (const v of VARIANTS) {
+      this.variant(v);
+      await this.gl.compileAsync(this.world, this.camera).catch(() => undefined);
+      if (this.gone) return;
+    }
+    this.variant("main");
+  }
+
+  private variant(v: Variant): void {
+    for (const [mesh, set] of this.variants) mesh.material = set[v];
+  }
+
+  private applyShadows(): void {
+    const on = this.pipeline.shadows;
+    for (const m of this.mains) {
+      const has = "SHADOWS" in m.defines;
+      if (has === on) continue;
+      if (on) m.defines.SHADOWS = 1;
+      else delete m.defines.SHADOWS;
+      m.needsUpdate = true;
+    }
+    const w = this.pipeline.water;
+    if ("SHADOWS" in w.defines !== on) {
+      if (on) w.defines.SHADOWS = 1;
+      else delete w.defines.SHADOWS;
+      w.needsUpdate = true;
+    }
+  }
+
+  /** Changes how much each frame draws; `auto` lets the renderer step down by itself when frames come too slowly. */
+  setDetail(d: Detail, auto: boolean): void {
+    this.auto = auto;
+    this.slow.length = 0;
+    this.slowSince = performance.now() / 1000;
+    this.pipeline.setDetail(d);
+    this.applyShadows();
+    this.dirty = true;
+    this.wake();
+  }
+
   private get aspect(): number {
     return this.width / Math.max(1, this.height);
   }
@@ -372,7 +460,9 @@ export class AtlasRenderer {
     const changed = Math.abs(this.width - width) > 0.5 || Math.abs(this.height - height) > 0.5;
     this.width = Math.max(1, width);
     this.height = Math.max(1, height);
+    this.pipeline.setSize(this.width, this.height);
     if (changed) this.refit();
+    this.dirty = true;
     this.wake();
   }
 
@@ -384,47 +474,58 @@ export class AtlasRenderer {
     u.uFrost!.value = v.lens === 0 ? 1 : 0;
     (u.uFocus!.value as THREE.Vector2).set(v.focus ? v.focus[0] : -1, v.focus ? v.focus[1] : -1);
     u.uRoleMask!.value = v.roleMask;
+    u.uSolo!.value = v.solo ? 1 : 0;
     u.uSelected!.value = v.selected ?? -10;
     u.uFlat!.value = v.top ? 0.7 : 0;
     if (this.look && was.soloSlot !== v.soloSlot) this.setLook(this.look);
     const moved = was.insets.top !== v.insets.top || was.insets.bottom !== v.insets.bottom || was.insets.left !== v.insets.left || was.insets.right !== v.insets.right;
     if (this.control && was.top !== v.top) this.control.fly(this.rest(), 0);
     else if (moved) this.refit();
+    if (was.focus?.[0] !== v.focus?.[0] || was.focus?.[1] !== v.focus?.[1]) this.pointer.dirty = true;
+    this.dirty = true;
     this.wake();
   }
 
   setLook(look: Look): void {
     this.look = look;
     const u = this.uniforms;
+    const night = look.night;
     const slots = [...look.slots, look.other, look.sand, look.slots[this.view.soloSlot ?? 0] ?? look.other];
     const set = (name: string, list: Rgb[]) => list.forEach((c, i) => (u[name]!.value as THREE.Color[])[i]?.copy(colourOf(c)));
+    const colour = (target: { value: unknown }, c: Rgb, k = 1) => (target.value as THREE.Color).copy(colourOf(c)).multiplyScalar(k);
     set("uSlots", slots);
     set("uRoles", look.roles);
     set("uLangs", look.languages);
     set("uStale", look.stale);
-    (u.uSnow!.value as THREE.Color).copy(colourOf(look.snow));
-    (u.uSeabed!.value as THREE.Color).copy(colourOf(look.seabed));
-    (u.uDim!.value as THREE.Color).copy(colourOf(look.dim));
-    u.uNight!.value = look.night ? 1 : 0;
-    (u.uSky!.value as THREE.Color).copy(colourOf(look.sky));
-    (u.uGround!.value as THREE.Color).copy(colourOf(look.ground));
+    const sh = this.shared;
+    colour(sh.uSkyTop!, look.sky);
+    colour(sh.uSkyHorizon!, look.fog);
+    colour(sh.uSun!, look.sun, night ? 1.15 : 1.08);
+    colour(sh.uSkyLight!, look.skyLight, night ? 0.75 : 0.46);
+    colour(sh.uGround!, look.ground, night ? 0.22 : 0.2);
+    (sh.uAbsorb!.value as THREE.Vector3).set(...look.absorb);
+    sh.uNight!.value = night ? 1 : 0;
+    colour(u.uSnow!, look.snow);
+    colour(u.uRuin!, look.ruin);
+    colour(u.uDim!, look.dim);
     const border = colourOf(look.border);
-    (u.uBorder!.value as THREE.Vector4).set(border.r, border.g, border.b, look.night ? 0.42 : 0.5);
-    (u.uFog!.value as THREE.Color).copy(colourOf(look.fog));
-    (u.uGlow!.value as THREE.Color).copy(colourOf(look.glow));
-    (u.uMarkColour!.value as THREE.Color).copy(colourOf(look.night ? [1, 1, 1] : [0.08, 0.09, 0.12]));
-    const seaU = this.sea.material.uniforms;
-    (seaU.uDeep!.value as THREE.Color).copy(colourOf(look.deep));
-    (seaU.uShallow!.value as THREE.Color).copy(colourOf(look.shallow));
-    (seaU.uFoam!.value as THREE.Color).copy(colourOf(look.foam));
-    for (const m of [this.strikes.material, this.rings.material]) {
-      m.blending = look.night ? THREE.AdditiveBlending : THREE.NormalBlending;
-      m.needsUpdate = true;
-    }
+    (u.uBorder!.value as THREE.Vector4).set(border.r, border.g, border.b, night ? 0.4 : 0.42);
+    colour(u.uGlow!, look.glow);
+    colour(u.uMarkColour!, night ? [1, 1, 1] : [0.08, 0.09, 0.12]);
+    colour(u.uOutline!, look.outline);
+    colour(u.uRelease!, look.release);
+    colour(this.seabedUniforms.uSand!, look.floor);
+    colour(this.seabedUniforms.uSeabed!, look.seabed);
+    const w = this.waterUniforms;
+    colour(w.uScatter!, look.scatter);
+    colour(w.uFoam!, look.foam);
+    colour(w.uFog!, look.fog);
+    w.uCaustics!.value = night ? 0.55 : 1;
     for (const [p, el] of this.beaconEls) {
       const s = this.beacons.get(p);
       if (s) el.style.borderColor = look.css.slots[s.b.slot] ?? "var(--line)";
     }
+    this.dirty = true;
     this.wake();
   }
 
@@ -519,9 +620,8 @@ export class AtlasRenderer {
     const leave = () => {
       this.pointer.inside = false;
       if (this.hovered !== null) {
-        this.hovered = null;
+        this.setHovered(null);
         this.hooks.onHover(null, 0, 0);
-        this.uniforms.uHover!.value = -10;
         this.wake();
       }
     };
@@ -531,6 +631,7 @@ export class AtlasRenderer {
       const p = local(e);
       const at = groundAt(this.camera, (p.x / p.w) * 2 - 1, -(p.y / p.h) * 2 + 1);
       this.control.zoom(Math.exp(e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.0016)), at);
+      this.pointer.dirty = true;
       this.wake();
       if (wheelTimer) clearTimeout(wheelTimer);
       wheelTimer = setTimeout(() => this.hooks.onCam(this.control.cam), 400);
@@ -588,25 +689,34 @@ export class AtlasRenderer {
       el.dataset.state = alive ? "" : born ? "sunk" : "unborn";
       el.style.opacity = alive ? "" : "0.72";
     }
+    if (this.region) this.outline(this.region, this.region, nowW);
     const clock = this.clock.current;
     const wall = performance.now() / 1000;
     this.updateBeacons(f.beacons);
-    const look = this.look;
-    if (look && !this.view.reduced && clock.playing && !clock.intro && f.strikes.length > 0) this.strike(f, prev, wall, look);
-    if (look && clock.playing && !clock.intro && prev && !this.view.reduced) {
+    if (clock.playing && prev && !this.view.reduced && wall > this.sweep.start + SWEEP_SECONDS * 0.8) {
       const rel = s.releases;
+      let last = -1;
       for (let i = 0; i < rel.time.length; i++) {
         const t = rel.time[i] as number;
-        if (t <= prev.at || t > f.at) continue;
-        const b = s.bounds;
-        const reach = Math.hypot(b.maxX - b.minX, b.maxZ - b.minZ);
-        this.ring((b.minX + b.maxX) / 2, (b.minZ + b.maxZ) / 2, reach * 0.52, look.release, wall, 2.4);
-        this.ring((b.minX + b.maxX) / 2, (b.minZ + b.maxZ) / 2, reach * 0.38, look.release, wall + 0.28, 2);
-        this.hooks.onCaption({ key: ++this.captionKey, text: rel.names[i] ?? "", detail: "released", until: wall + 2.6 });
+        if (t > prev.at && t <= f.at) last = i;
+      }
+      if (last >= 0) {
+        this.startSweep(wall);
+        this.hooks.onCaption({ key: ++this.captionKey, text: rel.names[last] ?? "", detail: "released", until: wall + 2.4 });
       }
     }
     if (clock.playing) this.flashUntil = wall + 0.8;
+    this.dirty = true;
     this.wake();
+  }
+
+  private startSweep(wall: number): void {
+    const az = this.control.cam.az;
+    const dx = Math.cos(az);
+    const dz = -Math.sin(az);
+    const b = this.summary.bounds;
+    const ps = [b.minX * dx + b.minZ * dz, b.maxX * dx + b.minZ * dz, b.minX * dx + b.maxZ * dz, b.maxX * dx + b.maxZ * dz];
+    this.sweep = { start: wall, dx, dz, min: Math.min(...ps), max: Math.max(...ps) };
   }
 
   private applySupers(f: FrameAnswer, first: boolean): void {
@@ -691,62 +801,91 @@ export class AtlasRenderer {
     }
   }
 
-  private strike(f: FrameAnswer, prev: FrameAnswer | null, wall: number, look: Look): void {
+  private ensureNeighbours(): Int32Array {
+    if (this.neighbours) return this.neighbours;
     const s = this.summary;
-    const g = this.strikes.geometry;
-    const iFrom = attr(g, "iFrom");
-    const iTo = attr(g, "iTo");
-    const iColour = attr(g, "iColour");
-    const iTime = attr(g, "iTime");
-    const span = Math.max(1, f.at - (prev?.at ?? f.at - 1));
-    const perTick = Math.min(1, 320 / Math.max(1, f.strikes.reduce((n, x) => n + x.files.length, 0)));
-    const tops = this.nowArray;
-    for (const st of f.strikes) {
-      const delay = Math.max(0, Math.min(0.9, ((st.time - (f.at - span)) / span) * 0.25));
-      if (st.bulk) {
-        let sx = 0;
-        let sz = 0;
-        let far = 0;
-        for (const r of st.files) {
-          sx += s.x[r] as number;
-          sz += s.z[r] as number;
-        }
-        sx /= Math.max(1, st.files.length);
-        sz /= Math.max(1, st.files.length);
-        for (const r of st.files) far = Math.max(far, Math.hypot((s.x[r] as number) - sx, (s.z[r] as number) - sz));
-        this.ring(sx, sz, far + 20, look.bulk, wall + delay, 2.2);
-        this.hooks.onCaption({ key: ++this.captionKey, text: "Bulk Commit", detail: `${st.total.toLocaleString("en-US")} files · not counted in who holds them`, until: wall + 2.6 });
-        continue;
-      }
-      const beacon = st.person >= 0 ? this.beacons.get(st.person) : undefined;
-      const colour = st.colour < 8 ? (look.slots[st.colour] as Rgb) : look.other;
-      for (const r of st.files) {
-        if (Math.random() > perTick) continue;
-        const i = this.strikeNext;
-        this.strikeNext = (this.strikeNext + 1) % STRIKES;
-        const tx = s.x[r] as number;
-        const tz = s.z[r] as number;
-        const h = this.scale * (0.35 + 0.42 * Math.log2(1 + (tops[r * 3] as number)));
-        if (beacon) iFrom.setXYZ(i, beacon.x, BEACON_HEIGHT, beacon.z);
-        else iFrom.setXYZ(i, tx + 4, 26 + Math.random() * 8, tz - 6);
-        iTo.setXYZ(i, tx, h, tz);
-        iColour.setXYZ(i, colour[0], colour[1], colour[2]);
-        iTime.setXY(i, wall + delay, Math.random() * 100);
-      }
+    const n = s.count;
+    const at = new Map<number, number>();
+    const qs = new Int32Array(n);
+    const rs = new Int32Array(n);
+    for (let i = 0; i < n; i++) {
+      const [q, r] = hexAt(s.x[i] as number, s.z[i] as number);
+      qs[i] = q;
+      rs[i] = r;
+      at.set(cellKey(q, r), i);
     }
-    for (const a of [iFrom, iTo, iColour, iTime]) a.needsUpdate = true;
-    this.strikeUntil = wall + 1.2;
+    const out = new Int32Array(n * 6).fill(-1);
+    for (let i = 0; i < n; i++)
+      for (let k = 0; k < 6; k++) {
+        const [dq, dr] = DIRECTIONS[k] as readonly [number, number];
+        out[i * 6 + k] = at.get(cellKey((qs[i] as number) + dq, (rs[i] as number) + dr)) ?? -1;
+      }
+    this.neighbours = out;
+    return out;
   }
 
-  private ring(x: number, z: number, radius: number, colour: Rgb, start: number, life: number): void {
-    const i = this.ringNext;
-    this.ringNext = (this.ringNext + 1) % RINGS;
-    const g = this.rings.geometry;
-    attr(g, "iRing").setXYZW(i, x, z, radius, 0.08);
-    attr(g, "iColour").setXYZ(i, colour[0], colour[1], colour[2]);
-    attr(g, "iTime").setXY(i, start, life);
-    for (const name of ["iRing", "iColour", "iTime"]) attr(g, name).needsUpdate = true;
-    this.ringUntil = Math.max(this.ringUntil, start + life);
+  private outline(was: [number, number] | null, next: [number, number] | null, nowW: number): void {
+    const e = this.edgeArray;
+    if (was) e.fill(0, was[0], was[1]);
+    if (next) {
+      const s = this.summary;
+      const nb = this.ensureNeighbours();
+      const [from, to] = next;
+      const alive = (r: number) => (s.born[r] as number) <= nowW && nowW < (s.died[r] as number);
+      for (let r = from; r < to; r++) {
+        if (!alive(r)) continue;
+        let bits = 0;
+        for (let k = 0; k < 6; k++) {
+          const o = nb[r * 6 + k] as number;
+          if (o < from || o >= to || !alive(o)) bits |= 1 << k;
+        }
+        e[r] = 64 + bits;
+      }
+    }
+    const lo = Math.min(was?.[0] ?? Infinity, next?.[0] ?? Infinity);
+    const hi = Math.max(was?.[1] ?? -Infinity, next?.[1] ?? -Infinity);
+    for (const c of this.chunks) if (c.from < hi && c.from + c.count > lo) attr(c.geometry, "iEdge").needsUpdate = true;
+  }
+
+  private setHovered(t: Target | null): void {
+    if (same(t, this.hovered)) return;
+    this.hovered = t;
+    const u = this.uniforms;
+    u.uHover!.value = t?.kind === "file" ? t.rank : -10;
+    const f = this.summary.folders;
+    const next: [number, number] | null = t?.kind === "folder" ? [f.from[t.folder] as number, f.to[t.folder] as number] : null;
+    if (next || this.region) {
+      this.outline(this.region, next, u.uNow!.value as number);
+      if (next) {
+        this.region = next;
+        (u.uRegion!.value as THREE.Vector2).set(next[0], next[1]);
+        this.regionMix = 0;
+      } else this.region = null;
+    }
+    this.gl.domElement.style.cursor = t ? "pointer" : "grab";
+    this.dirty = true;
+  }
+
+  /** What the pointer means over this file at this zoom: from afar the folder it belongs to at a size worth taking in at once, close up the file itself. */
+  private targetOf(rank: number): Target {
+    const s = this.summary;
+    const unit = this.height / (2 * this.control.cam.dist * Math.tan(((FOV / 2) * Math.PI) / 180));
+    if (Math.sqrt(3) * unit >= 22) return { kind: "file", rank };
+    const f = s.folders;
+    const chain: number[] = [];
+    for (let d = s.fileFolder[rank] as number; d > 0; d = f.parent[d] as number) chain.push(d);
+    const limit = 0.3 * Math.min(this.width, this.height);
+    const focus = this.view.focus;
+    for (let i = chain.length - 1; i >= 0; i--) {
+      const d = chain[i] as number;
+      const from = f.from[d] as number;
+      const to = f.to[d] as number;
+      if (from < 0 || to - from < 2) continue;
+      if (focus && from <= focus[0] && to >= focus[1]) continue;
+      if ((f.radius[d] as number) * unit <= limit) return { kind: "folder", folder: d };
+    }
+    const deepest = chain.find((d) => (f.to[d] as number) - (f.from[d] as number) >= 2 && !(focus && (f.from[d] as number) <= focus[0] && (f.to[d] as number) >= focus[1]));
+    return deepest === undefined ? { kind: "file", rank } : { kind: "folder", folder: deepest };
   }
 
   private measureCovers(wall: number): void {
@@ -776,6 +915,12 @@ export class AtlasRenderer {
   private placeBeacons(dt: number): boolean {
     const pos = this.poles.geometry.getAttribute("position") as THREE.BufferAttribute;
     const col = this.poles.geometry.getAttribute("color") as THREE.BufferAttribute;
+    const u = this.uniforms;
+    const spots = u.uBeacons!.value as THREE.Vector4[];
+    const tints = u.uBeaconColours!.value as THREE.Color[];
+    const b = this.summary.bounds;
+    const reach = Math.max(4.5, Math.hypot(b.maxX - b.minX, b.maxZ - b.minZ) * 0.025);
+    const night = this.look?.night ?? false;
     let k = 0;
     let moving = false;
     const stiffness = 30;
@@ -788,12 +933,14 @@ export class AtlasRenderer {
       s.x += s.vx * dt;
       s.z += s.vz * dt;
       if (Math.hypot(s.tx - s.x, s.tz - s.z) > 0.05) moving = true;
-      if (k < 8) {
+      if (k < BEACONS) {
         const c = this.look?.slots[s.b.slot] ?? this.look?.other ?? [1, 1, 1];
         pos.setXYZ(k * 2, s.x, this.scale * 0.6, s.z);
         pos.setXYZ(k * 2 + 1, s.x, BEACON_HEIGHT, s.z);
-        col.setXYZ(k * 2, c[0], c[1], c[2]);
+        col.setXYZ(k * 2, c[0] * 0.4, c[1] * 0.4, c[2] * 0.4);
         col.setXYZ(k * 2 + 1, c[0], c[1], c[2]);
+        spots[k]?.set(s.x, s.z, reach, (0.3 + 0.45 * Math.min(1, Math.log2(1 + s.b.commits) / 6)) * (night ? 1.5 : 1));
+        tints[k]?.copy(colourOf(c));
         k++;
       }
       const el = this.beaconEls.get(person);
@@ -803,6 +950,7 @@ export class AtlasRenderer {
       show(el, !off, `translate(${Math.round(p.x - 16)}px, ${Math.round(p.y - 32)}px)`);
       if (!off) this.beaconBoxes.push([p.x - 16, p.y - 32, p.x + 16, p.y]);
     }
+    u.uBeaconCount!.value = k;
     this.poles.geometry.setDrawRange(0, k * 2);
     pos.needsUpdate = true;
     col.needsUpdate = true;
@@ -819,7 +967,7 @@ export class AtlasRenderer {
     }
     const tops = this.nowArray;
     const alive = (s.born[r] as number) <= nowWeeks && nowWeeks < (s.died[r] as number);
-    const h = alive ? this.scale * (0.35 + 0.42 * Math.log2(1 + (tops[r * 3] as number))) : -0.4;
+    const h = alive ? this.scale * (0.35 + 0.42 * Math.log2(1 + (tops[r * 3] as number))) : -0.3;
     const p = this.screen(s.x[r] as number, h, s.z[r] as number);
     el.style.display = p.behind ? "none" : "block";
     el.style.transform = `translate(${p.x}px, ${p.y}px)`;
@@ -856,7 +1004,7 @@ export class AtlasRenderer {
     }
   }
 
-  private pick(useSupers: boolean, wall: number, flying: boolean): void {
+  private pick(wall: number, flying: boolean): void {
     const pt = this.pointer;
     const clock = this.clock.current;
     if (!pt.inside || !(pt.dirty || ((flying || clock.playing) && wall - this.lastPick > 0.15))) return;
@@ -864,22 +1012,36 @@ export class AtlasRenderer {
     this.lastPick = wall;
     const gl = this.gl;
     const dpr = gl.getPixelRatio();
+    this.variant("pick");
+    for (const o of this.floor) o.visible = false;
     this.camera.setViewOffset(this.width * dpr, this.height * dpr, Math.round(pt.x * dpr), Math.round(pt.y * dpr), 1, 1);
     gl.setRenderTarget(this.pickTarget);
     gl.setClearColor(0x000000, 0);
     gl.clear();
-    gl.render(useSupers && this.superMesh ? this.superPickScene : this.pickScene, this.camera);
+    gl.render(this.world, this.camera);
     gl.setRenderTarget(null);
     this.camera.clearViewOffset();
+    for (const o of this.floor) o.visible = true;
+    this.variant("main");
     gl.readRenderTargetPixels(this.pickTarget, 0, 0, 1, 1, this.pixel);
     const id = (this.pixel[0] as number) + (this.pixel[1] as number) * 256 + (this.pixel[2] as number) * 65536 - 1;
     const rank = id >= 0 && id < this.summary.count ? id : null;
-    if (rank !== this.hovered) {
-      this.hovered = rank;
-      this.uniforms.uHover!.value = rank ?? -10;
-      gl.domElement.style.cursor = rank !== null ? "pointer" : "grab";
+    const target = rank === null ? null : this.targetOf(rank);
+    this.setHovered(target);
+    this.hooks.onHover(target, pt.x, pt.y);
+  }
+
+  private watch(dt: number, wall: number): void {
+    if (!this.auto || this.view.reduced || wall - this.slowSince < 3) return;
+    this.slow.push(dt);
+    if (this.slow.length < 90) return;
+    const mean = this.slow.reduce((a, b) => a + b, 0) / this.slow.length;
+    this.slow.length = 0;
+    const next = LOWER[this.pipeline.detail];
+    if (mean > 1 / 28 && next) {
+      this.slowSince = wall;
+      this.hooks.onSlow(next);
     }
-    this.hooks.onHover(rank, pt.x, pt.y);
   }
 
   frame(delta: number): boolean {
@@ -893,43 +1055,62 @@ export class AtlasRenderer {
     this.measureCovers(wall);
     const clock = this.clock.current;
     const s = this.summary;
-    if (this.wasIntro && !clock.intro && this.look && !this.view.reduced) {
-      const b = s.bounds;
-      this.ring((b.minX + b.maxX) / 2, (b.minZ + b.maxZ) / 2, Math.hypot(b.maxX - b.minX, b.maxZ - b.minZ) * 0.55, this.look.release, wall, 1.8);
-    }
-    this.wasIntro = clock.intro;
     const nowWeeks = (clock.at - s.origin) / WEEK_SECONDS;
+    const changedNow = u.uNow!.value !== nowWeeks;
     u.uNow!.value = nowWeeks;
     const speedWeeks = clock.speed / WEEK_SECONDS;
     const reduced = this.view.reduced;
     u.uRise!.value = reduced ? 0 : clock.playing ? Math.max(0.02, speedWeeks * 0.45) : 0;
-    u.uFlashSpan!.value = Math.max(0.05, Math.min(clock.intro ? 6 : 26, speedWeeks * 0.6));
+    u.uFlashSpan!.value = Math.max(0.05, Math.min(26, speedWeeks * 0.6));
     const flashing = wall < this.flashUntil;
-    u.uFlashGain!.value = reduced ? 0 : clock.playing ? (clock.intro ? 0.45 : 1) : flashing ? Math.max(0, (this.flashUntil - wall) / 0.8) : 0;
+    u.uFlashGain!.value = reduced ? 0 : clock.playing ? 1 : flashing ? Math.max(0, (this.flashUntil - wall) / 0.8) : 0;
     const blend = Math.min(1, (wall - this.blendStart) / (reduced ? 0.001 : 0.22));
     u.uBlend!.value = blend;
+    const regionTarget = this.region ? 1 : 0;
+    const regionMoving = this.regionMix !== regionTarget;
+    this.regionMix = reduced ? regionTarget : regionTarget > this.regionMix ? Math.min(1, this.regionMix + dt * 7) : Math.max(0, this.regionMix - dt * 7);
+    u.uRegionMix!.value = this.regionMix;
+    const sweepAt = (wall - this.sweep.start) / SWEEP_SECONDS;
+    const sweeping = sweepAt >= 0 && sweepAt < 1;
+    const sw = u.uSweep!.value as THREE.Vector4;
+    if (sweeping) {
+      const width = Math.max(5, (this.sweep.max - this.sweep.min) * 0.05);
+      sw.set(this.sweep.min - width * 2 + (this.sweep.max - this.sweep.min + width * 4) * sweepAt, this.sweep.dx, this.sweep.dz, width);
+    } else sw.w = 0;
     const fit = fitDistance(s.bounds, this.aspect, EL_REST);
     const dist = this.control.cam.dist;
-    u.uFogNear!.value = dist * 1.1 + fit * 0.2;
-    u.uFogFar!.value = dist * 3.2 + fit * 0.6;
+    this.waterUniforms.uFogNear!.value = dist * 1.1 + fit * 0.2;
+    this.waterUniforms.uFogFar!.value = dist * 3.2 + fit * 0.6;
     this.viewProjection.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
     this.frustum.setFromProjectionMatrix(this.viewProjection);
     let visible = 0;
     for (const c of this.chunks) if (this.frustum.intersectsSphere(c.sphere)) visible += c.count;
     const useSupers = !!this.superMesh && visible > SUPER_VISIBLE;
+    if (this.hexGroup.visible === useSupers) this.dirty = true;
     this.hexGroup.visible = !useSupers;
     if (this.superMesh) this.superMesh.visible = useSupers;
-    this.sea.material.uniforms.uTime!.value = reduced ? 0 : wall % 1000;
-    this.strikes.material.uniforms.uWall!.value = wall;
-    this.strikes.material.uniforms.uWidth!.value = Math.max(0.05, dist * 0.0009);
-    this.rings.material.uniforms.uWall!.value = wall;
     const moving = this.placeBeacons(dt);
     this.placePin(nowWeeks);
     this.placeLabels();
-    this.pick(useSupers, wall, flying);
-    this.gl.setClearColor(0x000000, 0);
-    this.gl.render(this.scene, this.camera);
-    return flying || clock.playing || blend < 1 || flashing || wall < this.strikeUntil || wall < this.ringUntil || moving;
+    this.pick(wall, flying);
+    const camMoved = !this.lastView.equals(this.camera.matrixWorld) || !this.lastProjection.equals(this.camera.projectionMatrix);
+    this.lastView.copy(this.camera.matrixWorld);
+    this.lastProjection.copy(this.camera.projectionMatrix);
+    const animating = flying || clock.playing || blend < 1 || flashing || sweeping || moving || regionMoving || changedNow;
+    const dirty = this.dirty || camMoved || animating;
+    const fps = this.pipeline.fps;
+    if (!dirty && fps > 0 && wall - this.lastDraw < 1 / fps) return true;
+    const b = s.bounds;
+    const cx = (b.minX + b.maxX) / 2;
+    const cz = (b.minZ + b.maxZ) / 2;
+    const whole = Math.hypot(b.maxX - b.minX, b.maxZ - b.minZ) / 2 + 4;
+    const half = Math.min(whole, Math.max(16, dist * 0.85));
+    const centre = half >= whole ? new THREE.Vector3(cx, 0, cz) : new THREE.Vector3(this.control.cam.x, 0, this.control.cam.z);
+    this.pipeline.render(dt, { dirty, time: reduced ? 0 : wall % 3600, shadowCentre: centre, shadowHalf: half, shadowHeight: this.scale * 6, sun: SUN });
+    this.dirty = false;
+    this.lastDraw = wall;
+    this.watch(dt, wall);
+    return !reduced || animating;
   }
 
   dispose(): void {
@@ -938,12 +1119,10 @@ export class AtlasRenderer {
     for (const c of this.chunks) c.geometry.dispose();
     this.supers?.dispose();
     for (const m of this.materials) m.dispose();
-    (this.sea.material.uniforms.uDistance?.value as THREE.Texture | undefined)?.dispose();
-    this.sea.geometry.dispose();
-    this.strikes.geometry.dispose();
-    this.rings.geometry.dispose();
+    for (const f of this.floor) f.geometry.dispose();
     this.poles.geometry.dispose();
     this.pickTarget.dispose();
+    this.pipeline.dispose();
     this.layers.labels.replaceChildren();
     this.layers.beacons.replaceChildren();
   }

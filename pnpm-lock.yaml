@@ -561,6 +561,9 @@ importers:
       motion:
         specifier: 14.0.0
         version: 14.0.0(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      postprocessing:
+        specifier: 6.39.5
+        version: 6.39.5(three@0.186.1)
       recharts:
         specifier: 3.10.1
         version: 3.10.1(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react-is@19.3.0)(react@19.3.0)(redux@5.0.1)
@@ -4091,6 +4094,11 @@ packages:
         optional: true
       react:
         optional: true
+
+  postprocessing@6.39.5:
+    resolution: {integrity: sha512-YmH+t74J2X1lwYjKzK/tgs9C9kqWWPB9JwZiDF5mEf4BdCEAmEFbO8lXBA7NM0/j4g+x6FgD/Tt5/kT7ogbEDA==}
+    peerDependencies:
+      three: '>= 0.168.0 < 0.187.0'
 
   preact@10.29.8:
     resolution: {integrity: sha512-ej2aVZ+vZ8WO7tvlQWRM9N63A0KzF9q4mWJfDUHgYaIofWY9hu74QdnQrjoPMmZi2/nZ5gN0bJCQF49xQqx09Q==}
@@ -7849,6 +7857,10 @@ snapshots:
       react: 19.3.0
     transitivePeerDependencies:
       - preact-render-to-string
+
+  postprocessing@6.39.5(three@0.186.1):
+    dependencies:
+      three: 0.186.1
 
   preact@10.29.8: {}
 

@@ -5,9 +5,23 @@ import { FOV, type Cam, type Insets } from "./camera";
 import type { Feed } from "./feed";
 import type { Look } from "./look";
 import type { FrameAnswer, Summary } from "./protocol";
+import { TIERS, type Detail } from "./pipeline";
 import { AtlasRenderer, type Caption, type Hooks, type StageApi, type StageClock } from "./renderer";
 
-export type { StageApi, StageClock } from "./renderer";
+export type { StageApi, StageClock, Target } from "./renderer";
+
+export type DetailChoice = Detail | "auto";
+
+const AUTO_KEY = "commitscape.universe.auto";
+
+function remembered(): Detail {
+  try {
+    const v = sessionStorage.getItem(AUTO_KEY);
+    return v === "balanced" || v === "low" ? v : "high";
+  } catch {
+    return "high";
+  }
+}
 
 export type StageProps = {
   summary: Summary;
@@ -18,7 +32,9 @@ export type StageProps = {
   focus: [number, number] | null;
   roleMask: number;
   selected: number | null;
+  solo: boolean;
   soloSlot: number | null;
+  detail: DetailChoice;
   top: boolean;
   reduced: boolean;
   initialCam: Cam | null;
@@ -48,19 +64,29 @@ export default function Stage(props: StageProps) {
     return () => clearTimeout(id);
   }, [captions]);
   const { onLost } = props;
+  const [stepped, setStepped] = useState<Detail>(remembered);
+  const detail: Detail = props.detail === "auto" ? stepped : props.detail;
+  const onSlow = (next: Detail) => {
+    setStepped(next);
+    try {
+      sessionStorage.setItem(AUTO_KEY, next);
+    } catch {
+      return;
+    }
+  };
   return (
-    <div className="absolute inset-0 overflow-hidden" style={{ background: `linear-gradient(to bottom, ${props.look.css.skyTop}, ${props.look.css.skyBottom})` }}>
+    <div className="absolute inset-0 overflow-hidden" style={{ background: props.look.css.skyBottom }}>
       <Canvas
         flat
-        dpr={props.top ? 1 : [1, 1.5]}
+        dpr={props.top ? [1, Math.min(1.5, TIERS[detail].dpr)] : [1, TIERS[detail].dpr]}
         frameloop="demand"
         camera={{ fov: FOV, near: 1, far: 5000, position: [0, 200, 200] }}
-        gl={{ antialias: true, alpha: true, powerPreference: "high-performance" }}
+        gl={{ antialias: false, alpha: false, stencil: false, depth: true, powerPreference: "high-performance" }}
         style={{ position: "absolute", inset: 0, touchAction: "none" }}
         aria-hidden
         onCreated={({ gl }) => gl.domElement.addEventListener("webglcontextlost", onLost)}
       >
-        <World {...props} labels={labels} beacons={beacons} pin={pin} onCaption={(c) => setCaptions((cs) => [...cs.slice(-2), c])} />
+        <World {...props} level={detail} auto={props.detail === "auto"} onSlow={onSlow} labels={labels} beacons={beacons} pin={pin} onCaption={(c) => setCaptions((cs) => [...cs.slice(-2), c])} />
       </Canvas>
       <div className="pointer-events-none absolute inset-0" style={{ background: `radial-gradient(120% 95% at 50% 46%, transparent 58%, color-mix(in oklch, ${props.look.css.skyTop} ${props.look.night ? 70 : 45}%, transparent) 100%)` }} aria-hidden />
       <div ref={labels} className="pointer-events-none absolute inset-0" />
@@ -81,8 +107,8 @@ export default function Stage(props: StageProps) {
   );
 }
 
-function World(props: StageProps & { labels: Layer; beacons: Layer; pin: Layer; onCaption: (c: Caption) => void }) {
-  const { gl, camera, size, invalidate } = useThree();
+function World(props: StageProps & { level: Detail; auto: boolean; onSlow: (d: Detail) => void; labels: Layer; beacons: Layer; pin: Layer; onCaption: (c: Caption) => void }) {
+  const { gl, camera, size, invalidate, viewport } = useThree();
   const renderer = useRef<AtlasRenderer | null>(null);
   const latest = useRef(props);
   useLayoutEffect(() => {
@@ -96,14 +122,16 @@ function World(props: StageProps & { labels: Layer; beacons: Layer; pin: Layer; 
       onPerson: (p) => latest.current.onPerson(p),
       onCam: (c) => latest.current.onCam(c),
       onCaption: (c) => latest.current.onCaption(c),
+      onSlow: (d) => latest.current.onSlow(d),
       avatars: (p) => latest.current.avatars(p),
     }),
     [],
   );
-  const { lens, focus, roleMask, selected, soloSlot, top, reduced, insets, summary, feed, look } = props;
-  const view = useMemo(() => ({ lens, focus, roleMask, selected, soloSlot, top, reduced, insets }), [lens, focus, roleMask, selected, soloSlot, top, reduced, insets]);
+  const { lens, focus, roleMask, selected, solo, soloSlot, top, reduced, insets, summary, feed, look, level, auto } = props;
+  const view = useMemo(() => ({ lens, focus, roleMask, selected, solo, soloSlot, top, reduced, insets }), [lens, focus, roleMask, selected, solo, soloSlot, top, reduced, insets]);
   const firstView = useRef(view);
   const firstSize = useRef(size);
+  const firstDetail = useRef({ level, auto });
 
   useEffect(() => {
     const p = latest.current;
@@ -111,7 +139,7 @@ function World(props: StageProps & { labels: Layer; beacons: Layer; pin: Layer; 
     const beacons = p.beacons.current;
     const pin = p.pin.current;
     if (!labels || !beacons || !pin) return;
-    const r = new AtlasRenderer({ gl, camera: camera as THREE.PerspectiveCamera, summary, layers: { labels, beacons, pin }, hooks, clock: p.clock, view: firstView.current, width: firstSize.current.width, height: firstSize.current.height, initial: p.initialCam, wake: invalidate });
+    const r = new AtlasRenderer({ gl, camera: camera as THREE.PerspectiveCamera, summary, layers: { labels, beacons, pin }, hooks, clock: p.clock, view: firstView.current, width: firstSize.current.width, height: firstSize.current.height, initial: p.initialCam, wake: invalidate, detail: firstDetail.current.level, auto: firstDetail.current.auto });
     r.setLook(p.look);
     renderer.current = r;
     p.onApi(r.api);
@@ -135,7 +163,11 @@ function World(props: StageProps & { labels: Layer; beacons: Layer; pin: Layer; 
 
   useEffect(() => {
     renderer.current?.setSize(size.width, size.height);
-  }, [size.width, size.height]);
+  }, [size.width, size.height, viewport.dpr]);
+
+  useEffect(() => {
+    renderer.current?.setDetail(level, auto);
+  }, [level, auto]);
 
   useFrame((_, delta) => {
     if (renderer.current?.frame(delta)) invalidate();

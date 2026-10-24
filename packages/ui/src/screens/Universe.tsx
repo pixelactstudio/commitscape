@@ -25,9 +25,9 @@ import { Flat } from "../universe/Flat";
 import { LegendRow, Reading } from "../universe/Legend";
 import { LENSES, type LensName } from "../universe/lenses";
 import { lookOf, ROLE_NAMES, type Look } from "../universe/look";
-import { FilePanel, FolderPanel, HoverCard, PersonPanel, type Who } from "../universe/Panels";
+import { FilePanel, FolderHoverCard, FolderPanel, HoverCard, PersonPanel, type Who } from "../universe/Panels";
 import type { FileAnswer, FolderAnswer, FrameAnswer, Summary } from "../universe/protocol";
-import type { StageApi } from "../universe/Stage";
+import type { DetailChoice, StageApi, Target } from "../universe/Stage";
 import { Timeline } from "../universe/Timeline";
 import type { AtlasClient } from "../universe/client";
 import type { ScreenProps } from "./props";
@@ -36,6 +36,22 @@ const Stage = lazy(() => import("../universe/Stage"));
 
 const DAY = 86_400;
 const STAGE = "relative h-(--main-height) min-h-120 overflow-hidden bg-sunken";
+const DETAIL_KEY = "commitscape.universe.detail";
+const DETAILS: { value: DetailChoice; label: string }[] = [
+  { value: "auto", label: "Automatic" },
+  { value: "high", label: "High" },
+  { value: "balanced", label: "Balanced" },
+  { value: "low", label: "Low" },
+];
+
+function storedDetail(): DetailChoice {
+  try {
+    const v = localStorage.getItem(DETAIL_KEY);
+    return DETAILS.some((d) => d.value === v) ? (v as DetailChoice) : "auto";
+  } catch {
+    return "auto";
+  }
+}
 const INTRO_SECONDS = 2.8;
 
 function webgl2(): boolean {
@@ -177,7 +193,16 @@ function Atlas({ route, go, summary, client, names, gl }: ScreenProps & { summar
   const slots = shown.slots;
   const tallest = shown.tallest;
   const [feed] = useState(() => new Feed<FrameAnswer | null>(null));
-  const [hoverFeed] = useState(() => new Feed<{ rank: number | null; x: number; y: number }>({ rank: null, x: 0, y: 0 }));
+  const [hoverFeed] = useState(() => new Feed<{ target: Target | null; x: number; y: number }>({ target: null, x: 0, y: 0 }));
+  const [detail, setDetail] = useState<DetailChoice>(storedDetail);
+  const chooseDetail = (d: DetailChoice) => {
+    setDetail(d);
+    try {
+      localStorage.setItem(DETAIL_KEY, d);
+    } catch {
+      return;
+    }
+  };
   const api = useRef<StageApi | null>(null);
   const dock = useRef<HTMLDivElement>(null);
   const tools = useRef<HTMLDivElement>(null);
@@ -369,11 +394,16 @@ function Atlas({ route, go, summary, client, names, gl }: ScreenProps & { summar
   );
 
   const onPick = useCallback(
-    (rank: number | null, double: boolean) => {
-      if (rank === null) {
+    (target: Target | null, double: boolean) => {
+      if (target === null) {
         if (!double) go({ file: undefined }, true);
         return;
       }
+      if (target.kind === "folder") {
+        void chooseFolder(target.folder);
+        return;
+      }
+      const rank = target.rank;
       if (double) {
         void client.ask("home", { rank }).then((place) => {
           void chooseFolder(place.folder);
@@ -454,7 +484,7 @@ function Atlas({ route, go, summary, client, names, gl }: ScreenProps & { summar
 
   return (
     <section className={STAGE} aria-label="The Universe: every file the default branch ever had, as land, over time" onKeyDown={onKey}>
-      <Toolbar bar={tools} reading={<Reading tallest={tallest} range={range} mainline={summary.mainline} commits={summary.commits} files={summary.count} />} client={client} names={names} lens={lens} onLens={(l) => go({ lens: l === "holder" ? undefined : l }, true)} roleMask={roleMask} onRoles={setRoleMask} hideBots={hideBots} onBots={setHideBots} narrow={narrow} onFound={(f) => {
+      <Toolbar bar={tools} detail={gl && !lost ? detail : null} onDetail={chooseDetail} reading={<Reading tallest={tallest} range={range} mainline={summary.mainline} commits={summary.commits} files={summary.count} />} client={client} names={names} lens={lens} onLens={(l) => go({ lens: l === "holder" ? undefined : l }, true)} roleMask={roleMask} onRoles={setRoleMask} hideBots={hideBots} onBots={setHideBots} narrow={narrow} onFound={(f) => {
         if (f.kind === "person") choosePerson(f.id);
         else if (f.kind === "folder") void chooseFolder(f.id);
         else void client.ask("lookup", { kind: "file", path: f.label }).then((rank) => {
@@ -470,7 +500,7 @@ function Atlas({ route, go, summary, client, names, gl }: ScreenProps & { summar
       >
         {look &&
           (flat ? (
-            <Flat summary={summary} feed={feed} look={look} lens={lensIndex} focus={focusRange} roleMask={roleMask} selected={selected} at={at} insets={insets} onHover={(rank, x, y) => hoverFeed.set({ rank, x, y })} onPick={onPick} />
+            <Flat summary={summary} feed={feed} look={look} lens={lensIndex} focus={focusRange} roleMask={roleMask} selected={selected} at={at} insets={insets} onHover={(rank, x, y) => hoverFeed.set({ target: rank === null ? null : { kind: "file", rank }, x, y })} onPick={(rank, double) => onPick(rank === null ? null : { kind: "file", rank }, double)} />
           ) : (
             <Suspense fallback={<Skeleton height="100%" radius={4} />}>
               <Stage
@@ -482,13 +512,15 @@ function Atlas({ route, go, summary, client, names, gl }: ScreenProps & { summar
                 focus={focusRange}
                 roleMask={roleMask}
                 selected={selected}
+                solo={solo !== null}
                 soloSlot={solo !== null && slots.indexOf(solo) >= 0 ? slots.indexOf(solo) : null}
+                detail={detail}
                 top={top}
                 reduced={reduced}
                 initialCam={camOf(route.cam)}
                 insets={insets}
                 avatars={avatars}
-                onHover={(rank, x, y) => hoverFeed.set({ rank, x, y })}
+                onHover={(target, x, y) => hoverFeed.set({ target, x, y })}
                 onPick={onPick}
                 onFolder={(f) => void chooseFolder(f)}
                 onPerson={(p) => choosePerson(p === solo ? null : p)}
@@ -503,7 +535,7 @@ function Atlas({ route, go, summary, client, names, gl }: ScreenProps & { summar
             </Suspense>
           ))}
       </div>
-      <HoverLayer feed={hoverFeed} client={client} clock={clock} range={range} who={who} box={stageBox} hidden={inspect?.kind === "file" && narrow} />
+      <HoverLayer feed={hoverFeed} client={client} clock={clock} range={range} who={who} box={stageBox} hidden={inspect !== null && narrow} top={toolsHeight + 22} />
       {!flat && (
         <div data-atlas-cover className="absolute top-3 right-3 z-10 flex flex-col gap-1.5">
           <IconButton label="Show the whole map (0)" size="sm" variant="secondary" icon={<Icon icon={Maximize} size="sm" />} onClick={() => api.current?.home()} />
@@ -575,18 +607,28 @@ function MomentLine({ d, folder, who }: { d: Described; folder: string; who: (p:
   );
 }
 
-function HoverLayer({ feed, client, clock, range, who, box, hidden }: { feed: Feed<{ rank: number | null; x: number; y: number }>; client: AtlasClient; clock: Clock; range: [number, number] | null; who: (p: number) => Who; box: React.RefObject<HTMLDivElement | null>; hidden: boolean }) {
-  const [state, setState] = useState<{ rank: number | null; x: number; y: number }>({ rank: null, x: 0, y: 0 });
-  useEffect(() => feed.listen((v) => setState((s) => (s.rank === v.rank && Math.abs(s.x - v.x) < 1 && Math.abs(s.y - v.y) < 1 ? s : v))), [feed]);
+function HoverLayer({ feed, client, clock, range, who, box, hidden, top }: { feed: Feed<{ target: Target | null; x: number; y: number }>; client: AtlasClient; clock: Clock; range: [number, number] | null; who: (p: number) => Who; box: React.RefObject<HTMLDivElement | null>; hidden: boolean; top: number }) {
+  const [state, setState] = useState<{ target: Target | null; x: number; y: number }>({ target: null, x: 0, y: 0 });
+  useEffect(() => feed.listen((v) => setState((s) => (sameTarget(s.target, v.target) && Math.abs(s.x - v.x) < 1 && Math.abs(s.y - v.y) < 1 ? s : v))), [feed]);
   const atNow = range ? range[1] : clock.at;
-  const facts = useAnswer<FileAnswer>(state.rank === null ? null : `${state.rank}@${Math.round(atNow)}`, () => client.ask("file", { rank: state.rank ?? 0, at: atNow }), 40, String(state.rank));
-  if (state.rank === null || hidden) return null;
+  const t = state.target;
+  const id = t === null ? null : t.kind === "file" ? `f${t.rank}` : `d${t.folder}`;
+  const file = useAnswer<FileAnswer>(t?.kind === "file" ? `${id}@${Math.round(atNow)}` : null, () => client.ask("file", { rank: t?.kind === "file" ? t.rank : 0, at: atNow }), 40, id ?? undefined);
+  const folder = useAnswer<FolderAnswer>(t?.kind === "folder" ? `${id}@${Math.round(atNow)}` : null, () => client.ask("folder", { folder: t?.kind === "folder" ? t.folder : 0, at: atNow }), 40, id ?? undefined);
+  if (t === null || hidden) return null;
   const w = box.current?.clientWidth ?? 800;
   const h = box.current?.clientHeight ?? 600;
-  return <HoverCard facts={facts} at={range ? range[1] : clock.at} range={range} who={who} x={state.x} y={state.y} width={w} height={h} />;
+  if (t.kind === "folder") return <FolderHoverCard facts={folder && folder.folder === t.folder ? folder : null} at={atNow} who={who} top={top} right={state.x < w / 2} />;
+  return <HoverCard facts={file} at={atNow} range={range} who={who} x={state.x} y={state.y} width={w} height={h} />;
 }
 
-function Toolbar({ bar, reading, client, names, lens, onLens, roleMask, onRoles, hideBots, onBots, narrow, onFound }: { bar: React.RefObject<HTMLDivElement | null>; reading: ReactNode; client: AtlasClient; names: boolean; lens: LensName; onLens: (l: LensName) => void; roleMask: number; onRoles: (m: number) => void; hideBots: boolean; onBots: (b: boolean) => void; narrow: boolean; onFound: (f: Found) => void }) {
+function sameTarget(a: Target | null, b: Target | null): boolean {
+  if (a === null || b === null) return a === b;
+  if (a.kind === "file") return b.kind === "file" && a.rank === b.rank;
+  return b.kind === "folder" && a.folder === b.folder;
+}
+
+function Toolbar({ bar, detail, onDetail, reading, client, names, lens, onLens, roleMask, onRoles, hideBots, onBots, narrow, onFound }: { bar: React.RefObject<HTMLDivElement | null>; detail: DetailChoice | null; onDetail: (d: DetailChoice) => void; reading: ReactNode; client: AtlasClient; names: boolean; lens: LensName; onLens: (l: LensName) => void; roleMask: number; onRoles: (m: number) => void; hideBots: boolean; onBots: (b: boolean) => void; narrow: boolean; onFound: (f: Found) => void }) {
   const [filters, setFilters] = useState(false);
   const filtersBody = (
     <div className="flex w-60 flex-col gap-3 p-3">
@@ -597,6 +639,7 @@ function Toolbar({ bar, reading, client, names, lens, onLens, roleMask, onRoles,
         ))}
       </fieldset>
       <Switch size="sm" label="Leave out Bots' commits" value={hideBots} onChange={onBots} />
+      {detail && <Selector label="Detail" size="sm" value={detail} onChange={(v) => onDetail(v as DetailChoice)} options={DETAILS} />}
       {(roleMask !== 31 || !hideBots) && (
         <Button
           label="Reset"

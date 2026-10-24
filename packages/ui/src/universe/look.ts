@@ -4,22 +4,25 @@ export type Rgb = [number, number, number];
 
 type Pair = readonly [day: string, night: string];
 
-const SKY_TOP: Pair = ["oklch(0.955 0.012 230)", "oklch(0.2 0.03 262)"];
-const SKY_BOTTOM: Pair = ["oklch(0.915 0.022 228)", "oklch(0.27 0.042 255)"];
-const DEEP: Pair = ["oklch(0.77 0.06 228)", "oklch(0.29 0.05 252)"];
-const SHALLOW: Pair = ["oklch(0.87 0.05 205)", "oklch(0.39 0.065 228)"];
-const FOAM: Pair = ["oklch(0.97 0.02 210)", "oklch(0.55 0.06 220)"];
-const SEABED: Pair = ["oklch(0.8 0.05 205)", "oklch(0.47 0.045 220)"];
+const SKY_TOP: Pair = ["oklch(0.83 0.07 238)", "oklch(0.16 0.03 262)"];
+const SKY_BOTTOM: Pair = ["oklch(0.94 0.025 222)", "oklch(0.27 0.045 255)"];
+const DEEP: Pair = ["oklch(0.5 0.1 236)", "oklch(0.33 0.075 248)"];
+const SHALLOW: Pair = ["oklch(0.8 0.09 195)", "oklch(0.42 0.07 215)"];
+const FOAM: Pair = ["oklch(0.97 0.012 220)", "oklch(0.8 0.025 235)"];
+const SEABED: Pair = ["oklch(0.62 0.045 205)", "oklch(0.45 0.05 225)"];
 const SAND: Pair = ["oklch(0.885 0.032 85)", "oklch(0.47 0.022 80)"];
+const FLOOR_SAND: Pair = ["oklch(0.86 0.05 88)", "oklch(0.66 0.035 200)"];
+const RUIN: Pair = ["oklch(0.6 0.02 225)", "oklch(0.56 0.025 240)"];
+const SUN: Pair = ["oklch(0.985 0.018 85)", "oklch(0.9 0.03 250)"];
+const SKY_LIGHT: Pair = ["oklch(0.8 0.05 235)", "oklch(0.62 0.06 258)"];
+const OUTLINE: Pair = ["oklch(0.99 0.02 95)", "oklch(0.97 0.04 95)"];
 const SNOW: Pair = ["oklch(0.985 0.005 240)", "oklch(0.88 0.012 240)"];
 const OTHER: Pair = ["oklch(0.79 0.012 269)", "oklch(0.56 0.014 267)"];
-const DIM: Pair = ["oklch(0.86 0.012 240)", "oklch(0.34 0.02 255)"];
+const DIM: Pair = ["oklch(0.86 0.012 240)", "oklch(0.44 0.02 255)"];
 const BORDER: Pair = ["oklch(0.35 0.02 260)", "oklch(0.92 0.01 260)"];
 const GLOW: Pair = ["oklch(1 0 0)", "oklch(0.86 0.14 80)"];
-const KEY: Pair = ["oklch(0.95 0.03 80)", "oklch(0.8 0.03 260)"];
-const GROUND: Pair = ["oklch(0.7 0.03 80)", "oklch(0.2 0.02 260)"];
+const GROUND: Pair = ["oklch(0.72 0.03 85)", "oklch(0.3 0.02 260)"];
 const RELEASE: Pair = ["oklch(0.51 0.136 150)", "oklch(0.76 0.178 152)"];
-const BULK: Pair = ["oklch(0.6 0.03 240)", "oklch(0.85 0.03 230)"];
 const ROLES: readonly Pair[] = [
   ["oklch(0.66 0.1 150)", "oklch(0.58 0.11 150)"],
   ["oklch(0.6 0.03 60)", "oklch(0.5 0.03 60)"],
@@ -54,6 +57,13 @@ export type Look = {
   };
   sky: Rgb;
   fog: Rgb;
+  sun: Rgb;
+  skyLight: Rgb;
+  scatter: Rgb;
+  absorb: Rgb;
+  floor: Rgb;
+  ruin: Rgb;
+  outline: Rgb;
   deep: Rgb;
   shallow: Rgb;
   foam: Rgb;
@@ -64,10 +74,8 @@ export type Look = {
   dim: Rgb;
   border: Rgb;
   glow: Rgb;
-  key: Rgb;
   ground: Rgb;
   release: Rgb;
-  bulk: Rgb;
   slots: Rgb[];
   roles: Rgb[];
   stale: Rgb[];
@@ -120,6 +128,13 @@ export function lookOf(host: HTMLElement): Look {
     css,
     sky: rgbOf(pick(SKY_TOP)),
     fog: rgbOf(pick(SKY_BOTTOM)),
+    sun: rgbOf(pick(SUN)),
+    skyLight: rgbOf(pick(SKY_LIGHT)),
+    scatter: rgbOf(pick(DEEP)),
+    absorb: night ? [0.75, 0.3, 0.16] : [0.5, 0.15, 0.1],
+    floor: rgbOf(pick(FLOOR_SAND)),
+    ruin: rgbOf(pick(RUIN)),
+    outline: rgbOf(pick(OUTLINE)),
     deep: rgbOf(pick(DEEP)),
     shallow: rgbOf(pick(SHALLOW)),
     foam: rgbOf(pick(FOAM)),
@@ -130,10 +145,8 @@ export function lookOf(host: HTMLElement): Look {
     dim: rgbOf(pick(DIM)),
     border: rgbOf(pick(BORDER)),
     glow: rgbOf(pick(GLOW)),
-    key: rgbOf(pick(KEY)),
     ground: rgbOf(pick(GROUND)),
     release: rgbOf(pick(RELEASE)),
-    bulk: rgbOf(pick(BULK)),
     slots: slotsCss.map(rgbOf),
     roles: css.roles.map(rgbOf),
     stale: css.stale.map(rgbOf),

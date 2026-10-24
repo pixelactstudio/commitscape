@@ -23,8 +23,6 @@ export type Frame = {
 
 export type Beacon = { slot: number; person: number; folder: number; x: number; z: number; commits: number };
 
-export type Strike = { commit: number; time: number; person: number; colour: number; bulk: boolean; files: number[]; total: number };
-
 export type SlotSpan = { person: number; from: number; to: number };
 
 export type Holder = { person: number; commits: number };
@@ -357,28 +355,6 @@ export class AtlasEngine {
       for (const [d, k] of byFolder) if (k * 2 >= changes && (L.depth[d] as number) > (L.depth[home] as number) && (L.folderFrom[d] as number) >= 0) home = d;
       out.push({ slot, person: p, folder: home, x: L.folderX[home] as number, z: L.folderZ[home] as number, commits });
     });
-    return out;
-  }
-
-  strikes(after: number, upTo: number, slots: number[], limit = 240): Strike[] {
-    const a = this.atlas;
-    if (upTo <= after) return [];
-    let lo = upper(a.commits.time, 0, a.commits.time.length, after);
-    const hi = upper(a.commits.time, 0, a.commits.time.length, upTo);
-    lo = Math.max(lo, hi - limit);
-    const out: Strike[] = [];
-    for (let i = lo; i < hi; i++) {
-      const p = a.commits.person[i] as number;
-      const bulk = ((a.commits.flags[i] as number) & COMMIT_FLAG.bulk) !== 0;
-      if (!bulk && !this.counted[i]) continue;
-      const s = a.commits.start[i] as number;
-      const e = a.commits.start[i + 1] as number;
-      const files: number[] = [];
-      for (let j = s; j < e && files.length < (bulk ? 0 : 50); j++) files.push(this.layout.rank[a.changes.file[j] as number] as number);
-      if (bulk) for (let j = s; j < e; j += Math.max(1, Math.floor((e - s) / 64))) files.push(this.layout.rank[a.changes.file[j] as number] as number);
-      const k = p >= 0 ? slots.indexOf(p) : -1;
-      out.push({ commit: i, time: a.commits.time[i] as number, person: p, colour: k >= 0 ? k : COLOUR.other, bulk, files, total: e - s });
-    }
     return out;
   }
 

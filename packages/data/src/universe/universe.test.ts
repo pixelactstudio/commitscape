@@ -219,12 +219,6 @@ describe("engine", () => {
     expect(bob.folders.map((f) => f.path)).toEqual(["src", "src/deep", "test"]);
   });
 
-  it("lists the commits between two moments", () => {
-    const s = engine.strikes(T0 + 1 * D, T0 + 41 * D, engine.slotsAt(T0 + 41 * D));
-    expect(s.map((x) => x.bulk)).toEqual([false, false, false, false, true]);
-    expect(s[1]?.files.length).toBe(2);
-  });
-
   it("describes a moment", () => {
     const d = engine.describe(T0 + 12 * D);
     expect(d.alive).toBe(3);

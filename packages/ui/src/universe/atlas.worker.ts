@@ -1,11 +1,9 @@
-import { AtlasEngine, decodeAtlas, decodeNames, folderPath, layoutOf, WEEK_SECONDS, type Atlas, type Layout } from "@commitscape/data/universe";
-import { distanceField } from "./field";
+import { AtlasEngine, decodeAtlas, decodeNames, folderPath, layoutOf, type Atlas, type Layout } from "@commitscape/data/universe";
 import type { Ask, FileAnswer, FrameAnswer, Region, Summary, Told } from "./protocol";
 
 const scope = self as unknown as { postMessage(message: Told, transfer?: Transferable[]): void; onmessage: ((e: MessageEvent<Ask>) => void) | null };
 
 const SUPER_FROM = 60_000;
-const STRIKE_SPAN = 10 * WEEK_SECONDS;
 
 let engine: AtlasEngine | null = null;
 let queue: Promise<void> = Promise.resolve();
@@ -85,6 +83,7 @@ function summaryOf(e: AtlasEngine): { summary: Summary; transfer: Transferable[]
   const role = new Float32Array(n);
   const language = new Float32Array(n);
   const alive = new Uint8Array(n);
+  const fileFolder = new Int32Array(n);
   const counts = new Map<number, number>();
   for (let f = 0; f < n; f++) if ((a.files.info[f] as number) & 8) counts.set(a.files.language[f] as number, (counts.get(a.files.language[f] as number) ?? 0) + 1);
   const top = [...counts.entries()].filter(([l]) => l > 0).sort((p, q) => q[1] - p[1]).slice(0, 8).map(([l]) => l);
@@ -100,7 +99,9 @@ function summaryOf(e: AtlasEngine): { summary: Summary; transfer: Transferable[]
     const k = top.indexOf(l);
     language[rank] = l === 0 ? 9 : k >= 0 ? k : 8;
     alive[rank] = (a.files.info[f] as number) & 8 ? 1 : 0;
+    fileFolder[rank] = a.files.folder[f] as number;
   }
+  const folders = { parent: a.folders.parent.slice(), from: L.folderFrom.slice(), to: L.folderTo.slice(), radius: L.folderRadius.slice() };
   let supers: Summary["supers"] = null;
   if (n > SUPER_FROM) {
     const starts: number[] = [];
@@ -127,7 +128,8 @@ function summaryOf(e: AtlasEngine): { summary: Summary; transfer: Transferable[]
   const slotsByWeek = e.slotsByWeek.slice();
   const b = L.bounds;
   const span = Math.max(b.maxX - b.minX, b.maxZ - b.minZ);
-  const field = distanceField(x, z, b, Math.max(30, span * 0.1), Math.max(10, Math.min(40, span * 0.06)));
+  const pad = Math.max(30, span * 0.1);
+  const area: Summary["area"] = [b.minX - pad, b.minZ - pad, b.maxX - b.minX + pad * 2, b.maxZ - b.minZ + pad * 2];
   const summary: Summary = {
     origin: a.origin,
     newest: a.newest,
@@ -152,9 +154,11 @@ function summaryOf(e: AtlasEngine): { summary: Summary; transfer: Transferable[]
     history: e.slotHistory(),
     releases: { names: a.releases.names, time: a.releases.time.slice() },
     supers,
-    field,
+    area,
+    folders,
+    fileFolder,
   };
-  const transfer: Transferable[] = [field.data.buffer, x.buffer, z.buffer, born.buffer, died.buffer, borders.buffer, role.buffer, language.buffer, alive.buffer, strip.buffer, slotsByWeek.buffer];
+  const transfer: Transferable[] = [x.buffer, z.buffer, born.buffer, died.buffer, borders.buffer, role.buffer, language.buffer, alive.buffer, strip.buffer, slotsByWeek.buffer, fileFolder.buffer, folders.parent.buffer, folders.from.buffer, folders.to.buffer, folders.radius.buffer];
   if (supers) transfer.push(supers.x.buffer, supers.z.buffer, supers.start.buffer);
   return { summary, transfer };
 }
@@ -212,8 +216,7 @@ function answer(ask: Exclude<Ask, { type: "open" }>): void | Promise<void> {
   switch (ask.type) {
     case "frame": {
       const f = e.frame({ at: ask.at, from: ask.from, solo: ask.solo });
-      const strikes = ask.after !== null && ask.at > ask.after && ask.at - ask.after <= STRIKE_SPAN && ask.from === null ? e.strikes(ask.after, ask.at, f.slots) : [];
-      const value: FrameAnswer = { at: f.at, from: f.from, height: f.height, colour: f.colour, touched: f.touched, slots: f.slots, beacons: f.beacons, tallest: f.tallest, strikes };
+      const value: FrameAnswer = { at: f.at, from: f.from, height: f.height, colour: f.colour, touched: f.touched, slots: f.slots, beacons: f.beacons, tallest: f.tallest };
       return tell({ type: "answer", id: ask.id, value }, [f.height.buffer, f.colour.buffer, f.touched.buffer]);
     }
     case "bots": {
