@@ -1,4 +1,6 @@
+import { limited, topOf, withoutTop } from "./answers/limit";
 import { listPager, type CommitPage, type CommitQuery, type Finder } from "./commits";
+import type { GitLog } from "./git";
 import type { CommitList, Meta } from "./types";
 
 export type Params = Record<string, string | number | null | undefined>;
@@ -11,11 +13,18 @@ export type Report = {
 export interface DataSource {
   readonly id: string;
   readonly meta: Meta;
+  readonly ranges?: boolean;
+  readonly atlas?: string;
+  log?(): Promise<GitLog>;
   get<T>(path: string, params?: Params): Promise<T>;
   commits(query: CommitQuery, cursor?: string): Promise<CommitPage>;
 }
 
 export const COMMIT_LIST_KEY = "/api/commits?";
+
+export const OVERVIEW_TOP = 8;
+
+export const RANKING_LIMIT = 1000;
 
 export function key(path: string, params: Params = {}): string {
   const query = Object.entries(params)
@@ -36,9 +45,10 @@ export function reportSource(report: Report, id: string, finder?: (list: CommitL
     id,
     meta: report.meta,
     async get<T>(path: string, params: Params = {}) {
-      const found = report.data[key(path, params)];
+      const top = topOf(params);
+      const found = report.data[key(path, withoutTop(params))];
       if (found === undefined) throw new Error(NOT_IN_REPORT);
-      return found as T;
+      return limited(path, top, found) as T;
     },
     async commits(query, cursor) {
       if (!pager) {

@@ -3,8 +3,8 @@ packages:
   - packages/*
 
 catalog:
-  "@astryxdesign/core": 0.6.5
-  "@astryxdesign/theme-neutral": 0.6.5
+  "@astryxdesign/core": 0.7.1
+  "@astryxdesign/theme-neutral": 0.7.1
   "@stylexjs/stylex": 0.19.1
   "@playwright/test": 1.63.0
   "@types/node": 24.13.6
@@ -15,7 +15,7 @@ catalog:
   react: 19.3.0
   react-dom: 19.3.0
   typescript: 6.0.3
-  vite: 8.3.1
+  vite: 8.3.5
   vitest: 5.0.1
   "@aws-sdk/client-s3": 3.1141.0
   "@electric-sql/pglite": 0.5.8
@@ -27,7 +27,9 @@ catalog:
   lru-cache: 11.5.3
   pg: 8.23.0
   pg-boss: 12.35.0
-  zod: 4.6.5
+  pg-copy-streams: 7.0.0
+  "@types/pg-copy-streams": 1.2.5
+  zod: 4.6.7
   "@axe-core/playwright": 4.13.0
   "@vitest/coverage-v8": 5.0.1
   "@t3-oss/env-core": 0.13.11
@@ -53,3 +55,7 @@ overrides:
   seroval-plugins: ^1.6.7
   shell-quote: ^1.11.0
   source-map-js: ^1.2.2
+  dompurify: ^3.4.17
+  body-parser: ^2.4.0
+  launch-editor: ^2.14.2
+  "zod@>=4.0.0 <4.6.6": 4.6.7

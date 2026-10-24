@@ -1,8 +1,7 @@
 import { Button } from "@astryxdesign/core/Button";
 import { Icon } from "@astryxdesign/core/Icon";
-import { ProgressBar } from "@astryxdesign/core/ProgressBar";
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { createFileRoute, Link, useRouteContext, type ErrorComponentProps } from "@tanstack/react-router";
+import { createFileRoute, Link, notFound, useRouteContext } from "@tanstack/react-router";
 import { History, Link2, Users } from "lucide-react";
 import { Nothing } from "@commitscape/ui/motion";
 import { ICON } from "@commitscape/ui/design";
@@ -11,30 +10,35 @@ import { Page, PageHead, Panel } from "@commitscape/ui";
 import { InvitationCallout, People } from "#/components/Membership";
 import { Missing } from "#/components/Missing";
 import { ShareButton } from "#/components/ShareDialog";
-import { PageError } from "#/components/States";
 import { ThemedCard } from "#/components/ThemedCard";
-import { Leaders, WindowTable } from "#/components/WindowTable";
+import { Clock, Leaders, StandingsTable } from "#/components/Board";
 import { people, readAt, windowClock } from "#/lib/window";
 import { crewQuery } from "#/lib/queries";
 import { useToast } from "#/lib/toast";
 
 export const Route = createFileRoute("/crews/$id")({
-  loader: async ({ params, context }) => ({ crew: await context.queryClient.ensureQueryData(crewQuery(params.id)), origin: context.origin ?? "" }),
+  loader: async ({ params, context }) => {
+    try {
+      return { crew: await context.queryClient.ensureQueryData(crewQuery(params.id)), origin: context.origin ?? "" };
+    } catch (e) {
+      if (e instanceof Error && e.message.startsWith("There is no Crew")) throw notFound();
+      throw e;
+    }
+  },
   head: ({ loaderData, params }) => ({
     meta: [
-      { title: `${loaderData?.crew.name ?? "A Crew"} · ${PRODUCT}` },
+      { title: `${loaderData?.crew.name ?? "Not found"} · ${PRODUCT}` },
       { property: "og:title", content: loaderData?.crew.name ?? "A Crew" },
       { property: "og:image", content: `${loaderData?.origin ?? ""}/api/cards/crews/${params.id}/season.png` },
       { name: "robots", content: "noindex" },
     ],
   }),
-  errorComponent: NoCrew,
+  notFoundComponent: NoCrew,
   component: CrewPage,
 });
 
-function NoCrew(props: ErrorComponentProps) {
-  if (props.error instanceof Error && props.error.message.startsWith("There is no Crew")) return <Missing title="No Crew here" words="This Crew was never started, or its address is mistyped. Start one of your own, or ask whoever sent it for the link again." back={{ label: "Crews", href: "/crews" }} />;
-  return <PageError {...props} />;
+function NoCrew() {
+  return <Missing title="No Crew here" words="This Crew was never started, or its address is mistyped. Start one of your own, or ask whoever sent it for the link again." back={{ label: "Crews", href: "/crews" }} lookup={false} />;
 }
 
 function CrewPage() {
@@ -47,9 +51,9 @@ function CrewPage() {
   const season = seasonDates(crew.season);
   const clock = windowClock(season.from, season.to);
   const lastName = crew.last ? monthName(crew.last.from.slice(0, 7)) : "";
-  const card = crew.last && crew.last.rows.length > 0 ? { id: "season", title: "The Season recap Card", about: `${lastName}: its people, view by view.`, url: `/api/cards/crews/${id}/season`, width: 720, height: 186 + Math.min(10, crew.last.rows.length) * 40, link: `/crews/${id}`, share: `${crew.name}'s Season on ${PRODUCT}.`, alt: `${crew.name}: ${lastName}` } : null;
+  const card = crew.last && crew.last.rows.length > 0 ? { id: "season", title: "The Season recap Card", about: `${lastName}: its people, view by view.`, url: `/api/cards/crews/${id}/season`, width: 720, height: 186 + Math.min(10, crew.last.rows.length) * 40, link: `/crews/${id}`, share: `${crew.name}’s Season on ${PRODUCT}.`, alt: `${crew.name}: ${lastName}` } : null;
   return (
-    <Page className="flex flex-col gap-gutter pb-16">
+    <Page className="flex flex-col gap-gutter pb-section">
       <PageHead
         eyebrow={
           <Link to="/crews" className="inline-flex items-center gap-1.5 text-secondary no-underline hover:text-primary">
@@ -66,30 +70,19 @@ function CrewPage() {
         }
       />
       <InvitationCallout kind="crew" id={id} you={crew.you} />
-      <div className="flex flex-col gap-3 rounded-lg border border-line bg-surface px-panel py-4 sm:flex-row sm:items-center sm:gap-6">
-        <div className="flex flex-none flex-col gap-1.5">
-          <span className="type-caption font-medium">This Season</span>
-          <span className="type-stat">{monthName(crew.season)}</span>
-        </div>
-        <div className="min-w-0 flex-1">
-          <ProgressBar label="How far through the Season" isLabelHidden value={clock.day} max={clock.total} variant="success" />
-        </div>
-        <span className="flex-none type-caption tnum">
-          {clock.words}, day {clock.day} of {clock.total}
-        </span>
-      </div>
+      <Clock label="This Season" headline={monthName(crew.season)} day={clock.day} total={clock.total} note={`${clock.words}, day ${clock.day} of ${clock.total}`} />
       {crew.standings && crew.standings.rows.length > 0 ? (
         <>
           <Leaders standings={crew.standings} />
           <Panel padding={0} title={`This Season: ${monthName(crew.season)}`} description={`So far this month, from GitHub; read at ${readAt(crew.standings)} and again every 15 minutes. A leader for each view, never one winner.`}>
             <div className="pb-2">
-              <WindowTable standings={crew.standings} label="This Season" />
+              <StandingsTable standings={crew.standings} label="This Season" />
             </div>
           </Panel>
         </>
       ) : (
         <Panel>
-          <Nothing compact title="Nobody has accepted yet" words="This Season's Standings appear as soon as people accept: pull requests merged, reviews given, commits and contributions, each with its own leader." />
+          <Nothing compact title="Nobody has accepted yet" words="This Season’s Standings appear as soon as people accept: pull requests merged, reviews given, commits and contributions, each with its own leader." />
         </Panel>
       )}
       <div className={`grid items-start gap-gutter ${card ? "lg:grid-cols-[1fr_1.15fr]" : ""}`}>
@@ -103,7 +96,7 @@ function CrewPage() {
       {crew.last && crew.last.rows.length > 0 && (
         <Panel padding={0} title={`Last Season: ${lastName}`} description="As it ended." actions={<History size={ICON.md} className="text-secondary" aria-hidden />}>
           <div className="pb-2">
-            <WindowTable standings={crew.last} label="Last Season" />
+            <StandingsTable standings={crew.last} label="Last Season" />
           </div>
         </Panel>
       )}

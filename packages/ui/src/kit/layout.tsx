@@ -3,29 +3,31 @@ import { Card } from "@astryxdesign/core/Card";
 import { Heading } from "@astryxdesign/core/Heading";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
 
-const WIDTHS = { default: "max-w-[var(--page)]", narrow: "max-w-[var(--page-narrow)]", wide: "max-w-[var(--page-wide)]" } as const;
+export { Chip, Pill } from "./primitives";
 
-/** A page's column: centred, padded, and as wide as its kind of page. */
+const WIDTHS = { default: "px-(--frame-inset)", narrow: "mx-auto max-w-[calc(var(--page-narrow)+2*var(--gutter))] px-(--gutter)" } as const;
+
+/** A page's column: on the frame's edges, the same as the top bar and the footer, or a narrower centred one for reading. */
 export function Page({ children, width = "default", className = "" }: { children: ReactNode; width?: keyof typeof WIDTHS; className?: string }) {
-  return <div className={`mx-auto w-full ${WIDTHS[width]} px-4 sm:px-6 ${className}`}>{children}</div>;
+  return <div className={`w-full ${WIDTHS[width]} ${className}`}>{children}</div>;
 }
 
 /** A page's title block: what it is, a line about it, and what can be done from it. */
 export function PageHead({ eyebrow, title, description, actions, media }: { eyebrow?: ReactNode; title: ReactNode; description?: ReactNode; actions?: ReactNode; media?: ReactNode }) {
   return (
-    <header className="flex flex-col gap-5 pt-page-top pb-6 md:flex-row md:items-end md:justify-between">
-      <div className="flex min-w-0 items-center gap-4">
+    <div className="flex flex-col gap-5 pt-page-top pb-6 md:flex-row md:items-end md:justify-between">
+      <div className="flex min-w-0 flex-col items-start gap-3 sm:flex-row sm:items-center sm:gap-4">
         {media}
         <div className="flex min-w-0 flex-col gap-1.5">
           {eyebrow && <div className="type-label text-secondary">{eyebrow}</div>}
           <Heading level={1} textWrap="balance">
-            <span className="block type-title">{title}</span>
+            <span className="block type-page">{title}</span>
           </Heading>
           {description && <p className="m-0 max-w-2xl type-lead">{description}</p>}
         </div>
       </div>
       {actions && <div className="flex flex-none flex-wrap items-center gap-2">{actions}</div>}
-    </header>
+    </div>
   );
 }
 
@@ -41,18 +43,18 @@ export function Panel({ title, description, actions, children, id, className = "
         )}
         {description && <div className="type-description">{description}</div>}
       </div>
-      {actions && <div className="flex max-w-full flex-none flex-wrap items-center gap-2">{actions}</div>}
+      {actions && <div className="flex max-w-full flex-none flex-wrap items-center gap-2 max-sm:self-stretch">{actions}</div>}
     </div>
   );
   if (bare)
     return (
-      <section id={id} aria-label={typeof title === "string" ? title : undefined} className={`flex min-w-0 scroll-mt-20 flex-col gap-stack ${className}`}>
+      <section id={id} aria-label={typeof title === "string" ? title : undefined} className={`flex min-w-0 scroll-mt-(--chrome-top) flex-col gap-stack ${className}`}>
         {head}
         {children}
       </section>
     );
   return (
-    <section id={id} aria-label={typeof title === "string" ? title : undefined} className={`min-w-0 scroll-mt-20 ${className}`}>
+    <section id={id} aria-label={typeof title === "string" ? title : undefined} className={`min-w-0 scroll-mt-(--chrome-top) ${className}`}>
       <Card padding={padding}>
         <div className="flex min-w-0 flex-col gap-stack">
           {head}
@@ -87,9 +89,9 @@ export function Stat({ value, label, note, size = "md", tone, children }: { valu
 
 /** A thin bar showing how much of a whole something is. */
 export function Meter({ value, label, tone = "brand", className = "" }: { value: number; label: string; tone?: "brand" | "neutral" | "added"; className?: string }) {
-  const colour = tone === "brand" ? "bg-brand" : tone === "added" ? "bg-added" : "bg-[var(--color-text-secondary)]";
+  const colour = tone === "brand" ? "bg-brand" : tone === "added" ? "bg-added" : "bg-secondary";
   return (
-    <span role="meter" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(value * 100)} className={`block h-1.5 w-full overflow-hidden rounded-full bg-[var(--color-track)] ${className}`}>
+    <span role="meter" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(value * 100)} className={`block h-1.5 w-full overflow-hidden rounded-full bg-track ${className}`}>
       <span className={`block h-full rounded-full ${colour}`} style={{ width: `${Math.max(value > 0 ? 2 : 0, Math.min(100, value * 100))}%` }} />
     </span>
   );
@@ -109,22 +111,6 @@ export function AddedRemoved({ added, removed, className = "" }: { added: number
 /** A coloured dot for a programming language, as GitHub colours it. */
 export function LangDot({ colour }: { colour: string | null }) {
   return <span aria-hidden className="inline-block size-2.5 flex-none rounded-full" style={{ background: colour ?? "var(--other)" }} />;
-}
-
-const CHIP_TONES = {
-  neutral: "border-line bg-surface text-primary",
-  brand: "border-brand-line bg-brand-soft text-brand",
-  quiet: "border-transparent bg-sunken text-secondary",
-} as const;
-
-/** A small rounded label: a status, a tag, or where something goes. */
-export function Chip({ children, icon, tone = "neutral", className = "" }: { children: ReactNode; icon?: ReactNode; tone?: keyof typeof CHIP_TONES; className?: string }) {
-  return (
-    <span className={`inline-flex h-6 flex-none items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium whitespace-nowrap ${CHIP_TONES[tone]} ${className}`}>
-      {icon}
-      {children}
-    </span>
-  );
 }
 
 /** The short uppercase line above a heading that says what kind of thing follows. */

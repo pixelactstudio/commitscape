@@ -16,6 +16,7 @@ export interface Storage {
   get(key: string): Promise<StoredObject | null>;
   delete(keys: string[]): Promise<void>;
   deletePrefix(prefix: string): Promise<void>;
+  keys?(prefix: string): Promise<string[]>;
 }
 
 export type S3Config = {
@@ -67,6 +68,16 @@ export function s3Storage(config: S3Config): Storage {
         token = page.IsTruncated ? page.NextContinuationToken : undefined;
       } while (token);
     },
+    async keys(prefix) {
+      const found: string[] = [];
+      let token: string | undefined;
+      do {
+        const page = await client.send(new ListObjectsV2Command({ Bucket, Prefix: prefix, ContinuationToken: token }));
+        for (const o of page.Contents ?? []) if (o.Key) found.push(o.Key);
+        token = page.IsTruncated ? page.NextContinuationToken : undefined;
+      } while (token);
+      return found;
+    },
   };
 }
 
@@ -86,6 +97,9 @@ export function memoryStorage(): Storage & { objects: Map<string, StoredObject> 
     },
     async deletePrefix(prefix) {
       for (const k of [...objects.keys()]) if (k.startsWith(prefix)) objects.delete(k);
+    },
+    async keys(prefix) {
+      return [...objects.keys()].filter((k) => k.startsWith(prefix));
     },
   };
 }

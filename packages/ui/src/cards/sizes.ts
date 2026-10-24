@@ -22,13 +22,31 @@ export function languagesSize(data: ProfileCardData) {
 
 export const STANDING_SIZE = { width: 600, height: 268 };
 
-/** How big a repository's hall of fame Card is for a number of people. */
+export const HALL_SHOWN = 10;
+export const FACES_SHOWN = 24;
+export const FACES_ROW = 8;
+
+/** How big a repository's hall of fame Card is for a number of people: the first three on a podium, the rest two to a row. */
 export function hallOfFameCardSize(people: number) {
-  return { width: 720, height: 262 + Math.max(1, Math.min(10, people)) * 40 };
+  const n = Math.max(1, Math.min(HALL_SHOWN, people));
+  return { width: 720, height: 396 + Math.ceil(Math.max(0, n - 3) / 2) * 36 };
 }
 
 export function hallOfFameSize(data: HallOfFameData) {
   return hallOfFameCardSize(data.people.length);
+}
+
+export const REPO_COMPACT_SIZE = { width: 600, height: 176 };
+
+export const REPO_STATS_SIZE = { width: 600, height: 300 };
+
+/** How big a repository's faces Card is for a number of people: eight faces to a row. */
+export function repoFacesCardSize(people: number) {
+  return { width: 720, height: 164 + Math.ceil(Math.max(1, Math.min(FACES_SHOWN, people)) / FACES_ROW) * 96 };
+}
+
+export function repoFacesSize(data: HallOfFameData) {
+  return repoFacesCardSize(data.people.length);
 }
 
 export const PREVIEW_SIZE = { width: 1200, height: 630 };

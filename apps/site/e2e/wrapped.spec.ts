@@ -1,8 +1,11 @@
 import { expect, test } from "@playwright/test";
+import { signInAs } from "./accounts";
 
-test("a person's year: its numbers, its calendar, and its Cards", async ({ page, request }) => {
+test("a person's year: its numbers, its calendar, and its Cards", async ({ page, context }) => {
+  await signInAs(context, "alice");
+  const request = context.request;
   await page.goto("/u/alice/wrapped/2026");
-  await expect(page.getByText("@alice's year on GitHub")).toBeVisible();
+  await expect(page.getByText("@alice’s year on GitHub")).toBeVisible();
   const stat = (label: string) => page.getByRole("group", { name: label, exact: true });
   await expect(stat("Pull requests merged")).toContainText("3");
   await expect(stat("Reviews given")).toContainText("5");

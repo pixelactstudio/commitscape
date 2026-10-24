@@ -1,10 +1,11 @@
 import "@tanstack/react-start/server-only";
-import { bossQueue, createDb, s3Storage, startQueue, type Db, type GitHubApp, type Queue, type Storage } from "@commitscape/server";
+import { bossQueue, createDb, s3Storage, siteToken, startQueue, type Db, type GitHubApp, type Queue, type SiteToken, type Storage } from "@commitscape/server";
 import { env } from "./env";
 
 let database: Db | undefined;
 let storage: Storage | undefined;
 let queue: Promise<Queue> | undefined;
+let token: SiteToken | undefined;
 
 export function db(): Db {
   database ??= createDb(env.DATABASE_URL).db;
@@ -33,4 +34,14 @@ export function builds(): Promise<Queue> {
 
 export function githubApp(): GitHubApp | null {
   return env.GITHUB_APP_ID && env.GITHUB_APP_PRIVATE_KEY ? { appId: env.GITHUB_APP_ID, privateKey: env.GITHUB_APP_PRIVATE_KEY, api: env.GITHUB_API } : null;
+}
+
+export function siteTokenOf(): SiteToken {
+  token ??= siteToken(githubApp(), env.GITHUB_APP_INSTALLATION_ID ?? null, env.GITHUB_TOKEN);
+  return token;
+}
+
+/** GitHub as the Site itself reads it: public data under the Site's own token. */
+export function siteGitHub(): { api: string; token?: string } {
+  return { api: env.GITHUB_API, token: siteTokenOf().current() };
 }

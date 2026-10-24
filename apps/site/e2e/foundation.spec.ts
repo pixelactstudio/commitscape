@@ -87,13 +87,13 @@ test("the repository page has avatars, one chart, and none of the panels the Sit
   for (const gone of ["The story so far", "Did you know?", "Worth a look", "Risk"]) await expect(page.getByText(gone, { exact: true })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Commits over time" })).toHaveCount(1);
   await expect(page.getByRole("list", { name: "Contributors" }).getByRole("listitem")).toHaveCount(3);
-  await expect(page.getByRole("list", { name: "Contributors" }).locator("[class*=avatar]").first()).toBeVisible();
-  const palette = page.getByRole("dialog", { name: "Search people, folders, files and commits" });
+  await expect(page.getByRole("list", { name: "Contributors" }).locator("img, [role=img]").first()).toBeVisible();
+  const palette = page.getByRole("dialog", { name: "Search this Report" });
   await expect(async () => {
     await page.keyboard.press("Control+k");
     await expect(palette).toBeVisible({ timeout: 1000 });
   }).toPass();
   await page.keyboard.type("Carol");
-  await expect(page.getByRole("option", { name: "Carol", exact: true })).toBeVisible();
+  await expect(page.getByRole("option", { name: /^Carol/ })).toBeVisible();
   await expect(page.getByRole("option", { name: /Commits that mention/ })).toBeVisible();
 });

@@ -43,10 +43,46 @@ GitHub App user token, so it spends their allowance.
 | Who is signed in | `syncLogin`, at every sign-in | Their token (`GET /user`) | Never worked: Better Auth dropped the login | 1 request per sign-in on their allowance |
 | A missing login, for accounts that signed in before | `loginOf` | Their token, else the Site token (`GET /user/{id}`) | n/a | Once per person, then stored |
 | Which App installation reads a private repository | `installationOf` (App JWT) | The App | Each time a signed-in viewer who can see an unconnected private repository opens it | Unchanged; low volume |
+| A pull request's description, comments and reviews (3 REST GETs: `/pulls/N`, `/issues/N/comments`, `/pulls/N/reviews`) | `pullConversation`, only when a signed-in person opens a pull request's Conversation | Their token, cached for them alone (`scope` `user:<id>`) | n/a | 5 min per person and pull request, then revalidated with the stored ETag. Never shown or read for people signed out |
 | A Report's pull requests (GraphQL), the GitHub account of each author email (`commits?sha=` per email), issue answer times (REST), the seed list (REST search), installation tokens (App JWT) | Builder | Site token for public repositories, an installation token for connected private ones | Not cached | Author accounts and issue answers go through `cachedGet`, under `public` or the repository's own scope; author accounts are kept a year since a commit's author never changes |
 
-Webhooks cost nothing: GitHub calls the Site (`/api/github/webhooks`). Today they only delete a Report when the App
-is removed.
+The Code, Branches and Pull requests screens cost no request at all. The Builder reads branches, tags, the files at HEAD with their history, and pull
+requests' commits, files and diffs from its kept clone with git: `git ls-remote` lists `refs/pull/N/head` and `git fetch` takes the heads, which GitHub
+serves as git, not through the API. Pull request titles, states and reviewers still come from the GraphQL read and the webhooks above.
+
+Webhooks cost nothing: GitHub calls the Site (`/api/github/webhooks`) for repositories the App is installed on.
+`onWebhook` (`apps/site/src/server/webhooks.ts`) keeps pull requests, reviews and counts from the payloads, rebuilds
+after a push to the default branch, follows renames and visibility, records an activity feed, and deletes a person's
+tokens when they revoke the App. DEPLOY.md lists the events.
+
+## Whose token pays
+
+| Work | Token, first that exists |
+|---|---|
+| A Build, its pull requests, its author accounts | The repository's own installation (its own allowance); the token the signed-in person who asked for it lent (sealed in `lent_tokens` with `TOKEN_SECRET`, six hours); the Site token |
+| A private repository | Its installation only |
+| Anything a signed-in person opens | Their token first, the Site token if GitHub refuses it |
+| Anything someone signed out opens | Stored answers only. Reading a person nobody has read yet spends the Site token within an hourly budget for all of them together (`visitorReads`, 60 people and 300 lookups an hour); past it they are asked to sign in |
+
+The Site token is minted from the App's own installation (`GITHUB_APP_INSTALLATION_ID`) and renewed every hour
+(`siteToken` in `packages/server/src/github-app.ts`). It is refused if that installation can read anything private.
+Pooling other people's tokens or installations to serve unrelated visitors is never done: GitHub treats it as getting
+around the limits.
+
+## What is kept for people signed in
+
+The gates are one list, `GATES` in `apps/site/src/lib/gates.ts`; turning one off is one line. The server never sends a
+gated part's data to someone signed out: it answers `{ locked }`, and the page draws made-up rows under a blur with a
+sign-in button (`components/Locked.tsx`).
+
+| Gate | What |
+|---|---|
+| `profile` | A Profile's pull requests, reviews, partners, commit hours and repository table |
+| `visitor` | Reading a person nobody has read yet, past the hourly budget |
+| `work` | Proof of Work |
+| `wrapped` | Wrapped |
+| `build` | Asking for a Build; a stored Report is open to everyone |
+| `pr` | A pull request's description, comments and reviews, which come from GitHub's API. Its commits, files and diff come from git and are open to everyone |
 
 ## What was done to use less
 
@@ -112,6 +148,8 @@ Environment variables, all read at run time (`apps/site/src/server/env.ts`, `app
 | `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY` | Site, Builder | The App's identity, for installation lookups and tokens |
 | `GITHUB_APP_SLUG`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET` | Site | Sign in with GitHub, and the install link |
 | `GITHUB_WEBHOOK_SECRET` | Site | Checks webhook signatures |
+| `GITHUB_APP_INSTALLATION_ID` | Site, Builder | The installation the Site token is minted from; public repositories only |
+| `TOKEN_SECRET` | Site, Builder | Seals the tokens people lend to their Builds; the same on both |
 
 Testing:
 

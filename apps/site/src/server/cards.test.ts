@@ -81,7 +81,7 @@ const BUDGET_MS = Number(process.env.CARD_BUDGET_MS ?? 200);
 describe("every Card as a PNG", () => {
   const out = join(import.meta.dirname, "__snapshots__", "cards");
   mkdirSync(out, { recursive: true });
-  const data = { totals: PROFILE, survival: PROFILE, repositories: PROFILE, calendar: PROFILE, languages: PROFILE, preview: PROFILE, standing: STANDING, "hall-of-fame": HALL, versus: VERSUS, archetype: ARCHETYPE, achievement: ACHIEVEMENT, race: WINDOW, season: WINDOW, wrapped: WRAPPED, "wrapped-calendar": WRAPPED } as const;
+  const data = { totals: PROFILE, survival: PROFILE, repositories: PROFILE, calendar: PROFILE, languages: PROFILE, preview: PROFILE, standing: STANDING, "hall-of-fame": HALL, "repo-compact": HALL, "repo-stats": HALL, "repo-faces": HALL, versus: VERSUS, archetype: ARCHETYPE, achievement: ACHIEVEMENT, race: WINDOW, season: WINDOW, wrapped: WRAPPED, "wrapped-calendar": WRAPPED } as const;
   for (const kind of Object.keys(CARDS) as (keyof typeof CARDS)[]) {
     for (const theme of ["light", "dark"] as const) {
       test(`${kind} in ${theme}, under 200 ms`, async () => {

@@ -21,7 +21,7 @@ export function Install() {
   const pick = INSTALL[tab] ?? INSTALL.npm;
   return (
     <Band label="The command line">
-      <div className="grid items-center gap-12 px-5 py-20 sm:px-10 sm:py-band lg:grid-cols-[1fr_1.15fr]">
+      <div className="grid items-center gap-12 px-(--gutter) py-20 sm:py-band lg:grid-cols-[1fr_1.15fr]">
         <div className="flex min-w-0 flex-col gap-6">
           <Reveal blur={false} y={0}>
             <Kicker icon={SquareTerminal}>From your terminal</Kicker>
@@ -50,7 +50,7 @@ export function Install() {
               <span className="text-brand" aria-hidden>
                 $
               </span>
-              <code className="min-w-0 flex-1 truncate text-primary">{pick?.command}</code>
+              <code className="min-w-0 flex-1 text-primary [overflow-wrap:anywhere]">{pick?.command}</code>
               <Button
                 label={copied ? "Copied" : "Copy"}
                 isIconOnly

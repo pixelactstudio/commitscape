@@ -51,7 +51,7 @@ function Blob({ onPoke, mood }: { onPoke: () => void; mood: number }) {
         {eye}
         {eye}
       </span>
-      <span className={`absolute bottom-3 h-1 rounded-full bg-[#08090b] transition-all ${mood > 0 ? "w-2.5" : "w-4"}`} />
+      <span className={`absolute bottom-3 h-1 rounded-full bg-[#08090b] transition-[width] ${mood > 0 ? "w-2.5" : "w-4"}`} />
     </motion.button>
   );
 }
@@ -63,10 +63,10 @@ export function Nothing({ title, words, action, compact = false }: { title?: Rea
     <div className={`flex flex-col items-center justify-center gap-3 text-center ${compact ? "py-6" : "py-10"}`}>
       <Blob mood={mood} onPoke={() => setMood((m) => (m + 1) % LINES.length)} />
       <div className="flex max-w-sm flex-col gap-1">
-        <span className="text-xs font-medium text-primary" aria-live="polite">
+        <span className="type-ui font-medium text-primary" aria-live="polite">
           {mood === 0 ? (title ?? LINES[0]) : LINES[mood]}
         </span>
-        {words && <span className="text-xs text-pretty text-secondary">{words}</span>}
+        {words && <span className="type-caption text-pretty">{words}</span>}
       </div>
       {action}
     </div>

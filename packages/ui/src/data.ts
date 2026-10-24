@@ -30,6 +30,7 @@ export function dataQuery<T>(source: DataSource, path: string, params: Params) {
         (e: unknown) => ({ data: null, error: e instanceof Error ? e.message : String(e) }),
       ),
     staleTime: Infinity,
+    refetchOnWindowFocus: false,
     retry: false,
   };
 }
@@ -47,4 +48,11 @@ export function useLazyData<T>(path: string | null, params: Params): Loaded<T> {
   const source = useSource();
   const q = useQuery({ ...dataQuery<T>(source, path ?? "", params), enabled: path !== null, placeholderData: keepPreviousData });
   return { data: q.data?.data ?? null, error: q.data?.error ?? null, stale: q.isPlaceholderData };
+}
+
+/** Whether the Report on screen is waiting for a newer one that counts every line, so line numbers are on their way rather than missing. */
+export const CountingContext = createContext(false);
+
+export function useCounting(): boolean {
+  return useContext(CountingContext);
 }

@@ -1,15 +1,13 @@
 import { useCallback, useState, type ReactNode } from "react";
-import { AppShell } from "@astryxdesign/core/AppShell";
-import { Avatar } from "@astryxdesign/core/Avatar";
 import { Button } from "@astryxdesign/core/Button";
 import { DropdownMenu } from "@astryxdesign/core/DropdownMenu";
 import { Kbd } from "@astryxdesign/core/Kbd";
 import { TopNav, TopNavItem } from "@astryxdesign/core/TopNav";
 import { useQueryClient } from "@tanstack/react-query";
-import { Link, useRouteContext, useRouter, useRouterState } from "@tanstack/react-router";
-import { Briefcase, Flag, Image as ImageIcon, LogOut, Menu, Monitor, Moon, Search, Settings, Sparkles, Sun, Swords, Trophy, User, Users } from "lucide-react";
+import { Link, useMatches, useRouteContext, useRouter, useRouterState } from "@tanstack/react-router";
+import { Briefcase, Flag, Image as ImageIcon, LayoutDashboard, LogOut, Menu, Monitor, Moon, Search, Settings, Sparkles, Sun, Swords, Trophy, User, Users } from "lucide-react";
 import { PRODUCT } from "@commitscape/data";
-import { Logo, useMode, type Mode } from "@commitscape/ui";
+import { Face, Logo, useMode, type Mode } from "@commitscape/ui";
 import { ICON } from "@commitscape/ui/design";
 import { signIn, signOut } from "#/lib/auth-client";
 import { Footer } from "#/components/Footer";
@@ -24,17 +22,30 @@ const NAV = [
 
 const YEAR = new Date().getUTCFullYear();
 
-/** Every page's frame: the bar with search and the account, and the footer. */
+declare module "@tanstack/react-router" {
+  interface StaticDataRouteOption {
+    frame?: FrameKind;
+  }
+}
+
+export type FrameKind = "page" | "workspace";
+
+function useFrameKind(): FrameKind {
+  return useMatches({ select: (matches) => (matches.some((m) => m.staticData?.frame === "workspace") ? "workspace" : "page") });
+}
+
+/** Every page's frame: the bar with search and the account, the page in its frame, and the footer; every bar shares the frame's edges. */
 export function Frame({ children }: { children: ReactNode }) {
   const [searching, setSearching] = useState(false);
   const path = useRouterState({ select: (s) => s.location.pathname });
   const open = useCallback((o: boolean) => setSearching(o), []);
+  const kind = useFrameKind();
   return (
-    <AppShell
-      height="auto"
-      variant="section"
-      mobileNav={false}
-      topNav={
+    <div data-frame={kind} className="contents">
+      <a href="#main" className="skip-link">
+        Skip to content
+      </a>
+      <header className="sticky top-0 z-(--z-header) border-b border-line bg-surface">
         <TopNav
           label={PRODUCT}
           heading={
@@ -61,13 +72,14 @@ export function Frame({ children }: { children: ReactNode }) {
             </div>
           }
         />
-      }
-    >
+      </header>
       <Progress />
-      <div className="min-h-[calc(100dvh-var(--header-height))]">{children}</div>
-      <Footer />
+      <main id="main" tabIndex={-1} className="min-h-(--main-height) outline-none">
+        {children}
+      </main>
+      <Footer compact={kind === "workspace"} />
       <SearchPalette isOpen={searching} onOpenChange={open} />
-    </AppShell>
+    </div>
   );
 }
 
@@ -82,10 +94,10 @@ function SearchButton({ onOpen }: { onOpen: () => void }) {
       <button
         type="button"
         onClick={onOpen}
-        className="hidden h-8 w-64 cursor-pointer items-center gap-2 rounded-md border border-line bg-muted px-2.5 text-sm text-secondary transition-colors hover:border-line-strong hover:text-primary md:flex"
+        className="hidden h-8 w-72 cursor-pointer items-center gap-2 rounded-md border border-line bg-sunken px-2.5 text-sm text-secondary transition-colors duration-(--duration-instant) hover:border-line-strong hover:text-primary md:flex"
       >
         <Search size={ICON.sm} aria-hidden />
-        <span className="flex-1 text-start">Search people or repos</span>
+        <span className="min-w-0 flex-1 truncate text-start">Search people or repos</span>
         <Kbd keys="mod+k" />
       </button>
       <span className="md:hidden">
@@ -120,12 +132,12 @@ function Account() {
   const path = useRouterState({ select: (s) => s.location.pathname });
   const router = useRouter();
   const queryClient = useQueryClient();
-  if (!user) return <Button label="Sign in" variant="primary" size="sm" onClick={() => signIn(path === "/" ? "/you" : path)} />;
+  if (!user) return <Button label="Sign in" variant="secondary" size="sm" onClick={() => signIn(path === "/" ? "/dashboard" : path)} />;
   const go = (to: string) => void router.navigate({ to: to as "/" });
   const shown = user.login ?? user.name;
   return (
     <DropdownMenu
-      button={{ label: `Signed in as ${shown}`, isIconOnly: true, icon: <Avatar src={user.image ?? undefined} name={shown} size="sm" tooltip={false} />, variant: "ghost", size: "md" }}
+      button={{ label: `Signed in as ${shown}`, isIconOnly: true, icon: <Face login={user.login} name={shown} size={24} decorative />, variant: "ghost", size: "md" }}
       hasChevron={false}
       alignment="end"
       menuWidth={240}
@@ -136,6 +148,7 @@ function Account() {
                 type: "section" as const,
                 title: `@${user.login}`,
                 items: [
+                  { label: "Dashboard", icon: LayoutDashboard, onClick: () => go("/dashboard") },
                   { label: "Your Profile", icon: User, onClick: () => go(`/u/${user.login}`) },
                   { label: "Your Cards", icon: ImageIcon, onClick: () => go(`/u/${user.login}/cards`) },
                   { label: "Proof of Work", icon: Briefcase, onClick: () => go(`/u/${user.login}/work`) },

@@ -1,28 +1,28 @@
 import { useMemo, useState } from "react";
+import { Button } from "@astryxdesign/core/Button";
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
-import { Spinner } from "@astryxdesign/core/Spinner";
-import { ChevronRight, File, Folder, House, Map as MapIcon } from "lucide-react";
-import type { MapBlock, MapLevel, Params } from "@commitscape/data";
-import { arcsOf, Sunburst, type SunNode } from "../charts/Sunburst";
+import { Skeleton } from "@astryxdesign/core/Skeleton";
+import { ChevronRight, File, FileCode, Folder, House, Map as MapIcon } from "lucide-react";
+import type { MapBlock, MapLevel, Params, PersonRef } from "@commitscape/data";
 import { Face } from "../components/Face";
 import { useLogin } from "../components/login";
 import { useLazyData } from "../data";
+import { ICON } from "../design/tokens";
 import { Explain } from "../explain";
-import { compact, date, grouped, many, share } from "../format";
+import { compact, grouped, many, share } from "../format";
 import { Panel } from "../kit/layout";
+import { FILL_PANEL } from "../reading/classes";
+import { ROW_HEIGHT } from "../reading/who";
 import { Quiet } from "./kit";
 
 type Size = "churn" | "lines";
 
-const LISTED = 8;
+export const LISTED = 8;
+const MOST = 40;
 const DEEPEST = 2;
 
 const depthOf = (path: string) => path.split("/").filter(Boolean).length;
 const topOf = (path: string) => (path ? `${path.split("/")[0]}/` : null);
-const parentOf = (path: string) => {
-  const parts = path.split("/").filter(Boolean);
-  return parts.length <= 1 ? "" : `${parts.slice(0, -1).join("/")}/`;
-};
 
 function learn(into: Map<string, MapBlock[]>, blocks: Map<string, MapBlock>, level: MapLevel | null) {
   if (!level) return;
@@ -36,13 +36,12 @@ function learn(into: Map<string, MapBlock[]>, blocks: Map<string, MapBlock>, lev
   }
 }
 
-/** Where the work is, as a sunburst of folders sized by their commits in the Window (or their lines), entered a ring at a time, with a list of the level beside it. */
-export function WhereWork({ root, name, params, span, commits, onFile, onFolder }: { root: MapLevel | null; name: string; params: Params; span: string; commits: number; onFile: (path: string) => void; onFolder: (path: string) => void }) {
+/** Where the work is: the folders and files of the repository ranked by their commits in the Window (or their lines), a level at a time, the biggest first; a folder opens inside itself, a file in the Code window. */
+export function WhereWork({ root, params, span, commits, onFile, onMap, onCode }: { root: MapLevel | null; params: Params; span: string; commits: number; onFile: (path: string) => void; onMap: (path: string) => void; onCode: (path: string) => void }) {
   const paramsKey = JSON.stringify(params);
   const [chosen, setChosen] = useState({ at: paramsKey, path: "" });
   const focus = chosen.at === paramsKey ? chosen.path : "";
-  const [direction, setDirection] = useState<1 | -1>(1);
-  const [hover, setHover] = useState<string | null>(null);
+  const [all, setAll] = useState(false);
   const changed = (root?.children ?? []).some((b) => b.churn > 0);
   const [size, setSize] = useState<Size>("churn");
   const by: Size = changed ? size : "lines";
@@ -60,221 +59,141 @@ export function WhereWork({ root, name, params, span, commits, onFile, onFolder 
   const value = (b: MapBlock) => (by === "churn" ? b.churn : b.lines);
   const here = focus ? blocks.get(focus) : null;
   const whole = here ? value(here) : by === "churn" ? commits : root.children.reduce((n, b) => n + b.lines, 0);
-  const unit = by === "churn" ? ["commit", "commits"] : ["line", "lines"];
-  const amount = (n: number) => (by === "churn" ? many(n, unit[0] ?? "", unit[1] ?? "") : `${compact(n)} ${n === 1 ? "line" : "lines"}`);
-  const inside = focus ? `of ${focus}` : "of all";
-
-  const nodesOf = (path: string, rings: number, colourOf: (i: number) => string): SunNode[] | null => {
-    const list = lists.get(path);
-    if (!list) return null;
-    return [...list]
-      .filter((b) => value(b) > 0)
-      .sort((a, b) => value(b) - value(a))
-      .map((b, i) => {
-        const colour = colourOf(i);
-        const open = !b.file && depthOf(b.path) <= DEEPEST;
-        return {
-          key: b.path,
-          name: b.file ? b.name : `${b.name}/`,
-          value: value(b),
-          colour,
-          file: b.file,
-          open,
-          inside: rings > 1 && !b.file ? nodesOf(b.path, rings - 1, () => colour) : null,
-          tip: (
-            <>
-              <strong className="font-mono text-xs">{b.path}</strong>
-              <div>
-                {amount(value(b))} · {share(value(b), whole)} {inside}
-              </div>
-              <div className="note">
-                {by === "churn" ? `${compact(b.lines)} lines` : many(b.churn, "commit", "commits")}
-                {b.file ? "" : ` in ${many(b.files, "file", "files")}`}
-                {b.last_touched > 0 ? `, last changed ${date(b.last_touched)}` : ""}
-              </div>
-              {b.owner && <div className="note">most commits by {b.owner.name}</div>}
-              <div className="note">{b.file ? "click to open it on the Map" : open ? "click to go inside" : "the Report keeps no deeper folders"}</div>
-            </>
-          ),
-        };
-      });
-  };
-
-  const nodes = nodesOf(focus, 2, (i) => `var(--s${(i % 8) + 1})`);
-  const more = (count: number, v: number, parent: SunNode | null): SunNode => ({
-    key: `${parent?.key ?? focus}…`,
-    name: `${count} more`,
-    value: v,
-    colour: "var(--other)",
-    file: false,
-    open: false,
-    inside: null,
-    tip: (
-      <>
-        <strong>
-          {count} smaller {count === 1 ? "one" : "ones"}
-        </strong>
-        <div className="note">{amount(v)} between them</div>
-      </>
-    ),
-  });
-  const arcs = nodes ? arcsOf(nodes, more, LISTED) : [];
-  const go = (path: string) => {
-    setDirection(path.length >= focus.length ? 1 : -1);
-    setHover(null);
-    setChosen({ at: paramsKey, path });
-  };
-  const pick = (n: SunNode) => {
-    if (n.file) onFile(n.key);
-    else if (n.open) go(n.key);
-  };
-  const lit = hover ? arcs.find((a) => a.node.key === hover)?.node : null;
-  const block = lit ? blocks.get(lit.key) : null;
-  const crumbs = [{ name, path: "" }];
+  const amount = (n: number) => (by === "churn" ? many(n, "commit", "commits") : `${compact(n)} ${n === 1 ? "line" : "lines"}`);
+  const list = lists.get(focus);
+  const ranked = list ? [...list].filter((b) => value(b) > 0).sort((a, b) => value(b) - value(a) || a.path.localeCompare(b.path)) : null;
+  const shown = ranked ? ranked.slice(0, all ? MOST : LISTED) : [];
+  const rest = ranked ? ranked.length - shown.length : 0;
+  const crumbs = [{ name: "Top level", path: "" }];
   let at = "";
   for (const part of focus.split("/").filter(Boolean)) {
     at += `${part}/`;
     crumbs.push({ name: part, path: at });
   }
-  const listed = nodes ?? [];
-  const rest = listed.slice(LISTED);
-  const loading = nodes === null && deeper.data?.path !== top;
-
+  const loading = ranked === null && deeper.data?.path !== top;
+  const go = (path: string) => {
+    setAll(false);
+    setChosen({ at: paramsKey, path });
+  };
   return (
     <Panel
+      padding={0}
       title="Where the work is"
-      description={by === "churn" ? `Commits ${span} by folder: the inner ring is each folder here, the outer ring what is inside it. Click a ring to go in.` : changed ? "Lines of code at HEAD by folder; click a ring to go in." : `Nothing changed ${span}, so these are the lines of code at HEAD by folder.`}
+      description={by === "churn" ? `Commits ${span}, by folder and file` : changed ? "Lines of code at HEAD, by folder and file" : `Nothing changed ${span}, so these are the lines of code at HEAD`}
+      className={FILL_PANEL}
       actions={
         changed ? (
-          <SegmentedControl label="Size by" size="sm" value={size} onChange={(v) => setSize(v as Size)}>
+          <SegmentedControl label="Size by" size="md" value={size} onChange={(v) => setSize(v as Size)}>
             <SegmentedControlItem value="churn" label="Commits" />
             <SegmentedControlItem value="lines" label="Lines" />
           </SegmentedControl>
         ) : undefined
       }
     >
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <nav aria-label="Folder of the sunburst" className="flex min-w-0 flex-wrap items-center gap-0.5 text-xs">
-          {crumbs.map((c, i) => (
-            <span key={c.path} className="flex min-w-0 items-center gap-0.5">
-              {i > 0 && <ChevronRight size={14} className="flex-none text-secondary" aria-hidden />}
-              {i === crumbs.length - 1 ? (
-                <span aria-current="location" className="inline-flex items-center gap-1.5 truncate rounded-md px-2 py-1 font-mono text-sm font-semibold">
-                  {i === 0 && <House size={14} aria-hidden />}
-                  {c.name}
-                </span>
-              ) : (
-                <button type="button" onClick={() => go(c.path)} className="inline-flex cursor-pointer items-center gap-1.5 truncate rounded-md border-0 bg-transparent px-2 py-1 font-mono text-sm text-secondary transition-colors hover:bg-sunken hover:text-primary">
-                  {i === 0 && <House size={14} aria-hidden />}
-                  {c.name}
-                </button>
-              )}
-            </span>
+      <nav aria-label="Folder shown" className="flex min-w-0 flex-wrap items-center gap-0.5 px-4">
+        {crumbs.map((c, i) => (
+          <span key={c.path} className="flex min-w-0 items-center gap-0.5">
+            {i > 0 && <ChevronRight size={ICON.sm} className="flex-none text-secondary" aria-hidden />}
+            {i === crumbs.length - 1 ? (
+              <span aria-current="location" className={`inline-flex h-7 items-center gap-1.5 truncate rounded-md px-1.5 type-caption font-semibold text-primary ${i === 0 ? "" : "mono"}`}>
+                {i === 0 && <House size={ICON.sm} aria-hidden />}
+                {c.name}
+              </span>
+            ) : (
+              <button type="button" onClick={() => go(c.path)} className={`plain-button row-hover inline-flex h-7 items-center gap-1.5 truncate rounded-md px-1.5 type-caption text-secondary hover:text-primary ${i === 0 ? "" : "mono"}`}>
+                {i === 0 && <House size={ICON.sm} aria-hidden />}
+                {c.name}
+              </button>
+            )}
+          </span>
+        ))}
+      </nav>
+      {loading ? (
+        <ol className="m-0 list-none p-0" aria-busy="true" aria-label="Opening the folder">
+          {Array.from({ length: LISTED }, (_, i) => (
+            <li key={i} className={`flex ${ROW_HEIGHT} items-center gap-3 border-t border-separator px-5`}>
+              <Skeleton width={16} height={16} radius={1} index={i} />
+              <span className="flex flex-1 flex-col gap-2">
+                <Skeleton width={`${30 + ((i * 17) % 35)}%`} height={14} radius={1} index={i} />
+                <Skeleton height={6} radius={3} index={i} />
+              </span>
+              <Skeleton width={72} height={14} radius={1} index={i} />
+            </li>
           ))}
-        </nav>
-        {depthOf(focus) <= 1 && (
-          <button type="button" onClick={() => onFolder(focus)} className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border-0 bg-transparent px-2 py-1 font-[inherit] text-sm text-secondary transition-colors hover:bg-sunken hover:text-primary">
-            <MapIcon size={14} aria-hidden />
-            {focus ? "This folder on the Map" : "Everything on the Map"}
-          </button>
+        </ol>
+      ) : shown.length === 0 ? (
+        <div className="px-5 pb-4">
+          <Quiet>{focus ? `Nothing in ${focus} to show ${span}.` : `Nothing changed ${span}.`}</Quiet>
+        </div>
+      ) : (
+        <ol className="@container m-0 list-none p-0" aria-label={`Inside ${focus || "the top level"}`}>
+          {shown.map((b) => (
+            <Row key={b.path} block={b} amount={amount(value(b))} share={share(value(b), whole)} part={whole > 0 ? value(b) / whole : 0} deep={depthOf(b.path) <= DEEPEST} onFolder={go} onFile={onFile} />
+          ))}
+        </ol>
+      )}
+      <div className="mt-auto flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-separator px-3 py-2 sm:px-4">
+        {rest > 0 || all ? (
+          <Button label={all ? `Show the first ${LISTED}` : rest > MOST - LISTED ? `Show ${MOST - LISTED} more of ${grouped(rest)}` : `Show ${grouped(rest)} more`} variant="ghost" size="sm" onClick={() => setAll((a) => !a)} />
+        ) : (
+          <span />
         )}
+        <span className="flex flex-wrap items-center gap-1">
+          {depthOf(focus) <= 1 && <Button label={focus ? "This folder on the Map" : "The Map"} variant="ghost" size="sm" icon={<MapIcon size={ICON.sm} aria-hidden />} onClick={() => onMap(focus)} />}
+          <Button label={focus ? "Browse this folder" : "Browse code"} variant="ghost" size="sm" icon={<FileCode size={ICON.sm} aria-hidden />} onClick={() => onCode(focus === "" ? "/" : focus)} />
+        </span>
       </div>
-      <div className="grid items-center gap-x-10 gap-y-5 md:grid-cols-[minmax(0,19rem)_minmax(0,1fr)] lg:grid-cols-[minmax(0,21rem)_minmax(0,1fr)]">
-        <div className="mx-auto w-full max-w-[21rem]">
-          {loading ? (
-            <div className="grid aspect-square place-items-center">
-              <Spinner size="lg" aria-label="Opening the folder" />
-            </div>
-          ) : arcs.length === 0 ? (
-            <div className="grid aspect-square place-items-center">
-              <Quiet>{focus ? `Nothing in ${focus} to show ${span}.` : `Nothing changed ${span}.`}</Quiet>
-            </div>
-          ) : (
-            <Sunburst
-              level={`${by}:${focus}`}
-              arcs={arcs}
-              direction={direction}
-              hover={hover}
-              onHover={setHover}
-              onPick={pick}
-              onUp={focus ? () => go(parentOf(focus)) : undefined}
-              label={`${focus || name}: ${listed.length} folders and files, sized by ${by === "churn" ? "commits" : "lines"}`}
-              centre={
-                lit ? (
-                  <>
-                    <span className="max-w-full truncate font-mono text-xs font-semibold">{lit.name}</span>
-                    <span className="type-stat-sm my-0.5">{share(lit.value, whole)}</span>
-                    <span className="max-w-full truncate type-caption">{amount(lit.value)}</span>
-                  </>
-                ) : (
-                  <>
-                    <span className="max-w-full truncate font-mono text-xs font-semibold">{focus ? crumbs.at(-1)?.name : name}</span>
-                    <span className="type-stat-sm my-0.5">{by === "churn" ? grouped(whole) : compact(whole)}</span>
-                    <span className="type-caption">{by === "churn" ? (whole === 1 ? "commit" : "commits") : "lines"}</span>
-                    {focus && <span className="mt-0.5 type-micro">click to go up</span>}
-                  </>
-                )
-              }
-            />
-          )}
-        </div>
-        <div className="flex min-w-0 flex-col gap-1">
-          {listed.length === 0 ? null : (
-            <ol className="m-0 flex list-none flex-col p-0" aria-label={`Inside ${focus || name}`} onMouseLeave={() => setHover(null)}>
-              {listed.slice(0, LISTED).map((n) => (
-                <Row key={n.key} node={n} block={blocks.get(n.key) ?? null} whole={whole} amount={amount} lit={hover === n.key || block?.path === n.key} dim={hover !== null && hover !== n.key && !hover.startsWith(n.key)} onHover={setHover} onPick={pick} />
-              ))}
-              {rest.length > 0 && (
-                <li className="flex items-center justify-between gap-3 px-2 pt-2 type-micro">
-                  <span>and {many(rest.length, "more", "more")}</span>
-                  <span className="tnum">{amount(rest.reduce((n, r) => n + r.value, 0))}</span>
-                </li>
-              )}
-            </ol>
-          )}
-        </div>
+      <div className="px-5 pb-4 empty:hidden">
+        <Explain>
+          {by === "churn"
+            ? "Each bar is a folder or file’s share of the commits in the Window that touched it, merges and bulk commits left out. A commit touching two folders counts in both, so the shares of a level can add up to more than all. "
+            : "Each bar is a folder or file’s share of the lines of code at HEAD. "}
+          The face is whoever made the most commits there. A folder opens inside itself; the Map shows the same folders sized by lines, coloured by how often, when and by whom they change.
+        </Explain>
       </div>
-      <Explain>
-        {by === "churn"
-          ? "Each slice is a folder or file, as wide as its share of the commits in the Window that touched it, merges and bulk commits left out; a commit touching two folders counts in both, so a level's slices are shares of each other. "
-          : "Each slice is a folder or file, as wide as its share of the lines of code at HEAD. "}
-        Paler slices are files. The Map shows the same folders sized by lines, coloured by how often, when and by whom they change.
-      </Explain>
     </Panel>
   );
 }
 
-function Row({ node, block, whole, amount, lit, dim, onHover, onPick }: { node: SunNode; block: MapBlock | null; whole: number; amount: (n: number) => string; lit: boolean; dim: boolean; onHover: (k: string | null) => void; onPick: (n: SunNode) => void }) {
-  const can = node.file || node.open;
+function Row({ block: b, amount, share: pct, part, deep, onFolder, onFile }: { block: MapBlock; amount: string; share: string; part: number; deep: boolean; onFolder: (path: string) => void; onFile: (path: string) => void }) {
+  const can = b.file || deep;
+  const label = b.file ? b.name : `${b.name}/`;
   const body = (
     <>
-      <span aria-hidden className="size-2.5 flex-none rounded-cell" style={{ background: node.file ? `color-mix(in srgb, ${node.colour} 62%, var(--surface))` : node.colour }} />
-      {node.file ? <File size={14} className="flex-none text-secondary" aria-hidden /> : <Folder size={14} className="flex-none text-secondary" aria-hidden />}
-      <span className="min-w-0 flex-1 truncate font-mono text-sm text-primary">{node.name}</span>
-      {block?.owner && <Owner p={block.owner} />}
-      <span className="hidden w-[5.5rem] flex-none text-end text-sm whitespace-nowrap text-secondary tnum sm:block">{amount(node.value)}</span>
-      <span className="w-10 flex-none text-end text-sm font-medium tnum">{share(node.value, whole)}</span>
+      {b.file ? <File size={ICON.md} className="flex-none text-secondary" aria-hidden /> : <Folder size={ICON.md} className="flex-none text-secondary" aria-hidden />}
+      <span className="flex min-w-0 flex-1 flex-col gap-1.5">
+        <span className="mono line-clamp-2 type-ui font-medium break-all text-primary">{label}</span>
+        <span className="block h-1.5 w-full max-w-72 overflow-hidden rounded-full bg-track" aria-hidden>
+          <span className="block h-full rounded-full" style={{ width: `${Math.max(part > 0 ? 1.5 : 0, Math.min(100, part * 100))}%`, background: "var(--heat-3)" }} />
+        </span>
+      </span>
     </>
   );
-  const cls = `flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-start transition-[background-color,opacity] duration-(--duration-fast) ${lit ? "bg-sunken" : ""} ${dim ? "opacity-55" : ""}`;
   return (
-    <li onMouseEnter={() => onHover(node.key)}>
+    <li className={`${can ? "row-hover" : ""} relative flex ${ROW_HEIGHT} items-center gap-3 border-t border-separator px-5`}>
       {can ? (
-        <button type="button" onClick={() => onPick(node)} onFocus={() => onHover(node.key)} onBlur={() => onHover(null)} title={node.file ? "Open it on the Map" : "Go inside"} className={`${cls} cursor-pointer border-0 bg-transparent font-[inherit] hover:bg-sunken`}>
+        <button type="button" onClick={() => (b.file ? onFile(b.path) : onFolder(b.path))} title={b.file ? `${b.path}: open it in the Code window` : `Go inside ${b.path}`} className="plain-button flex min-w-0 flex-1 items-center gap-3 after:absolute after:inset-0">
           {body}
         </button>
       ) : (
-        <div className={cls}>{body}</div>
+        <span title="The Report keeps no folders deeper than this" className="flex min-w-0 flex-1 items-center gap-3">
+          {body}
+        </span>
       )}
+      <span className="flex flex-none flex-col items-end tnum">
+        <span className="type-ui whitespace-nowrap text-primary">{amount}</span>
+        <span className="type-caption">{pct}</span>
+      </span>
+      {b.owner && <Owner p={b.owner} />}
     </li>
   );
 }
 
-function Owner({ p }: { p: NonNullable<MapBlock["owner"]> }) {
+function Owner({ p }: { p: PersonRef }) {
   const login = useLogin(p);
   return (
-    <span className="hidden flex-none sm:inline-flex" title={`Most commits by ${p.name}`}>
-      <Face login={login} name={p.name} size={16} />
+    <span className="hidden flex-none @min-[26rem]:inline-flex" title={`Most commits here by ${p.name}`}>
+      <Face login={login} name={`Most commits here by ${p.name}`} size={24} tint="var(--color-text-secondary)" />
     </span>
   );
 }

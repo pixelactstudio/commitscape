@@ -1,15 +1,18 @@
 import { useEffect, useRef } from "react";
 import { day, grouped } from "../format";
-import { TableView } from "./common";
+import { TableAction, TableView } from "./common";
 import { useTip } from "./tip";
+import { TipCard } from "./Tip";
 import { heat, RADIUS } from "../design/tokens";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const DAYS = ["Mon", "", "Wed", "", "Fri", "", ""];
+const WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const CELL = 13;
 const GAP = 3;
 const LEFT = 28;
 const TOP = 18;
+const RIGHT = 14;
 
 function bounds(values: number[]): number[] {
   const sorted = values.filter((v) => v > 0).sort((a, b) => a - b);
@@ -28,8 +31,8 @@ function step(n: number, b: number[]): number {
 
 const fill = (s: number) => heat(s);
 
-/** A year of days as a grid of squares, a column a week from Monday, shaded by how much happened each day. */
-export function YearGrid({ firstDay, days, unit = "contributions", label, table = true }: { firstDay: number; days: number[]; unit?: string; label?: string; table?: boolean }) {
+/** A year of days as a grid of squares, a column a week from Monday, shaded by how much happened each day; a click on a day picks it. */
+export function YearGrid({ firstDay, days, unit = "contributions", label, table = true, onPick, hint }: { firstDay: number; days: number[]; unit?: string; label?: string; table?: boolean; onPick?: (day: number) => void; hint?: string }) {
   const tip = useTip();
   const scroller = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -40,7 +43,7 @@ export function YearGrid({ firstDay, days, unit = "contributions", label, table 
   const weekday = (d: number) => (d + 3) % 7;
   const offset = weekday(firstDay);
   const weeks = Math.ceil((days.length + offset) / 7);
-  const width = LEFT + weeks * (CELL + GAP);
+  const width = LEFT + weeks * (CELL + GAP) + RIGHT;
   const height = TOP + 7 * (CELL + GAP);
   const months: { x: number; label: string }[] = [];
   days.forEach((_, i) => {
@@ -53,16 +56,16 @@ export function YearGrid({ firstDay, days, unit = "contributions", label, table 
   });
   return (
     <div className="flex flex-col gap-3">
-      <div ref={scroller} className="overflow-x-auto pb-1 [scrollbar-width:thin]">
-        <svg viewBox={`0 0 ${width} ${height}`} className="block h-auto w-full" style={{ minWidth: Math.round(width * 0.8) }} role="img" aria-label={label ?? `${unit} a day`}>
+      <div ref={scroller} tabIndex={0} role="group" aria-label={`${label ?? unit}, scrolls sideways`} className="overflow-x-auto pb-1 [scrollbar-width:thin]">
+        <svg viewBox={`0 0 ${width} ${height}`} className="block h-auto w-full" style={{ minWidth: width }} role="img" aria-label={label ?? `${unit} a day`}>
           {months.map((m) => (
-            <text key={`${m.x}${m.label}`} x={m.x} y={10} className="fill-[var(--ink-2)] text-2xs">
+            <text key={`${m.x}${m.label}`} x={m.x} y={10} className="fill-(--ink-2) type-micro">
               {m.label}
             </text>
           ))}
           {DAYS.map((d, i) =>
             d ? (
-              <text key={d} x={0} y={TOP + i * (CELL + GAP) + CELL - 3} className="fill-[var(--ink-2)] text-2xs">
+              <text key={d} x={0} y={TOP + i * (CELL + GAP) + CELL - 3} className="fill-(--ink-2) type-micro">
                 {d}
               </text>
             ) : null,
@@ -79,22 +82,40 @@ export function YearGrid({ firstDay, days, unit = "contributions", label, table 
                 height={CELL}
                 rx={RADIUS.cell}
                 fill={fill(step(n, b))}
-                className="transition-opacity hover:opacity-80"
-                {...tip(
-                  <>
-                    <strong>
-                      {grouped(n)} {unit}
-                    </strong>
-                    <div className="note">{day(d)}</div>
-                  </>,
-                )}
+                className={`transition-opacity hover:opacity-80 ${onPick && n > 0 ? "cursor-pointer" : ""}`}
+                onClick={onPick && n > 0 ? () => onPick(d) : undefined}
+                {...tip(<TipCard kicker={WEEKDAY_NAMES[weekday(d)]} title={day(d)} value={grouped(n)} unit={unit} hint={onPick && n > 0 ? (hint ?? "Select for that day") : undefined} />)}
               />
             );
           })}
         </svg>
       </div>
       <div className="flex flex-wrap items-center justify-between gap-3 type-micro">
-        {table ? <TableView head={["Day", unit]} rows={days.flatMap((n, i) => (n > 0 ? [[day(firstDay + i), n]] : []))} /> : <span />}
+        {table ? (
+          <TableView
+            title={label ?? `${unit} a day`}
+            head={onPick ? ["Day", unit, "Open"] : ["Day", unit]}
+            rows={days.flatMap((n, i) =>
+              n > 0
+                ? [
+                    [
+                      day(firstDay + i),
+                      n,
+                      ...(onPick
+                        ? [
+                            <TableAction key={i} onClick={() => onPick(firstDay + i)}>
+                              Show that day
+                            </TableAction>,
+                          ]
+                        : []),
+                    ],
+                  ]
+                : [],
+            )}
+          />
+        ) : (
+          <span />
+        )}
         <span className="flex items-center gap-1.5">
           Less
           {[0, 1, 2, 3, 4].map((s) => (

@@ -10,6 +10,8 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as SplatRouteImport } from './routes/$'
+import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as DesignRouteImport } from './routes/design'
 import { Route as LeaderboardsRouteImport } from './routes/leaderboards'
 import { Route as McpRouteImport } from './routes/mcp'
@@ -40,17 +42,31 @@ import { Route as ULoginWrappedYearRouteImport } from './routes/u.$login_.wrappe
 import { Route as ApiCardsCrewsIdFileRouteImport } from './routes/api/cards/crews/$id/$file'
 import { Route as ApiCardsRacesIdFileRouteImport } from './routes/api/cards/races/$id/$file'
 import { Route as ApiCardsULoginFileRouteImport } from './routes/api/cards/u/$login/$file'
+import { Route as ApiReportsOwnerRepoAnswerRouteImport } from './routes/api/reports/$owner/$repo/answer'
+import { Route as ApiReportsOwnerRepoAtlasRouteImport } from './routes/api/reports/$owner/$repo/atlas'
 import { Route as ApiReportsOwnerRepoCommitsRouteImport } from './routes/api/reports/$owner/$repo/commits'
 import { Route as ApiWorkSIdFileRouteImport } from './routes/api/work/s/$id/$file'
 import { Route as ApiWorkULoginFileRouteImport } from './routes/api/work/u/$login/$file'
 import { Route as ApiCardsGhOwnerRepoFileRouteImport } from './routes/api/cards/gh/$owner/$repo/$file'
 import { Route as ApiCardsVsABFileRouteImport } from './routes/api/cards/vs/$a/$b/$file'
+import { Route as ApiReportsOwnerRepoBlobShaRouteImport } from './routes/api/reports/$owner/$repo/blob/$sha'
+import { Route as ApiReportsOwnerRepoGitFileRouteImport } from './routes/api/reports/$owner/$repo/git/$file'
 import { Route as ApiCardsULoginOwnerRepoFileRouteImport } from './routes/api/cards/u/$login/$owner/$repo/$file'
 import { Route as ApiCardsULoginWrappedYearFileRouteImport } from './routes/api/cards/u/$login/wrapped/$year/$file'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SplatRoute = SplatRouteImport.update({
+  id: '/$',
+  path: '/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DashboardRoute = DashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DesignRoute = DesignRouteImport.update({
@@ -203,6 +219,18 @@ const ApiCardsULoginFileRoute = ApiCardsULoginFileRouteImport.update({
   path: '/api/cards/u/$login/$file',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiReportsOwnerRepoAnswerRoute =
+  ApiReportsOwnerRepoAnswerRouteImport.update({
+    id: '/api/reports/$owner/$repo/answer',
+    path: '/api/reports/$owner/$repo/answer',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiReportsOwnerRepoAtlasRoute =
+  ApiReportsOwnerRepoAtlasRouteImport.update({
+    id: '/api/reports/$owner/$repo/atlas',
+    path: '/api/reports/$owner/$repo/atlas',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiReportsOwnerRepoCommitsRoute =
   ApiReportsOwnerRepoCommitsRouteImport.update({
     id: '/api/reports/$owner/$repo/commits',
@@ -229,6 +257,18 @@ const ApiCardsVsABFileRoute = ApiCardsVsABFileRouteImport.update({
   path: '/api/cards/vs/$a/$b/$file',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiReportsOwnerRepoBlobShaRoute =
+  ApiReportsOwnerRepoBlobShaRouteImport.update({
+    id: '/api/reports/$owner/$repo/blob/$sha',
+    path: '/api/reports/$owner/$repo/blob/$sha',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiReportsOwnerRepoGitFileRoute =
+  ApiReportsOwnerRepoGitFileRouteImport.update({
+    id: '/api/reports/$owner/$repo/git/$file',
+    path: '/api/reports/$owner/$repo/git/$file',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiCardsULoginOwnerRepoFileRoute =
   ApiCardsULoginOwnerRepoFileRouteImport.update({
     id: '/api/cards/u/$login/$owner/$repo/$file',
@@ -244,6 +284,8 @@ const ApiCardsULoginWrappedYearFileRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/$': typeof SplatRoute
+  '/dashboard': typeof DashboardRoute
   '/design': typeof DesignRoute
   '/leaderboards': typeof LeaderboardsRoute
   '/mcp': typeof McpRoute
@@ -274,16 +316,22 @@ export interface FileRoutesByFullPath {
   '/api/cards/crews/$id/$file': typeof ApiCardsCrewsIdFileRoute
   '/api/cards/races/$id/$file': typeof ApiCardsRacesIdFileRoute
   '/api/cards/u/$login/$file': typeof ApiCardsULoginFileRoute
+  '/api/reports/$owner/$repo/answer': typeof ApiReportsOwnerRepoAnswerRoute
+  '/api/reports/$owner/$repo/atlas': typeof ApiReportsOwnerRepoAtlasRoute
   '/api/reports/$owner/$repo/commits': typeof ApiReportsOwnerRepoCommitsRoute
   '/api/work/s/$id/$file': typeof ApiWorkSIdFileRoute
   '/api/work/u/$login/$file': typeof ApiWorkULoginFileRoute
   '/api/cards/gh/$owner/$repo/$file': typeof ApiCardsGhOwnerRepoFileRoute
   '/api/cards/vs/$a/$b/$file': typeof ApiCardsVsABFileRoute
+  '/api/reports/$owner/$repo/blob/$sha': typeof ApiReportsOwnerRepoBlobShaRoute
+  '/api/reports/$owner/$repo/git/$file': typeof ApiReportsOwnerRepoGitFileRoute
   '/api/cards/u/$login/$owner/$repo/$file': typeof ApiCardsULoginOwnerRepoFileRoute
   '/api/cards/u/$login/wrapped/$year/$file': typeof ApiCardsULoginWrappedYearFileRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/$': typeof SplatRoute
+  '/dashboard': typeof DashboardRoute
   '/design': typeof DesignRoute
   '/leaderboards': typeof LeaderboardsRoute
   '/mcp': typeof McpRoute
@@ -314,17 +362,23 @@ export interface FileRoutesByTo {
   '/api/cards/crews/$id/$file': typeof ApiCardsCrewsIdFileRoute
   '/api/cards/races/$id/$file': typeof ApiCardsRacesIdFileRoute
   '/api/cards/u/$login/$file': typeof ApiCardsULoginFileRoute
+  '/api/reports/$owner/$repo/answer': typeof ApiReportsOwnerRepoAnswerRoute
+  '/api/reports/$owner/$repo/atlas': typeof ApiReportsOwnerRepoAtlasRoute
   '/api/reports/$owner/$repo/commits': typeof ApiReportsOwnerRepoCommitsRoute
   '/api/work/s/$id/$file': typeof ApiWorkSIdFileRoute
   '/api/work/u/$login/$file': typeof ApiWorkULoginFileRoute
   '/api/cards/gh/$owner/$repo/$file': typeof ApiCardsGhOwnerRepoFileRoute
   '/api/cards/vs/$a/$b/$file': typeof ApiCardsVsABFileRoute
+  '/api/reports/$owner/$repo/blob/$sha': typeof ApiReportsOwnerRepoBlobShaRoute
+  '/api/reports/$owner/$repo/git/$file': typeof ApiReportsOwnerRepoGitFileRoute
   '/api/cards/u/$login/$owner/$repo/$file': typeof ApiCardsULoginOwnerRepoFileRoute
   '/api/cards/u/$login/wrapped/$year/$file': typeof ApiCardsULoginWrappedYearFileRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/$': typeof SplatRoute
+  '/dashboard': typeof DashboardRoute
   '/design': typeof DesignRoute
   '/leaderboards': typeof LeaderboardsRoute
   '/mcp': typeof McpRoute
@@ -355,11 +409,15 @@ export interface FileRoutesById {
   '/api/cards/crews/$id/$file': typeof ApiCardsCrewsIdFileRoute
   '/api/cards/races/$id/$file': typeof ApiCardsRacesIdFileRoute
   '/api/cards/u/$login/$file': typeof ApiCardsULoginFileRoute
+  '/api/reports/$owner/$repo/answer': typeof ApiReportsOwnerRepoAnswerRoute
+  '/api/reports/$owner/$repo/atlas': typeof ApiReportsOwnerRepoAtlasRoute
   '/api/reports/$owner/$repo/commits': typeof ApiReportsOwnerRepoCommitsRoute
   '/api/work/s/$id/$file': typeof ApiWorkSIdFileRoute
   '/api/work/u/$login/$file': typeof ApiWorkULoginFileRoute
   '/api/cards/gh/$owner/$repo/$file': typeof ApiCardsGhOwnerRepoFileRoute
   '/api/cards/vs/$a/$b/$file': typeof ApiCardsVsABFileRoute
+  '/api/reports/$owner/$repo/blob/$sha': typeof ApiReportsOwnerRepoBlobShaRoute
+  '/api/reports/$owner/$repo/git/$file': typeof ApiReportsOwnerRepoGitFileRoute
   '/api/cards/u/$login/$owner/$repo/$file': typeof ApiCardsULoginOwnerRepoFileRoute
   '/api/cards/u/$login/wrapped/$year/$file': typeof ApiCardsULoginWrappedYearFileRoute
 }
@@ -367,6 +425,8 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/$'
+    | '/dashboard'
     | '/design'
     | '/leaderboards'
     | '/mcp'
@@ -397,16 +457,22 @@ export interface FileRouteTypes {
     | '/api/cards/crews/$id/$file'
     | '/api/cards/races/$id/$file'
     | '/api/cards/u/$login/$file'
+    | '/api/reports/$owner/$repo/answer'
+    | '/api/reports/$owner/$repo/atlas'
     | '/api/reports/$owner/$repo/commits'
     | '/api/work/s/$id/$file'
     | '/api/work/u/$login/$file'
     | '/api/cards/gh/$owner/$repo/$file'
     | '/api/cards/vs/$a/$b/$file'
+    | '/api/reports/$owner/$repo/blob/$sha'
+    | '/api/reports/$owner/$repo/git/$file'
     | '/api/cards/u/$login/$owner/$repo/$file'
     | '/api/cards/u/$login/wrapped/$year/$file'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/$'
+    | '/dashboard'
     | '/design'
     | '/leaderboards'
     | '/mcp'
@@ -437,16 +503,22 @@ export interface FileRouteTypes {
     | '/api/cards/crews/$id/$file'
     | '/api/cards/races/$id/$file'
     | '/api/cards/u/$login/$file'
+    | '/api/reports/$owner/$repo/answer'
+    | '/api/reports/$owner/$repo/atlas'
     | '/api/reports/$owner/$repo/commits'
     | '/api/work/s/$id/$file'
     | '/api/work/u/$login/$file'
     | '/api/cards/gh/$owner/$repo/$file'
     | '/api/cards/vs/$a/$b/$file'
+    | '/api/reports/$owner/$repo/blob/$sha'
+    | '/api/reports/$owner/$repo/git/$file'
     | '/api/cards/u/$login/$owner/$repo/$file'
     | '/api/cards/u/$login/wrapped/$year/$file'
   id:
     | '__root__'
     | '/'
+    | '/$'
+    | '/dashboard'
     | '/design'
     | '/leaderboards'
     | '/mcp'
@@ -477,17 +549,23 @@ export interface FileRouteTypes {
     | '/api/cards/crews/$id/$file'
     | '/api/cards/races/$id/$file'
     | '/api/cards/u/$login/$file'
+    | '/api/reports/$owner/$repo/answer'
+    | '/api/reports/$owner/$repo/atlas'
     | '/api/reports/$owner/$repo/commits'
     | '/api/work/s/$id/$file'
     | '/api/work/u/$login/$file'
     | '/api/cards/gh/$owner/$repo/$file'
     | '/api/cards/vs/$a/$b/$file'
+    | '/api/reports/$owner/$repo/blob/$sha'
+    | '/api/reports/$owner/$repo/git/$file'
     | '/api/cards/u/$login/$owner/$repo/$file'
     | '/api/cards/u/$login/wrapped/$year/$file'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  SplatRoute: typeof SplatRoute
+  DashboardRoute: typeof DashboardRoute
   DesignRoute: typeof DesignRoute
   LeaderboardsRoute: typeof LeaderboardsRoute
   McpRoute: typeof McpRoute
@@ -518,11 +596,15 @@ export interface RootRouteChildren {
   ApiCardsCrewsIdFileRoute: typeof ApiCardsCrewsIdFileRoute
   ApiCardsRacesIdFileRoute: typeof ApiCardsRacesIdFileRoute
   ApiCardsULoginFileRoute: typeof ApiCardsULoginFileRoute
+  ApiReportsOwnerRepoAnswerRoute: typeof ApiReportsOwnerRepoAnswerRoute
+  ApiReportsOwnerRepoAtlasRoute: typeof ApiReportsOwnerRepoAtlasRoute
   ApiReportsOwnerRepoCommitsRoute: typeof ApiReportsOwnerRepoCommitsRoute
   ApiWorkSIdFileRoute: typeof ApiWorkSIdFileRoute
   ApiWorkULoginFileRoute: typeof ApiWorkULoginFileRoute
   ApiCardsGhOwnerRepoFileRoute: typeof ApiCardsGhOwnerRepoFileRoute
   ApiCardsVsABFileRoute: typeof ApiCardsVsABFileRoute
+  ApiReportsOwnerRepoBlobShaRoute: typeof ApiReportsOwnerRepoBlobShaRoute
+  ApiReportsOwnerRepoGitFileRoute: typeof ApiReportsOwnerRepoGitFileRoute
   ApiCardsULoginOwnerRepoFileRoute: typeof ApiCardsULoginOwnerRepoFileRoute
   ApiCardsULoginWrappedYearFileRoute: typeof ApiCardsULoginWrappedYearFileRoute
 }
@@ -534,6 +616,20 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/$': {
+      id: '/$'
+      path: '/$'
+      fullPath: '/$'
+      preLoaderRoute: typeof SplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/dashboard': {
+      id: '/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof DashboardRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/design': {
@@ -746,6 +842,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiCardsULoginFileRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/reports/$owner/$repo/answer': {
+      id: '/api/reports/$owner/$repo/answer'
+      path: '/api/reports/$owner/$repo/answer'
+      fullPath: '/api/reports/$owner/$repo/answer'
+      preLoaderRoute: typeof ApiReportsOwnerRepoAnswerRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/reports/$owner/$repo/atlas': {
+      id: '/api/reports/$owner/$repo/atlas'
+      path: '/api/reports/$owner/$repo/atlas'
+      fullPath: '/api/reports/$owner/$repo/atlas'
+      preLoaderRoute: typeof ApiReportsOwnerRepoAtlasRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/reports/$owner/$repo/commits': {
       id: '/api/reports/$owner/$repo/commits'
       path: '/api/reports/$owner/$repo/commits'
@@ -781,6 +891,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiCardsVsABFileRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/reports/$owner/$repo/blob/$sha': {
+      id: '/api/reports/$owner/$repo/blob/$sha'
+      path: '/api/reports/$owner/$repo/blob/$sha'
+      fullPath: '/api/reports/$owner/$repo/blob/$sha'
+      preLoaderRoute: typeof ApiReportsOwnerRepoBlobShaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/reports/$owner/$repo/git/$file': {
+      id: '/api/reports/$owner/$repo/git/$file'
+      path: '/api/reports/$owner/$repo/git/$file'
+      fullPath: '/api/reports/$owner/$repo/git/$file'
+      preLoaderRoute: typeof ApiReportsOwnerRepoGitFileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/cards/u/$login/$owner/$repo/$file': {
       id: '/api/cards/u/$login/$owner/$repo/$file'
       path: '/api/cards/u/$login/$owner/$repo/$file'
@@ -800,6 +924,8 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  SplatRoute: SplatRoute,
+  DashboardRoute: DashboardRoute,
   DesignRoute: DesignRoute,
   LeaderboardsRoute: LeaderboardsRoute,
   McpRoute: McpRoute,
@@ -830,11 +956,15 @@ const rootRouteChildren: RootRouteChildren = {
   ApiCardsCrewsIdFileRoute: ApiCardsCrewsIdFileRoute,
   ApiCardsRacesIdFileRoute: ApiCardsRacesIdFileRoute,
   ApiCardsULoginFileRoute: ApiCardsULoginFileRoute,
+  ApiReportsOwnerRepoAnswerRoute: ApiReportsOwnerRepoAnswerRoute,
+  ApiReportsOwnerRepoAtlasRoute: ApiReportsOwnerRepoAtlasRoute,
   ApiReportsOwnerRepoCommitsRoute: ApiReportsOwnerRepoCommitsRoute,
   ApiWorkSIdFileRoute: ApiWorkSIdFileRoute,
   ApiWorkULoginFileRoute: ApiWorkULoginFileRoute,
   ApiCardsGhOwnerRepoFileRoute: ApiCardsGhOwnerRepoFileRoute,
   ApiCardsVsABFileRoute: ApiCardsVsABFileRoute,
+  ApiReportsOwnerRepoBlobShaRoute: ApiReportsOwnerRepoBlobShaRoute,
+  ApiReportsOwnerRepoGitFileRoute: ApiReportsOwnerRepoGitFileRoute,
   ApiCardsULoginOwnerRepoFileRoute: ApiCardsULoginOwnerRepoFileRoute,
   ApiCardsULoginWrappedYearFileRoute: ApiCardsULoginWrappedYearFileRoute,
 }

@@ -27,7 +27,7 @@ export const STANDING_PEOPLE = [
 export const STANDING_FOCUS = "gaearon";
 
 export const WORK = [
-  { title: "Count streaks in the person's own time zone", repo: "acme/api", added: 184 },
+  { title: "Count streaks in the person’s own time zone", repo: "acme/api", added: 184 },
   { title: "Dark theme for README Cards", repo: "acme/web", added: 312 },
   { title: "Follow renamed folders through history", repo: "acme/engine", added: 421 },
   { title: "Blame large files in one pass", repo: "acme/engine", added: 263 },
@@ -38,6 +38,13 @@ export const RACERS = [
   { name: "Mira Kovacs", you: false, days: [3, 5, 6, 7, 10, 11, 13] },
   { name: "Sam Okafor", you: false, days: [1, 4, 7, 9, 9, 10, 11] },
   { name: "Leo Park", you: false, days: [2, 2, 3, 5, 6, 8, 9] },
+];
+
+export const CREW = [
+  { name: "Mira Kovacs", you: false, merged: 31 },
+  { name: "Sam Okafor", you: false, merged: 24 },
+  { name: "You", you: true, merged: 19 },
+  { name: "Leo Park", you: false, merged: 12 },
 ];
 
 export const CALENDAR_WEEKS = 46;

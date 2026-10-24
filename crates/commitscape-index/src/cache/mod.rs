@@ -55,6 +55,8 @@ pub enum Progress {
 pub struct Loaded {
     pub index: Index,
     pub freshness: Freshness,
+    pub lineage: u64,
+    pub kept: bool,
 }
 
 /// Loads a repository's Index from the cache, reading only the history that is new.
@@ -72,6 +74,8 @@ pub fn load<S: RepoSource>(
             freshness: Freshness::Built {
                 reason: RebuildReason::Disabled,
             },
+            lineage: format::new_generation(),
+            kept: false,
         });
     };
     let dir = root.join(identity.cache_key());
@@ -166,17 +170,27 @@ fn rebuild<S: RepoSource>(
     progress: &mut dyn FnMut(Progress),
 ) -> Result<Loaded, S::Error> {
     let (index, classify) = build(source, ctx.identity.clone(), ctx.rules(source)?, progress)?;
-    let head = format::head_of(&index, ctx.fingerprint, ctx.mailmap_fingerprint, classify);
-    let _ = format::write(format::Writing {
+    let lineage = format::new_generation();
+    let head = format::head_of(
+        &index,
+        lineage,
+        ctx.fingerprint,
+        ctx.mailmap_fingerprint,
+        classify,
+    );
+    let kept = format::write(format::Writing {
         head,
         previous: None,
         fresh: format::encode_blocks(&index.commits, &index.changes, &index.subjects),
         new_ids: SortedIds::run_of(index.commits.iter().map(|c| c.id)),
         dir: ctx.dir,
-    });
+    })
+    .is_ok();
     Ok(Loaded {
         index,
         freshness: Freshness::Built { reason },
+        lineage,
+        kept,
     })
 }
 
@@ -211,13 +225,20 @@ fn warm(
         ids: format::read_ids(ctx.dir, &head),
     });
     let classify = head.classify.clone();
+    let lineage = head.lineage;
 
     let mut index = index_from(head, decoded);
     if let (Some(rules), Some(previous)) = (changed_rules, previous) {
         reresolve_authors(&mut index, rules);
         if let Ok(ids) = previous.ids {
             let _ = format::write(format::Writing {
-                head: format::head_of(&index, ctx.fingerprint, ctx.mailmap_fingerprint, classify),
+                head: format::head_of(
+                    &index,
+                    lineage,
+                    ctx.fingerprint,
+                    ctx.mailmap_fingerprint,
+                    classify,
+                ),
                 previous: Some(format::Previous {
                     data_file: previous.data_file,
                     blocks: previous.blocks,
@@ -233,6 +254,8 @@ fn warm(
     Ok(Loaded {
         index,
         freshness: Freshness::Warm,
+        lineage,
+        kept: true,
     })
 }
 
@@ -259,6 +282,7 @@ fn resume<S: RepoSource>(
     let old_blocks = head.blocks.clone();
     let id_runs = head.id_runs.clone();
     let mut classify = head.classify.clone();
+    let lineage = head.lineage;
     let indexed = match format::read_ids(ctx.dir, &head) {
         Ok(ids) => ids,
         Err(_) => return rebuild(source, ctx, RebuildReason::Unreadable, progress),
@@ -318,8 +342,14 @@ fn resume<S: RepoSource>(
         }
         None => (Vec::new(), old_blocks.clone()),
     };
-    let _ = format::write(format::Writing {
-        head: format::head_of(&index, ctx.fingerprint, ctx.mailmap_fingerprint, classify),
+    let kept = format::write(format::Writing {
+        head: format::head_of(
+            &index,
+            lineage,
+            ctx.fingerprint,
+            ctx.mailmap_fingerprint,
+            classify,
+        ),
         previous: Some(Previous {
             data_file: data_file.clone(),
             blocks: unchanged,
@@ -329,10 +359,13 @@ fn resume<S: RepoSource>(
         fresh,
         new_ids,
         dir: ctx.dir,
-    });
+    })
+    .is_ok();
     Ok(Loaded {
         index,
         freshness: Freshness::Updated { added },
+        lineage,
+        kept,
     })
 }
 

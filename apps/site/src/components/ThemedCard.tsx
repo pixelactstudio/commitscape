@@ -24,7 +24,7 @@ export function ThemedCard({ src, alt, width, height, query = "", className = ""
     />
   );
   return (
-    <span className={`relative block overflow-hidden rounded-2xl ${loaded ? "" : "bg-[var(--color-skeleton)]"} ${className}`} style={{ aspectRatio: `${width} / ${height}` }}>
+    <span className={`relative block overflow-hidden rounded-2xl ${loaded ? "" : "bg-(--color-skeleton)"} ${className}`} style={{ aspectRatio: `${width} / ${height}` }}>
       {mode === "light" ? (
         img(light)
       ) : mode === "dark" ? (

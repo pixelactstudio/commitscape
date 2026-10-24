@@ -1,8 +1,11 @@
 import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import { HoverCard } from "@astryxdesign/core/HoverCard";
+import { Icon } from "@astryxdesign/core/Icon";
+import { IconButton } from "@astryxdesign/core/IconButton";
 import { Pagination } from "@astryxdesign/core/Pagination";
 import { Spinner } from "@astryxdesign/core/Spinner";
-import { Award, Building2, CalendarDays, Lock, MapPin, Play, Users } from "lucide-react";
+import { Award, Building2, CalendarDays, Eye, Lock, MapPin, Play, Swords, Users } from "lucide-react";
 import type { Archetype, EngineRepo, EngineView, Identity, Profile, ProfileRepo, UnreadRepo } from "@commitscape/data";
 import { avatarUrl } from "../components/avatar";
 import { Face } from "../components/Face";
@@ -45,7 +48,7 @@ export function ProfileHeader({ identity, archetype, also = [], badges, actions 
   ];
   return (
     <section className="face-backdrop relative overflow-hidden border-b border-line" style={{ "--face": `url(${avatarUrl(identity.login, 64)})` } as CSSProperties}>
-      <Page className="relative flex flex-col gap-6 pt-page-top pb-8 md:flex-row md:items-end md:justify-between">
+      <Page className="relative flex flex-col gap-6 pt-page-top pb-8 lg:flex-row lg:items-end lg:justify-between">
         <div className="flex min-w-0 flex-col gap-5 sm:flex-row sm:items-center">
           <Face login={identity.login} name={name} size={96} wide={112} edge="body" lift="md" className="self-start sm:self-center" />
           <div className="flex min-w-0 flex-col gap-2">
@@ -105,32 +108,38 @@ export function HeadlineNumbers({ profile, surviving, slow }: { profile: Profile
   const t = profile.totals;
   const rate = t.prsOpened > 0 ? t.prsMerged / t.prsOpened : 0;
   return (
-    <div className="grid overflow-hidden rounded-lg border border-line bg-surface">
+    <div className="grid overflow-hidden surface">
       <div className="grid grid-cols-2 lg:grid-cols-4">
-        <Cell>
+        <Cell reserve>
           <Stat size="lg" value={counted(t.prsMerged)} label="Pull requests merged" note={t.prsOpened > 0 ? `${Math.round(rate * 100)}% of ${grouped(t.prsOpened)} opened` : "none opened yet"}>
             <Meter value={rate} label="Share of pull requests merged" className="mt-1 max-w-40" />
           </Stat>
         </Cell>
-        <Cell>
-          <Stat size="lg" value={counted(t.reviews)} label="Reviews given" note="on other people's pull requests" />
+        <Cell reserve>
+          <Stat size="lg" value={counted(t.reviews)} label="Reviews given" note="on other people’s pull requests" />
         </Cell>
-        <Cell>{surviving}</Cell>
-        <Cell>
-          <Stat size="lg" value={counted(t.commits)} label="Commits" note={t.hidden > 0 ? `with ${grouped(t.hidden)} private contributions` : "as GitHub counts them"} />
+        <Cell reserve>{surviving}</Cell>
+        <Cell reserve>
+          <Stat size="lg" value={counted(t.commits)} label="Commits" note={profile.privateWork ? privateNote(profile.privateWork) : t.hidden > 0 ? `with ${grouped(t.hidden)} private contributions` : "as GitHub counts them"} />
         </Cell>
       </div>
-      <div className="grid grid-cols-2 border-t border-line lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-px border-t border-line bg-line lg:grid-cols-4">
         {slow}
-        <Cell small>
+        <Cell small bare reserve>
           <Stat size="sm" value={grouped(t.activeDays)} label="Active days" note={`${many(t.contributions, "contribution", "contributions")} in all`} />
         </Cell>
-        <Cell small>
+        <Cell small bare reserve>
           <StreakCell profile={profile} />
         </Cell>
       </div>
     </div>
   );
+}
+
+function privateNote(w: NonNullable<Profile["privateWork"]>): string {
+  const parts = [w.commits > 0 ? many(w.commits, "commit", "commits") : null, w.prsMerged > 0 ? many(w.prsMerged, "merged pull request", "merged pull requests") : null].filter(Boolean);
+  const where = many(w.repositories, "private repository", "private repositories");
+  return parts.length > 0 ? `plus ${parts.join(" and ")} in ${where} they show` : `and ${where} they show`;
 }
 
 /** The two headline numbers that need a person's pull requests read. */
@@ -140,12 +149,12 @@ export function PullRequestNumbers({ profile }: { profile: Profile }) {
   const none = t.linesAdded !== null && t.linesAdded + (t.linesRemoved ?? 0) === 0;
   return (
     <>
-      <Cell small>
-        <Stat size="sm" value={t.linesAdded === null || none ? "—" : <span className="tnum whitespace-nowrap">+{compact(t.linesAdded)} <span className="text-secondary">/</span> −{compact(t.linesRemoved ?? 0)}</span>} label="Lines merged" note={none ? "no merged pull requests yet" : capped ? `in the newest ${grouped(profile.read.prs)} pull requests` : "added and removed in merged pull requests"}>
+      <Cell small bare reserve>
+        <Stat size="sm" value={t.linesAdded === null || none ? "—" : <span className="tnum whitespace-nowrap">+{compact(t.linesAdded)} <span className="text-secondary">/</span> −{compact(t.linesRemoved ?? 0)}</span>} label="Lines merged" note={none ? "no merged pull requests yet" : t.linesAdded === null ? "their pull requests are not read yet" : capped ? `in the newest ${grouped(profile.read.prs)} pull requests` : "added and removed in merged pull requests"}>
           {t.linesAdded !== null && !none && <AddedRemoved added={t.linesAdded} removed={t.linesRemoved ?? 0} className="mt-1 max-w-40" />}
         </Stat>
       </Cell>
-      <Cell small>
+      <Cell small bare reserve>
         <Stat size="sm" value={t.hoursToMerge === null ? "—" : hours(t.hoursToMerge)} label="Time to merge" note="their middle pull request" />
       </Cell>
     </>
@@ -207,7 +216,7 @@ function rowsOf(repos: ProfileRepo[], engine: EngineView | null): Row[] {
   return rows;
 }
 
-const quiet = <span className="text-quiet">—</span>;
+const quiet = <span className="text-tertiary">—</span>;
 
 /** Where a person's work is: each repository with their pull requests, commits, reviews and lines, and their lines still running where commitscape has read it; each opens their Standing there. */
 export function RepositoryTable({ profile, engine }: { profile: Profile; engine: EngineView | null }) {
@@ -223,7 +232,6 @@ export function RepositoryTable({ profile, engine }: { profile: Profile; engine:
   const login = profile.identity.login;
   return (
     <Panel
-      id="repositories"
       padding={0}
       title="Where their work is"
       description={`${many(rows.length, "repository", "repositories")}, by merged pull requests, then commits and reviews. Open one to see where they stand in it.`}
@@ -238,7 +246,7 @@ export function RepositoryTable({ profile, engine }: { profile: Profile; engine:
             }}
             placeholder="Find a repository"
             aria-label="Find a repository"
-            className="h-8 w-48 max-w-full rounded-md border border-line bg-body px-2.5 text-xs text-primary outline-none placeholder:text-secondary focus:border-brand-line"
+            className="h-8 w-48 max-w-full rounded-md border border-strong bg-body px-2.5 text-base text-primary placeholder:text-tertiary sm:text-xs"
           />
         ) : null
       }
@@ -309,14 +317,14 @@ function RepoRow({ r, login, weight }: { r: Row; login: string; weight: number }
     <tr className={`group border-t border-line transition-colors hover:bg-hover ${ROW}`}>
       <td className="max-w-0 py-2 ps-5 pe-3">
         <A href={`/u/${login}/${r.owner}/${r.name}`} className="flex min-w-0 items-center gap-3 text-primary no-underline">
-          <Face login={r.owner} name={r.owner} size={32} shape="rounded" />
+          <Face login={r.owner} name={r.owner} size={32} shape="rounded" className="max-sm:hidden" />
           <span className="flex min-w-0 flex-col gap-0.5">
-            <span className="truncate font-medium">
+            <span className="leading-snug font-medium [overflow-wrap:anywhere]">
               <span className="text-secondary max-sm:hidden">{r.owner}/</span>
               {r.name}
             </span>
-            <span className="flex items-center gap-3 overflow-hidden type-caption whitespace-nowrap">
-              <span className="truncate sm:hidden">{r.owner}</span>
+            <span className="flex items-center gap-3 type-caption">
+              <span className="min-w-0 [overflow-wrap:anywhere] sm:hidden">{r.owner}</span>
               {r.language && (
                 <span className="inline-flex items-center gap-1.5 max-sm:hidden">
                   <LangDot colour={r.colour} />
@@ -329,7 +337,7 @@ function RepoRow({ r, login, weight }: { r: Row; login: string; weight: number }
                   <Lock size={ICON.xs} aria-hidden /> only you see this
                 </span>
               )}
-              <span className="hidden h-1 w-16 overflow-hidden rounded-full bg-[var(--color-track)] lg:inline-block" aria-hidden>
+              <span className="hidden h-1 w-16 overflow-hidden rounded-full bg-(--color-track) lg:inline-block" aria-hidden>
                 <span className="block h-full rounded-full bg-tertiary" style={{ width: `${Math.max(4, weight * 100)}%` }} />
               </span>
             </span>
@@ -377,7 +385,7 @@ function SurvivingCell({ repo, unread }: { repo: EngineRepo | null; unread?: Unr
           <Spinner size="sm" /> reading
         </span>
       );
-    return <span className="type-caption text-tertiary" title={unread ? UNREAD_WORDS[unread.state] : "commitscape has not read this repository's history yet"}>{unread ? UNREAD_WORDS[unread.state] : "—"}</span>;
+    return <span className="type-caption text-tertiary" title={unread ? UNREAD_WORDS[unread.state] : "commitscape has not read this repository’s history yet"}>{unread ? UNREAD_WORDS[unread.state] : "—"}</span>;
   }
   const s = repo.surviving;
   if (s.status === "counted" && s.lines !== null) return <span className="font-medium text-brand">{compact(s.lines)}</span>;
@@ -391,23 +399,34 @@ function SurvivingCell({ repo, unread }: { repo: EngineRepo | null; unread?: Unr
 
 const UNREAD_PAGE = 6;
 
-/** Lines that still run, repository by repository: the total is the sum of the counted rows listed, and every other repository they committed to is shown as waiting, being read, or not read, with a way to read it. */
+type Waiting = { key: string; owner: string; name: string; commits: number; words: string; busy: boolean; unread: UnreadRepo | null };
+
+function waitingOf(c: Coverage): Waiting[] {
+  return [
+    ...c.waiting.map((r) => ({ key: `${r.owner}/${r.name}`, owner: r.owner, name: r.name, commits: r.commits, words: r.surviving.status === "counting" ? "counting" : (COUNT_WORDS[r.surviving.status] ?? "not counted"), busy: r.surviving.status === "counting", unread: null })),
+    ...c.unread.map((r) => ({ key: `${r.owner}/${r.name}`, owner: r.owner, name: r.name, commits: r.commits, words: r.state === "failed" && r.reason ? `${UNREAD_WORDS.failed}: ${FAILURE_SHORT[r.reason]}` : r.private && r.state === "not_read" ? "private: open it to connect" : UNREAD_WORDS[r.state], busy: r.state === "reading", unread: r })),
+  ];
+}
+
+/** Lines that still run, repository by repository: one number a row, the rest behind an eye; the total is the sum of the counted rows listed, and every other repository they committed to waits beneath it, with a way to read it. */
 export function SurvivalPanel({ engine, login, onRead }: { engine: EngineView; login: string; onRead?: (repos: { owner: string; name: string }[]) => Promise<unknown> }) {
   const c = coverage(engine);
-  const [shown, setShown] = useState(UNREAD_PAGE);
+  const [open, setOpen] = useState<EngineRepo | null>(null);
+  const [all, setAll] = useState(false);
   if (engine.repos.length === 0 && c.unread.length === 0) return null;
-  const listed = [...c.counted, ...c.waiting];
-  const most = Math.max(1, ...c.counted.map((r) => r.surviving.added ?? r.surviving.lines ?? 0));
+  const counted = [...c.counted].sort((a, b) => (b.surviving.lines ?? 0) - (a.surviving.lines ?? 0));
+  const most = Math.max(1, ...counted.map((r) => r.surviving.lines ?? 0));
   const share = survival(c.total, c.added);
+  const waiting = waitingOf(c);
   const readable = c.unread.filter((r) => r.canRead);
   const reading = c.unread.filter((r) => r.state === "reading").length;
   const counting = c.waiting.filter((r) => r.surviving.status === "counting").length;
   const next = readable.slice(0, 5);
+  const readNext = onRead && next.length > 0 ? <ReadButton onClick={() => onRead(next.map((r) => ({ owner: r.owner, name: r.name })))} name={next.map((r) => `${r.owner}/${r.name}`).join(", ")} label={next.length === 1 ? `Read ${next[0]?.name}` : `Read the next ${next.length}`} /> : null;
   return (
     <Panel
-      id="survived"
       title="Code that survived"
-      description="The lines of theirs still at the head of each repository commitscape has read, under every address they commit with; reformats and generated files left out. A repository counts once it is read and counted."
+      description="Lines of theirs still at the head of each repository commitscape has read, under every address they commit with. Reformats and generated files are left out, and a repository counts once it is read and counted."
       actions={
         c.busy ? (
           <Chip tone="brand" icon={<Spinner size="sm" />}>
@@ -424,42 +443,63 @@ export function SurvivalPanel({ engine, login, onRead }: { engine: EngineView; l
               <span className="type-label">lines still running</span>
             </span>
             <span className="type-caption">
-              {c.total === null ? (c.busy ? "None counted yet; the first arrive in a few minutes." : "No repository of theirs counted yet.") : `The sum of the ${many(c.counted.length, "repository", "repositories")} listed${share ? `: ${share} of the ${compact(c.added ?? 0)} lines they added there` : ""}.`}
+              {c.total === null ? (c.busy ? "None counted yet; the first arrive in a few minutes." : "No repository of theirs counted yet.") : `The sum of the ${many(c.counted.length, "repository", "repositories")} below${share ? `: ${share} of the ${compact(c.added ?? 0)} lines they added there` : ""}.`}
             </span>
           </div>
           <CoverageBar c={c} />
         </div>
-        <div className="flex min-w-0 flex-col gap-stack">
-          {listed.length > 0 && (
-            <ul className="m-0 grid min-w-0 list-none grid-cols-1 gap-x-10 gap-y-4 p-0 lg:grid-cols-2">
-              {listed.map((r) => (
-                <SurvivalRow key={`${r.owner}/${r.name}`} r={r} login={login} most={most} />
+        {counted.length > 0 && (
+          <div className="flex flex-col gap-2">
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="type-label">In the total</span>
+              <span className="type-micro">lines still running, most first</span>
+            </div>
+            <ol className="m-0 grid min-w-0 list-none grid-cols-1 gap-x-8 p-0 lg:grid-flow-col lg:grid-cols-2 lg:grid-rows-[repeat(var(--rows),auto)]" style={{ "--rows": Math.ceil(counted.length / 2) } as CSSProperties}>
+              {counted.map((r, i) => (
+                <SurvivalRow key={`${r.owner}/${r.name}`} r={r} place={i + 1} most={most} onOpen={() => setOpen(r)} />
+              ))}
+            </ol>
+          </div>
+        )}
+        {waiting.length > 0 && (
+          <div className={`flex flex-col gap-3 ${counted.length > 0 ? "border-t border-line pt-stack" : ""}`}>
+            <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+              <div className="flex min-w-0 flex-col gap-0.5">
+                <span className="type-label">Not in the total yet</span>
+                <span className="type-caption">{many(waiting.length, "repository", "repositories")} they committed to that commitscape has not counted. Each joins the total once it is read and counted.</span>
+              </div>
+              {readNext}
+            </div>
+            <ul className="m-0 flex list-none flex-wrap gap-2 p-0">
+              {waiting.slice(0, UNREAD_PAGE).map((w) => (
+                <WaitingChip key={w.key} w={w} login={login} />
+              ))}
+              {waiting.length > UNREAD_PAGE && (
+                <li>
+                  <button type="button" onClick={() => setAll(true)} className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-full border border-line bg-surface px-3 text-xs font-medium text-primary transition-colors hover:bg-hover">
+                    <Eye size={ICON.xs} aria-hidden />
+                    See all {grouped(waiting.length)}
+                  </button>
+                </li>
+              )}
+            </ul>
+          </div>
+        )}
+      </div>
+      {open && <SurvivalDialog r={open} login={login} onClose={() => setOpen(null)} />}
+      {all && (
+        <Dialog isOpen={all} onOpenChange={setAll} width="min(640px, 96vw)" maxHeight="85dvh" padding={5}>
+          <DialogHeader title="Not in the total yet" subtitle={`${many(waiting.length, "repository", "repositories")} they committed to, by their commits there`} onOpenChange={setAll} />
+          <div className="flex flex-col gap-3 pt-2">
+            {readNext && <div>{readNext}</div>}
+            <ul className="m-0 flex list-none flex-col p-0">
+              {[...waiting].sort((a, b) => b.commits - a.commits).map((w) => (
+                <WaitingRow key={w.key} w={w} login={login} onRead={onRead} />
               ))}
             </ul>
-          )}
-          {c.unread.length > 0 && (
-            <div className={`flex flex-col gap-3 ${listed.length > 0 ? "border-t border-line pt-stack" : ""}`}>
-              <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
-                <div className="flex min-w-0 flex-col gap-0.5">
-                  <span className="type-label">Not in the total yet</span>
-                  <span className="type-caption">{many(c.unread.length, "repository", "repositories")} they committed to that commitscape has not counted. Each joins the total once it is read.</span>
-                </div>
-                {onRead && next.length > 0 && <ReadButton onClick={() => onRead(next.map((r) => ({ owner: r.owner, name: r.name })))} name={next.map((r) => `${r.owner}/${r.name}`).join(", ")} label={next.length === 1 ? `Read ${next[0]?.name}` : `Read the next ${next.length}`} />}
-              </div>
-              <ul className="m-0 grid list-none grid-cols-1 gap-2 p-0 lg:grid-cols-2">
-                {c.unread.slice(0, shown).map((r) => (
-                  <UnreadRow key={`${r.owner}/${r.name}`} r={r} login={login} onRead={onRead} />
-                ))}
-              </ul>
-              {c.unread.length > shown && (
-                <button type="button" onClick={() => setShown(shown + UNREAD_PAGE * 2)} className="w-fit cursor-pointer border-0 bg-transparent p-0 text-xs font-medium text-brand hover:underline">
-                  Show {grouped(Math.min(UNREAD_PAGE * 2, c.unread.length - shown))} more of {grouped(c.unread.length - shown)}
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
+          </div>
+        </Dialog>
+      )}
     </Panel>
   );
 }
@@ -469,7 +509,7 @@ function CoverageBar({ c }: { c: Coverage }) {
   const parts = [
     { n: c.counted.length, colour: "bg-brand", word: "counted" },
     { n: c.waiting.length, colour: "bg-brand-line", word: "read, counting or not countable" },
-    { n: c.unread.length, colour: "bg-[var(--color-track)]", word: "not read" },
+    { n: c.unread.length, colour: "bg-(--color-track)", word: "not read" },
   ].filter((p) => p.n > 0);
   return (
     <div className="flex flex-col gap-2">
@@ -490,67 +530,105 @@ function CoverageBar({ c }: { c: Coverage }) {
   );
 }
 
-function SurvivalRow({ r, login, most }: { r: EngineRepo; login: string; most: number }) {
-  const counted = r.surviving.status === "counted" && r.surviving.lines !== null;
+function SurvivalRow({ r, place, most, onOpen }: { r: EngineRepo; place: number; most: number; onOpen: () => void }) {
+  const lines = r.surviving.lines ?? 0;
+  const rate = survival(r.surviving.lines, r.surviving.added);
   return (
-    <li className="flex flex-col gap-1.5">
-      <div className="flex items-center justify-between gap-3 text-sm">
-        <A href={`/u/${login}/${r.owner}/${r.name}`} className="flex min-w-0 items-center gap-2 text-primary no-underline hover:underline">
-          <Face login={r.owner} name={r.owner} size={20} shape="rounded" />
-          <span className="truncate font-medium">
-            {r.owner}/{r.name}
-          </span>
-        </A>
-        <span className="flex-none type-caption tnum">
-          {counted ? (
-            <>
-              <strong className="font-semibold text-primary">{grouped(r.surviving.lines ?? 0)}</strong>
-              {r.surviving.added ? ` of ${grouped(r.surviving.added)}${survival(r.surviving.lines, r.surviving.added) ? ` · ${survival(r.surviving.lines, r.surviving.added)}` : ""}` : ""}
-            </>
-          ) : (
-            <SurvivingCell repo={r} />
-          )}
+    <li className="group flex h-12 items-center gap-3 border-b border-line">
+      <span className="w-5 flex-none text-end type-micro tnum">{place}</span>
+      <Face login={r.owner} name={r.owner} size={24} shape="rounded" />
+      <span className="flex min-w-0 flex-1 flex-col gap-1">
+        <span className="truncate text-sm font-medium">
+          <span className="text-secondary max-sm:hidden">{r.owner}/</span>
+          {r.name}
         </span>
-      </div>
-      <span className="type-caption tnum">
-        {many(r.commits, "commit", "commits")}
-        {r.linesAdded !== null && (
-          <>
-            {" · "}
-            <span className="text-added">+{compact(r.linesAdded)}</span> <span className="text-removed">−{compact(r.linesRemoved ?? 0)}</span> lines changed
-          </>
-        )}
-        {!counted && " · not in the total yet"}
+        <span className="block h-1 w-full overflow-hidden rounded-full bg-(--color-track)" aria-hidden>
+          <span className="block h-full rounded-full bg-brand" style={{ width: `${Math.max(1.5, (lines * 100) / most)}%` }} />
+        </span>
       </span>
-      <span className="relative block h-1.5 overflow-hidden rounded-full bg-[var(--color-track)]">
-        {counted && r.surviving.added ? <span className="absolute inset-y-0 start-0 rounded-full bg-brand-soft" style={{ width: `${(r.surviving.added * 100) / most}%` }} /> : null}
-        {counted ? <span className="absolute inset-y-0 start-0 rounded-full bg-brand" style={{ width: `${((r.surviving.lines ?? 0) * 100) / most}%` }} /> : r.surviving.status === "counting" ? <span className="absolute inset-0 animate-pulse bg-[var(--color-skeleton)]" /> : null}
+      <span className="flex w-16 flex-none flex-col items-end tnum">
+        <span className="text-sm font-semibold text-primary" title={`${grouped(lines)} lines still running`}>
+          {compact(lines)}
+        </span>
+        {rate && <span className="type-micro">{rate} kept</span>}
       </span>
+      <IconButton label={`Details of ${r.owner}/${r.name}`} tooltip="Details" variant="ghost" size="sm" icon={<Icon icon={Eye} size="sm" />} onClick={onOpen} />
     </li>
   );
 }
 
-function UnreadRow({ r, login, onRead }: { r: UnreadRepo; login: string; onRead?: (repos: { owner: string; name: string }[]) => Promise<unknown> }) {
-  const words = r.state === "failed" && r.reason ? `${UNREAD_WORDS.failed}: ${FAILURE_SHORT[r.reason]}` : r.private && r.state === "not_read" ? "private: open it to connect" : UNREAD_WORDS[r.state];
+function SurvivalDialog({ r, login, onClose }: { r: EngineRepo; login: string; onClose: () => void }) {
+  const lines = r.surviving.lines ?? 0;
+  const added = r.surviving.added;
+  const rate = survival(r.surviving.lines, added);
+  const more = added !== null && lines > added;
   return (
-    <li className="flex h-12 items-center gap-3 rounded-md border border-line px-3">
-      <A href={`/u/${login}/${r.owner}/${r.name}`} className="flex min-w-0 flex-1 items-center gap-2.5 text-primary no-underline hover:underline">
-        <Face login={r.owner} name={r.owner} size={24} shape="rounded" />
+    <Dialog isOpen onOpenChange={(o) => !o && onClose()} width="min(520px, 96vw)" padding={5}>
+      <DialogHeader title={`${r.owner}/${r.name}`} subtitle="Their lines here, as commitscape counted them" onOpenChange={(o) => !o && onClose()} />
+      <div className="flex flex-col gap-4 pt-2">
+        <div className="grid grid-cols-2 gap-2.5">
+          <Fact label="Lines still running" value={grouped(lines)} note="at the head, theirs by blame" tone="brand" />
+          <Fact label="Kept" value={rate ?? "—"} note={rate ? "of the lines they added" : more ? "not a share: see below" : "lines added not counted"} />
+          <Fact label="Lines added" value={added === null ? "—" : grouped(added)} note={r.linesRemoved !== null ? `${grouped(r.linesRemoved)} removed` : undefined} />
+          <Fact label="Commits" value={grouped(r.commits)} note={yearsBetween(r.first, r.last)} />
+        </div>
+        {more && (
+          <p className="m-0 rounded-md bg-sunken px-3 py-2.5 type-description">
+            More of their lines run here than were counted as added. Lines added leave out bulk commits, such as an import or a vendored drop, and generated files; blame still gives the lines of a bulk commit of theirs to them. So the two count different things, and no share is shown.
+          </p>
+        )}
+        <A href={`/u/${login}/${r.owner}/${r.name}`} className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-brand no-underline hover:underline">
+          Where they stand in {r.name}
+        </A>
+      </div>
+    </Dialog>
+  );
+}
+
+function yearsBetween(first: number | null, last: number | null): string | undefined {
+  if (!first || !last) return undefined;
+  const [a, b] = [new Date(first * 1000).getUTCFullYear(), new Date(last * 1000).getUTCFullYear()];
+  return a === b ? `all in ${a}` : `${a} to ${b}`;
+}
+
+function Fact({ label, value, note, tone }: { label: string; value: string; note?: string; tone?: "brand" }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-1 rounded-md border border-line bg-body px-3.5 py-3">
+      <span className="type-caption font-medium">{label}</span>
+      <span className={`type-stat-sm ${tone === "brand" ? "text-brand" : ""}`}>{value}</span>
+      {note && <span className="truncate type-micro">{note}</span>}
+    </div>
+  );
+}
+
+function WaitingChip({ w, login }: { w: Waiting; login: string }) {
+  return (
+    <li>
+      <A href={`/u/${login}/${w.owner}/${w.name}`} title={`${w.owner}/${w.name}: ${many(w.commits, "commit", "commits")}, ${w.words}`} className="inline-flex min-h-8 max-w-64 items-center gap-2 rounded-full border border-line bg-surface py-1 ps-1 pe-3 text-xs text-primary no-underline transition-colors hover:bg-hover">
+        <Face login={w.owner} name={w.owner} size={20} shape="rounded" />
+        <span className="min-w-0 font-medium [overflow-wrap:anywhere]">{w.name}</span>
+        {w.busy ? <Spinner size="sm" /> : <span className="flex-none text-secondary">{w.words}</span>}
+      </A>
+    </li>
+  );
+}
+
+function WaitingRow({ w, login, onRead }: { w: Waiting; login: string; onRead?: (repos: { owner: string; name: string }[]) => Promise<unknown> }) {
+  return (
+    <li className="flex h-12 items-center gap-3 border-b border-line">
+      <A href={`/u/${login}/${w.owner}/${w.name}`} className="flex min-w-0 flex-1 items-center gap-2.5 text-primary no-underline hover:underline">
+        <Face login={w.owner} name={w.owner} size={24} shape="rounded" />
         <span className="flex min-w-0 flex-col">
           <span className="truncate text-sm font-medium">
-            <span className="text-secondary max-sm:hidden">{r.owner}/</span>
-            {r.name}
+            <span className="text-secondary max-sm:hidden">{w.owner}/</span>
+            {w.name}
           </span>
           <span className="truncate type-micro">
-            {many(r.commits, "commit", "commits")} · {words}
+            {many(w.commits, "commit", "commits")} · {w.words}
           </span>
         </span>
       </A>
-      {r.state === "reading" ? (
-        <Spinner size="sm" />
-      ) : r.canRead && onRead ? (
-        <ReadButton onClick={() => onRead([{ owner: r.owner, name: r.name }])} name={`${r.owner}/${r.name}`} />
-      ) : null}
+      {w.busy ? <Spinner size="sm" /> : w.unread?.canRead && onRead ? <ReadButton onClick={() => onRead([{ owner: w.owner, name: w.name }])} name={`${w.owner}/${w.name}`} /> : null}
     </li>
   );
 }
@@ -590,25 +668,28 @@ export function PeoplePanel({ profile, versus, wide = false }: { profile: Profil
   return (
     <Panel title="The people they work with most" description="Who reviewed their pull requests, and whose they reviewed" className="h-full [&>*]:h-full">
       {people.length === 0 ? (
-        <Nothing title="No reviews either way yet" words="When someone reviews their pull requests, or they review someone else's, those people show up here." compact />
+        <Nothing title="No reviews either way yet" words="When someone reviews their pull requests, or they review someone else’s, those people show up here." compact />
       ) : (
         <ul className={`m-0 grid list-none gap-2 p-0 sm:grid-cols-2 ${wide ? "lg:grid-cols-4" : "lg:grid-cols-3"}`}>
           {people.map((p) => (
-            <li key={p.login} className="group flex items-center gap-3 rounded-md border border-line p-2.5 transition-colors hover:border-line-strong">
-              <A href={`/u/${p.login}`} className="flex min-w-0 flex-1 items-center gap-3 text-primary no-underline">
+            <li key={p.login} className="group relative flex items-center gap-3 rounded-md border border-line p-2.5 transition-colors hover:border-line-strong">
+              <A href={`/u/${p.login}`} className="flex min-w-0 flex-1 items-center gap-3 pe-6 text-primary no-underline">
                 <Face login={p.login} name={p.login} size={36} />
                 <span className="flex min-w-0 flex-1 flex-col gap-1">
-                  <span className="truncate text-sm font-medium">{p.login}</span>
-                  <span className="flex h-1 w-full overflow-hidden rounded-full bg-[var(--color-track)]" aria-hidden>
-                    <span className="h-full bg-[var(--s1)]" style={{ width: `${(p.reviewedYours * 100) / most}%` }} />
-                    <span className="h-full bg-[var(--s3)]" style={{ width: `${(p.reviewedTheirs * 100) / most}%` }} />
+                  <span className="truncate type-ui font-medium">{p.login}</span>
+                  <span className="flex h-1 w-full overflow-hidden rounded-full bg-(--color-track)" aria-hidden>
+                    <span className="h-full bg-(--s1)" style={{ width: `${(p.reviewedYours * 100) / most}%` }} />
+                    <span className="h-full bg-(--s3)" style={{ width: `${(p.reviewedTheirs * 100) / most}%` }} />
                   </span>
-                  <span className="truncate type-micro">{[p.reviewedYours > 0 && `${grouped(p.reviewedYours)} to them`, p.reviewedTheirs > 0 && `${grouped(p.reviewedTheirs)} from them`].filter(Boolean).join(" · ")}</span>
+                  <span className="flex flex-col type-micro">
+                    {p.reviewedYours > 0 && <span>{grouped(p.reviewedYours)} to them</span>}
+                    {p.reviewedTheirs > 0 && <span>{grouped(p.reviewedTheirs)} from them</span>}
+                  </span>
                 </span>
               </A>
               {versus && (
-                <A href={versus(p.login)} className="flex-none rounded-md px-2 py-1 text-xs font-medium text-secondary no-underline transition-opacity hover:text-primary focus:opacity-100 sm:opacity-0 sm:group-hover:opacity-100">
-                  Versus
+                <A href={versus(p.login)} aria-label={`Versus ${p.login}`} title={`Versus ${p.login}`} className="absolute end-1.5 top-1.5 grid size-6 place-items-center rounded-md text-tertiary no-underline transition-colors hover:bg-hover hover:text-primary">
+                  <Swords size={ICON.sm} aria-hidden />
                 </A>
               )}
             </li>
@@ -618,10 +699,10 @@ export function PeoplePanel({ profile, versus, wide = false }: { profile: Profil
       {people.length > 0 && (
         <div className="mt-auto flex flex-wrap gap-x-4 gap-y-1 type-micro">
           <span className="flex items-center gap-1.5">
-            <span className="size-2 rounded-full bg-[var(--s1)]" /> reviews of their pull requests
+            <span className="size-2 rounded-full bg-(--s1)" /> reviews of their pull requests
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="size-2 rounded-full bg-[var(--s3)]" /> their reviews of others
+            <span className="size-2 rounded-full bg-(--s3)" /> their reviews of others
           </span>
         </div>
       )}

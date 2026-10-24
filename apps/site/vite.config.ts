@@ -10,11 +10,12 @@ export default defineConfig({
   resolve: { tsconfigPaths: true },
   ssr: { external: ["satori", "@resvg/resvg-js", "pdfkit"], optimizeDeps: { exclude: ["satori", "@resvg/resvg-js", "pdfkit"] } },
   optimizeDeps: { exclude: ["satori", "@resvg/resvg-js"] },
+  worker: { format: "es" },
   plugins: [
     devtools(),
     tailwindcss(),
     tanstackStart(),
-    nitro({ traceDeps: ["satori*", "harfbuzzjs*", "@resvg/resvg-js*", "pdfkit*", "react", "react-dom"] }),
+    nitro({ traceDeps: ["satori*", "harfbuzzjs*", "@resvg/resvg-js*", "pdfkit*", "react", "react-dom"], compressPublicAssets: { gzip: true, brotli: true }, routeRules: { "/fonts/**": { headers: { "cache-control": "public, max-age=2592000" } } } }),
     react(),
     sentryTanstackStart({
       org: process.env.SENTRY_ORG,

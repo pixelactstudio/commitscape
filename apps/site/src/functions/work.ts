@@ -5,6 +5,7 @@ import { auth } from "#/server/auth";
 import { db } from "#/server/context";
 import { SiteError } from "#/server/http";
 import { loginFor, profileDeps, profileViewer } from "#/server/viewer";
+import { lockedFor } from "#/server/gates";
 import { sharedWork, shareWork, unshareWork, WorkGateError, workOf } from "#/server/work";
 
 const ask = z.object({ login: z.string().min(1).max(39), from: z.string().length(10), to: z.string().length(10), filter: z.string().max(140).nullable().optional() });
@@ -13,8 +14,11 @@ const ask = z.object({ login: z.string().min(1).max(39), from: z.string().length
 export const getWork = createServerFn({ method: "GET" })
   .validator(ask)
   .handler(async ({ data }) => {
+    const viewer = profileViewer(getRequest());
+    const locked = await lockedFor("work", viewer);
+    if (locked) throw new SiteError(401, "Sign in to see Proof of Work.");
     try {
-      return await workOf(profileDeps(), profileViewer(getRequest()), data.login, data);
+      return await workOf(profileDeps(), viewer, data.login, data);
     } catch (e) {
       if (e instanceof WorkGateError) return e.gate;
       throw e;

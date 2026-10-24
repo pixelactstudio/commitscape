@@ -1,6 +1,6 @@
 import { join, resolve } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
-import { sql } from "./accounts";
+import { signInAs, sql } from "./accounts";
 
 const shots = resolve(import.meta.dirname, "../../../target/preview/site");
 
@@ -24,7 +24,8 @@ async function built(page: Page, repo: string) {
 
 const stat = (page: Page, label: string) => page.getByRole("group", { name: label, exact: true });
 
-test("a Profile draws GitHub's facts, streams its numbers in, and never names private work to someone else", async ({ page }) => {
+test("a Profile draws GitHub's facts, streams its numbers in, and never names private work to someone else", async ({ page, context }) => {
+  await signInAs(context, "bob");
   const after: string[] = [];
   let loaded = false;
   page.on("request", (r) => {
@@ -71,7 +72,7 @@ test("an unknown name, an organization, and a name that cannot be a login each s
 
 test("the landing page's box takes a person or a repository", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("What you've built, in numbers worth sharing.");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("What you’ve built, in numbers worth sharing.");
   const box = page.getByRole("combobox", { name: "A GitHub username or repository" }).first();
   await box.fill("@alice");
   await page.getByRole("button", { name: "Show me", exact: true }).click();
@@ -86,13 +87,14 @@ test("the landing page's box takes a person or a repository", async ({ page }) =
   await expect(page.getByText("Type a GitHub username, like gaearon").first()).toBeVisible();
 });
 
-test("the engine's numbers stream into the Profile once the repository is read: Lines Changed, and Surviving Lines counted on request", async ({ page }) => {
+test("the engine's numbers stream into the Profile once the repository is read: Lines Changed, and Surviving Lines counted on request", async ({ page, context }) => {
+  await signInAs(context, "alice");
   await built(page, "acme/ownership");
   await page.goto("/u/alice");
   await expect(page.getByRole("region", { name: "Where their work is" }).getByRole("row", { name: /acme\/ownership/ })).toBeVisible();
   const survived = page.getByRole("region", { name: "Code that survived" });
   await expect(survived).toContainText("acme/ownership");
-  await expect(survived).toContainText("10 commits");
+  await expect(survived).toContainText("10% kept");
   await expect(stat(page, "Lines that still run")).not.toContainText("Counting", { timeout: 30_000 });
 });
 
@@ -107,7 +109,7 @@ test("you in this repository: your place in each view, who is next, and everyone
   await expect(board.getByRole("listitem").first()).toHaveAttribute("aria-current", "true");
   await page.goto("/u/alice/acme/never-read");
   await expect(page.getByText("GitHub shows no repository called acme/never-read")).toBeVisible();
-  await expect(page.getByRole("link", { name: "Alice Example's profile" })).toHaveAttribute("href", "/u/alice");
+  await expect(page.getByRole("link", { name: "Alice Example’s profile" })).toHaveAttribute("href", "/u/alice");
 });
 
 test("a Profile shows its Archetype with the rule behind it, and every Achievement with what reaches it", async ({ page, request }) => {

@@ -38,13 +38,21 @@ no Report, or it is more than a day old, it queues a Build. Then the Builder:
    leave that folder, which is deleted at the end.
 4. **Publishes the quick Report**: `commitscape report <quick clone>
    --no-lines --accounts accounts.json --out … --commits-out …`. The Report
-   goes to R2 under `reports/gh/<repo>/<build>-quick/`, its commits to the
-   `commits` table, its people to `repo_people`, and it becomes the
-   repository's Report at once, marked without lines. (Skipped when the
-   repository already has a Report with lines.)
-5. **Publishes the full Report** from the full clone the same way, with
-   lines, under `reports/gh/<repo>/<build>/`, then deletes the quick one's
-   rows and objects. The Build ends `done`.
+   goes to R2 under `reports/gh/<repo>/<build>-quick/`, its people to
+   `repo_people`, and it becomes the repository's Report at once, marked
+   without lines. (Skipped when the repository already has a Report with
+   lines.) When the repository has no Stored Index yet, `commitscape export
+   --no-lines` loads one so every screen can answer.
+5. **Loads the Stored Index, then publishes the full Report.** `commitscape
+   export` writes the Index as `COPY` files: everything after a rebuilt
+   cache, else only the commits after the ones the Stored Index holds
+   (`--after`, `--lineage`). `loadExport` merges them in one transaction
+   ([ADR-0027](./adr/0027-the-index-is-kept-in-postgres.md)). The full
+   Report is then published with its index and people only: the Site
+   answers every screen from the Stored Index. Then the git data: branches,
+   tags and branch details as rows, the text of files at HEAD in R2 (each
+   blob once, recorded in `repo_blobs`), and pull request diffs. The Build
+   ends `done`.
 6. **Queues Surviving Lines** for seeds' top people; each count reuses the
    full clone and the same accounts, so person ids match the Report.
 
@@ -53,14 +61,17 @@ ends `done`, partial, with the reason. A timeout is queued again with twice
 the time, four attempts in all. A reaper every five minutes fails Builds whose
 job is gone and resends queued ones whose job was lost.
 
-## How the Site reads a Report
+## How the Site reads a repository
 
-- `packages/server/src/reports.ts` stores each screen's answer as its own R2
-  object, so a page reads only what it shows, through an in-memory cache.
+- `apps/site/src/server/answers.ts` reads a repository's Stored Index into
+  memory once per load (`loadView`) and works every screen's answer out of
+  it with `@commitscape/data/answers`, for any dates. A repository built
+  before Stored Indexes still reads its Report's answers from R2.
 - The Commits screen asks `GET /api/reports/<owner>/<repo>/commits` for 50
-  rows at a time: `q`, `person`, `kind`, `from`, `to`, `cursor`, `limit`. It
-  is keyset-paged on the row's position and cached by ETag
-  ([ADR-0024](./adr/0024-commits-are-rows-in-postgres.md)).
+  rows at a time: `q`, `person`, `kind`, `from`, `to`, `cursor`, `limit`,
+  read from `index_commits` and cached by ETag.
+- The Code screen's tree, coupling and history, and the Universe's
+  `log.json`, are worked out from the Stored Index; branches are rows.
 - A Shared Report is one locked file. The browser downloads it, decrypts it
   with the key after the `#`, and pages its Commit List itself; the Site
   never sees it unlocked.
@@ -71,14 +82,14 @@ job is gone and resends queued ones whose job was lost.
 npx commitscape                 # asks, uploads the locked Report, opens the link
 commitscape share --list        # the links this machine made
 commitscape share --delete <link>
-commitscape report . --out r.json.gz
 commitscape surviving . --person 3
 commitscape health owner/name
 ```
 
-`report --commits-out FILE` writes the Commit List apart, and `--accounts
-FILE` (`{"<email>": "<login>"}`) joins identities on those logins; the
-Builder uses both. `COMMITSCAPE_SITE` points `share` at another Site.
+`report` and `export` are hidden: they are the Builder's. `report` writes the
+Report as gzipped JSON, `export` the Index as Postgres `COPY` files, and
+`--accounts FILE` (`{"<email>": "<login>"}`) joins identities on those
+logins for both. `COMMITSCAPE_SITE` points `share` at another Site.
 
 ## Cards
 

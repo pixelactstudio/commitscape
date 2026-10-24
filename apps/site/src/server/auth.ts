@@ -1,6 +1,6 @@
 import "@tanstack/react-start/server-only";
 import { tanstackStartCookies } from "better-auth/tanstack-start";
-import { db } from "./context";
+import { db, siteGitHub } from "./context";
 import { env } from "./env";
 import { syncLogin } from "./logins";
 import { createAuth, userTokenOf } from "./sign-in";
@@ -13,7 +13,7 @@ export const auth = createAuth({
   github: env.GITHUB_APP_CLIENT_ID && env.GITHUB_APP_CLIENT_SECRET ? { clientId: env.GITHUB_APP_CLIENT_ID, clientSecret: env.GITHUB_APP_CLIENT_SECRET } : null,
   plugins: [tanstackStartCookies()],
   onSignIn: async (userId) => {
-    await syncLogin({ db: db(), github: { api: env.GITHUB_API, token: env.GITHUB_TOKEN } }, userId, await githubTokenOf(userId));
+    await syncLogin({ db: db(), github: siteGitHub() }, userId, await githubTokenOf(userId));
   },
 });
 

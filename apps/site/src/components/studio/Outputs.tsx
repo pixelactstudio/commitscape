@@ -45,7 +45,7 @@ export function Outputs({ choice, query, origin }: { choice: CardChoice; query: 
           </div>
         </Block>
         <Block title="As an image" words="A still PNG, for a slide, a document or a post.">
-          <div className="grid flex-1 grid-cols-2 gap-2">
+          <div className="grid flex-1 grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-1">
             {(["light", "dark"] as const).map((theme) => (
               <a key={theme} href={a.png(theme)} download={`${file}-${theme}.png`} aria-label={`PNG, ${theme}`} data-mode={theme} className="studio-download group/dl flex min-h-36 flex-col justify-between gap-3 rounded-lg p-3 no-underline">
                 <span className="grid flex-1 place-items-center">
@@ -62,7 +62,7 @@ export function Outputs({ choice, query, origin }: { choice: CardChoice; query: 
         <Block title="In a post" words="The post links to the page, and X and LinkedIn show its preview image. Attach the PNG to post the Card itself.">
           <div className="flex flex-col gap-1 rounded-lg border border-line bg-sunken px-4 py-3">
             <p className="m-0 type-body text-primary">{choice.share}</p>
-            <p className="m-0 truncate text-sm text-brand">{a.link}</p>
+            <p className="m-0 text-sm break-all text-brand">{a.link}</p>
           </div>
           <div className="mt-auto flex flex-wrap gap-2">
             <Button label="Post on X" variant="primary" href={a.x} target="_blank" rel="noopener noreferrer" />
@@ -78,10 +78,10 @@ export function Outputs({ choice, query, origin }: { choice: CardChoice; query: 
               ["The Card, dark", a.image("svg", "dark")],
               ["As a PNG", a.image("png", "light")],
             ].map(([label, link]) => (
-              <li key={label} className="grid min-w-0 items-center gap-x-4 gap-y-1 py-2 first:pt-0 last:pb-0 sm:grid-cols-[8.5rem_minmax(0,1fr)_auto]">
-                <span className="type-label">{label}</span>
-                <code className="min-w-0 truncate font-mono text-xs text-secondary">{link}</code>
-                <Button label={`Copy: ${label}`} isIconOnly size="sm" variant="ghost" icon={<Icon icon={Link2} size="sm" />} onClick={() => a.copy(link ?? "", "Link copied")} className="hidden sm:inline-flex" />
+              <li key={label} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 py-2 first:pt-0 last:pb-0 sm:grid-cols-[8.5rem_minmax(0,1fr)_auto]">
+                <span className="type-label max-sm:col-span-2">{label}</span>
+                <code className="min-w-0 font-mono text-xs break-all text-secondary">{link}</code>
+                <Button label={`Copy: ${label}`} isIconOnly size="sm" variant="ghost" icon={<Icon icon={Link2} size="sm" />} onClick={() => a.copy(link ?? "", "Link copied")} />
               </li>
             ))}
           </ul>

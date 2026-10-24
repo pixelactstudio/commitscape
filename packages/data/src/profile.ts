@@ -91,11 +91,16 @@ export type Profile = {
   prs: ProfilePr[];
   read: { prs: number; prsTotal: number; requests: number; complete: boolean; clockAt?: number };
   clock: { hours: number[]; sampled: number; week?: number[][] } | null;
+  privateWork?: PrivateWork;
 };
+
+export type PrivateWork = { repositories: number; named: number; commits: number; prsMerged: number; reviews: number };
+
+export type PrivateShow = "hidden" | "counts" | "named";
 
 export type ProfileLookup =
   | { status: "ok"; identity: Identity; hidden: boolean; self: boolean; fetchedAt: number | null }
-  | { status: "not_found" | "hidden" | "organization"; login: string; identity?: Identity };
+  | { status: "not_found" | "hidden" | "organization" | "locked"; login: string; identity?: Identity };
 
 export type EngineRepo = {
   owner: string;

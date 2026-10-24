@@ -8,8 +8,8 @@ export const Route = createFileRoute("/crews/")({
   loader: ({ context }) => context.queryClient.ensureQueryData(myRacesQuery()),
   head: () => ({ meta: [{ title: `Crews · ${PRODUCT}` }] }),
   component: () => (
-    <Page className="pb-16">
-      <PageHead eyebrow="Every month, together" title="Crews" description="Friends or a team who compare themselves each Season, a calendar month, with a recap Card when it ends." />
+    <Page className="pb-section">
+      <PageHead title="Crews" description="Friends or a team who compare themselves each Season, a calendar month, with a recap Card when it ends." />
       <Start kind="crew" />
     </Page>
   ),

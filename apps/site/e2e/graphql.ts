@@ -108,7 +108,7 @@ export function graphqlAnswer(query: string, variables: Record<string, unknown>)
     }
     return { data };
   }
-  if (query.includes("pullRequests(first: 50") && String(variables.name ?? "") === "ownership") {
+  if ((query.includes("pullRequests(first: 50") || query.includes("pullRequests(first: $first")) && String(variables.name ?? "") === "ownership") {
     const day = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString();
     const who = (login: string) => ({ __typename: "User", login });
     const node = (number: number, author: string, reviewers: string[], ago: number) => ({ number, title: `Change ${number}`, state: "MERGED", createdAt: day(ago + 1), mergedAt: day(ago), updatedAt: day(ago), additions: 10, deletions: 2, author: who(author), reviews: { nodes: reviewers.map((r) => ({ author: who(r), submittedAt: day(ago) })) } });

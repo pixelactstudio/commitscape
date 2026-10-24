@@ -50,7 +50,7 @@ export const Route = createFileRoute("/vs/$a/$b")({
 function shown(r: VersusRow): (n: number) => string {
   if (r.view === "hoursToMerge") return hours;
   if (r.view === "activeDays" || r.view === "longestStreak") return (n) => `${grouped(n)} ${Math.round(n) === 1 ? "day" : "days"}`;
-  return (n) => (n >= 100_000 ? compact(n) : grouped(n));
+  return Math.max(r.a ?? 0, r.b ?? 0) >= 100_000 ? compact : grouped;
 }
 
 const duels = (rows: VersusRow[]): Duel[] => rows.map((r) => ({ key: r.view, label: r.label, a: r.a, b: r.b, winner: r.winner, lowerWins: r.view === "hoursToMerge", format: shown(r) }));
@@ -59,12 +59,12 @@ function VersusPage() {
   const { a, b } = Route.useParams();
   const { a: left, b: right } = Route.useLoaderData();
   const refused = [left, right].find((l) => l.status !== "ok");
-  if (a.toLowerCase() === b.toLowerCase()) return <Missing title="A Versus needs two people" words={`Pick someone to put next to @${a}.`} back={{ label: "Pick two people", href: "/vs" }} />;
+  if (a.toLowerCase() === b.toLowerCase()) return <Missing title="A Versus needs two people" words={`Pick someone to put next to @${a}.`} back={{ label: "Pick two people", href: "/vs" }} lookup={false} />;
   if (refused) {
     const words = refused.status === "hidden" ? `@${refused.login} has chosen to stay out of comparisons.` : refused.status === "organization" ? `@${refused.login} is an organization, not a person.` : `GitHub has no person called @${refused.login}.`;
     const kept = [left, right].find((l) => l.status === "ok");
     if (kept?.status === "ok") return <NoVersus words={words} kept={kept.identity} side={kept === left ? "a" : "b"} />;
-    return <Missing title="No Versus here" words={words} back={{ label: "Pick two people", href: "/vs" }} />;
+    return <Missing title="No Versus here" words={words} back={{ label: "Pick two people", href: "/vs" }} lookup={false} />;
   }
   if (left.status !== "ok" || right.status !== "ok") return null;
   return (
@@ -73,9 +73,9 @@ function VersusPage() {
         <h1 className="sr-only">
           {left.identity.login} versus {right.identity.login}
         </h1>
-        <Page className="relative grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-start gap-2 pt-page-top pb-10 sm:items-center sm:gap-6 sm:pb-12">
+        <Page className="relative grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-start gap-2 pt-page-top pb-10 sm:gap-6 sm:pb-12">
           <Corner identity={left.identity} other={right.identity.login} side="a" />
-          <span className="vs-badge rise mt-6 grid size-11 place-items-center rounded-full text-xs font-bold sm:mt-0 sm:size-14 sm:text-base">VS</span>
+          <span className="vs-badge rise mt-6 grid size-11 place-items-center self-center rounded-full text-xs font-bold sm:mt-0 sm:size-14 sm:text-base">VS</span>
           <Corner identity={right.identity} other={left.identity.login} side="b" />
         </Page>
       </section>
@@ -88,7 +88,7 @@ function VersusPage() {
               </h2>
               <p className="m-0 type-description">A winner for each view and none overall: each counts something different.</p>
             </div>
-            <Section fallback={<Skeleton width={84} height={32} radius={2} />}>
+            <Section quiet fallback={<Skeleton width={84} height={32} radius={2} />}>
               <Share a={left.identity.login} b={right.identity.login} />
             </Section>
           </div>
@@ -96,10 +96,10 @@ function VersusPage() {
             <Views />
           </Section>
         </section>
-        <Section fallback={<SectionsSkeleton />}>
+        <Section quiet fallback={<SectionsSkeleton />}>
           <Sections />
         </Section>
-        <p className="m-0 text-center type-micro">Numbers come from GitHub's public record and the repositories commitscape has read.</p>
+        <p className="m-0 text-center type-micro">Numbers come from GitHub’s public record and the repositories commitscape has read.</p>
       </Page>
     </TipLayer>
   );
@@ -108,11 +108,11 @@ function VersusPage() {
 function Corner({ identity, other, side }: { identity: Pick<Identity, "login" | "name">; other: string; side: Side }) {
   const right = side === "b";
   return (
-    <div className={`rise flex min-w-0 flex-col items-center gap-4 text-center sm:flex-row sm:gap-6 ${right ? "sm:flex-row-reverse sm:text-end" : "sm:text-start"}`}>
-      <Link to="/u/$login" params={{ login: identity.login }} className="flex flex-none rounded-full" aria-label={`@${identity.login}'s Profile`}>
+    <div className={`rise flex min-w-0 flex-col items-center gap-4 text-center sm:flex-row sm:items-start sm:gap-6 ${right ? "sm:flex-row-reverse sm:text-end" : "sm:text-start"}`}>
+      <Link to="/u/$login" params={{ login: identity.login }} className="flex flex-none rounded-full" aria-label={`@${identity.login}’s Profile`}>
         <Face login={identity.login} name={identity.name ?? identity.login} size={72} wide={128} ring={TONE[side]} glow />
       </Link>
-      <div className={`flex min-w-0 max-w-full flex-col items-center gap-2 ${right ? "sm:items-end" : "sm:items-start"}`}>
+      <div className={`flex min-w-0 max-w-full flex-col items-center gap-2 sm:pt-3 ${right ? "sm:items-end" : "sm:items-start"}`}>
         <Link to="/u/$login" params={{ login: identity.login }} className="max-w-full text-lg font-semibold tracking-snug break-words text-balance text-primary no-underline hover:underline sm:type-title">
           {identity.name ?? identity.login}
         </Link>
@@ -120,7 +120,7 @@ function Corner({ identity, other, side }: { identity: Pick<Identity, "login" | 
           <span className="truncate font-medium">@{identity.login}</span>
           <Change side={side} other={other} />
         </div>
-        <Section fallback={<Skeleton width={120} height={24} radius="rounded" />}>
+        <Section quiet fallback={<Skeleton width={120} height={24} radius="rounded" />}>
           <Standout side={side} />
         </Section>
       </div>

@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { QueryClient } from "@tanstack/react-query";
 import { TanStackDevtools } from "@tanstack/react-devtools";
 import { ReactQueryDevtoolsPanel } from "@tanstack/react-query-devtools";
@@ -21,7 +21,6 @@ import { RouterLink } from "#/components/RouterLink";
 import "#/share-key";
 import app from "#/styles/app.css?url";
 import look from "#/styles/look.css?url";
-import inter from "@fontsource-variable/inter/files/inter-latin-wght-normal.woff2?url";
 
 type Viewer = Awaited<ReturnType<typeof getViewer>>;
 
@@ -37,7 +36,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient } & P
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: PRODUCT },
       { name: "description", content: "What a developer has built, how they stand next to the people they work with, and cards to share it." },
-      { name: "theme-color", content: "#08090b" },
+      { name: "theme-color", content: "#f6f7f9", media: "(prefers-color-scheme: light)" },
+      { name: "theme-color", content: "#090a0d", media: "(prefers-color-scheme: dark)" },
       { property: "og:site_name", content: PRODUCT },
       { property: "og:image", content: `${loaderData?.origin ?? ""}/api/cards/site/preview.png` },
       { name: "twitter:card", content: "summary_large_image" },
@@ -46,7 +46,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient } & P
       { rel: "stylesheet", href: styles },
       { rel: "stylesheet", href: app },
       { rel: "stylesheet", href: look },
-      { rel: "preload", as: "font", type: "font/woff2", href: inter, crossOrigin: "anonymous" },
+      { rel: "preload", as: "font", type: "font/woff2", href: "/fonts/InterVariable.woff2", crossOrigin: "anonymous" },
       { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" },
     ],
     styles: [{ children: THEME_CSS }],
@@ -80,8 +80,14 @@ function Root() {
   });
   const [mode, setMode] = useState<Mode>(first ?? "system");
   const choose = useCallback((m: Mode) => {
+    quiet();
     setMode(m);
     document.cookie = `${MODE_COOKIE}=${m}; path=/; max-age=31536000; samesite=lax`;
+  }, []);
+  useEffect(() => {
+    const scheme = window.matchMedia("(prefers-color-scheme: dark)");
+    scheme.addEventListener("change", quiet);
+    return () => scheme.removeEventListener("change", quiet);
   }, []);
   const value = useMemo(() => [mode, choose] as [Mode, (m: Mode) => void], [mode, choose]);
   return (
@@ -101,6 +107,13 @@ function Root() {
       </Theme>
     </ModeContext>
   );
+}
+
+function quiet() {
+  const root = document.documentElement;
+  root.classList.add("no-transitions");
+  void root.offsetHeight;
+  requestAnimationFrame(() => requestAnimationFrame(() => root.classList.remove("no-transitions")));
 }
 
 function Devtools() {

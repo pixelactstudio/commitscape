@@ -41,7 +41,7 @@ export function WorkScene() {
   );
   return (
     <div ref={ref} className="relative flex size-full items-center justify-center">
-      <Mini className="w-full max-w-[20rem] overflow-hidden">
+      <Mini className="w-full max-w-80 overflow-hidden">
         <MiniHead
           title="Proof of Work · September"
           end={

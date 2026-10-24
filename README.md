@@ -87,7 +87,6 @@ once it runs.
 |---|---|
 | `commitscape [path]` | The same as `commitscape share`: asks, uploads the encrypted Report and opens its link |
 | `commitscape share [path]` | An encrypted link to this repository's Report, for any browser; `--list` and `--delete <link>` manage them |
-| `commitscape report [path]` | The Report as gzipped JSON, as the Site stores it; uploads nothing |
 | `commitscape surviving [path] --person <id>` | A person's Surviving Lines: the lines at the head that blame gives them, reformats passed through |
 | `commitscape health <owner/name>` | Whether a GitHub project is alive and whether it depends on one person |
 
@@ -182,7 +181,7 @@ Sentry and PostHog stay off while their keys are empty.
 |---|---|
 | `crates/` | Rust: the engine that reads git, the metrics, the Report and the CLI |
 | `apps/site/` | The Site: TanStack Start on Node, server-rendered, with Better Auth |
-| `apps/builder/` | The Builder: takes Builds from a Postgres queue, clones the repository, runs `commitscape report`, stores the Report in R2 and its commits in Postgres |
+| `apps/builder/` | The Builder: takes Builds from a Postgres queue, clones the repository, exports its Index into Postgres (`commitscape export`), and keeps file text in R2 |
 | `packages/server/` | The database schema and migrations, R2 storage, the queue and stored Reports |
 | `packages/ui/` | Every screen and chart the Site shows |
 | `packages/data/` | The Report's types, generated from Rust |

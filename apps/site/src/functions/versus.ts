@@ -12,7 +12,7 @@ const login = z.string().min(1).max(39);
 /** Two people side by side, in full. */
 export const getVersus = createServerFn({ method: "GET" })
   .validator(z.object({ a: login, b: login }))
-  .handler(({ data }) => versusFullOf(profileDeps(), data.a, data.b));
+  .handler(async ({ data }) => versusFullOf(profileDeps(), data.a, data.b, !!(await auth.api.getSession({ headers: getRequest().headers }).catch(() => null))));
 
 async function me() {
   const s = await auth.api.getSession({ headers: getRequest().headers });

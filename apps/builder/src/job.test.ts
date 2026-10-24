@@ -8,14 +8,14 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { expect, test } from "vitest";
-import { memoryStorage, now, readEntry, readIndex, schema, settleRepository, type BuildJob, type Db, type Queue, type SurvivalJob } from "@commitscape/server";
+import { lendToken, memoryStorage, now, readEntry, readIndex, schema, settleRepository, type BuildJob, type Db, type Queue, type SurvivalJob } from "@commitscape/server";
 import type { Config } from "./config";
 import { inUse, sweep } from "./disk";
 import { runJob, type JobContext } from "./job";
 import { BUILD_ATTEMPTS, type Ran } from "./run";
 import { queueSeeds } from "./seeds";
 
-const { builds, commits, repositories, surviving } = schema;
+const { builds, repositories, surviving } = schema;
 const migrations = fileURLToPath(new URL("../../../packages/server/drizzle", import.meta.url));
 
 async function database(): Promise<Db> {
@@ -92,7 +92,6 @@ test("a Build stores its Report an answer at a time and replaces the one before"
   expect(ctx.storage.objects.has("reports/gh/acme/rocket/old/index.json")).toBe(false);
 
   expect([...ctx.storage.objects.keys()].some((k) => k.includes("b1-quick"))).toBe(false);
-  expect((await db.select().from(commits)).map((c) => c.reportKey)).toEqual(Array(3).fill("reports/gh/acme/rocket/b1"));
 
   await runJob("b1", ctx);
   expect([...ctx.storage.objects.keys()].filter((k) => k.endsWith("index.json"))).toHaveLength(1);
@@ -109,18 +108,17 @@ test("a repository with no Report gets the quick one without lines while its lin
     if (args[0] === "report" && !args.includes("--no-lines")) {
       const [repo] = await db.select().from(repositories);
       const [build] = await db.select().from(builds);
-      seen.push([repo?.reportKey, repo?.reportLines, build?.state, build?.partial, (await db.select().from(commits)).length]);
+      seen.push([repo?.reportKey, repo?.reportLines, build?.state, build?.partial]);
     }
     return { code: 0, stderr: "", timedOut: false };
   });
   await db.insert(repositories).values({ id: "acme/rocket", owner: "acme", name: "rocket", sizeKb: 10 });
   await db.insert(builds).values({ id: "b1", repoId: "acme/rocket", state: "queued", requestedAt: 1 });
   await runJob("b1", ctx);
-  expect(seen).toEqual([["reports/gh/acme/rocket/b1-quick", false, "running", true, 2]]);
+  expect(seen).toEqual([["reports/gh/acme/rocket/b1-quick", false, "running", true]]);
   const [repo] = await db.select().from(repositories);
   expect(repo).toMatchObject({ reportKey: "reports/gh/acme/rocket/b1", reportLines: true });
   expect(await db.select().from(builds)).toMatchObject([{ state: "done", partial: false, reason: null }]);
-  expect((await db.select().from(commits)).map((c) => c.reportKey)).toEqual(Array(3).fill("reports/gh/acme/rocket/b1"));
   expect([...ctx.storage.objects.keys()].some((k) => k.includes("b1-quick"))).toBe(false);
 });
 
@@ -202,6 +200,26 @@ test("a private repository with no installation token fails as private and reads
   const [build] = await db.select().from(builds).where(eq(builds.id, "b2"));
   expect(build).toMatchObject({ state: "failed", reason: "private" });
   expect(ran).toBe(0);
+});
+
+test("a public repository is cloned without the token lent for its Build, so a repository gone private since cannot be read with someone's own access", async () => {
+  const db = await database();
+  const envs: NodeJS.ProcessEnv[] = [];
+  const base = tools(report);
+  const ctx = await context(db, {
+    tokenSecret: "s".repeat(32),
+    run: async (cmd, args, env) => {
+      if (cmd === "git") envs.push(env);
+      return base(cmd, args);
+    },
+  });
+  await db.insert(repositories).values({ id: "acme/rocket", owner: "acme", name: "rocket", sizeKb: 10 });
+  await db.insert(schema.user).values({ id: "u1", name: "Ada", email: "ada@example.com", emailVerified: true, createdAt: new Date(), updatedAt: new Date() });
+  await lendToken(db, "s".repeat(32), "acme/rocket", "u1", "ghu_lent");
+  await db.insert(builds).values({ id: "b9", repoId: "acme/rocket", state: "queued", requestedAt: 1 });
+  await runJob("b9", ctx);
+  expect(envs.length).toBeGreaterThan(0);
+  expect(envs.some((e) => Object.values(e).some((v) => typeof v === "string" && v.includes(Buffer.from("x-access-token:ghu_lent").toString("base64"))))).toBe(false);
 });
 
 test("a seed repository's Build asks for the Surviving Lines of its people with most commits, bots and people with no login left out", async () => {

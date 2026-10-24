@@ -1,16 +1,19 @@
 import { expect, test } from "@playwright/test";
-import { sql } from "./accounts";
+import { signInAs, sql } from "./accounts";
 
 test.beforeAll(async ({ browser }) => {
-  const page = await browser.newPage();
+  const context = await browser.newContext();
+  await signInAs(context, "alice");
+  const page = await context.newPage();
   await page.goto("/gh/acme/ownership");
   await expect.poll(async () => (await sql("SELECT report_at FROM repositories WHERE id = 'acme/ownership'"))[0]?.report_at ?? null, { timeout: 30_000 }).not.toBeNull();
   await page.goto("/u/alice");
   await expect(page.getByRole("group", { name: "Lines merged", exact: true })).not.toContainText("—", { timeout: 30_000 });
-  await page.close();
+  await context.close();
 });
 
 test("a person's Cards are served as animated SVG and still PNG, light and dark, from a stored copy", async ({ request }) => {
+  await expect.poll(async () => (await request.get("/api/cards/u/alice/totals.svg")).headers()["cache-control"], { timeout: 30_000 }).toBe("public, max-age=21600");
   const svg = await request.get("/api/cards/u/alice/totals.svg");
   expect(svg.status()).toBe(200);
   expect(svg.headers()["content-type"]).toBe("image/svg+xml");
@@ -32,7 +35,7 @@ test("a person's Cards are served as animated SVG and still PNG, light and dark,
 test("the Card studio picks a Card, dresses it, and gives its README Markdown with the style in every address", async ({ page, request }) => {
   await page.goto("/u/alice/cards");
   await page.waitForLoadState("networkidle");
-  await expect(page.getByRole("heading", { level: 1 })).toContainText("Alice Example's Cards");
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("Alice Example’s Cards");
   await expect(page.getByRole("button", { name: /Totals/ })).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "Grape", exact: true }).click();
   await page.getByRole("button", { name: "Accent #f97316" }).click();
@@ -65,7 +68,7 @@ test("Share opens the Card on a stage with the ways to take it out", async ({ pa
   await page.getByRole("button", { name: "Share", exact: true }).first().click();
   const dialog = page.getByRole("dialog");
   await expect(dialog).toContainText("hall of fame");
-  await expect(dialog.getByRole("img", { name: /The people who built acme\/ownership/ })).toBeVisible();
+  await expect(dialog.getByRole("img", { name: /acme\/ownership: hall of fame Card/ })).toBeVisible();
   await dialog.getByRole("button", { name: "Surprise me" }).click();
   await expect(dialog.getByRole("button", { name: "Reset", exact: true })).toBeEnabled();
   await expect(dialog.getByRole("link", { name: "PNG, dark" })).toHaveAttribute("href", /\/api\/cards\/gh\/acme\/ownership\/hall-of-fame\.png\?theme=dark&/);

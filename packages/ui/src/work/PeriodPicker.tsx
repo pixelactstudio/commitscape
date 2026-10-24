@@ -49,7 +49,7 @@ export function PeriodPicker({ from, to, onChange, isOpen, onOpenChange }: { fro
           const on = p === preset;
           return (
             <li key={p}>
-              <button type="button" onClick={() => pick(d)} className={`flex w-full cursor-pointer items-center gap-2.5 rounded-md border-0 px-2.5 py-2 text-start text-primary transition-colors hover:bg-overlay-hover ${on ? "bg-overlay-hover" : "bg-transparent"}`}>
+              <button type="button" onClick={() => pick(d)} className={`flex w-full cursor-pointer items-center gap-2.5 rounded-md border-0 px-2.5 py-2 text-start text-primary transition-colors hover:bg-hover ${on ? "bg-overlay-hover" : "bg-transparent"}`}>
                 <span className="flex min-w-0 flex-1 flex-col">
                   <span className="type-label">{LABELS[p]}</span>
                   <span className="type-caption tnum">{shortRange(d.from, d.to)}</span>
@@ -61,7 +61,7 @@ export function PeriodPicker({ from, to, onChange, isOpen, onOpenChange }: { fro
         })}
         <li className="mx-1 my-1 h-px bg-line" aria-hidden />
         <li>
-          <button type="button" onClick={() => setCustom(true)} className={`flex w-full cursor-pointer items-center gap-2.5 rounded-md border-0 px-2.5 py-2 text-start text-primary transition-colors hover:bg-overlay-hover ${custom ? "bg-overlay-hover" : "bg-transparent"}`}>
+          <button type="button" onClick={() => setCustom(true)} className={`flex w-full cursor-pointer items-center gap-2.5 rounded-md border-0 px-2.5 py-2 text-start text-primary transition-colors hover:bg-hover ${custom ? "bg-overlay-hover" : "bg-transparent"}`}>
             <span className="flex min-w-0 flex-1 flex-col">
               <span className="type-label">Custom</span>
               <span className="type-caption">Any days, up to a year</span>

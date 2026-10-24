@@ -36,7 +36,7 @@ export function VersusScene() {
   );
   return (
     <div ref={ref} className="flex size-full items-center justify-center">
-      <Mini className="w-full max-w-[20rem] px-4 pt-3.5 pb-2">
+      <Mini className="w-full max-w-80 px-4 pt-3.5 pb-2">
         <div className="flex items-center justify-between text-xs font-medium text-primary">
           <span className="flex items-center gap-2">
             <Face login={DAN.login} name={DAN.name} size={24} />

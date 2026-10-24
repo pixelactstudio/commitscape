@@ -18,19 +18,13 @@ export function Name({ p, onOpen, size = 20, className = "" }: { p: PersonRef | 
   if (!p) return <span className="text-secondary">someone unknown</span>;
   const body = (
     <>
-      <span className="inline-flex flex-none" aria-hidden>
-        <Face login={login} name={p.name} size={size} />
-      </span>
-      <span className="truncate">{p.name}</span>
+      <Face login={login} name={p.name} size={size} decorative />
+      <bdi className="truncate">{p.name}</bdi>
     </>
   );
   if (!onOpen) return <span className={`inline-flex min-w-0 items-center gap-2 align-middle ${className}`}>{body}</span>;
   return (
-    <button
-      type="button"
-      onClick={() => onOpen(p.id)}
-      className={`inline-flex max-w-full min-w-0 cursor-pointer items-center gap-2 border-0 bg-transparent p-0 text-start align-middle font-[inherit] text-primary decoration-[var(--color-border-emphasized)] underline-offset-[3px] hover:underline ${className}`}
-    >
+    <button type="button" onClick={() => onOpen(p.id)} className={`plain-button hit inline-flex min-h-6 max-w-full min-w-0 items-center gap-2 align-middle text-primary hover:underline hover:decoration-line-strong hover:underline-offset-4 ${className}`}>
       {body}
     </button>
   );
@@ -38,9 +32,9 @@ export function Name({ p, onOpen, size = 20, className = "" }: { p: PersonRef | 
 
 /** A path in the code; a button that opens it when it can be opened. */
 export function Path({ path, onOpen }: { path: string; onOpen?: (path: string) => void }) {
-  if (!onOpen) return <code className="truncate font-mono text-[0.85em]">{path}</code>;
+  if (!onOpen) return <code className="mono truncate type-caption">{path}</code>;
   return (
-    <button type="button" onClick={() => onOpen(path)} className="max-w-full cursor-pointer truncate border-0 bg-transparent p-0 text-start font-mono text-[0.85em] text-primary underline-offset-[3px] hover:underline">
+    <button type="button" onClick={() => onOpen(path)} className="plain-button hit mono min-h-6 max-w-full truncate type-caption text-primary hover:underline hover:decoration-line-strong hover:underline-offset-4">
       {path}
     </button>
   );

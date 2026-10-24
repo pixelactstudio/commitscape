@@ -4,7 +4,7 @@ On the Site, a stored Report's Commit List is no longer one object the browser d
 
 ## Status
 
-accepted (2026-10-08, architecture review). Replaces the hosted half of ADR-0019; the browser search of ADR-0019 stays for Shared Reports.
+superseded by ADR-0027 (2026-10-18): commits are read from the Stored Index and the `commits` table is dropped. Was accepted (2026-10-08, architecture review). Replaces the hosted half of ADR-0019; the browser search of ADR-0019 stays for Shared Reports.
 
 ## Context
 

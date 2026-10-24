@@ -129,6 +129,27 @@ fn new_commits_are_added_without_a_rebuild() {
     assert_eq!(observe(&again.index), observe(&scratch(&grown)));
 }
 
+#[test]
+fn the_lineage_holds_through_updates_and_changes_when_the_cache_is_rebuilt() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let first = load_all(&linear(), dir.path());
+    assert!(first.kept);
+
+    let grown = linear().commit(JAN_2024 + 3 * DAY, BOB, &[(b"c.txt", Added, blob(4))]);
+    let updated = load_all(&grown, dir.path());
+    assert_eq!(updated.freshness, Freshness::Updated { added: 1 });
+    assert_eq!(updated.lineage, first.lineage);
+    assert!(updated.kept);
+    assert_eq!(load_all(&grown, dir.path()).lineage, first.lineage);
+
+    let rewritten = ScriptedRepo::new().commit(JAN_2024 + 7, BOB, &[(b"z.txt", Added, blob(9))]);
+    let rebuilt = load_all(&rewritten, dir.path());
+    assert_ne!(rebuilt.lineage, first.lineage);
+
+    let uncached = load_with(&linear(), None);
+    assert!(!uncached.kept);
+}
+
 fn branched() -> ScriptedRepo {
     ScriptedRepo::new()
         .commit(JAN_2024, ALICE, &[(b"main.txt", Added, blob(1))])

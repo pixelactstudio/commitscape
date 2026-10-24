@@ -2,53 +2,101 @@ import type { CSSProperties, ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { Archive, CalendarDays, GitFork, Scale, Star } from "lucide-react";
 import type { Facts as Data } from "@commitscape/data";
-import { avatarUrl, Cell, compact, Face, many, Page, Panel, Stat } from "@commitscape/ui";
+import { avatarUrl, Cell, compact, date as day, Face, many, Panel, Pill, Stat, Surface } from "@commitscape/ui";
 
 const number = (n: number) => n.toLocaleString("en-US");
-const date = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) : "—");
+const date = (iso: string | null) => (iso ? day(Date.parse(iso) / 1000) : "—");
 const LANGUAGES = 6;
 
-/** A small fact beside a repository's name: an icon and a few words. */
-export function Chip({ icon, children, title, tone }: { icon?: ReactNode; children: ReactNode; title?: string; tone?: "brand" | "warning" }) {
-  const colour = tone === "brand" ? "border-brand-line bg-brand-soft text-brand" : tone === "warning" ? "border-yellow-ring bg-yellow-subtle text-yellow-vivid" : "border-line bg-surface/70 text-secondary";
+export const Chip = Pill;
+
+/** A repository as the workspace's sidebar names it: its owner's face, owner / name, stars, language and the Build's state. */
+export function RepoIdentity({ owner, name, facts, status }: { owner: string; name: string; facts: Data | null; status?: ReactNode }) {
+  const language = facts?.languages[0]?.name;
   return (
-    <span title={title} className={`inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-sm whitespace-nowrap ${colour}`}>
-      {icon}
-      <span>{children}</span>
+    <div className="flex min-w-0 flex-col gap-2.5 px-2 pt-1">
+      <div className="flex min-w-0 items-center gap-2.5">
+        <Face login={owner} name={owner} size={32} shape="rounded" className="flex-none" />
+        <div className="flex min-w-0 flex-col">
+          <Link to="/u/$login" params={{ login: owner }} className="w-fit max-w-full truncate type-caption text-secondary no-underline hover:text-primary">
+            <bdi>{owner}</bdi>
+          </Link>
+          <span className="max-w-full truncate text-md leading-tight font-semibold text-primary type-id">
+            <bdi>{name}</bdi>
+          </span>
+        </div>
+      </div>
+      {(facts || status) && (
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 type-micro">
+          {facts && (
+            <span className="inline-flex items-center gap-1 tnum" title={many(facts.stars, "star", "stars")}>
+              <Star size={12} aria-hidden />
+              {compact(facts.stars)}
+              <span className="sr-only"> stars</span>
+            </span>
+          )}
+          {language && (
+            <span className="inline-flex items-center gap-1.5">
+              <span className="size-2 flex-none rounded-full bg-(--s1)" aria-hidden />
+              {language}
+            </span>
+          )}
+          {status}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The repository in the slim bar that stands in for the sidebar on narrow screens. */
+export function RepoBarName({ owner, name }: { owner: string; name: string }) {
+  return (
+    <span className="flex min-w-0 items-center gap-2">
+      <Face login={owner} name={owner} size={20} shape="rounded" className="flex-none" />
+      <span className="flex min-w-0 items-baseline gap-1 text-sm">
+        <bdi className="hidden min-w-0 shrink-3 truncate text-secondary sm:inline">{owner}</bdi>
+        <span className="hidden flex-none text-tertiary sm:inline" aria-hidden>
+          /
+        </span>
+        <span className="sr-only sm:hidden">{owner} / </span>
+        <bdi className="min-w-0 shrink truncate font-semibold type-id">{name}</bdi>
+      </span>
     </span>
   );
 }
 
-/** A repository's hero: its owner's face, its name and what GitHub says of it, drawn at once from the lookup, with the page's actions. */
-export function RepoHero({ owner, name, facts, status, actions, attached = false }: { owner: string; name: string; facts: Data | null; status?: ReactNode; actions?: ReactNode; attached?: boolean }) {
+/** A repository's hero at the top of its Overview: its owner's face over a scrim, its name and what GitHub says of it, drawn at once from the lookup. */
+export function RepoHero({ owner, name, facts, status, actions, browse }: { owner: string; name: string; facts: Data | null; status?: ReactNode; actions?: ReactNode; browse?: ReactNode }) {
   const language = facts?.languages[0]?.name;
   return (
-    <section className={`face-backdrop relative overflow-hidden ${attached ? "" : "border-b border-line"}`} style={{ "--face": `url(${avatarUrl(owner, 64)})` } as CSSProperties}>
-      <Page className={`relative flex flex-col gap-6 pt-9 md:flex-row md:items-end md:justify-between ${attached ? "pb-6" : "pb-7"}`}>
+    <section aria-labelledby="repo-title" className="face-backdrop relative overflow-hidden border-b border-separator" style={{ "--face": `url(${avatarUrl(owner, 64)})` } as CSSProperties}>
+      <div className="mx-auto flex w-full max-w-(--content) flex-col gap-5 px-(--main-pad) pt-8 pb-6 md:flex-row md:items-end md:justify-between">
         <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-center sm:gap-5">
-          <Face login={owner} name={owner} size={72} wide={80} shape="rounded" edge="body" lift="float" className="self-start sm:self-center" />
+          <Face login={owner} name={owner} size={64} wide={80} shape="rounded" edge="body" lift="float" className="self-start sm:self-center" />
           <div className="flex min-w-0 flex-col gap-2">
-            <Link to="/u/$login" params={{ login: owner }} className="w-fit text-xs font-medium text-primary no-underline opacity-75 hover:opacity-100">
-              {owner}
+            <Link to="/u/$login" params={{ login: owner }} className="w-fit type-caption font-medium text-secondary no-underline hover:text-primary">
+              <bdi>{owner}</bdi>
             </Link>
-            <h1 className="m-0 type-display break-words">{name}</h1>
-            {facts?.description && <p className="m-0 max-w-2xl text-md text-pretty">{facts.description}</p>}
+            <h1 id="repo-title" className="m-0 type-display type-id break-words">
+              <bdi>{name}</bdi>
+            </h1>
+            {facts?.description && <p className="m-0 max-w-2xl type-body text-pretty">{facts.description}</p>}
             <div className="mt-1 flex flex-wrap items-center gap-1.5">
               {facts && (
                 <>
-                  <Chip icon={<Star size={12} aria-hidden />} title={many(facts.stars, "star", "stars")}>
+                  <Pill icon={<Star size={12} aria-hidden />} title={many(facts.stars, "star", "stars")}>
                     {compact(facts.stars)} stars
-                  </Chip>
-                  <Chip icon={<GitFork size={12} aria-hidden />} title={many(facts.forks, "fork", "forks")}>
+                  </Pill>
+                  <Pill icon={<GitFork size={12} aria-hidden />} title={many(facts.forks, "fork", "forks")}>
                     {compact(facts.forks)} forks
-                  </Chip>
-                  {language && <Chip icon={<span className="size-2 flex-none rounded-full bg-(--s1)" aria-hidden />}>{language}</Chip>}
-                  {facts.license && facts.license !== "NOASSERTION" && <Chip icon={<Scale size={12} aria-hidden />}>{facts.license}</Chip>}
-                  <Chip icon={<CalendarDays size={12} aria-hidden />}>since {date(facts.createdAt)}</Chip>
+                  </Pill>
+                  {language && <Pill icon={<span className="size-2 flex-none rounded-full bg-(--s1)" aria-hidden />}>{language}</Pill>}
+                  {facts.license && facts.license !== "NOASSERTION" && <Pill icon={<Scale size={12} aria-hidden />}>{facts.license}</Pill>}
+                  <Pill icon={<CalendarDays size={12} aria-hidden />}>since {date(facts.createdAt)}</Pill>
                   {facts.archived && (
-                    <Chip icon={<Archive size={12} aria-hidden />} tone="warning">
+                    <Pill icon={<Archive size={12} aria-hidden />} tone="warning">
                       archived
-                    </Chip>
+                    </Pill>
                   )}
                 </>
               )}
@@ -56,8 +104,13 @@ export function RepoHero({ owner, name, facts, status, actions, attached = false
             </div>
           </div>
         </div>
-        {actions && <div className="flex flex-none flex-wrap items-center gap-2">{actions}</div>}
-      </Page>
+        {(actions || browse) && (
+          <div className="flex flex-none flex-wrap items-center gap-2">
+            {browse}
+            {actions && <div className="contents lg:hidden">{actions}</div>}
+          </div>
+        )}
+      </div>
     </section>
   );
 }
@@ -71,7 +124,7 @@ export function GitHubFacts({ facts }: { facts: Data }) {
   const most = Math.max(1, ...facts.contributors.map((c) => c.contributions));
   return (
     <div className="flex flex-col gap-gutter">
-      <div className="grid overflow-hidden rounded-lg border border-line bg-surface">
+      <Surface className="grid overflow-hidden">
         <div className="grid grid-cols-2 lg:grid-cols-4">
           <Cell small>
             <Stat value={number(facts.stars)} label="stars" note="people who starred it" />
@@ -86,7 +139,7 @@ export function GitHubFacts({ facts }: { facts: Data }) {
             <Stat value={date(facts.createdAt)} label="created" note={`last pushed ${date(facts.pushedAt)}`} />
           </Cell>
         </div>
-      </div>
+      </Surface>
       {facts.topics.length > 0 && (
         <ul className="m-0 flex list-none flex-wrap gap-1.5 p-0" aria-label="Topics">
           {facts.topics.map((t) => (
@@ -126,7 +179,7 @@ export function GitHubFacts({ facts }: { facts: Data }) {
             <ol className="m-0 flex list-none flex-col p-0">
               {facts.contributors.slice(0, 8).map((c) => (
                 <li key={c.login}>
-                  <Link to="/u/$login" params={{ login: c.login }} className="flex items-center gap-3 rounded-md px-2 py-1.5 text-primary no-underline transition-colors hover:bg-sunken">
+                  <Link to="/u/$login" params={{ login: c.login }} className="flex items-center gap-3 rounded-md px-2 py-1.5 text-primary no-underline transition-colors hover:bg-hover">
                     <Face login={c.login} name={c.login} size={24} />
                     <span className="flex min-w-0 flex-1 flex-col gap-1">
                       <span className="truncate text-sm font-medium">{c.login}</span>

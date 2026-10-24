@@ -3,27 +3,32 @@ import { AlertDialog } from "@astryxdesign/core/AlertDialog";
 import { Button } from "@astryxdesign/core/Button";
 import { Icon } from "@astryxdesign/core/Icon";
 import { useMutation, useSuspenseQuery } from "@tanstack/react-query";
-import { createFileRoute, Link, useRouteContext, type ErrorComponentProps } from "@tanstack/react-router";
+import { createFileRoute, Link, notFound, useRouteContext } from "@tanstack/react-router";
 import { ArrowLeft, Download, Link2, Trash2 } from "lucide-react";
 import { PRODUCT } from "@commitscape/data";
 import { Face, Page, PageHead, periodWords, WorkView } from "@commitscape/ui";
 import { Missing } from "#/components/Missing";
-import { PageError } from "#/components/States";
 import { deleteSharedWork } from "#/functions/work";
 import { sharedWorkQuery } from "#/lib/queries";
 import { useToast } from "#/lib/toast";
 
 export const Route = createFileRoute("/u/$login_/work_/$id")({
-  loader: async ({ params, context }) => ({ work: await context.queryClient.ensureQueryData(sharedWorkQuery(params.id)), origin: context.origin ?? "" }),
-  head: ({ loaderData }) => ({ meta: [{ title: loaderData ? `${loaderData.work.name ?? loaderData.work.login}'s Proof of Work, ${loaderData.work.from} to ${loaderData.work.to} · ${PRODUCT}` : PRODUCT }, { name: "robots", content: "noindex" }] }),
-  errorComponent: Gone,
+  loader: async ({ params, context }) => {
+    try {
+      return { work: await context.queryClient.ensureQueryData(sharedWorkQuery(params.id)), origin: context.origin ?? "" };
+    } catch (e) {
+      if (e instanceof Error && e.message.startsWith("There is no shared Proof of Work")) throw notFound();
+      throw e;
+    }
+  },
+  head: ({ loaderData }) => ({ meta: [{ title: loaderData ? `${loaderData.work.name ?? loaderData.work.login}’s Proof of Work, ${loaderData.work.from} to ${loaderData.work.to} · ${PRODUCT}` : `Not found · ${PRODUCT}` }, { name: "robots", content: "noindex" }] }),
+  notFoundComponent: Gone,
   component: SharedProof,
 });
 
-function Gone(props: ErrorComponentProps) {
+function Gone() {
   const { login } = Route.useParams();
-  if (props.error instanceof Error && props.error.message.startsWith("There is no shared Proof of Work")) return <Missing title="This link opens nothing" words="Its Proof of Work was deleted by the person who shared it, or never made." back={{ label: `@${login}'s Profile`, href: `/u/${login}` }} />;
-  return <PageError {...props} />;
+  return <Missing title="This link opens nothing" words="Its Proof of Work was deleted by the person who shared it, or never made." back={{ label: `@${login}’s Profile`, href: `/u/${login}` }} lookup={false} />;
 }
 
 const LONG = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
@@ -48,7 +53,7 @@ function SharedProof() {
             <ArrowLeft size={14} aria-hidden /> {name}
           </Link>
         }
-        title={`${name}'s Proof of Work`}
+        title={`${name}’s Proof of Work`}
         description={
           <>
             <span className="font-medium text-primary">{periodWords(work.from, work.to)}</span>

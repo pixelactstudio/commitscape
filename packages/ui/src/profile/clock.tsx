@@ -22,14 +22,14 @@ export function CommitClock({ profile, wide = false }: { profile: Profile; wide?
   const state = clockState(profile);
   if (state === "failed")
     return (
-      <Panel title="When they commit" description="The hour and weekday of their newest commits, on each commit's own clock" className="h-full [&>*]:h-full">
+      <Panel title="When they commit" description="The hour and weekday of their newest commits, on each commit’s own clock" className="h-full [&>*]:h-full">
         <Nothing title="GitHub did not hand over commit times this time" words="It limits how often its commit search is asked. commitscape asks again on a visit after a few minutes." compact />
       </Panel>
     );
   if (state === "none" || !profile.clock)
     return (
-      <Panel title="When they commit" description="The hour and weekday of their newest commits, on each commit's own clock" className="h-full [&>*]:h-full">
-        <Nothing title="No commits to read the time of" words="GitHub's commit search has no commits by them yet." compact />
+      <Panel title="When they commit" description="The hour and weekday of their newest commits, on each commit’s own clock" className="h-full [&>*]:h-full">
+        <Nothing title="No commits to read the time of" words="GitHub’s commit search has no commits by them yet." compact />
       </Panel>
     );
   return <Heat clock={profile.clock} wide={wide} />;
@@ -51,7 +51,7 @@ function Heat({ clock, wide }: { clock: NonNullable<Profile["clock"]>; wide: boo
     ...(days ? [{ label: "At weekends", value: `${Math.round((weekend * 100) / clock.sampled)}%`, note: "Saturday and Sunday" }] : []),
   ];
   return (
-    <Panel title="When they commit" description={`The hour${week ? " and weekday" : ""} of their newest ${grouped(clock.sampled)} commits, on each commit's own clock`} className="h-full [&>*]:h-full">
+    <Panel title="When they commit" description={`The hour${week ? " and weekday" : ""} of their newest ${grouped(clock.sampled)} commits, on each commit’s own clock`} className="h-full [&>*]:h-full">
       <div className={`grid gap-5 ${wide ? "lg:grid-cols-[1fr_15rem] lg:items-center" : ""}`}>
         {week ? (
           <div className="flex flex-col gap-1.5" role="img" aria-label={`Most commits at ${pad(peak)}${topDay >= 0 ? ` and on ${WEEKDAYS[topDay]}s` : ""}`}>
@@ -96,7 +96,7 @@ function Heat({ clock, wide }: { clock: NonNullable<Profile["clock"]>; wide: boo
             <div className="flex h-32 items-end gap-0.75" role="img" aria-label={`Most commits at ${pad(peak)}`}>
               {clock.hours.map((n, h) => (
                 <span key={h} className="flex h-full flex-1 flex-col justify-end" {...tip(<><strong>{pad(h)} to {pad((h + 1) % 24)}</strong><div className="note">{many(n, "commit", "commits")}</div></>)}>
-                  <span className={`block w-full rounded-t-cell ${NIGHT.has(h) ? "bg-[var(--s7)]" : "bg-[var(--s1)]"}`} style={{ height: `${Math.max(n > 0 ? 3 : 1, (n * 100) / most)}%`, opacity: n > 0 ? 1 : 0.25 }} />
+                  <span className={`block w-full rounded-t-cell ${NIGHT.has(h) ? "bg-(--s7)" : "bg-(--s1)"}`} style={{ height: `${Math.max(n > 0 ? 3 : 1, (n * 100) / most)}%`, opacity: n > 0 ? 1 : 0.25 }} />
                 </span>
               ))}
             </div>

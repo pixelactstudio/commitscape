@@ -1,14 +1,21 @@
 import { eq, inArray, or } from "drizzle-orm";
 import type { Db } from "./db/client";
-import { builds, commits, pullRequests, pullReviews, repoNames, repoPeople, repositories, surviving } from "./db/schema";
+import { builds, pullRequests, pullReviews, repoBlobs, repoBranchDetails, repoBranches, repoGit, repoNames, repoPeople, repoTags, repositories, storedIndexes, surviving } from "./db/schema";
+import { removeGit } from "./git-data";
 import { repoId } from "./names";
 import type { Storage } from "./storage";
 import { now } from "./time";
 
 export type RepoRow = typeof repositories.$inferSelect;
 
-/** Deletes repositories' stored Reports and cards, and their rows; their commit rows go with them. */
+/** Deletes repositories' stored Reports, cards, git data and Atlas payloads, and their rows; their commit rows go with them. */
 export async function removeReports(db: Db, storage: Storage, rows: RepoRow[]): Promise<void> {
+  await removeGit(db, storage, rows.map((r) => r.id));
+  for (let i = 0; i < rows.length; i += 500) {
+    const ids = rows.slice(i, i + 500).map((r) => r.id);
+    const indexes = ids.length > 0 ? await db.select({ id: storedIndexes.id }).from(storedIndexes).where(inArray(storedIndexes.repoId, ids)) : [];
+    for (const si of new Set([...indexes.map((x) => x.id), ...rows.slice(i, i + 500).flatMap((r) => (r.indexId === null ? [] : [r.indexId]))])) await storage.deletePrefix(`atlas/${si}/`);
+  }
   for (const r of rows) {
     if (r.reportKey) await storage.deletePrefix(`${r.reportKey}/`);
     await storage.deletePrefix(`cards/gh/${r.id}/`);
@@ -60,7 +67,7 @@ export async function settleRepository(db: Db, storage: Storage | null, s: Settl
     const members = found.filter((r) => !others.includes(r));
     for (const r of others) {
       if (r.reportKey) gone.push(`${r.reportKey}/`);
-      gone.push(`cards/gh/${r.id}/`);
+      gone.push(`cards/gh/${r.id}/`, `git/gh/${r.id}/`);
     }
     if (others.length > 0) await tx.delete(repositories).where(inArray(repositories.id, others.map((r) => r.id)));
 
@@ -90,7 +97,7 @@ export async function settleRepository(db: Db, storage: Storage | null, s: Settl
           .values({ ...values, id })
           .returning();
     const earlier = members.map((r) => r.id).filter((r) => r !== id);
-    const move = async (from: RepoRow | undefined, tables: (typeof repoPeople | typeof surviving | typeof commits | typeof pullRequests | typeof pullReviews)[]) => {
+    const move = async (from: RepoRow | undefined, tables: (typeof repoPeople | typeof surviving | typeof pullRequests | typeof pullReviews | typeof repoGit | typeof storedIndexes | typeof repoBlobs | typeof repoBranches | typeof repoBranchDetails | typeof repoTags)[]) => {
       const dropped = members.map((r) => r.id).filter((r) => r !== from?.id);
       for (const t of tables) {
         if (dropped.length > 0) await tx.delete(t).where(inArray(t.repoId, dropped));
@@ -98,7 +105,9 @@ export async function settleRepository(db: Db, storage: Storage | null, s: Settl
       }
     };
     if (earlier.length > 0) {
-      await move(holder ?? current, [repoPeople, surviving, commits]);
+      await move(holder ?? current, [repoPeople, surviving, repoGit, storedIndexes, repoBlobs, repoBranches, repoBranchDetails, repoTags]);
+      const carried = (holder ?? current)?.indexId ?? null;
+      if (carried !== null && saved?.indexId !== carried) await tx.update(repositories).set({ indexId: carried }).where(eq(repositories.id, id));
       await move(puller ?? current, [pullRequests, pullReviews]);
       await tx.update(builds).set({ repoId: id }).where(inArray(builds.repoId, earlier));
       await tx.update(repoNames).set({ repoId: id }).where(inArray(repoNames.repoId, earlier));

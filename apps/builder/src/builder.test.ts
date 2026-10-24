@@ -65,7 +65,7 @@ function fake(answer: (call: Call) => Ran | Promise<Ran> = () => ok) {
     progress: async (step) => void said.push(step),
     accounts: async (list) => Object.fromEntries(list.map((s) => [s.email, "ada"])),
     publish: async (phase: Phase, made: Made) => {
-      published.push([phase, made.commits ? "commits" : "none"]);
+      published.push([phase, made.indexed ? "indexed" : "report"]);
       return true;
     },
   };
@@ -106,13 +106,48 @@ test("a first Build clones quickly without old contents and in full at once, pub
   expect(flag(reports[1]?.args ?? [], "--cache-dir")).toBe(join(work, "repos", "acme", "rocket", "cache"));
   expect(f.seen).toEqual([{ "ada@example.com": "ada" }, { "ada@example.com": "ada" }]);
   expect(f.published).toEqual([
-    ["quick", "commits"],
-    ["full", "commits"],
+    ["quick", "report"],
+    ["full", "report"],
   ]);
   expect(f.said[0]).toBe("cloning");
   expect(existsSync(join(full, ".git"))).toBe(true);
   expect(await readdir(join(work, "jobs"))).toEqual([]);
   expect((await readdir(work)).sort()).toEqual(["jobs", "repos"]);
+});
+
+test("git data is read from the kept clone once the full Report is published, and a failure there leaves the Build published", async () => {
+  const work = await mkdtemp(join(tmpdir(), "builder-"));
+  const f = fake();
+  const seen: string[] = [];
+  const dirs: string[] = [];
+  const outcome = await build(req(), cfg(work), {
+    ...f.deps,
+    git: async (dir) => {
+      dirs.push(dir);
+      seen.push(`${f.published.map((p) => p[0]).join(",")} published`);
+    },
+  });
+  expect(outcome).toMatchObject({ published: "full" });
+  expect(dirs).toEqual([join(work, "repos", "acme", "rocket", "full")]);
+  expect(seen).toHaveLength(1);
+  expect(seen[0]).toMatch(/full published$/);
+
+  const broken = fake();
+  const logged: string[] = [];
+  const failed = await build(req({ id: "build-0002" }), cfg(work), {
+    ...broken.deps,
+    log: (line) => void logged.push(line),
+    git: async () => {
+      throw new Error("git is gone");
+    },
+  });
+  expect(failed).toMatchObject({ published: "full" });
+  expect(logged.at(-1)).toBe("git data of acme/rocket: git is gone");
+
+  const none = fake();
+  let ran = false;
+  await build(req({ id: "build-0003" }), cfg(work), { ...none.deps, publish: async () => false, git: async () => void (ran = true) });
+  expect(ran).toBe(false);
 });
 
 test("a quick Report made after the full one is never published", async () => {

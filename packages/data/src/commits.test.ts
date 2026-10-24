@@ -12,6 +12,8 @@ const list = {
   person: [0, 1, 0, 1],
   subjects: ["Fix the Walk", "feat: search commits", "docs: README", "fix: walk twice"],
   times: [400, 300, 200, 100],
+  offsets: [0, 0, 0, 60],
+  merge: [false, true, false, false],
   kind: [10, 0, 2, 1],
 };
 const rows = (q: Parameters<typeof search>[1]) => [...search(prepare(list), q)];
@@ -29,6 +31,15 @@ test("filters narrow by person, time and kind", () => {
   expect(rows({ text: "", person: 1 })).toEqual([1, 3]);
   expect(rows({ text: "", from: 200, to: 300 })).toEqual([1, 2]);
   expect(rows({ text: "fix", kind: 1 })).toEqual([3]);
+});
+
+test("a chart's click narrows by merges, the author's day, weekday and hour", () => {
+  expect(rows({ text: "", merges: 0 })).toEqual([0, 2, 3]);
+  expect(rows({ text: "", hour: 1 })).toEqual([3]);
+  expect(rows({ text: "", weekday: 3 })).toEqual([0, 1, 2, 3]);
+  expect(rows({ text: "", weekday: 0 })).toEqual([]);
+  expect(rows({ text: "", since: 0, until: 0 })).toEqual([0, 1, 2, 3]);
+  expect(rows({ text: "", since: 1 })).toEqual([]);
 });
 
 test("a cursor is opaque and only ever a position", () => {

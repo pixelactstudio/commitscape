@@ -24,7 +24,7 @@ export function GrowBar({ value, side, lead }: { value: number; side: Side; lead
   return (
     <span ref={ref} className={`flex h-2 w-full overflow-hidden rounded-full bg-track ${side === "a" ? "justify-end" : "justify-start"}`} style={toneOf(side)}>
       <motion.span
-        className="block h-full rounded-full bg-[var(--side)]"
+        className="block h-full rounded-full bg-(--side)"
         initial={false}
         animate={{ scaleX: scale }}
         transition={scale === 0 ? { duration: 0 } : { duration: DURATION.slow, ease: EASE.out }}
@@ -38,7 +38,7 @@ function Value({ d, side, lead }: { d: Duel; side: Side; lead: boolean }) {
   const n = side === "a" ? d.a : d.b;
   return (
     <span className={`inline-flex min-w-0 items-center gap-1.5 text-lg leading-none tracking-number whitespace-nowrap tnum sm:text-xl ${lead ? "font-semibold text-primary" : "text-secondary"} ${side === "b" ? "flex-row-reverse" : ""}`}>
-      {lead && <Crown size={ICON.sm} className="flex-none text-[var(--side)]" aria-label="leads this view" />}
+      {lead && <Crown size={ICON.sm} className="flex-none text-(--side)" aria-label="leads this view" />}
       {n === null ? <span title="not known">—</span> : <CountUp value={n} format={d.format} />}
     </span>
   );
@@ -76,7 +76,7 @@ export function DuelRow({ d, columns = 1 }: { d: Duel; columns?: 1 | 2 }) {
 /** Views between two people, one row each, in a single surface; in two columns on wide screens when asked, and without its own frame inside a Panel. */
 export function DuelRows({ rows, label, columns = 1, bare = false }: { rows: Duel[]; label?: string; columns?: 1 | 2; bare?: boolean }) {
   return (
-    <ol aria-label={label} className={`m-0 grid list-none overflow-hidden p-0 ${columns === 2 ? "lg:grid-cols-2" : ""} ${bare ? "border-t border-line" : "rounded-lg border border-line bg-surface"}`}>
+    <ol aria-label={label} className={`m-0 grid list-none overflow-hidden p-0 ${columns === 2 ? "lg:grid-cols-2" : ""} ${bare ? "border-t border-line" : "surface"}`}>
       {rows.map((d) => (
         <DuelRow key={d.key} d={d} columns={columns} />
       ))}

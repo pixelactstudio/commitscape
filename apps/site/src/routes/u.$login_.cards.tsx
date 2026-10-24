@@ -28,7 +28,7 @@ export const Route = createFileRoute("/u/$login_/cards")({
     };
   },
   loader: async ({ params, context }) => ({ lookup: await context.queryClient.ensureQueryData(profileLookupQuery(params.login)), origin: context.origin ?? "", mode: context.mode }),
-  head: ({ params }) => ({ meta: [{ title: `@${params.login}'s Cards · ${PRODUCT}` }] }),
+  head: ({ params }) => ({ meta: [{ title: `@${params.login}’s Cards · ${PRODUCT}` }] }),
   component: Gallery,
 });
 
@@ -39,7 +39,7 @@ function Gallery() {
   if (lookup.status !== "ok") return <Missing title={`No one called @${login}`} words="GitHub has no person by that name." />;
   const name = lookup.identity.name ?? lookup.identity.login;
   return (
-    <Page width="wide" className="pb-section">
+    <Page className="pb-section">
       <PageHead
         media={<Face login={lookup.identity.login} name={name} size={48} />}
         eyebrow={
@@ -47,7 +47,7 @@ function Gallery() {
             <ArrowLeft size={ICON.sm} aria-hidden /> {name}
           </a>
         }
-        title={lookup.self ? "Your Cards" : `${name}'s Cards`}
+        title={lookup.self ? "Your Cards" : `${name}’s Cards`}
         description="For a README, a post, a self-review or a client. Pick one, make it yours, or let Surprise me dress it. Every number on a Card is the one on the Profile."
       />
       <Section fallback={<StudioSkeleton />}>
@@ -78,7 +78,7 @@ function Studio({ login, name }: { login: string; name: string }) {
   const data = live.data ?? first;
   if (!data.card)
     return (
-      <div className="flex flex-col items-center gap-3 rounded-lg border border-line bg-surface px-6 py-band text-center">
+      <div className="flex flex-col items-center gap-3 surface px-6 py-band text-center">
         <Spinner size="md" />
         <p className="m-0 type-panel">Reading @{login} from GitHub</p>
         <p className="m-0 type-description">Their Cards appear here on their own within a minute.</p>
@@ -100,7 +100,7 @@ function Studio({ login, name }: { login: string; name: string }) {
       const spec = CARDS[kind];
       return { id: kind, title: spec.title, about: spec.about, url: `${base}/${kind}`, ...spec.size(card), link: profile, share: share[kind], alt: `${name}: ${spec.title}`, group: "Profile" };
     }),
-    { id: "archetype", title: data.archetype ? data.archetype.title : "Archetype", about: data.archetype?.rule ?? "None of the rules fits yet.", url: `${base}/archetype`, ...ARCHETYPE_CARD_SIZE, link: profile, share: data.archetype ? `My Archetype: ${data.archetype.title}.` : "My Archetype.", alt: `${name}'s Archetype`, group: "Profile" },
+    { id: "archetype", title: data.archetype ? data.archetype.title : "Archetype", about: data.archetype?.rule ?? "None of the rules fits yet.", url: `${base}/archetype`, ...ARCHETYPE_CARD_SIZE, link: profile, share: data.archetype ? `My Archetype: ${data.archetype.title}.` : "My Archetype.", alt: `${name}’s Archetype`, group: "Profile" },
     ...data.achievements.map((a) => ({ id: `achievement-${a.id}`, title: a.title, about: a.rule, url: `${base}/achievement-${a.id}`, ...ACHIEVEMENT_CARD_SIZE, link: profile, share: `${a.title}.`, alt: `${name}: ${a.title}`, group: "Achievements" })),
     ...data.standings.map((r) => ({ id: `standing-${r.owner}/${r.name}`, title: `${r.owner}/${r.name}`, about: CARDS.standing.about, url: `/api/cards/u/${login}/${r.owner}/${r.name}/standing`, ...STANDING_CARD_SIZE, link: `/u/${login}/${r.owner}/${r.name}`, share: `Where I stand in ${r.owner}/${r.name}.`, alt: `${name} in ${r.owner}/${r.name}`, group: "Standings" })),
   ];

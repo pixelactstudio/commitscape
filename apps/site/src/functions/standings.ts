@@ -8,12 +8,12 @@ import { choicesOf, saveChoices } from "#/server/people";
 import { standingsOf } from "#/server/standings";
 import { deps, loginFor, profileViewer } from "#/server/viewer";
 
-const where = z.object({ owner: z.string().min(1).max(100), repo: z.string().min(1).max(100), focus: z.string().max(39).optional() });
+const where = z.object({ owner: z.string().min(1).max(100), repo: z.string().min(1).max(100), focus: z.string().max(39).optional(), limit: z.number().int().min(1).max(1000).optional() });
 
-/** Everyone's Standings in a repository the Site has built. */
+/** Everyone's Standings in a repository the Site has built, or with `limit` the first in each view, the viewer and the person in focus. */
 export const getStandings = createServerFn({ method: "GET" })
   .validator(where)
-  .handler(({ data }) => standingsOf(deps(), profileViewer(getRequest()), data.owner, data.repo, data.focus));
+  .handler(({ data }) => standingsOf(deps(), profileViewer(getRequest()), data.owner, data.repo, data.focus, data.limit));
 
 async function signedIn() {
   const s = await auth.api.getSession({ headers: getRequest().headers });

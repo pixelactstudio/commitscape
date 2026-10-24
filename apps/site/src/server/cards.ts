@@ -3,7 +3,7 @@ import { Resvg } from "@resvg/resvg-js";
 import { and, eq } from "drizzle-orm";
 import { monthName, type AchievementCardData, type ArchetypeCardData, type CardImages, type WindowCardData, type WrappedCardData, type CardKind, type Facts, type HallOfFameData, type Profile, type ProfileCardData, type StandingCardData, type VersusCardData } from "@commitscape/data";
 import { now, repoId, schema } from "@commitscape/server";
-import { CARD_DESIGN, CARDS, DEFAULT_STYLE, isOffered, placesFor, styleKey, topLine, type CardSpec, type CardStyle, type CardTheme } from "@commitscape/ui";
+import { CARD_DESIGN, CARDS, FACES_SHOWN, HALL_SHOWN, DEFAULT_STYLE, isOffered, placesFor, styleKey, topLine, type CardSpec, type CardStyle, type CardTheme } from "@commitscape/ui";
 import { renderCard, renderPending } from "@commitscape/ui/cards/render";
 import { SiteError } from "./http";
 import { survivingTotal } from "./engine";
@@ -16,7 +16,7 @@ import { traitsOf } from "./traits";
 import { wrappedFor } from "./wrapped";
 import { versusOf } from "./versus";
 
-const { profiles, repositories } = schema;
+const { profiles, repositories, storedIndexes } = schema;
 
 export const CARD_FOR = 6 * 3600;
 const PENDING_FOR = 60;
@@ -108,13 +108,21 @@ export async function standingCardData(deps: CardDeps, login: string, owner: str
 export async function hallOfFameData(deps: CardDeps, owner: string, repo: string): Promise<HallOfFameData> {
   const s = await standingsOf(deps, anonymous, owner, repo);
   const id = repoId(s.repo.owner, s.repo.name);
-  const [row] = id ? await deps.db.select({ facts: repositories.facts, language: repositories.language }).from(repositories).where(eq(repositories.id, id)) : [];
+  const [row] = id
+    ? await deps.db
+        .select({ facts: repositories.facts, language: repositories.language, indexId: repositories.indexId, codeLines: repositories.codeLines, maintainers: repositories.maintainers, busFactor: repositories.busFactor, commits30d: repositories.commits30d })
+        .from(repositories)
+        .where(eq(repositories.id, id))
+    : [];
   const facts = factsOf(row?.facts ?? null);
-  const top = s.people.slice(0, 10);
+  const top = s.people.slice(0, FACES_SHOWN);
+  const [indexed] = id && row?.indexId ? await deps.db.select({ snapshot: storedIndexes.snapshot }).from(storedIndexes).where(eq(storedIndexes.id, row.indexId)) : [];
+  const counted = indexed?.snapshot ? { n: indexed.snapshot.commits - indexed.snapshot.merges } : null;
   return {
     repo: { owner: s.repo.owner, name: s.repo.name, stars: facts?.stars ?? s.repo.stars, forks: facts?.forks ?? null, description: facts?.description ?? null, language: facts?.languages[0]?.name ?? row?.language ?? null },
     people: top.map((r) => ({ login: r.login, name: r.login && top.filter((o) => o.name === r.name).length > 1 ? `@${r.login}` : r.name, surviving: r.surviving, prsMerged: r.prsMerged, commits: r.commits })),
     total: s.people.length,
+    stats: row ? { commits: counted && counted.n > 0 ? counted.n : null, codeLines: row.codeLines, maintainers: row.maintainers, busFactor: row.busFactor, commits30d: row.commits30d } : null,
   };
 }
 
@@ -136,7 +144,8 @@ function baseKey(kind: CardKind, subject: Subject, theme: CardTheme, format: For
   if (subject.race) return `cards/races/${subject.race}/${kind}-${theme}-d${CARD_DESIGN}.${format}`;
   if (subject.crew) return `cards/crews/${subject.crew}/${kind}-${theme}-d${CARD_DESIGN}.${format}`;
   if (subject.versus) return `cards/vs/${subject.login?.toLowerCase()}/${subject.versus.toLowerCase()}/${kind}-${theme}-d${CARD_DESIGN}.${format}`;
-  const who = subject.login ? `u/${subject.login.toLowerCase()}${subject.owner ? `/${subject.owner.toLowerCase()}/${subject.repo?.toLowerCase()}` : ""}` : `gh/${subject.owner?.toLowerCase()}/${subject.repo?.toLowerCase()}`;
+  const repo = `gh/${subject.owner?.toLowerCase()}/${subject.repo?.toLowerCase()}`;
+  const who = subject.login ? (subject.owner ? `${repo}/u/${subject.login.toLowerCase()}` : `u/${subject.login.toLowerCase()}`) : repo;
   return `cards/${who}/${kind}${subject.achievement ? `-${subject.achievement}` : ""}${subject.year ? `-${subject.year}` : ""}-${theme}-d${CARD_DESIGN}.${format}`;
 }
 
@@ -176,10 +185,10 @@ async function draw(deps: CardDeps, kind: CardKind, subject: Subject, theme: Car
     const v = await versusOf(deps, subject.login ?? "", subject.versus ?? "");
     data = { a: { identity: v.a.identity }, b: { identity: v.b.identity }, rows: v.rows };
     logins = [v.a.identity.login, v.b.identity.login];
-  } else if (kind === "hall-of-fame") {
+  } else if (kind === "hall-of-fame" || kind === "repo-compact" || kind === "repo-stats" || kind === "repo-faces") {
     const d = await hallOfFameData(deps, subject.owner ?? "", subject.repo ?? "");
     data = d;
-    logins = [d.repo.owner, ...d.people.map((p) => p.login)];
+    logins = [d.repo.owner, ...(kind === "repo-stats" ? [] : d.people.slice(0, kind === "repo-faces" ? FACES_SHOWN : HALL_SHOWN).map((p) => p.login))];
   } else if (kind === "standing") {
     data = await standingCardData(deps, subject.login ?? "", subject.owner ?? "", subject.repo ?? "");
     logins = [data.identity.login];
@@ -198,6 +207,18 @@ async function draw(deps: CardDeps, kind: CardKind, subject: Subject, theme: Car
 
 const refreshing = new Set<string>();
 
+async function isPrivateRepo(deps: CardDeps, owner: string, repo: string): Promise<boolean> {
+  const id = repoId(owner, repo);
+  if (!id) return false;
+  const [row] = await deps.db.select({ isPrivate: repositories.isPrivate }).from(repositories).where(eq(repositories.id, id));
+  return row?.isPrivate === true;
+}
+
+async function forget(deps: CardDeps, kind: CardKind, subject: Subject, theme: CardTheme, style: CardStyle): Promise<void> {
+  const svg = keyOf(kind, subject, theme, "svg", style);
+  await deps.storage.delete([svg, keyOf(kind, subject, theme, "png", style), `${svg}.at`]);
+}
+
 async function store(deps: CardDeps, kind: CardKind, subject: Subject, theme: CardTheme, style: CardStyle) {
   const drawn = await draw(deps, kind, subject, theme, style);
   if (!drawn || !isOffered(style)) return drawn;
@@ -215,13 +236,14 @@ export async function cardImage(deps: CardDeps, kind: CardKind, subject: Subject
   for (const who of [subject.login, subject.versus]) if (who && (await isHidden(deps, who))) throw new SiteError(404, "This person has chosen to stay out, so they have no Cards.");
   const type = format === "svg" ? "image/svg+xml" : "image/png";
   const key = keyOf(kind, subject, theme, format, style);
+  if (subject.owner && subject.repo && (await isPrivateRepo(deps, subject.owner, subject.repo))) throw new SiteError(404, "This repository has no Cards.");
   const [kept, at] = isOffered(style) ? await Promise.all([deps.storage.get(key), deps.storage.get(`${keyOf(kind, subject, theme, "svg", style)}.at`)]) : [null, null];
   if (kept) {
     const age = now() - Number(new TextDecoder().decode(at?.body ?? new Uint8Array()) || 0);
     if (age > CARD_FOR && !refreshing.has(key)) {
       refreshing.add(key);
       void store(deps, kind, subject, theme, style)
-        .catch(() => null)
+        .catch((e: unknown) => (e instanceof SiteError && e.status === 404 ? forget(deps, kind, subject, theme, style) : null))
         .finally(() => refreshing.delete(key));
     }
     return { body: kept.body, type, maxAge: CARD_FOR, ms: null };

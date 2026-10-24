@@ -88,6 +88,36 @@ impl GixRepo {
         gix::ObjectId::try_from(id.0.as_slice()).ok()
     }
 
+    /// Every commit reachable from the given ones, or None when one of them is not in this repository.
+    pub fn ancestors(
+        &self,
+        from: &[Oid],
+    ) -> Result<Option<std::collections::HashSet<Oid>>, GixError> {
+        let mut starts = Vec::with_capacity(from.len());
+        for id in from {
+            let Some(id) = Self::to_gix(*id) else {
+                return Ok(None);
+            };
+            if self.repo.find_commit(id).is_err() {
+                return Ok(None);
+            }
+            starts.push(id);
+        }
+        let mut out = std::collections::HashSet::new();
+        if starts.is_empty() {
+            return Ok(Some(out));
+        }
+        let walk = git_ctx!(
+            self.repo.rev_walk(starts).all(),
+            "walking the commits already exported"
+        )?;
+        for info in walk {
+            let info = git_ctx!(info, "walking the commits already exported")?;
+            out.insert(Self::to_oid(info.id.as_ref())?);
+        }
+        Ok(Some(out))
+    }
+
     pub fn version_tags(&self) -> Vec<(String, i64)> {
         let Ok(platform) = self.repo.references() else {
             return Vec::new();

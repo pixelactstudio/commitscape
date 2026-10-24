@@ -21,7 +21,7 @@ function languagesOf(profile: Profile) {
 export function LanguagesOverTime({ profile }: { profile: Profile }) {
   const data = languagesOf(profile);
   return (
-    <Panel title="Languages over the years" description="Each repository's main language, weighted by their commits to it" className="h-full [&>*]:h-full [&>*>*]:h-full">
+    <Panel title="Languages over the years" description="Each repository’s main language, weighted by their commits to it" className="h-full [&>*]:h-full [&>*>*]:h-full">
       {data.years.length === 0 ? <Nothing title="No languages to tell yet" words="Commits to a repository with a main language show up here." compact /> : data.years.length < SHORT ? <Short data={data} /> : <Long data={data} />}
     </Panel>
   );
@@ -158,7 +158,7 @@ function Short({ data }: { data: Data }) {
           </p>
         </div>
       </div>
-      <div role="table" aria-label="Each language's share, year by year" className="flex flex-1 flex-col text-sm">
+      <div role="table" aria-label="Each language’s share, year by year" className="flex flex-1 flex-col text-sm">
         <div role="row" className="grid pb-1.5 type-caption font-medium" style={{ gridTemplateColumns: cols }}>
           <span role="columnheader">Language</span>
           {data.years.map((y) => (
@@ -178,7 +178,7 @@ function Short({ data }: { data: Data }) {
               const s = share(y, r.name);
               return (
                 <span role="cell" key={y.year} className="flex items-stretch justify-center py-2">
-                  <span className="flex max-h-16 min-h-5 w-6 items-end overflow-hidden rounded-cell bg-[var(--color-track)] sm:w-7" title={`${y.year}: ${Math.round(s * 100)}%`} aria-label={`${r.name} in ${y.year}: ${Math.round(s * 100)}%`} role="img">
+                  <span className="flex max-h-16 min-h-5 w-6 items-end overflow-hidden rounded-cell bg-(--color-track) sm:w-7" title={`${y.year}: ${Math.round(s * 100)}%`} aria-label={`${r.name} in ${y.year}: ${Math.round(s * 100)}%`} role="img">
                     <span className="block w-full" style={{ height: `${s > 0 ? Math.max(8, s * 100) : 0}%`, background: colour(r.name) }} />
                   </span>
                 </span>

@@ -1,7 +1,8 @@
 import { and, eq, inArray, isNotNull, isNull, lt, or } from "drizzle-orm";
 import type { Db } from "./db/client";
-import { access, rateLimits, repositories, session, shares, verification } from "./db/schema";
+import { access, rateLimits, repoEvents, repositories, session, shares, verification } from "./db/schema";
 import { pruneGitHubCache } from "./github-cache";
+import { pruneLent } from "./lent";
 import { removeReports } from "./repos";
 import type { Storage } from "./storage";
 import { now } from "./time";
@@ -43,6 +44,8 @@ export async function retainConnected(db: Db, storage: Storage): Promise<number>
   return old.length;
 }
 
+const EVENTS_FOR = 30 * 24 * 3600;
+
 /** Deletes everything that has expired; the scheduler runs it every fifteen minutes. */
 export async function cleanup(db: Db, storage: Storage): Promise<Record<string, number>> {
   const at = now();
@@ -50,6 +53,7 @@ export async function cleanup(db: Db, storage: Storage): Promise<Record<string, 
   const retained = await retainConnected(db, storage);
   const limits = await db.delete(rateLimits).where(lt(rateLimits.until, at)).returning({ key: rateLimits.key });
   const answers = await db.delete(access).where(lt(access.until, at)).returning({ id: access.sessionId });
+  const events = await db.delete(repoEvents).where(lt(repoEvents.at, at - EVENTS_FOR)).returning({ id: repoEvents.id });
   const sessions = await db.delete(session).where(lt(session.expiresAt, new Date())).returning({ id: session.id });
   await db.delete(verification).where(lt(verification.expiresAt, new Date()));
   const missing = await db
@@ -64,5 +68,5 @@ export async function cleanup(db: Db, storage: Storage): Promise<Record<string, 
       ),
     )
     .returning({ id: repositories.id });
-  return { shared, retained, limits: limits.length, answers: answers.length, sessions: sessions.length, missing: missing.length, github: await pruneGitHubCache(db) };
+  return { shared, retained, limits: limits.length, answers: answers.length, sessions: sessions.length, missing: missing.length, github: await pruneGitHubCache(db), lent: await pruneLent(db), events: events.length };
 }

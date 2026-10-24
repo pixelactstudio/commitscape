@@ -51,8 +51,8 @@ const monthName = (key: string) => {
   return `${MONTHS[Number(m) - 1]} ${y}`;
 };
 
-/** The last year, a square a day, its busiest day, and everything behind it in a dialog. */
-export function LastYear({ profile }: { profile: Profile }) {
+/** The last year, a square a day, its busiest day, and everything behind it in a dialog; a click on a day picks it. */
+export function LastYear({ profile, onPick }: { profile: Profile; onPick?: (day: number) => void }) {
   const [open, setOpen] = useState(false);
   const year = lastYear(profile);
   const total = year.days.reduce((a, b) => a + b, 0);
@@ -73,7 +73,7 @@ export function LastYear({ profile }: { profile: Profile }) {
         </div>
       }
     >
-      <YearGrid firstDay={year.firstDay} days={year.days} unit="contributions" label="Contributions a day over the last year" table={false} />
+      <YearGrid firstDay={year.firstDay} days={year.days} unit="contributions" label="Contributions a day over the last year" table={false} onPick={onPick} hint="Click for their commits that day" />
       {open && <YearDialog profile={profile} open={open} onOpenChange={setOpen} />}
     </Panel>
   );
@@ -145,8 +145,8 @@ function YearDialog({ profile, open, onOpenChange }: { profile: Profile; open: b
               {b.weekdays.map((w, i) => (
                 <li key={WEEKDAYS[i]} className="grid grid-cols-[2.4rem_1fr_auto] items-center gap-2.5 text-2xs">
                   <span className="text-secondary">{WEEKDAYS[i]?.slice(0, 3)}</span>
-                  <span className="block h-2 overflow-hidden rounded-full bg-[var(--color-track)]">
-                    <span className={`block h-full rounded-full ${i >= 5 ? "bg-[var(--s7)]" : "bg-[var(--s1)]"}`} style={{ width: `${(w.n * 100) / mostWeekday}%` }} />
+                  <span className="block h-2 overflow-hidden rounded-full bg-(--color-track)">
+                    <span className={`block h-full rounded-full ${i >= 5 ? "bg-(--s7)" : "bg-(--s1)"}`} style={{ width: `${(w.n * 100) / mostWeekday}%` }} />
                   </span>
                   <span className="w-30 text-end text-secondary tnum">
                     <strong className="font-medium text-primary">{grouped(w.n)}</strong> · active {Math.round((w.active * 100) / Math.max(1, w.days))}%

@@ -2,8 +2,9 @@ import type { ComponentType } from "react";
 import type { AchievementCardData, ArchetypeCardData, CardKind, HallOfFameData, ProfileCardData, StandingCardData, VersusCardData, WindowCardData, WrappedCardData } from "@commitscape/data";
 
 export type { CardKind };
-import { AchievementCard, ArchetypeCard, CalendarCard, WindowCard, WrappedCalendarCard, WrappedCard, HallOfFameCard, LanguagesCard, PreviewCard, RepositoriesCard, StandingCard, SurvivalCard, TotalsCard, VersusCard, type CardProps } from "./Cards";
-import { calendarSize, hallOfFameSize, languagesSize, PREVIEW_SIZE, repositoriesSize, STANDING_SIZE, SURVIVAL_SIZE, TOTALS_SIZE, versusSize, ARCHETYPE_SIZE, ACHIEVEMENT_SIZE, windowSize, WRAPPED_SIZE, WRAPPED_CALENDAR_SIZE } from "./sizes";
+import { AchievementCard, ArchetypeCard, CalendarCard, WindowCard, WrappedCalendarCard, WrappedCard, LanguagesCard, PreviewCard, RepositoriesCard, StandingCard, SurvivalCard, TotalsCard, VersusCard, type CardProps } from "./Cards";
+import { HallOfFameCard, RepoCompactCard, RepoFacesCard, RepoStatsCard } from "./repo";
+import { calendarSize, hallOfFameSize, REPO_COMPACT_SIZE, REPO_STATS_SIZE, repoFacesSize, languagesSize, PREVIEW_SIZE, repositoriesSize, STANDING_SIZE, SURVIVAL_SIZE, TOTALS_SIZE, versusSize, ARCHETYPE_SIZE, ACHIEVEMENT_SIZE, windowSize, WRAPPED_SIZE, WRAPPED_CALENDAR_SIZE } from "./sizes";
 
 type Size = { width: number; height: number };
 
@@ -33,7 +34,12 @@ export const CARDS = {
   season: person<WindowCardData>({ kind: "season", title: "Season recap", about: "A Crew's Season, view by view.", subject: "person", size: windowSize, Card: WindowCard }),
   wrapped: person<WrappedCardData>({ kind: "wrapped", title: "Wrapped", about: "Your year on GitHub, for posting.", subject: "person", size: () => WRAPPED_SIZE, Card: WrappedCard }),
   "wrapped-calendar": person<WrappedCardData>({ kind: "wrapped-calendar", title: "Wrapped calendar", about: "Your year, a square a day.", subject: "person", size: () => WRAPPED_CALENDAR_SIZE, Card: WrappedCalendarCard }),
-  "hall-of-fame": person<HallOfFameData>({ kind: "hall-of-fame", title: "Hall of fame", about: "A repository's people, for its README.", subject: "repository", size: hallOfFameSize, Card: HallOfFameCard }),
+  "hall-of-fame": person<HallOfFameData>({ kind: "hall-of-fame", title: "Hall of fame", about: "What it is, and the people who built it: three on a podium, the rest beneath.", subject: "repository", size: hallOfFameSize, Card: HallOfFameCard }),
+  "repo-compact": person<HallOfFameData>({ kind: "repo-compact", title: "Compact", about: "Its name, stars and language, and a row of faces: small enough for the top of a README.", subject: "repository", size: () => REPO_COMPACT_SIZE, Card: RepoCompactCard }),
+  "repo-stats": person<HallOfFameData>({ kind: "repo-stats", title: "By the numbers", about: "Stars, commits, contributors, lines of code and maintainers, each saying what it counts.", subject: "repository", size: () => REPO_STATS_SIZE, Card: RepoStatsCard }),
+  "repo-faces": person<HallOfFameData>({ kind: "repo-faces", title: "Faces", about: "The faces of the people who built it, most first.", subject: "repository", size: repoFacesSize, Card: RepoFacesCard }),
 };
 
 export const PERSON_CARDS = ["totals", "survival", "repositories", "calendar", "languages", "preview"] as const;
+
+export const REPO_CARDS = ["hall-of-fame", "repo-compact", "repo-stats", "repo-faces"] as const satisfies readonly CardKind[];

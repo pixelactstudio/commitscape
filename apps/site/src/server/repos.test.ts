@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { now, reportPrefix, schema } from "@commitscape/server";
-import { fakeGitHub, repoFacts, testDeps, viewer } from "#/test/deps";
+import { fakeGitHub, repoFacts, signedIn, testDeps, viewer } from "#/test/deps";
 import { engineOf } from "./engine";
 import { canSee, known, lookup, reportHead, requestBuild } from "./repos";
 import { standingsOf } from "./standings";
@@ -74,7 +74,7 @@ describe("renamed and moved repositories", () => {
     await deps.db.insert(repositories).values({ id: "acme/rocket", owner: "acme", name: "rocket", githubId: 1, reportKey: key, reportAt: now() - 2 * 86400, factsAt: 0 });
     await deps.storage.put(`${key}/index.json`, "{}", { type: "application/json" });
     vi.stubGlobal("fetch", fakeGitHub({ "/repos/acme/rocket": repoFacts(1, { full_name: "Acme/Missile" }) }).fetcher);
-    const started = await requestBuild(deps, viewer(), "acme", "rocket");
+    const started = await requestBuild(deps, signedIn(), "acme", "rocket");
     expect(started).toMatchObject({ id: "acme/missile", owner: "Acme", name: "Missile", build: { state: "queued" } });
     expect((await deps.db.select().from(builds)).map((b) => b.repoId)).toEqual(["acme/missile"]);
     expect((await deps.db.select().from(repositories)).map((r) => [r.id, r.reportKey])).toEqual([["acme/missile", key]]);

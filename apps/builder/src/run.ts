@@ -1,9 +1,10 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rm, utimes } from "node:fs/promises";
+import { mkdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
 import type { BuildFailure, BuildStats, BuildStep } from "@commitscape/data";
+import { appendable, type LiveIndex, type Loaded } from "@commitscape/server";
 import { writeAccounts, type Signature } from "./accounts";
 import { cloneUrl, ensureClone, gitEnv, locked, type Cloned } from "./clone";
 import type { Config } from "./config";
@@ -22,7 +23,7 @@ export type BuildTarget = {
 
 export type Phase = "quick" | "full";
 
-export type Made = { report: Uint8Array; commits: Uint8Array | null; stats: BuildStats | null; seconds: number };
+export type Made = { report: Uint8Array; stats: BuildStats | null; seconds: number; indexed?: boolean };
 
 type Failed = { reason: BuildFailure; detail?: string };
 
@@ -46,7 +47,7 @@ export function cloneLimitOf(cfg: Config, attempt = 1): number {
 
 /** How long the queue lets one attempt at a Build run: its clone, its two runs of commitscape and the time to store what they wrote. */
 export function jobLimitOf(cfg: Config, attempt = 1): number {
-  return cloneLimitOf(cfg, attempt) + 2 * timeLimitOf(cfg, attempt) + 600;
+  return cloneLimitOf(cfg, attempt) + 2 * timeLimitOf(cfg, attempt) + (cfg.git?.seconds ?? 0) + 600;
 }
 
 export type Ran = { code: number | null; stderr: string; timedOut: boolean; stdout?: string };
@@ -61,7 +62,7 @@ export function statsOf(gzipped: Uint8Array): BuildStats | null {
 }
 
 const PASSED = ["PATH", "HOME", "USER", "LANG", "LC_ALL", "TMPDIR", "TEMP", "TMP", "SYSTEMROOT", "PATHEXT", "USERPROFILE", "SSL_CERT_FILE", "SSL_CERT_DIR"];
-function passed(): NodeJS.ProcessEnv {
+export function passed(): NodeJS.ProcessEnv {
   return Object.fromEntries(Object.entries(process.env).filter(([k]) => PASSED.includes(k) || k.startsWith("COMMITSCAPE_")));
 }
 
@@ -102,11 +103,15 @@ export function run(cmd: string, args: string[], env: NodeJS.ProcessEnv, timeout
   });
 }
 
+export type IndexStore = { live: () => Promise<LiveIndex | null>; load: (dir: string) => Promise<Loaded>; mainline?: (clone: string, env: NodeJS.ProcessEnv, si: number) => Promise<void> };
+
 export type Deps = {
   run: typeof run;
   progress: (step: BuildStep) => Promise<void>;
   accounts: (signatures: Signature[]) => Promise<Record<string, string>>;
   publish: (phase: Phase, made: Made) => Promise<boolean>;
+  git?: (dir: string, env: NodeJS.ProcessEnv) => Promise<void>;
+  index?: IndexStore;
   log?: (line: string) => void;
 };
 
@@ -115,6 +120,10 @@ export const NAME = /^[A-Za-z0-9_.][A-Za-z0-9_.-]{0,99}$/;
 type Step = { ok: true } | ({ ok: false } & Failed);
 
 const lastLine = (text: string) => text.trim().split("\n").at(-1);
+const causeOf = (e: unknown): string => {
+  const err = e as Error & { cause?: unknown };
+  return err.cause instanceof Error ? err.cause.message : err.message;
+};
 const failed = (c: Cloned): Step => (c.ok ? { ok: true } : { ok: false, reason: c.reason, ...(c.detail ? { detail: c.detail } : {}) });
 
 /** Reads a repository in two phases at once: a quick clone without old file contents gives a Report without lines to publish at once, while a full clone gives the Report with its lines that replaces it. */
@@ -151,11 +160,42 @@ export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<
     if (made.code !== 0) return { ok: false, reason: "error", ...(made.stderr ? { detail: lastLine(made.stderr) } : {}) };
     const bytes = new Uint8Array(await readFile(out));
     if (bytes.length > REPORT_MAX) return { ok: false, reason: "too_big", detail: `a ${Math.round(bytes.length / 1024 ** 2)} MB Report` };
-    const commits = existsSync(commitsOut) ? new Uint8Array(await readFile(commitsOut)) : null;
     await rm(out, { force: true });
     await rm(commitsOut, { force: true });
-    return { ok: true, report: bytes, commits, stats: statsOf(bytes), seconds: Math.round((Date.now() - t) / 100) / 10 };
+    return { ok: true, report: bytes, stats: statsOf(bytes), seconds: Math.round((Date.now() - t) / 100) / 10 };
   };
+
+  const exportIndex = async (dir: string, phase: Phase, cache: string, accounts: string | null): Promise<boolean> => {
+    const store = deps.index;
+    if (!store) return false;
+    const live = await store.live();
+    if (phase === "quick" && live) return true;
+    const lines = phase === "full";
+    const out = join(scratch, `${phase}.index`);
+    await rm(out, { recursive: true, force: true });
+    const args = ["export", ...(lines ? [] : ["--no-lines"]), "--offline", "--cache-dir", cache, "--out", out];
+    if (accounts) args.push("--accounts", accounts);
+    if (appendable(live, lines)) {
+      const frontier = join(scratch, `${phase}.frontier`);
+      await writeFile(frontier, live.frontier.join("\n"));
+      args.push("--after", frontier, "--lineage", live.lineage);
+    }
+    args.push("--", dir);
+    const made = await deps.run(cfg.bin, args, env, binLimit * 1000);
+    if (made.timedOut) throw new Error(`export took over ${binLimit} s`);
+    if (made.code !== 0) throw new Error(lastLine(made.stderr) ?? "export failed");
+    const loaded = await store.load(out);
+    deps.log?.(`index of ${req.owner}/${req.name}: ${loaded.full ? "loaded" : "appended"} ${loaded.commits} of ${loaded.total} commits in ${loaded.seconds.toFixed(1)} s`);
+    await rm(out, { recursive: true, force: true });
+    await store.mainline?.(dir, env, loaded.si).catch((e: unknown) => deps.log?.(`mainline of ${req.owner}/${req.name}: ${causeOf(e).slice(0, 300)}`));
+    return true;
+  };
+
+  const indexed = (dir: string, phase: Phase, cache: string, accounts: string | null): Promise<boolean> =>
+    exportIndex(dir, phase, cache, accounts).catch((e: unknown) => {
+      deps.log?.(`index of ${req.owner}/${req.name}: ${(e as Error).message}`);
+      return false;
+    });
 
   const accountsFrom = (dir: string) => writeAccounts(deps.run, { bin: cfg.bin, dir, scratch, env, timeoutMs: binLimit * 1000, ...(deps.log ? { log: deps.log } : {}) }, deps.accounts);
 
@@ -190,6 +230,7 @@ export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<
       if (!made.ok || fullMade) return made.ok ? { ok: true } : made;
       await deps.progress("uploading");
       quickPublished = await deps.publish("quick", made);
+      if (quickPublished && !fullMade) await indexed(dir, "quick", join(warm ? home : scratch, "cache"), file);
       if (!fullMade) await deps.progress(cloneDone ? "reading" : "cloning");
       return { ok: true };
     });
@@ -205,7 +246,9 @@ export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<
       fullMade = true;
       await quickPhase;
       await deps.progress("uploading");
-      await deps.publish("full", made);
+      const inIndex = await indexed(full, "full", join(home, "cache"), file);
+      const published = await deps.publish("full", { ...made, indexed: inIndex });
+      if (published && deps.git) await deps.git(full, env).catch((e: unknown) => deps.log?.(`git data of ${req.owner}/${req.name}: ${(e as Error).message}`));
       return { ok: true };
     });
 

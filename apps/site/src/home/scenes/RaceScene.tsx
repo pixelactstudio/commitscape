@@ -51,7 +51,7 @@ export function RaceScene() {
   const lead = leader(last);
   return (
     <div ref={ref} className="relative flex size-full items-center justify-center">
-      <Mini className="w-full max-w-[20rem] overflow-hidden">
+      <Mini className="w-full max-w-80 overflow-hidden">
         <MiniHead
           title="Race · pull requests merged"
           end={
@@ -67,7 +67,7 @@ export function RaceScene() {
               <div className="flex min-w-0 flex-1 flex-col gap-1">
                 <div className="flex items-center gap-1.5 text-2xs">
                   <span className={r.you ? "font-semibold text-primary" : "text-primary"}>{r.name}</span>
-                  <Crown data-crown size={ICON.xs} className="text-[var(--s4)]" style={{ opacity: i === lead ? 1 : 0 }} aria-hidden />
+                  <Crown data-crown size={ICON.xs} className="text-(--s4)" style={{ opacity: i === lead ? 1 : 0 }} aria-hidden />
                   <span data-rnum className="ms-auto text-secondary tnum">
                     {r.days[last]}
                   </span>

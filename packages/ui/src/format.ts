@@ -23,13 +23,12 @@ export function share(part: number, whole: number): string {
   return p === 0 && part > 0 ? "<1%" : `${p}%`;
 }
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] as const;
+
+/** A day as "4 Aug 2026": the same words in every browser and on the server, whatever the locale's own short month. */
 export function day(days: number): string {
-  return new Date(days * 86_400_000).toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    timeZone: "UTC",
-  });
+  const d = new Date(days * 86_400_000);
+  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
 }
 
 export function date(seconds: number): string {
@@ -55,3 +54,10 @@ export const WINDOW_WORDS: Record<string, string> = {
   range: "the dates chosen",
 };
 
+
+/** A Window in words that follow a count: "in the last 30 days", "over all time". */
+export function within(window: string): string {
+  if (window === "all") return "over all time";
+  if (window === "range") return "over the dates chosen";
+  return `in ${WINDOW_WORDS[window] ?? window}`;
+}

@@ -4,6 +4,7 @@ import { Closing } from "#/home/Closing";
 import { Features } from "#/home/Features";
 import { Hero } from "#/home/Hero";
 import { Install } from "#/home/Install";
+import { Reports } from "#/home/Reports";
 import { Rails } from "#/home/layout";
 
 export const Route = createFileRoute("/")({
@@ -16,6 +17,7 @@ function Landing() {
     <Rails>
       <Hero />
       <Features />
+      <Reports />
       <Install />
       <Closing />
     </Rails>

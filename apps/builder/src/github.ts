@@ -8,7 +8,7 @@ export class GitHubError extends Error {
   }
 }
 
-/** One GraphQL request to GitHub; throws on an HTTP failure or when GitHub answers only errors. */
+/** One GraphQL request to GitHub; throws on an HTTP failure (GitHub answers 502 when a query takes it too long) or, as a 422, when GitHub answers only errors. */
 export async function graphql<T>(gh: GitHubApi, query: string, variables: Record<string, unknown> = {}): Promise<T> {
   if (!gh.token) throw new GitHubError(401, "GitHub's GraphQL API needs a token");
   const answer = await (gh.fetcher ?? fetch)(`${gh.api.replace(/\/$/, "")}/graphql`, {
@@ -18,6 +18,6 @@ export async function graphql<T>(gh: GitHubApi, query: string, variables: Record
   });
   if (!answer.ok) throw new GitHubError(answer.status, `GitHub answered ${answer.status}`);
   const body = (await answer.json()) as { data?: T; errors?: { message: string }[] };
-  if (!body.data) throw new GitHubError(502, body.errors?.[0]?.message ?? "GitHub sent no data");
+  if (!body.data) throw new GitHubError(422, body.errors?.[0]?.message ?? "GitHub sent no data");
   return body.data;
 }

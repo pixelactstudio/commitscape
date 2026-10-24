@@ -1,19 +1,24 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@astryxdesign/core/Button";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Typeahead } from "@astryxdesign/core/Typeahead";
 import { useNavigate, useRouteContext } from "@tanstack/react-router";
 import { ArrowRight, Search } from "lucide-react";
 import { parseTarget } from "@commitscape/data";
+import { mayTakeFocus } from "#/lib/hydrated";
 import { LookupRow, useLookupSource, type Item } from "#/lib/lookup";
 
 /** The large search box: a GitHub username or a repository, with suggestions from GitHub as it is typed. */
-export function Lookup({ autoFocus = false, label = "Show me" }: { autoFocus?: boolean; label?: string }) {
+export function Lookup({ autoFocus = false, label = "Show me", placeholder = "GitHub username, or owner/repo" }: { autoFocus?: boolean; label?: string; placeholder?: string }) {
   const navigate = useNavigate();
   const { user } = useRouteContext({ from: "__root__" });
   const source = useLookupSource(user?.login ?? null);
   const [query, setQuery] = useState("");
   const [wrong, setWrong] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (autoFocus && mayTakeFocus()) input.current?.focus();
+  }, [autoFocus]);
   const go = () => {
     const target = parseTarget(query);
     if (!target) return setWrong(true);
@@ -35,14 +40,14 @@ export function Lookup({ autoFocus = false, label = "Show me" }: { autoFocus?: b
           size="lg"
           width="100%"
           startIcon={Search}
-          placeholder="GitHub username, or owner/repo"
+          placeholder={placeholder}
           searchSource={source}
           value={null}
-          hasAutoFocus={autoFocus}
+          ref={input}
           debounceMs={0}
           minQueryLength={1}
           maxMenuItems={9}
-          emptySearchResultsText="Nobody by that name yet. Press Enter to look anyway."
+          emptySearchText="Nobody by that name yet. Press Enter to look anyway."
           onChangeQuery={(q) => {
             setQuery(q);
             setWrong(false);
