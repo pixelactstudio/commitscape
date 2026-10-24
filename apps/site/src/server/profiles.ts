@@ -551,8 +551,10 @@ async function save(db: Db, scope: Profile["scope"], profile: Profile, raw: Raw)
 /** A person's Profile, their own private work only when they are the viewer and what private work they chose to show otherwise, from a copy at most a day old; `full` waits for their pull requests too. */
 export async function readProfile(deps: ProfileDeps, viewer: ProfileViewer, login: string, wanted = false): Promise<Profile> {
   const p = await readOne(deps, viewer, login, wanted);
-  return p.scope === "public" ? withPrivateWork(deps.db, p) : p;
+  return p.scope === "public" && !ownCopies.has(p) ? withPrivateWork(deps.db, p) : p;
 }
+
+const ownCopies = new WeakSet<Profile>();
 
 async function readOne(deps: ProfileDeps, viewer: ProfileViewer, login: string, wanted: boolean): Promise<Profile> {
   nameOf(login);
@@ -563,7 +565,11 @@ async function readOne(deps: ProfileDeps, viewer: ProfileViewer, login: string, 
   if (chosen.namePrivate && scope === "public") {
     const own = await stored(deps.db, login, "self");
     const kept = own?.data ? upgraded(JSON.parse(own.data) as Profile) : null;
-    if (kept && (!wanted || kept.read.complete)) return { ...kept, scope: "public", read: { ...kept.read, requests: 0 } };
+    if (kept && (!wanted || kept.read.complete)) {
+      const shown: Profile = { ...kept, scope: "public", read: { ...kept.read, requests: 0 } };
+      ownCopies.add(shown);
+      return shown;
+    }
   }
   const kept = await stored(deps.db, login, scope);
   const fresh = !!kept?.data && (kept.fetchedAt ?? 0) > now() - PROFILE_FOR;

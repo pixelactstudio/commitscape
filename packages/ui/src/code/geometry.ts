@@ -54,6 +54,8 @@ export function readBox(text: string | null): Box | null {
   }
 }
 
+const inScript = (v: string) => JSON.stringify(v).replace(/[<>/\u2028\u2029]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
+
 /** The script that puts a remembered box on the server-drawn window before the browser first paints it, so it does not jump on hydration. */
 export const PLACE_SCRIPT = (id: string) =>
-  `(function(){try{var b=JSON.parse(localStorage.getItem(${JSON.stringify(GEOMETRY_KEY)})||"null"),e=document.getElementById(${JSON.stringify(id)});if(!b||!e||e.getAttribute("data-state")!=="normal")return;var W=innerWidth,H=innerHeight,t=parseFloat(getComputedStyle(e).getPropertyValue("--header-height"))*parseFloat(getComputedStyle(document.documentElement).fontSize)||56,w=Math.min(Math.max(b.w,${MIN_W}),W),h=Math.min(Math.max(b.h,${MIN_H}),H-t);e.style.setProperty("--win-x",Math.min(Math.max(b.x,${GRIP}-w),W-${GRIP})+"px");e.style.setProperty("--win-y",Math.min(Math.max(b.y,t),H-${TITLE})+"px");e.style.setProperty("--win-w",w+"px");e.style.setProperty("--win-h",h+"px");e.setAttribute("data-placed","")}catch(_){}})()`;
+  `(function(){try{var b=JSON.parse(localStorage.getItem(${inScript(GEOMETRY_KEY)})||"null"),e=document.getElementById(${inScript(id)});if(!b||!e||e.getAttribute("data-state")!=="normal")return;var W=innerWidth,H=innerHeight,t=parseFloat(getComputedStyle(e).getPropertyValue("--header-height"))*parseFloat(getComputedStyle(document.documentElement).fontSize)||56,w=Math.min(Math.max(b.w,${MIN_W}),W),h=Math.min(Math.max(b.h,${MIN_H}),H-t);e.style.setProperty("--win-x",Math.min(Math.max(b.x,${GRIP}-w),W-${GRIP})+"px");e.style.setProperty("--win-y",Math.min(Math.max(b.y,t),H-${TITLE})+"px");e.style.setProperty("--win-w",w+"px");e.style.setProperty("--win-h",h+"px");e.setAttribute("data-placed","")}catch(_){}})()`;

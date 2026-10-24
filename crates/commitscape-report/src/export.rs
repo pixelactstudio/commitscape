@@ -356,7 +356,9 @@ fn write_files(dir: &Path, index: &Index, files: &BTreeSet<FileId>) -> std::io::
             Some(l) => out.text(l),
             None => out.null(),
         };
-        out.bool(looks_generated(path)).bool(is_lockfile(path)).end()?;
+        out.bool(looks_generated(path))
+            .bool(is_lockfile(path))
+            .end()?;
     }
     out.finish()?;
     let mut out = Copy::create(dir, "file_paths.tsv")?;

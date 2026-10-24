@@ -13,8 +13,14 @@ let fileIndex: Map<string, number> | null = null;
 
 const tell = (m: Told, transfer?: Transferable[]) => scope.postMessage(m, transfer);
 
+function sameOrigin(url: string): string {
+  const u = new URL(url, self.location.origin);
+  if (u.origin !== self.location.origin || !u.pathname.startsWith("/api/")) throw new Error("The Atlas can only be read from this site.");
+  return u.href;
+}
+
 async function bytesOf(url: string): Promise<Uint8Array> {
-  const answer = await fetch(url);
+  const answer = await fetch(sameOrigin(url));
   if (!answer.ok) {
     const said = (await answer.json().catch(() => null)) as { error?: string } | null;
     throw new Error(said?.error ?? `The Atlas could not be read (${answer.status}).`);
@@ -248,6 +254,7 @@ function answer(ask: Exclude<Ask, { type: "open" }>): void | Promise<void> {
 }
 
 scope.onmessage = (event) => {
+  if (event.origin && event.origin !== self.location.origin) return;
   const ask = event.data;
   if (ask.type === "open") {
     queue = queue.then(() => open(ask.url));

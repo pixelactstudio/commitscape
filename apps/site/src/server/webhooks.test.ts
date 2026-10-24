@@ -107,6 +107,24 @@ describe("GitHub's webhooks", () => {
     expect(await deps.db.select().from(builds)).toHaveLength(0);
   });
 
+  test("a repository made private loses its stored Cards, its people's standing Cards too", async () => {
+    const deps = await setup();
+    await deps.storage.put("cards/gh/acme/rocket/hall-of-fame-light-d1.png", new Uint8Array([1]), { type: "image/png" });
+    await deps.storage.put("cards/gh/acme/rocket/u/alice/standing-light-d1.png", new Uint8Array([1]), { type: "image/png" });
+    await deps.storage.put("cards/u/alice/totals-light-d1.png", new Uint8Array([1]), { type: "image/png" });
+    await onWebhook(deps, "repository", { action: "privatized", repository });
+    expect([...deps.storage.objects.keys()].filter((k) => k.startsWith("cards/"))).toEqual(["cards/u/alice/totals-light-d1.png"]);
+  });
+
+  test("a renamed repository is found by its GitHub id and moved to its new name", async () => {
+    const deps = await setup();
+    await deps.db.update(repositories).set({ githubId: 42 });
+    await onWebhook(deps, "repository", { action: "renamed", repository: { ...repository, id: 42, full_name: "Acme/Rocket2", name: "Rocket2", owner: { login: "Acme" } } });
+    const rows = await deps.db.select().from(repositories);
+    expect(rows.map((r) => r.id)).toEqual(["acme/rocket2"]);
+    expect(rows[0]).toMatchObject({ name: "Rocket2", factsAt: 0 });
+  });
+
   test("someone who revokes the App loses their stored tokens and anything they lent", async () => {
     const deps = await setup();
     await deps.db.insert(user).values({ id: "u1", name: "Alice", email: "a@example.com", emailVerified: true, login: "Alice", createdAt: new Date(), updatedAt: new Date() });

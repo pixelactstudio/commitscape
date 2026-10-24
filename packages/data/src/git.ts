@@ -154,15 +154,29 @@ export function openBranchesOf(data: Pick<GitBranches, "branches" | "default">):
   return data.branches.filter((b) => b.name !== data.default && !b.merged && !b.bot).length;
 }
 
-const TAG_VERSION = /^(.*?)([-_/@.]?)v?\d+(?:\.\d+)+/;
+const TAG_SEPARATORS = "-_/@.";
+
+const isDigit = (c: string | undefined) => c !== undefined && c >= "0" && c <= "9";
 
 export const OTHER_TAGS = "\u0000other";
 
 /** The family a tag belongs to: the name before its version (`ignore-0.4.33` is of `ignore`, `v19.1.0` of the empty family, `status` of `OTHER_TAGS`), and the separator that followed it. */
 export function tagFamilyOf(name: string): { key: string; sep: string } {
-  const found = TAG_VERSION.exec(name);
-  if (!found) return { key: OTHER_TAGS, sep: "" };
-  return { key: found[1] ?? "", sep: found[2] ?? "" };
+  const n = name.length;
+  const runEnd = new Int32Array(n + 1);
+  runEnd[n] = n;
+  for (let i = n - 1; i >= 0; i--) runEnd[i] = isDigit(name[i]) ? (runEnd[i + 1] as number) : i;
+  const versionAt = (i: number) => {
+    const j = name[i] === "v" ? i + 1 : i;
+    if (!isDigit(name[j])) return false;
+    const end = runEnd[j] as number;
+    return name[end] === "." && isDigit(name[end + 1]);
+  };
+  for (let k = 0; k < n; k++) {
+    if (TAG_SEPARATORS.includes(name[k] as string) && versionAt(k + 1)) return { key: name.slice(0, k), sep: name[k] as string };
+    if (versionAt(k)) return { key: name.slice(0, k), sep: "" };
+  }
+  return { key: OTHER_TAGS, sep: "" };
 }
 
 export type GitPullHead = { head: string; stored: boolean; bytes: number; onto?: string };

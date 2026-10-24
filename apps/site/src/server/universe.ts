@@ -55,6 +55,18 @@ function intsOf(text: string | null): number[] {
 
 const turn = () => new Promise<void>((done) => setImmediate(done));
 
+const marked = new Set<number>();
+
+/** Whether a Stored Index has its Mainline written, so what is read from it will not change; remembered once true. */
+export async function mainlineWritten(db: Db, si: number): Promise<boolean> {
+  if (marked.has(si)) return true;
+  const [row] = ((await db.execute(sql`SELECT EXISTS (SELECT 1 FROM index_commits WHERE si = ${si} AND flags & ${MAINLINE} <> 0) AS marked`)) as unknown as Rows<{ marked: boolean }>).rows;
+  if (row?.marked !== true) return false;
+  if (marked.size > 10_000) marked.clear();
+  marked.add(si);
+  return true;
+}
+
 /** Reads what the Atlas is made from out of a Stored Index, in one snapshot: the commits that reached the default branch by when they did (every commit when the Mainline is not worked out yet), Merge Commits left out. */
 export async function atlasRows(db: Db, si: number): Promise<AtlasRows | null> {
   const read = await db.transaction(
@@ -176,7 +188,8 @@ export async function atlasFile(deps: Deps, viewer: Viewer, owner: string, name:
   const row = await readable(deps, viewer, owner, name);
   if (row.indexId === null) throw new SiteError(404, NO_HISTORY);
   const pinned = version !== null && version === row.reportAt;
-  const cacheControl = row.isPrivate ? "private, max-age=300" : pinned ? `public, max-age=${YEAR}, immutable` : "public, max-age=300";
+  const settled = pinned && !row.isPrivate && (await mainlineWritten(deps.db, row.indexId));
+  const cacheControl = row.isPrivate ? "private, max-age=300" : settled ? `public, max-age=${YEAR}, immutable` : "public, max-age=300";
   const stamp = await stampOf(deps.db, row.indexId, pinned ? (row.reportAt ?? undefined) : undefined);
   if (stamp === null) throw new SiteError(404, NO_HISTORY);
   const etag = `"atlas-${row.indexId}-${sha256(stamp).slice(0, 16)}-${part}"`;

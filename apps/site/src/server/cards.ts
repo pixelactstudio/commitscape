@@ -144,7 +144,8 @@ function baseKey(kind: CardKind, subject: Subject, theme: CardTheme, format: For
   if (subject.race) return `cards/races/${subject.race}/${kind}-${theme}-d${CARD_DESIGN}.${format}`;
   if (subject.crew) return `cards/crews/${subject.crew}/${kind}-${theme}-d${CARD_DESIGN}.${format}`;
   if (subject.versus) return `cards/vs/${subject.login?.toLowerCase()}/${subject.versus.toLowerCase()}/${kind}-${theme}-d${CARD_DESIGN}.${format}`;
-  const who = subject.login ? `u/${subject.login.toLowerCase()}${subject.owner ? `/${subject.owner.toLowerCase()}/${subject.repo?.toLowerCase()}` : ""}` : `gh/${subject.owner?.toLowerCase()}/${subject.repo?.toLowerCase()}`;
+  const repo = `gh/${subject.owner?.toLowerCase()}/${subject.repo?.toLowerCase()}`;
+  const who = subject.login ? (subject.owner ? `${repo}/u/${subject.login.toLowerCase()}` : `u/${subject.login.toLowerCase()}`) : repo;
   return `cards/${who}/${kind}${subject.achievement ? `-${subject.achievement}` : ""}${subject.year ? `-${subject.year}` : ""}-${theme}-d${CARD_DESIGN}.${format}`;
 }
 
@@ -206,6 +207,18 @@ async function draw(deps: CardDeps, kind: CardKind, subject: Subject, theme: Car
 
 const refreshing = new Set<string>();
 
+async function isPrivateRepo(deps: CardDeps, owner: string, repo: string): Promise<boolean> {
+  const id = repoId(owner, repo);
+  if (!id) return false;
+  const [row] = await deps.db.select({ isPrivate: repositories.isPrivate }).from(repositories).where(eq(repositories.id, id));
+  return row?.isPrivate === true;
+}
+
+async function forget(deps: CardDeps, kind: CardKind, subject: Subject, theme: CardTheme, style: CardStyle): Promise<void> {
+  const svg = keyOf(kind, subject, theme, "svg", style);
+  await deps.storage.delete([svg, keyOf(kind, subject, theme, "png", style), `${svg}.at`]);
+}
+
 async function store(deps: CardDeps, kind: CardKind, subject: Subject, theme: CardTheme, style: CardStyle) {
   const drawn = await draw(deps, kind, subject, theme, style);
   if (!drawn || !isOffered(style)) return drawn;
@@ -223,13 +236,14 @@ export async function cardImage(deps: CardDeps, kind: CardKind, subject: Subject
   for (const who of [subject.login, subject.versus]) if (who && (await isHidden(deps, who))) throw new SiteError(404, "This person has chosen to stay out, so they have no Cards.");
   const type = format === "svg" ? "image/svg+xml" : "image/png";
   const key = keyOf(kind, subject, theme, format, style);
+  if (subject.owner && subject.repo && (await isPrivateRepo(deps, subject.owner, subject.repo))) throw new SiteError(404, "This repository has no Cards.");
   const [kept, at] = isOffered(style) ? await Promise.all([deps.storage.get(key), deps.storage.get(`${keyOf(kind, subject, theme, "svg", style)}.at`)]) : [null, null];
   if (kept) {
     const age = now() - Number(new TextDecoder().decode(at?.body ?? new Uint8Array()) || 0);
     if (age > CARD_FOR && !refreshing.has(key)) {
       refreshing.add(key);
       void store(deps, kind, subject, theme, style)
-        .catch(() => null)
+        .catch((e: unknown) => (e instanceof SiteError && e.status === 404 ? forget(deps, kind, subject, theme, style) : null))
         .finally(() => refreshing.delete(key));
     }
     return { body: kept.body, type, maxAge: CARD_FOR, ms: null };

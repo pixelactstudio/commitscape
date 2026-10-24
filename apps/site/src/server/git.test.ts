@@ -103,8 +103,10 @@ describe("the git data of a repository", () => {
     expect((await gitFile(deps, viewer(), "acme", "rocket", "tree.json", null)).cacheControl).toBe("public, max-age=60");
   });
 
-  test("serves the history pinned to the Report it is of, and an ETag it gave without making it again", async () => {
+  test("serves the history pinned to the Report it is of once its Mainline is written, and an ETag it gave without making it again", async () => {
     const deps = await stored();
+    expect((await gitFile(deps, viewer(), "acme", "rocket", "log.json", 500)).cacheControl).toBe("public, max-age=300");
+    await deps.db.execute(sql`UPDATE index_commits SET flags = flags | 8`);
     const log = await gitFile(deps, viewer(), "acme", "rocket", "log.json", 500);
     expect(log.cacheControl).toBe("public, max-age=31536000, immutable");
     expect(JSON.parse(brotliDecompressSync((await log.packed?.br) ?? new Uint8Array()).toString())).toMatchObject({ names: ["README.md", "a.ts", "b.ts", "old.txt"] });

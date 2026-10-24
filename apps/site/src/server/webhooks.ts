@@ -2,13 +2,13 @@ import "@tanstack/react-start/server-only";
 import { createHmac } from "node:crypto";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { Facts } from "@commitscape/data";
-import { busy, labelsOf, now, PRIORITY, queueBuild, randomId, removeReports, reviewStateOf, same, schema, type Db, type Queue, type Storage } from "@commitscape/server";
+import { busy, labelsOf, now, PRIORITY, queueBuild, randomId, removeReports, reviewStateOf, same, schema, settleRepository, type Db, type Queue, type Storage } from "@commitscape/server";
 
 const { account, builds, lentTokens, pullRequests, pullReviews, repoEvents, repositories, user } = schema;
 
 type Who = { login?: string; type?: string } | null | undefined;
 type Named = { full_name?: string };
-type Repo = Named & { private?: boolean; stargazers_count?: number; forks_count?: number; open_issues_count?: number; default_branch?: string; html_url?: string };
+type Repo = Named & { id?: number; name?: string; owner?: Who; private?: boolean; stargazers_count?: number; forks_count?: number; open_issues_count?: number; default_branch?: string; html_url?: string };
 type Side = { ref?: string; user?: Who; repo?: (Named & { owner?: Who }) | null };
 type Pull = {
   number: number;
@@ -218,10 +218,13 @@ export async function onWebhook(deps: WebhookDeps, kind: string | null, event: E
   }
   const installation = event.installation?.id;
   if (installation && (kind === "installation" || kind === "installation_repositories")) return { ...handled, removed: await onInstallation(db, deps.storage, kind, event, installation) };
-  const id = idOf(event.repository);
-  if (!id) return handled;
-  const [row] = await db.select().from(repositories).where(eq(repositories.id, id));
+  const named = idOf(event.repository);
+  if (!named) return handled;
+  let [row] = await db.select().from(repositories).where(eq(repositories.id, named));
+  const githubId = event.repository?.id;
+  if (!row && typeof githubId === "number") [row] = await db.select().from(repositories).where(eq(repositories.githubId, githubId));
   if (!row) return handled;
+  const id = row.id;
   if (event.repository) await keepCounts(db, row, event.repository);
   const actor = loginOf(event.sender);
   switch (kind) {
@@ -231,7 +234,13 @@ export async function onWebhook(deps: WebhookDeps, kind: string | null, event: E
         return { ...handled, removed: 1 };
       }
       if (event.action === "privatized" || event.action === "publicized") await db.update(repositories).set({ isPrivate: event.action === "privatized" }).where(eq(repositories.id, id));
-      if (event.action === "renamed" || event.action === "transferred") await db.update(repositories).set({ factsAt: 0 }).where(eq(repositories.id, id));
+      if (event.action === "privatized") await deps.storage.deletePrefix(`cards/gh/${id}/`);
+      if (event.action === "renamed" || event.action === "transferred") {
+        const owner = event.repository?.owner?.login;
+        const name = event.repository?.name;
+        if (typeof githubId === "number" && owner && name) await settleRepository(db, deps.storage, { githubId, owner, name, asked: id, set: { factsAt: 0 } });
+        else await db.update(repositories).set({ factsAt: 0 }).where(eq(repositories.id, id));
+      }
       return { ...handled, kept: true };
     }
     case "push": {

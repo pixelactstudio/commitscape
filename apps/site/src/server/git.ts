@@ -5,6 +5,7 @@ import { gitCoupling, gitLog, gitTree, lastInFolder, monthsOf, personRef, type I
 import { gitFileKey, gitPullKey, readBlobs, readBranchDetail, readBranchInsight, readBranches, readGitObject, readOpenBranches, schema, sha256, subjectsOf, type StoredObject } from "@commitscape/server";
 import { indexFile, inTurn, keptFile, stampOf, underOf, viewOf } from "./answers";
 import { SiteError } from "./http";
+import { mainlineWritten } from "./universe";
 import type { Packed } from "./packed";
 import { readable, type Deps, type Row, type Viewer } from "./repos";
 
@@ -92,7 +93,8 @@ async function commitLog(deps: Deps, viewer: Viewer, owner: string, name: string
   const row = await readable(deps, viewer, owner, name);
   if (row.indexId === null) throw new SiteError(404, NO_HISTORY);
   const pinned = version !== null && version === row.reportAt;
-  const cacheControl = row.isPrivate ? "private, max-age=300" : pinned ? `public, max-age=${YEAR}, immutable` : "public, max-age=300";
+  const settled = pinned && !row.isPrivate && (await mainlineWritten(deps.db, row.indexId));
+  const cacheControl = row.isPrivate ? "private, max-age=300" : settled ? `public, max-age=${YEAR}, immutable` : "public, max-age=300";
   const tagOf = (stamp: string) => `"${row.indexId}-${sha256(stamp).slice(0, 16)}-log"`;
   const stamp = await stampOf(deps.db, row.indexId, pinned ? (row.reportAt ?? undefined) : undefined);
   if (stamp === null) throw new SiteError(404, NO_HISTORY);

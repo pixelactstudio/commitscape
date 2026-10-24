@@ -50,7 +50,7 @@ export async function tokenize(code: string, lang: string): Promise<Marked | nul
     await shiki.loadLanguage(load as never);
     loaded.add(lang);
   }
-  const { tokens } = shiki.codeToTokens(code, { lang, theme: "commitscape-slots" });
+  const { tokens } = shiki.codeToTokens(code, { lang, theme: "commitscape-slots", tokenizeTimeLimit: 5000 });
   const lines = tokens.map((line) => {
     const out: [string, number][] = [];
     for (const t of line) {
