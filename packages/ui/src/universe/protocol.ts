@@ -43,7 +43,8 @@ export type FrameAnswer = {
 };
 
 export type Ask =
-  | { type: "open"; url: string }
+  | { type: "open"; map: ArrayBuffer }
+  | { type: "names"; names: ArrayBuffer | null }
   | { type: "frame"; id: number; at: number; from: number | null; solo: number | null }
   | { type: "bots"; id: number; hide: boolean }
   | { type: "file"; id: number; rank: number; at: number }

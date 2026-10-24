@@ -7,26 +7,14 @@ const SUPER_FROM = 60_000;
 
 let engine: AtlasEngine | null = null;
 let queue: Promise<void> = Promise.resolve();
-let named: Promise<void> = Promise.resolve();
+let gotNames: () => void = () => undefined;
+const named = new Promise<void>((done) => {
+  gotNames = done;
+});
 let folderIndex: Map<string, number> | null = null;
 let fileIndex: Map<string, number> | null = null;
 
 const tell = (m: Told, transfer?: Transferable[]) => scope.postMessage(m, transfer);
-
-function sameOrigin(url: string): string {
-  const u = new URL(url, self.location.origin);
-  if (u.origin !== self.location.origin || !u.pathname.startsWith("/api/")) throw new Error("The Atlas can only be read from this site.");
-  return `${self.location.origin}/api/${u.pathname.slice(5)}${u.search}`;
-}
-
-async function bytesOf(url: string): Promise<Uint8Array> {
-  const answer = await fetch(sameOrigin(url));
-  if (!answer.ok) {
-    const said = (await answer.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(said?.error ?? `The Atlas could not be read (${answer.status}).`);
-  }
-  return new Uint8Array(await answer.arrayBuffer());
-}
 
 function regionsOf(a: Atlas, L: Layout): Region[] {
   const out: Region[] = [];
@@ -169,28 +157,28 @@ function summaryOf(e: AtlasEngine): { summary: Summary; transfer: Transferable[]
   return { summary, transfer };
 }
 
-async function open(url: string): Promise<void> {
+function open(map: ArrayBuffer): void {
   const started = performance.now();
   try {
-    const bytes = await bytesOf(`${url}&part=map`);
-    const atlas = decodeAtlas(bytes);
+    const atlas = decodeAtlas(new Uint8Array(map));
     engine = new AtlasEngine(atlas, layoutOf(atlas));
     const { summary, transfer } = summaryOf(engine);
     tell({ type: "ready", summary, ms: Math.round(performance.now() - started) }, transfer);
   } catch (e) {
     tell({ type: "failed", message: e instanceof Error ? e.message : "The Atlas could not be read." });
-    return;
   }
-  named = loadNames(url);
 }
 
-async function loadNames(url: string): Promise<void> {
+function takeNames(bytes: ArrayBuffer | null): void {
   try {
-    const names = decodeNames(await bytesOf(`${url}&part=names`));
-    if (engine) engine.names = names.names;
-    tell({ type: "names" });
+    if (bytes && engine) {
+      engine.names = decodeNames(new Uint8Array(bytes)).names;
+      tell({ type: "names" });
+    }
   } catch {
     return;
+  } finally {
+    gotNames();
   }
 }
 
@@ -216,7 +204,7 @@ async function lookup(e: AtlasEngine, kind: "file" | "folder", path: string): Pr
   return fileIndex.get(clean) ?? -1;
 }
 
-function answer(ask: Exclude<Ask, { type: "open" }>): void | Promise<void> {
+function answer(ask: Exclude<Ask, { type: "open" } | { type: "names" }>): void | Promise<void> {
   const e = engine;
   if (!e) return tell({ type: "answer", id: ask.id, value: null });
   switch (ask.type) {
@@ -257,7 +245,11 @@ scope.onmessage = (event) => {
   if (event.origin && event.origin !== self.location.origin) return;
   const ask = event.data;
   if (ask.type === "open") {
-    queue = queue.then(() => open(ask.url));
+    queue = queue.then(() => open(ask.map));
+    return;
+  }
+  if (ask.type === "names") {
+    queue = queue.then(() => takeNames(ask.names));
     return;
   }
   if (ask.type === "lookup") {

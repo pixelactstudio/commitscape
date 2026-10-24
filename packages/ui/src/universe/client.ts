@@ -3,6 +3,15 @@ import type { Answers, Ask, Summary, Told } from "./protocol";
 
 type Payload<K extends keyof Answers> = Omit<Extract<Ask, { type: K }>, "type" | "id">;
 
+async function bytesOf(url: string): Promise<ArrayBuffer> {
+  const answer = await fetch(url);
+  if (!answer.ok) {
+    const said = (await answer.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(said?.error ?? `The Atlas could not be read (${answer.status}).`);
+  }
+  return answer.arrayBuffer();
+}
+
 export class AtlasClient {
   private readonly worker: Worker;
   private next = 1;
@@ -23,7 +32,19 @@ export class AtlasClient {
     this.worker.onerror = (e) => {
       for (const l of this.listeners) l({ type: "failed", message: e.message || "The Atlas could not be worked out in this browser." });
     };
-    this.worker.postMessage({ type: "open", url } satisfies Ask);
+    void this.load(url);
+  }
+
+  private async load(url: string): Promise<void> {
+    try {
+      const map = await bytesOf(`${url}&part=map`);
+      this.worker.postMessage({ type: "open", map } satisfies Ask, [map]);
+    } catch (e) {
+      for (const l of this.listeners) l({ type: "failed", message: e instanceof Error ? e.message : "The Atlas could not be read." });
+      return;
+    }
+    const names = await bytesOf(`${url}&part=names`).catch(() => null);
+    this.worker.postMessage({ type: "names", names } satisfies Ask, names ? [names] : []);
   }
 
   listen(l: (m: Told) => void): () => void {
