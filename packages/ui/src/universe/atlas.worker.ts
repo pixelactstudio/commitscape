@@ -16,7 +16,7 @@ const tell = (m: Told, transfer?: Transferable[]) => scope.postMessage(m, transf
 function sameOrigin(url: string): string {
   const u = new URL(url, self.location.origin);
   if (u.origin !== self.location.origin || !u.pathname.startsWith("/api/")) throw new Error("The Atlas can only be read from this site.");
-  return u.href;
+  return `${self.location.origin}/api/${u.pathname.slice(5)}${u.search}`;
 }
 
 async function bytesOf(url: string): Promise<Uint8Array> {
