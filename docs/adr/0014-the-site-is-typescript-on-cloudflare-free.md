@@ -4,7 +4,7 @@ The hosted Site is a TanStack Start app on Cloudflare Workers. It uses D1 for it
 
 ## Status
 
-accepted (2026-09-25, Build Run 4 plan); amended in Phase 29 (below). Reverses IDEA.md's Build Run 3 "Not doing" lines on a hosted service and on TanStack Start. ADR-0010 still governs the local interface.
+accepted (2026-09-25, Build Run 4 plan); amended in Phase 29 (below). Reverses IDEA.md's Build Run 3 "Not doing" lines on a hosted service and on TanStack Start. ADR-0010 still governs the local interface. Its rule that Rust never runs as a web server is reversed by ADR-0028 (2026-10-26): the engine service is a Rust HTTP service on the private network, which only the Site asks.
 
 ## Context
 

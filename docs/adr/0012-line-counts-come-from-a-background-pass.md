@@ -4,7 +4,7 @@ Lines added and removed per change are counted by a separate pass that diffs eac
 
 ## Status
 
-accepted (2026-09-24, Build Run 3 Phase 15). Amends ADR-0004.
+accepted (2026-09-24, Build Run 3 Phase 15). Amends ADR-0004. Amended by ADR-0028 (2026-10-26): the pass counts the Mainline first, newest first, then the rest, within a time budget that later runs carry on from, and it never counts Bulk Commits, lockfiles or Generated Files, which are not counted rather than left out when reading.
 
 ## Context
 

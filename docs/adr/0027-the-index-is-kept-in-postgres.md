@@ -4,7 +4,7 @@ On the Site, a repository's Index (every commit with its Changeset, its people, 
 
 ## Status
 
-accepted (2026-10-18, owner review of the Universe, Code and Branches screens; built the same day). Replaces the hosted half of ADR-0024 and the stored Report of ADR-0015. ADR-0016 (Shared Reports) and ADR-0008 (the cache) stand.
+accepted (2026-10-18, owner review of the Universe, Code and Branches screens; built the same day). Replaces the hosted half of ADR-0024 and the stored Report of ADR-0015. ADR-0016 (Shared Reports) and ADR-0008 (the cache) stand. Amended by ADR-0028 (2026-10-26): the engine service answers every screen from a pack, so the Site no longer holds Stored Indexes in memory, the TypeScript port of the metrics and the parity test are deleted, and the daily summaries are dropped. The Stored Index stays for row lookups.
 
 ## Context
 
