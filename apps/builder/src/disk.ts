@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir, readdir, rename, rm, stat, utimes } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { and, eq, gt, inArray, or } from "drizzle-orm";
 import { now, schema, type Db } from "@commitscape/server";
@@ -48,6 +48,26 @@ async function size(path: string): Promise<number> {
 
 export type Kept = "repos" | "caches";
 
+type Sizes = Record<string, { bytes: number; at: number }>;
+
+const SIZES = "sizes.json";
+
+async function readSizes(work: string): Promise<Sizes> {
+  const text = await readFile(join(work, SIZES), "utf8").catch(() => "{}");
+  try {
+    return JSON.parse(text) as Sizes;
+  } catch {
+    return {};
+  }
+}
+
+async function writeSizes(work: string, sizes: Sizes): Promise<void> {
+  const tmp = join(work, `${SIZES}.${process.pid}.tmp`);
+  await writeFile(tmp, JSON.stringify(sizes))
+    .then(() => rename(tmp, join(work, SIZES)))
+    .catch(() => rm(tmp, { force: true }));
+}
+
 async function kept(work: string, folder: Kept): Promise<string[]> {
   const out: string[] = [];
   for (const owner of await readdir(join(work, folder)).catch(() => [])) {
@@ -73,10 +93,17 @@ export async function inUse(db: Db, cfg: Config, where: (cfg: Config, owner: str
   return repos.map((r) => where(cfg, r.owner, r.name));
 }
 
-/** Deletes the least recently used repository folders (clones, or with `folder` caches) until they fit the budget, leaving the ones in `keep`. */
+/** Deletes the least recently used repository folders (clones, or with `folder` caches) until they fit the budget, leaving the ones in `keep`. A folder is measured again only when it was used since it was last measured. */
 export async function prune(work: string, budget: number, keep: Iterable<string> = [], folder: Kept = "repos"): Promise<string[]> {
   const left = new Set(keep);
-  const found = await Promise.all((await kept(work, folder)).map(async (path) => ({ path, bytes: await size(path), at: (await stat(path)).mtimeMs })));
+  const known = await readSizes(work);
+  const found = await Promise.all(
+    (await kept(work, folder)).map(async (path) => {
+      const at = (await stat(path)).mtimeMs;
+      const was = known[path];
+      return { path, bytes: was?.at === at ? was.bytes : await size(path), at };
+    }),
+  );
   let total = found.reduce((n, c) => n + c.bytes, 0);
   const deleted: string[] = [];
   for (const c of found.sort((a, b) => a.at - b.at)) {
@@ -86,6 +113,11 @@ export async function prune(work: string, budget: number, keep: Iterable<string>
     total -= c.bytes;
     deleted.push(c.path);
   }
+  const sizes = await readSizes(work);
+  const prefix = join(work, folder) + "/";
+  for (const path of Object.keys(sizes)) if (path.startsWith(prefix)) delete sizes[path];
+  for (const c of found) if (!deleted.includes(c.path)) sizes[c.path] = { bytes: c.bytes, at: c.at };
+  await writeSizes(work, sizes);
   return deleted;
 }
 

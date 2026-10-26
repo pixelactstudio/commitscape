@@ -438,6 +438,20 @@ test("the least recently used repository folders go first when the disk budget i
   expect(await prune(work, 1500, [join(work, "repos", "acme", "mid")])).toEqual([join(work, "repos", "acme", "new")]);
 });
 
+test("a kept folder is measured again only once it was used after it was last measured", async () => {
+  const work = await mkdtemp(join(tmpdir(), "builder-"));
+  const dir = join(work, "repos", "acme", "rocket");
+  await mkdir(join(dir, "full"), { recursive: true });
+  await writeFile(join(dir, "full", "pack"), Buffer.alloc(1000));
+  await utimes(dir, 1000, 1000);
+  expect(await prune(work, 5000)).toEqual([]);
+  await writeFile(join(dir, "full", "pack"), Buffer.alloc(9000));
+  await utimes(dir, 1000, 1000);
+  expect(await prune(work, 5000)).toEqual([]);
+  await utimes(dir, 2000, 2000);
+  expect(await prune(work, 5000)).toEqual([dir]);
+});
+
 test("a public repository's cache lives apart from its clone, moved out of the clone's folder where older Builders kept it", async () => {
   const work = await mkdtemp(join(tmpdir(), "builder-"));
   const cfg = { work } as Config;

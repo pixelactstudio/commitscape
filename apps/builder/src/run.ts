@@ -330,5 +330,6 @@ export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<
   } finally {
     await rm(scratch, { recursive: true, force: true });
     if (req.private && !resumable) await rm(home, { recursive: true, force: true });
+    else await utimes(home, new Date(), new Date()).catch(() => undefined);
   }
 }
