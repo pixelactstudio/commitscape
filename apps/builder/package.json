@@ -16,7 +16,7 @@
     "@commitscape/data": "workspace:*",
     "@commitscape/server": "workspace:*",
     "@electric-sql/pglite": "catalog:",
-    "@sentry/node": "11.0.0",
+    "@sentry/node": "11.9.0",
     "@t3-oss/env-core": "catalog:",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
