@@ -257,12 +257,14 @@ export const extensionOf = (path: string): string => {
   return dot <= 0 ? "" : name.slice(dot + 1).toLowerCase();
 };
 
+const own = (table: Record<string, string>, key: string): string | undefined => (Object.hasOwn(table, key) ? table[key] : undefined);
+
 /** The language a file is highlighted as, by its name or extension; "text" when none is known. */
 export function languageOf(path: string): string {
   const name = path.slice(path.lastIndexOf("/") + 1).toLowerCase();
-  const byName = NAMES[name] ?? NAMES[name.replace(/\.[^.]+$/, "")];
+  const byName = own(NAMES, name) ?? own(NAMES, name.replace(/\.[^.]+$/, ""));
   if (byName) return byName;
-  return LANGUAGES[extensionOf(path)] ?? "text";
+  return own(LANGUAGES, extensionOf(path)) ?? "text";
 }
 
 /** Where raw.githubusercontent.com serves a public repository's files at one commit; a file's address is this followed by `rawPath` of its path. */

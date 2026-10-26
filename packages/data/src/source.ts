@@ -1,4 +1,4 @@
-import { limited, topOf, withoutTop } from "./answers/limit";
+import { limited, topOf, withoutTop } from "./asked";
 import { listPager, type CommitPage, type CommitQuery, type Finder } from "./commits";
 import type { GitLog } from "./git";
 import type { CommitList, Meta } from "./types";

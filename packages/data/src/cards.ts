@@ -1,11 +1,10 @@
 import type { Identity, ProfileRepo, ProfileTotals, ProfileYear } from "./profile";
-import type { WindowRow } from "./races";
 import type { Place } from "./standings";
 import type { Achievement, Archetype } from "./traits";
 import type { Wrapped } from "./wrapped";
 import type { VersusRow, VersusSide } from "./versus";
 
-export type CardKind = "totals" | "repositories" | "survival" | "calendar" | "languages" | "standing" | "hall-of-fame" | "repo-compact" | "repo-stats" | "repo-faces" | "preview" | "versus" | "archetype" | "achievement" | "race" | "season" | "wrapped" | "wrapped-calendar";
+export type CardKind = "totals" | "repositories" | "survival" | "calendar" | "languages" | "standing" | "hall-of-fame" | "repo-compact" | "repo-stats" | "repo-faces" | "preview" | "versus" | "archetype" | "achievement" | "wrapped" | "wrapped-calendar";
 
 export type ProfileCardData = {
   identity: Pick<Identity, "login" | "name">;
@@ -43,7 +42,5 @@ export type VersusCardData = { a: Pick<VersusSide, "identity">; b: Pick<VersusSi
 export type ArchetypeCardData = { identity: Pick<Identity, "login" | "name">; archetype: Archetype | null; also: string[] };
 
 export type AchievementCardData = { identity: Pick<Identity, "login" | "name">; achievement: Achievement };
-
-export type WindowCardData = { title: string; subtitle: string; rows: WindowRow[] };
 
 export type WrappedCardData = Wrapped;

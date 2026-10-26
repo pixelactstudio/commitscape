@@ -1,10 +1,10 @@
 import type { ReactNode } from "react";
-import { ordinal, type CardImages, type ProfileCardData, type ProfileRepo, type StandingCardData, type VersusCardData, type ArchetypeCardData, type AchievementCardData, type WindowCardData, type WrappedCardData, leadersOf, WINDOW_VIEWS } from "@commitscape/data";
+import { ordinal, type CardImages, type ProfileCardData, type ProfileRepo, type StandingCardData, type VersusCardData, type ArchetypeCardData, type AchievementCardData, type WrappedCardData } from "@commitscape/data";
 import { compact, grouped, many } from "../format";
 import { STILL, type Paint } from "./paint";
 import { versusValue } from "./values";
 import { clip, glass, inner, STAR } from "./parts";
-import { calendarSize, CELL, GAP, languagesSize, repositoriesSize, STANDING_SIZE, SURVIVAL_SIZE, TOTALS_SIZE, versusSize, ARCHETYPE_SIZE, ACHIEVEMENT_SIZE, windowSize, WRAPPED_CALENDAR_SIZE } from "./sizes";
+import { calendarSize, CELL, GAP, languagesSize, repositoriesSize, STANDING_SIZE, SURVIVAL_SIZE, TOTALS_SIZE, versusSize, ARCHETYPE_SIZE, ACHIEVEMENT_SIZE, WRAPPED_CALENDAR_SIZE } from "./sizes";
 import { alpha, lookOf, mix, type CardStyle, type Look } from "./style";
 import type { CardTheme, Tokens } from "./tokens";
 
@@ -490,14 +490,14 @@ export function PreviewCard({ data, theme, paint, images, site, style }: CardPro
   );
 }
 
-/** What a Card shows while its person's Profile is first read from GitHub. */
+/** What a Card shows until its person's Profile has been read from GitHub. */
 export function PendingCard({ login, theme, site, width, height }: { login: string; theme: CardTheme; site: string; width: number; height: number }) {
   const look = lookOf(theme, { preset: "classic", accent: null, background: "glow", corner: null });
   const t = look.t;
   return (
-    <Shell look={look} paint={STILL} width={width} height={height} site={site} login={login} eyebrow="Reading">
-      <span style={{ fontSize: 24, fontWeight: 700, letterSpacing: -0.4, marginTop: 12 }}>{`Reading @${login} from GitHub…`}</span>
-      <span style={{ fontSize: 14, color: t.muted, marginTop: 8 }}>This Card fills in within a minute.</span>
+    <Shell look={look} paint={STILL} width={width} height={height} site={site} login={login} eyebrow="Not read yet">
+      <span style={{ fontSize: 24, fontWeight: 700, letterSpacing: -0.4, marginTop: 12 }}>{`commitscape has not read @${login} yet`}</span>
+      <span style={{ fontSize: 14, color: t.muted, marginTop: 8 }}>This Card fills in once someone signed in opens their Profile.</span>
     </Shell>
   );
 }
@@ -660,50 +660,6 @@ export function AchievementCard({ data, theme, paint, images, site, style }: Car
         <Avatar look={look} src={images[data.identity.login.toLowerCase()]} size={24} />
         <span style={{ fontSize: 14, fontWeight: 600, marginLeft: 9, color: paint.mark("rise", t.text, 240) }}>{data.identity.name ?? data.identity.login}</span>
       </div>
-    </Shell>
-  );
-}
-
-const SHORT = { prsMerged: "PRs merged", reviews: "Reviews", commits: "Commits", contributions: "Contributions" } as const;
-
-/** A Race or a Season: its people, a column a view, the leader of each marked; never one winner. */
-export function WindowCard({ data, theme, paint, images, site, style }: CardProps<WindowCardData>) {
-  const look = lookOf(theme, style);
-  const t = look.t;
-  const leaders = leadersOf(data.rows);
-  const rows = [...data.rows].sort((a, b) => b.prsMerged - a.prsMerged || b.contributions - a.contributions).slice(0, 10);
-  return (
-    <Shell look={look} paint={paint} {...windowSize(data)} site={site}>
-      <span style={{ fontSize: 22, fontWeight: 700, letterSpacing: -0.4, color: paint.mark("rise", t.text, 0) }}>{data.title}</span>
-      <span style={{ fontSize: 13, color: paint.mark("rise", t.muted, 60), marginTop: 2 }}>{data.subtitle}</span>
-      <div style={{ display: "flex", marginTop: 16, fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", color: t.faint }}>
-        <span style={{ display: "flex", flexGrow: 1 }}>Person</span>
-        {WINDOW_VIEWS.map((v) => (
-          <span key={v.id} style={{ display: "flex", width: 122, justifyContent: "flex-end" }}>
-            {SHORT[v.id]}
-          </span>
-        ))}
-      </div>
-      {rows.map((r, i) => {
-        const face = images[r.login.toLowerCase()];
-        return (
-          <div key={r.login} style={{ display: "flex", alignItems: "center", height: 40, borderTop: `1px solid ${alpha(t.text, 0.08)}`, fontSize: 15 }}>
-            <div style={{ display: "flex", alignItems: "center", flexGrow: 1 }}>
-              {face ? <img src={face} width={24} height={24} style={{ borderRadius: 24 }} /> : <div style={{ display: "flex", width: 24, height: 24, borderRadius: 24, background: t.surface }} />}
-              <span style={{ marginLeft: 10, fontWeight: 600, color: paint.mark("rise", t.text, 120 + i * 60) }}>{r.name ?? r.login}</span>
-            </div>
-            {WINDOW_VIEWS.map((v) => {
-              const lead = leaders[v.id].includes(r.login);
-              return (
-                <div key={v.id} style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", width: 122 }}>
-                  {lead && <div style={{ display: "flex", width: 8, height: 8, borderRadius: 8, marginRight: 6, background: paint.mark("rise", t.accent, 160 + i * 60) }} />}
-                  <span style={{ fontWeight: lead ? 700 : 400, color: paint.mark("rise", lead ? t.text : t.muted, 160 + i * 60) }}>{grouped(r[v.id])}</span>
-                </div>
-              );
-            })}
-          </div>
-        );
-      })}
     </Shell>
   );
 }

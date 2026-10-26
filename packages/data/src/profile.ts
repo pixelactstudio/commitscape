@@ -100,7 +100,7 @@ export type PrivateShow = "hidden" | "counts" | "named";
 
 export type ProfileLookup =
   | { status: "ok"; identity: Identity; hidden: boolean; self: boolean; fetchedAt: number | null }
-  | { status: "not_found" | "hidden" | "organization" | "locked"; login: string; identity?: Identity };
+  | { status: "not_found" | "hidden" | "organization"; login: string; identity?: Identity };
 
 export type EngineRepo = {
   owner: string;

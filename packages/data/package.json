@@ -6,8 +6,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./answers": "./src/answers/index.ts",
-    "./universe": "./src/universe/index.ts"
+    "./universe": "./src/universe/index.ts",
+    "./github": "./src/github.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

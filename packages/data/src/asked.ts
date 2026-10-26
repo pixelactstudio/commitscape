@@ -1,10 +1,12 @@
-import type { Params } from "../source";
+import type { Params } from "./source";
 
 const LISTS = new Set(["/api/people", "/api/overview"]);
 
 const ASKED = ["window", "from", "to", "id", "path", "top"];
 
 export const TOP_MAX = 1000;
+
+export const SPANS: Record<string, number | null> = { "30d": 30, "90d": 90, "1y": 365, all: null };
 
 /** How many of an answer's people a request asks for, or null for all of them. */
 export function topOf(params: Params): number | null {

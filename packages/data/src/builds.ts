@@ -11,8 +11,6 @@ export type BuildStats = {
   people_30d: number;
   code_lines: number;
   untouched_5y: number;
-  answered?: number | null;
-  answer_hours?: number | null;
 };
 
 export const FAILURE_WORDS: Record<BuildFailure, string> = {
