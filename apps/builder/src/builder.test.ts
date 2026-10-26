@@ -7,10 +7,10 @@ import { expect, test } from "vitest";
 import { readManifest, type LiveIndex, type Loaded } from "@commitscape/server";
 import { ensureClone, failure, gitEnv } from "./clone";
 import type { Config } from "./config";
-import { prune } from "./disk";
+import { cacheDir, cacheFor, prune, repoDir } from "./disk";
 import { readEvents } from "./engine";
 import { flagOf, writeBuilt, type FakeBuild } from "./fake";
-import { build, BUILD_ATTEMPTS, cloneLimitOf, run, timeLimitOf, type BuildTarget, type Deps, type Made, type Ran, type RunOptions } from "./run";
+import { build, BUILD_ATTEMPTS, cloneLimitOf, run, sharingEngine, timeLimitOf, type BuildTarget, type Deps, type Made, type Ran, type RunOptions } from "./run";
 
 const cfg = (work: string, over: Partial<Config> = {}): Config => ({
   bin: "commitscape",
@@ -26,6 +26,9 @@ const cfg = (work: string, over: Partial<Config> = {}): Config => ({
   largeConcurrency: 1,
   logins: 300,
   diskGb: 20,
+  cacheGb: 5,
+  engineSlots: 1,
+  moreLinesBudget: 600,
   gitBase: undefined,
   ...over,
 });
@@ -126,7 +129,7 @@ test("a cold Build clones quickly without old contents and in full at once, publ
   expect(flagOf(second?.args ?? [], "--lineage")).toBe("7");
   expect(second?.args.at(-1)).toBe(full);
   for (const call of f.calls.filter((c) => c.cmd !== "git")) {
-    expect(flagOf(call.args, "--cache-dir")).toBe(join(work, "repos", "acme", "rocket", "cache"));
+    expect(flagOf(call.args, "--cache-dir")).toBe(join(work, "caches", "acme", "rocket"));
     expect(flagOf(call.args, "--cache-key")).toBe("acme/rocket");
     expect(call.opts.nice).toBe(10);
     expect(call.env.COMMITSCAPE_THREADS).toBe("2");
@@ -142,7 +145,7 @@ test("a cold Build clones quickly without old contents and in full at once, publ
   expect(f.said[0]).toBe("cloning");
   expect(existsSync(join(full, ".git"))).toBe(true);
   expect(await readdir(join(work, "jobs"))).toEqual([]);
-  expect((await readdir(work)).sort()).toEqual(["jobs", "repos"]);
+  expect((await readdir(work)).sort()).toEqual(["caches", "jobs", "repos"]);
 });
 
 test("a warm Build brings the kept clone up to date and goes straight to the full build", async () => {
@@ -257,6 +260,18 @@ test("the full build's line pass stops at the lines budget and says how many com
   const outcome = await build(req(), cfg(work, { linesBudget: 30 }), f.deps);
   expect(flagOf(builds(f.calls).at(-1)?.args ?? [], "--lines-budget")).toBe("30");
   expect(outcome.made).toMatchObject({ phase: "full", manifest: { lines_left: 40, lines_mainline: true, lines: false } });
+});
+
+test("a quiet Build counting the lines left gets the longer budget, within the engine's time limit, so it publishes once", async () => {
+  const work = await mkdtemp(join(tmpdir(), "builder-"));
+  const asked = async (over: Partial<Config>) => {
+    const f = fake(() => ok);
+    await build(req({ more: true }), cfg(work, { linesBudget: 30, ...over }), f.deps);
+    return flagOf(builds(f.calls).at(-1)?.args ?? [], "--lines-budget");
+  };
+  expect(await asked({ moreLinesBudget: 600, timeLimit: 900 })).toBe("600");
+  expect(await asked({ moreLinesBudget: 600, timeLimit: 300 })).toBe("180");
+  expect(await asked({ moreLinesBudget: 600, timeLimit: 60 })).toBe("30");
 });
 
 test("a full build past its time leaves the quick one published, to be gone on from in the next attempt", async () => {
@@ -421,6 +436,63 @@ test("the least recently used repository folders go first when the disk budget i
   expect(await prune(work, 2500)).toEqual([join(work, "repos", "acme", "old")]);
   expect(await prune(work, 5000)).toEqual([]);
   expect(await prune(work, 1500, [join(work, "repos", "acme", "mid")])).toEqual([join(work, "repos", "acme", "new")]);
+});
+
+test("a public repository's cache lives apart from its clone, moved out of the clone's folder where older Builders kept it", async () => {
+  const work = await mkdtemp(join(tmpdir(), "builder-"));
+  const cfg = { work } as Config;
+  const old = join(repoDir(cfg, "acme", "rocket"), "cache");
+  await mkdir(old, { recursive: true });
+  await writeFile(join(old, "index.bin"), "kept");
+  await mkdir(join(repoDir(cfg, "acme", "rocket"), "full"), { recursive: true });
+  await writeFile(join(repoDir(cfg, "acme", "rocket"), "full", "pack"), Buffer.alloc(1000));
+  const dir = await cacheFor(cfg, { isPrivate: false, owner: "acme", name: "rocket", home: repoDir(cfg, "acme", "rocket") });
+  expect(dir).toBe(cacheDir(cfg, "acme", "rocket"));
+  expect(await readFile(join(dir, "index.bin"), "utf8")).toBe("kept");
+  expect(existsSync(old)).toBe(false);
+  expect(await prune(work, 0)).toEqual([repoDir(cfg, "acme", "rocket")]);
+  expect(await readFile(join(dir, "index.bin"), "utf8")).toBe("kept");
+  expect(await cacheFor(cfg, { isPrivate: false, owner: "acme", name: "fresh", home: repoDir(cfg, "acme", "fresh") })).toBe(cacheDir(cfg, "acme", "fresh"));
+});
+
+test("a private repository's cache stays in the folder its job deletes", async () => {
+  const work = await mkdtemp(join(tmpdir(), "builder-"));
+  const home = join(work, "private", "job-1");
+  expect(await cacheFor({ work } as Config, { isPrivate: true, owner: "acme", name: "secret", home })).toBe(join(home, "cache"));
+  expect(existsSync(join(work, "caches"))).toBe(false);
+});
+
+test("caches are pruned on their own budget, least recently used first", async () => {
+  const work = await mkdtemp(join(tmpdir(), "builder-"));
+  for (const [name, at] of [["old", 1000], ["new", 3000]] as const) {
+    const dir = join(work, "caches", "acme", name);
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "index.bin"), Buffer.alloc(1000));
+    await utimes(dir, at, at);
+  }
+  expect(await prune(work, 1500, [], "caches")).toEqual([join(work, "caches", "acme", "old")]);
+  expect(await readdir(join(work, "caches", "acme"))).toEqual(["new"]);
+});
+
+test("runs of the engine share its slots in the order they asked, while every other command runs at once", async () => {
+  const order: string[] = [];
+  const open: (() => void)[] = [];
+  const slow = async (cmd: string, args: string[]): Promise<Ran> => {
+    order.push(`start ${cmd} ${args[0]}`);
+    await new Promise<void>((r) => open.push(r));
+    order.push(`end ${cmd} ${args[0]}`);
+    return { code: args[0] === "fails" ? 1 : 0, stderr: "", timedOut: false };
+  };
+  const shared = sharingEngine(slow, "commitscape", 1);
+  const runs = [shared("commitscape", ["a"], {}, 1000), shared("commitscape", ["fails"], {}, 1000), shared("git", ["clone"], {}, 1000), shared("commitscape", ["c"], {}, 1000)];
+  await new Promise((r) => setTimeout(r, 10));
+  expect([...order].sort()).toEqual(["start commitscape a", "start git clone"]);
+  for (let i = 0; i < 4; i++) {
+    open.shift()?.();
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  expect((await Promise.all(runs)).map((r) => r.code)).toEqual([0, 1, 0, 0]);
+  expect(order.filter((o) => o.includes("commitscape"))).toEqual(["start commitscape a", "end commitscape a", "start commitscape fails", "end commitscape fails", "start commitscape c", "end commitscape c"]);
 });
 
 test("a command past its time is stopped with everything it started", async () => {

@@ -8,7 +8,7 @@ import { appendable, type LiveIndex, type Loaded } from "@commitscape/server";
 import { readSignatures, writeAccountsFile, type Signature } from "./accounts";
 import { cloneUrl, ensureClone, gitEnv, locked, missingIn, tipsOf, type Cloned } from "./clone";
 import type { Config } from "./config";
-import { privateDir, repoDir, scratchDir } from "./disk";
+import { cacheFor, privateDir, repoDir, scratchDir } from "./disk";
 import { readBuilt, readEvents, type Built } from "./engine";
 import { engineSpans, Phases } from "./telemetry";
 
@@ -51,6 +51,12 @@ export function cloneLimitOf(cfg: Config, attempt = 1): number {
 }
 
 /** How long the queue lets one attempt at a Build run: its clone, its two runs of commitscape, its git data and the time to store what they wrote. */
+/** The seconds a full build may count lines for: the person-facing budget, or for a quiet Build counting the lines left the longer one, kept two minutes inside the engine's time limit for the history walk and the export. */
+export function linesBudgetOf(cfg: Config, binLimit: number, more: boolean): number {
+  if (!more) return cfg.linesBudget;
+  return Math.max(cfg.linesBudget, Math.min(cfg.moreLinesBudget, binLimit - 120));
+}
+
 export function jobLimitOf(cfg: Config, attempt = 1): number {
   return cloneLimitOf(cfg, attempt) + 2 * timeLimitOf(cfg, attempt) + (cfg.git?.seconds ?? 0) + 600;
 }
@@ -74,6 +80,29 @@ function lowered(pid: number, nice: number): boolean {
 }
 
 /** Runs a command with only safe environment variables, at a lower priority when `nice` is given, killing it and its children after `timeoutMs`. */
+export type Runner = (cmd: string, args: string[], env: NodeJS.ProcessEnv, timeoutMs: number, opts?: RunOptions) => Promise<Ran>;
+
+/** A runner through which at most `slots` runs of the engine (`bin`) go at once, the rest waiting in the order they asked; every other command (git, the network) runs at once. A run's time limit starts when it gets its slot. */
+export function sharingEngine(runner: Runner, bin: string, slots: number): Runner {
+  let free = Math.max(1, Math.floor(slots));
+  const waiting: (() => void)[] = [];
+  const take = () => (free > 0 ? ((free -= 1), Promise.resolve()) : new Promise<void>((r) => waiting.push(r)));
+  const give = () => {
+    const next = waiting.shift();
+    if (next) next();
+    else free += 1;
+  };
+  return async (cmd, args, env, timeoutMs, opts) => {
+    if (cmd !== bin) return runner(cmd, args, env, timeoutMs, opts);
+    await take();
+    try {
+      return await runner(cmd, args, env, timeoutMs, opts);
+    } finally {
+      give();
+    }
+  };
+}
+
 export function run(cmd: string, args: string[], env: NodeJS.ProcessEnv, timeoutMs: number, opts: RunOptions = {}): Promise<Ran> {
   return new Promise((resolve) => {
     const child = spawn(cmd, args, { env: { ...passed(), ...env }, stdio: [opts.input === undefined ? "ignore" : "pipe", "pipe", "pipe"], detached: true });
@@ -155,7 +184,7 @@ export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<
   const env = gitEnv(req.token);
   const engineEnv: NodeJS.ProcessEnv = { ...env, ...(cfg.threads ? { COMMITSCAPE_THREADS: String(cfg.threads) } : {}) };
   const url = cloneUrl(cfg, req.owner, req.name);
-  const cache = ["--cache-dir", join(home, "cache"), "--cache-key", req.repo];
+  const cache = ["--cache-dir", await cacheFor(cfg, { isPrivate: !!req.private, owner: req.owner, name: req.name, home }), "--cache-key", req.repo];
   const warm = existsSync(join(full, ".git"));
   phases.kind = warm ? "warm" : "cold";
   const seconds = () => Math.round((Date.now() - started) / 100) / 10;
@@ -170,7 +199,7 @@ export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<
     await rm(out, { recursive: true, force: true });
     await rm(events, { force: true });
     const before = await deps.index.live();
-    const args = ["build", ...(phase === "quick" ? ["--no-lines"] : ["--lines-budget", String(cfg.linesBudget)]), "--offline", ...cache, "--events", events, "--out", out];
+    const args = ["build", ...(phase === "quick" ? ["--no-lines"] : ["--lines-budget", String(linesBudgetOf(cfg, binLimit, !!req.more))]), "--offline", ...cache, "--events", events, "--out", out];
     if (accounts) args.push("--accounts", accounts);
     if (appendable(before)) {
       const frontier = join(scratch, `${phase}.frontier`);

@@ -9,7 +9,7 @@ import { migrate } from "drizzle-orm/pglite/migrator";
 import { expect, test } from "vitest";
 import { lendToken, memoryStorage, now, PRIORITY, readManifest, schema, settleRepository, type BuildJob, type Db, type Loaded, type Queue, type SurvivalJob } from "@commitscape/server";
 import type { Config } from "./config";
-import { inUse, sweep } from "./disk";
+import { cacheDir, inUse, sweep } from "./disk";
 import { fakePerson, flagOf, writeBuilt, type FakeBuild } from "./fake";
 import { MORE_LINES_AFTER, MORE_LINES_MAX, runJob, type JobContext } from "./job";
 import { BUILD_ATTEMPTS, type Ran } from "./run";
@@ -64,7 +64,7 @@ type Captured = [string, Who, Record<string, unknown>];
 
 async function context(db: Db, over: Partial<JobContext> = {}, built: FakeBuild | ((args: string[]) => FakeBuild) = {}): Promise<JobContext & { storage: ReturnType<typeof memoryStorage>; captured: Captured[] }> {
   const work = await mkdtemp(join(tmpdir(), "builder-"));
-  const cfg: Config = { bin: "commitscape", threads: undefined, linesBudget: 120, nice: 10, work, concurrency: 1, maxMb: undefined, timeLimit: 60, cloneLimit: 120, largeMb: 1500, largeConcurrency: 1, logins: 300, diskGb: 20, gitBase: undefined };
+  const cfg: Config = { bin: "commitscape", threads: undefined, linesBudget: 120, nice: 10, work, concurrency: 1, maxMb: undefined, timeLimit: 60, cloneLimit: 120, largeMb: 1500, largeConcurrency: 1, logins: 300, diskGb: 20, cacheGb: 5, engineSlots: 1, moreLinesBudget: 600, gitBase: undefined };
   const captured: Captured[] = [];
   const telemetry: Telemetry = { capture: (event, who, properties) => void captured.push([event, who, properties]), stop: async () => {} };
   return {
@@ -389,6 +389,7 @@ test("pruning leaves the folder of a public repository with a Build or Surviving
   ]);
   const kept = await inUse(db, cfg);
   expect(kept.sort()).toEqual([join(work, "repos", "acme", "building"), join(work, "repos", "acme", "counting")]);
+  expect((await inUse(db, cfg, cacheDir)).sort()).toEqual([join(work, "caches", "acme", "building"), join(work, "caches", "acme", "counting")]);
 });
 
 test("sweeping deletes private clones and scratch folders no open Build or running job owns, and what older Builders left", async () => {

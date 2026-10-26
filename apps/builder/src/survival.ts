@@ -5,7 +5,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { installationToken, now, randomId, schema, type SurvivalJob } from "@commitscape/server";
 import { cloneUrl, ensureClone, gitEnv, locked } from "./clone";
 import { accountsFor, writeAccounts } from "./accounts";
-import { holding, privateDir, repoDir, scratchDir } from "./disk";
+import { cacheFor, holding, privateDir, repoDir, scratchDir } from "./disk";
 import type { JobContext } from "./job";
 import { NAME, type Ran } from "./run";
 
@@ -74,7 +74,7 @@ export async function runSurvival(job: SurvivalJob, ctx: JobContext & { budget: 
     await mkdir(scratch, { recursive: true });
     const gh = { ...ctx.github, token: token ?? ctx.github.token };
     const scope = repo.isPrivate ? repo.id : "public";
-    const cache = ["--cache-dir", join(home, "cache"), "--cache-key", repo.id];
+    const cache = ["--cache-dir", await cacheFor(cfg, { isPrivate: repo.isPrivate, owner: repo.owner, name: repo.name, home }), "--cache-key", repo.id];
     const engineEnv = { ...env, ...(cfg.threads ? { COMMITSCAPE_THREADS: String(cfg.threads) } : {}) };
     const accounts = await writeAccounts(ctx.run, { bin: cfg.bin, dir: full, scratch, cache, env: engineEnv, timeoutMs: cfg.timeLimit * 1000, nice: cfg.nice, log: ctx.log }, async (signatures) => (await accountsFor(db, gh, { owner: repo.owner, name: repo.name, scope }, signatures, cfg.logins)).accounts);
     const args = ["surviving", "--budget-seconds", String(budget), ...cache, "--offline"];

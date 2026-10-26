@@ -18,6 +18,7 @@ export function loadEnv(runtimeEnv: Record<string, string | undefined> = process
       COMMITSCAPE_BIN: z.string().default("commitscape"),
       COMMITSCAPE_THREADS: z.coerce.number().int().positive().optional(),
       LINES_BUDGET_SECONDS: positive(120),
+      MORE_LINES_BUDGET_SECONDS: positive(600),
       ENGINE_NICE: z.coerce.number().int().min(0).max(19).default(10),
       WORK_DIR: z.string().default(`${runtimeEnv.HOME ?? "."}/builder-work`),
       CONCURRENCY: positive(1),
@@ -28,6 +29,8 @@ export function loadEnv(runtimeEnv: Record<string, string | undefined> = process
       LARGE_CONCURRENCY: positive(1),
       LOGINS_ASKED: positive(300),
       DISK_BUDGET_GB: positive(20),
+      CACHE_BUDGET_GB: positive(5),
+      ENGINE_SLOTS: z.coerce.number().int().positive().default(1),
       SURVIVING_BUDGET_SECONDS: positive(60),
       PULLS_TIME_LIMIT_SECONDS: positive(1800),
       GIT_DATA: z.stringbool().default(true),
@@ -97,6 +100,9 @@ export type Config = {
   largeConcurrency: number;
   logins: number;
   diskGb: number;
+  cacheGb: number;
+  engineSlots: number;
+  moreLinesBudget: number;
   gitBase: string | undefined;
   git?: GitSettings | undefined;
 };
@@ -116,6 +122,9 @@ export function configOf(env: Env): Config {
     largeConcurrency: env.LARGE_CONCURRENCY,
     logins: env.LOGINS_ASKED,
     diskGb: env.DISK_BUDGET_GB,
+    cacheGb: env.CACHE_BUDGET_GB,
+    engineSlots: env.ENGINE_SLOTS,
+    moreLinesBudget: env.MORE_LINES_BUDGET_SECONDS,
     gitBase: env.GIT_BASE,
     git: env.GIT_DATA
       ? {

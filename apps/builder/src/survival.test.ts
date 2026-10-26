@@ -31,7 +31,7 @@ async function setup(run: (cmd: string, args: string[], env: NodeJS.ProcessEnv, 
     await mkdir(join(args.at(-1) ?? "", ".git"), { recursive: true });
     return { code: 0, stderr: "", timedOut: false };
   };
-  const ctx = { db, storage: memoryStorage(), cfg: { bin: "commitscape", threads: undefined, linesBudget: 120, nice: 10, work, concurrency: 1, maxMb: undefined, timeLimit: 60, cloneLimit: 120, largeMb: 1500, largeConcurrency: 1, logins: 300, diskGb: 20, gitBase: undefined }, app: null, run: cloning, github: { api: "http://github.test", token: "t", fetcher: (async () => Response.json({ data: { repository: { c0: { author: { user: { login: "ada" } } } } } })) as unknown as typeof fetch }, log: () => {}, queueCounts: async (job: SurvivalJob) => void queued.push(job), budget: 60 } as JobContext & { budget: number };
+  const ctx = { db, storage: memoryStorage(), cfg: { bin: "commitscape", threads: undefined, linesBudget: 120, nice: 10, work, concurrency: 1, maxMb: undefined, timeLimit: 60, cloneLimit: 120, largeMb: 1500, largeConcurrency: 1, logins: 300, diskGb: 20, cacheGb: 5, engineSlots: 1, moreLinesBudget: 600, gitBase: undefined }, app: null, run: cloning, github: { api: "http://github.test", token: "t", fetcher: (async () => Response.json({ data: { repository: { c0: { author: { user: { login: "ada" } } } } } })) as unknown as typeof fetch }, log: () => {}, queueCounts: async (job: SurvivalJob) => void queued.push(job), budget: 60 } as JobContext & { budget: number };
   return { db, ctx };
 }
 
@@ -52,7 +52,7 @@ test("each person's count is recorded at the Report's head; one over budget gets
   expect((await rows(db))[1]?.[1]).toBe("queued");
   const home = join(ctx.cfg.work, "repos", "acme", "rocket");
   const accounts = asked[asked.indexOf("--accounts") + 1] ?? "";
-  expect(asked).toEqual(["surviving", "--budget-seconds", "60", "--cache-dir", join(home, "cache"), "--cache-key", "acme/rocket", "--offline", "--accounts", accounts, "--person", "3", "--person", "4", "--", join(home, "full")]);
+  expect(asked).toEqual(["surviving", "--budget-seconds", "60", "--cache-dir", join(ctx.cfg.work, "caches", "acme", "rocket"), "--cache-key", "acme/rocket", "--offline", "--accounts", accounts, "--person", "3", "--person", "4", "--", join(home, "full")]);
   expect(accounts.startsWith(join(ctx.cfg.work, "jobs", "surviving-"))).toBe(true);
   expect(seen).toEqual([{ "ada@example.com": "ada" }]);
   expect(await readdir(join(ctx.cfg.work, "jobs"))).toEqual([]);

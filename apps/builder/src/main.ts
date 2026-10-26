@@ -25,9 +25,9 @@ import {
 } from "@commitscape/server";
 import { configOf, loadEnv, type Config } from "./config";
 import { inQueueSpan, log, monitored, startTelemetry } from "./telemetry";
-import { inUse, prune, sweep } from "./disk";
+import { cacheDir, inUse, prune, sweep } from "./disk";
 import { runJob } from "./job";
-import { jobLimitOf, run } from "./run";
+import { jobLimitOf, run, sharingEngine } from "./run";
 import { pullsToken, readPulls } from "./pulls";
 import { budgetOf, runSurvival } from "./survival";
 import { queueRebuilds } from "./rebuild";
@@ -98,6 +98,8 @@ async function work() {
     for (const p of await sweep(db, cfg).catch(() => [])) log(`swept ${p}`);
     const keep = await inUse(db, cfg).catch(() => null);
     if (keep) for (const p of await prune(cfg.work, cfg.diskGb * 1024 ** 3, keep)) log(`pruned ${p}`);
+    const caches = await inUse(db, cfg, cacheDir).catch(() => null);
+    if (caches) for (const p of await prune(cfg.work, cfg.cacheGb * 1024 ** 3, caches, "caches")) log(`pruned ${p}`);
   };
   const reap = async () => {
     const reaped = await reapBuilds(db, (id) => buildJobStates(boss, id), bossQueue(boss));
@@ -107,8 +109,9 @@ async function work() {
   const reapTimed = timed("builder-reaper", REAP_MINUTES, reap);
   const tidyTimed = timed("builder-tidy", TIDY_MINUTES, tidy);
   const ctx = { db, pool, storage, cfg, app, run, github, tokenSecret: env.TOKEN_SECRET, log, telemetry, queuePulls, queueCounts, queueBuild };
+  const buildCtx = { ...ctx, run: sharingEngine(run, cfg.bin, cfg.engineSlots) };
   const building = (queue: string, job: { id: string; data: BuildJob }) =>
-    inQueueSpan(job, queue, () => runJob(job.data.buildId, ctx, job.data.attempt ?? 1, { ...(job.data.userId ? { userId: job.data.userId } : {}), ...(job.data.more ? { more: job.data.more } : {}) }));
+    inQueueSpan(job, queue, () => runJob(job.data.buildId, buildCtx, job.data.attempt ?? 1, { ...(job.data.userId ? { userId: job.data.userId } : {}), ...(job.data.more ? { more: job.data.more } : {}) }));
   await reapTimed();
   await tidyTimed();
   const reaper = setInterval(() => void reapTimed(), REAP_MINUTES * 60_000);

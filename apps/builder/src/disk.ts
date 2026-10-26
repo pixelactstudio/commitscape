@@ -1,5 +1,6 @@
-import { readdir, rm, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { existsSync } from "node:fs";
+import { mkdir, readdir, rename, rm, stat, utimes } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { and, eq, gt, inArray, or } from "drizzle-orm";
 import { now, schema, type Db } from "@commitscape/server";
 import type { Config } from "./config";
@@ -14,6 +15,21 @@ const LEGACY = /^(clones|health|out|[0-9a-f]{16})$/;
 
 /** Where a public repository's kept clone and commitscape's cache for it live. */
 export const repoDir = (cfg: Config, owner: string, name: string) => join(cfg.work, "repos", owner, name);
+
+/** Where commitscape's cache for a public repository lives: apart from its clone, so pruning the clone never loses the history read from it. */
+export const cacheDir = (cfg: Config, owner: string, name: string) => join(cfg.work, "caches", owner, name);
+
+/** The cache folder a job hands commitscape: a public repository's lasting one, moved out of its clone's folder where older Builders kept it and marked as just used; a private repository's inside `home`, which its job deletes. */
+export async function cacheFor(cfg: Config, repo: { isPrivate: boolean; owner: string; name: string; home: string }): Promise<string> {
+  if (repo.isPrivate) return join(repo.home, "cache");
+  const dir = cacheDir(cfg, repo.owner, repo.name);
+  const old = join(repoDir(cfg, repo.owner, repo.name), "cache");
+  await mkdir(dirname(dir), { recursive: true });
+  if (existsSync(old) && !existsSync(dir)) await rename(old, dir).catch(() => undefined);
+  await mkdir(dir, { recursive: true });
+  await utimes(dir, new Date(), new Date()).catch(() => undefined);
+  return dir;
+}
 
 /** Where a private repository's clone and cache live while one job uses them. */
 export const privateDir = (cfg: Config, key: string) => join(cfg.work, "private", key);
@@ -30,16 +46,18 @@ async function size(path: string): Promise<number> {
   return total;
 }
 
-async function kept(work: string): Promise<string[]> {
+export type Kept = "repos" | "caches";
+
+async function kept(work: string, folder: Kept): Promise<string[]> {
   const out: string[] = [];
-  for (const owner of await readdir(join(work, "repos")).catch(() => [])) {
-    for (const name of await readdir(join(work, "repos", owner)).catch(() => [])) out.push(join(work, "repos", owner, name));
+  for (const owner of await readdir(join(work, folder)).catch(() => [])) {
+    for (const name of await readdir(join(work, folder, owner)).catch(() => [])) out.push(join(work, folder, owner, name));
   }
   return out;
 }
 
-/** The folders of public repositories with a Build or Surviving Lines still to come, which pruning must leave. */
-export async function inUse(db: Db, cfg: Config, at = now()): Promise<string[]> {
+/** The folders (clones by default, or what `where` names) of public repositories with a Build or Surviving Lines still to come, which pruning must leave. */
+export async function inUse(db: Db, cfg: Config, where: (cfg: Config, owner: string, name: string) => string = repoDir, at = now()): Promise<string[]> {
   const building = db
     .select({ id: builds.repoId })
     .from(builds)
@@ -52,13 +70,13 @@ export async function inUse(db: Db, cfg: Config, at = now()): Promise<string[]> 
     .select({ owner: repositories.owner, name: repositories.name })
     .from(repositories)
     .where(and(eq(repositories.isPrivate, false), or(inArray(repositories.id, building), inArray(repositories.id, counting))));
-  return repos.map((r) => repoDir(cfg, r.owner, r.name));
+  return repos.map((r) => where(cfg, r.owner, r.name));
 }
 
-/** Deletes the least recently used repository folders until the work folder fits the budget, leaving the ones in `keep`. */
-export async function prune(work: string, budget: number, keep: Iterable<string> = []): Promise<string[]> {
+/** Deletes the least recently used repository folders (clones, or with `folder` caches) until they fit the budget, leaving the ones in `keep`. */
+export async function prune(work: string, budget: number, keep: Iterable<string> = [], folder: Kept = "repos"): Promise<string[]> {
   const left = new Set(keep);
-  const found = await Promise.all((await kept(work)).map(async (path) => ({ path, bytes: await size(path), at: (await stat(path)).mtimeMs })));
+  const found = await Promise.all((await kept(work, folder)).map(async (path) => ({ path, bytes: await size(path), at: (await stat(path)).mtimeMs })));
   let total = found.reduce((n, c) => n + c.bytes, 0);
   const deleted: string[] = [];
   for (const c of found.sort((a, b) => a.at - b.at)) {

@@ -191,17 +191,20 @@ Optional, with their defaults:
 
 | Variable | Default | What |
 |---|---|---|
-| `CONCURRENCY` | 1 | Builds at a time, for repositories under `LARGE_REPOSITORY_MB`. On a server of its own with two cores, set 2 with `COMMITSCAPE_THREADS=1` |
+| `CONCURRENCY` | 1 | Builds at a time, for repositories under `LARGE_REPOSITORY_MB`. Their clones, GitHub reads and Postgres loads overlap; their runs of the engine share `ENGINE_SLOTS` |
+| `ENGINE_SLOTS` | 1 | Runs of the engine at once across every Build, small and large; the rest wait their turn. Surviving Lines has its own. With one slot, let the engine use every core (leave `COMMITSCAPE_THREADS` unset) |
 | `COMMITSCAPE_THREADS` | every core, up to 16 | Threads one run of the engine may use |
 | `ENGINE_NICE` | 10 | The engine runs at this lower priority (0 to 19), so git, the database and the Builder stay responsive |
-| `LINES_BUDGET_SECONDS` | 120 | How long a Build's line pass may count Lines Changed, the Mainline first, newest first. Lines show once the Mainline's are counted; the commits left are counted by quiet Builds queued a minute later, three at most, and by the next Build |
+| `LINES_BUDGET_SECONDS` | 120 | How long a Build's line pass may count Lines Changed, the Mainline first, newest first. Lines show once the Mainline's are counted; the commits left are counted by a quiet Build queued a minute later (three at most), and by the next Build |
+| `MORE_LINES_BUDGET_SECONDS` | 600 | How long such a quiet Build may count, kept two minutes inside `TIME_LIMIT_SECONDS`: nobody waits for it, so it counts what is left in one go and publishes once |
 | `LARGE_REPOSITORY_MB` | 1500 | Repositories larger than this, by GitHub's size, are built in a lane of their own |
 | `LARGE_CONCURRENCY` | 1 | Builds at a time in that lane |
 | `MAX_REPOSITORY_MB` | none | Unset, every repository is cloned, however big; set, larger repositories are refused |
 | `TIME_LIMIT_SECONDS` | 900 | How long one run of the binary may take on a Build's first attempt, the clone not included. One that runs out is queued again, each attempt given twice the time, four attempts in all |
 | `CLONE_TIME_LIMIT_SECONDS` | 1800 | How long a clone or fetch may take on the first attempt, doubled with each attempt |
 | `LOGINS_ASKED` | 300 | At most this many commit authors a Build asks GitHub for the login of, a hundred to a GraphQL request; each commit's answer is kept for a year, so a rebuild asks only for new ones |
-| `DISK_BUDGET_GB` | 20 | Past this, the least recently built clones in `/work` are deleted |
+| `DISK_BUDGET_GB` | 20 | Past this, the least recently built clones in `/work/repos` are deleted |
+| `CACHE_BUDGET_GB` | 5 | Past this, the least recently used caches in `/work/caches` are deleted. A cache holds what a Build read of a repository's history (linux: about 240 MB, react: 11 MB) and lives apart from its clone, so deleting a clone never makes the next Build read the history again |
 | `SURVIVING_BUDGET_SECONDS` | 60 | How long one count of a person's Surviving Lines may take at first. A count past it is queued again with twice the budget, up to four hours, and goes on from the files it counted |
 | `PULLS_TIME_LIMIT_SECONDS` | 1800 | How long one read of a repository's pull requests may take; a first read past it goes on from where it stopped a minute later |
 | `GIT_DATA` | true | Once a Build's full clone is ready, read the repository's branches, files and pull requests from it with git, beside the line pass, for the Code, Branches and Pull requests screens. They cost no GitHub request; each step fails on its own and leaves the Report published |
