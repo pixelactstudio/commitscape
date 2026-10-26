@@ -12,6 +12,8 @@
     "services": "docker compose -f compose.dev.yaml up -d --wait",
     "dev:site": "pnpm --filter @commitscape/site dev",
     "dev:builder": "pnpm --filter @commitscape/builder dev",
+    "dev:engine": "set -a && . apps/engine/.env && set +a && cargo run --release -p commitscape-engine",
+    "dev:landing": "pnpm --filter @commitscape/landing dev",
     "db:generate": "pnpm --filter @commitscape/server db:generate",
     "db:custom": "pnpm --filter @commitscape/server db:custom"
   },
