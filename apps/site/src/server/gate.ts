@@ -1,7 +1,7 @@
 import "@tanstack/react-start/server-only";
 import { HOME, isOpenPage, returnTo, SIGN_IN, signInFor } from "#/lib/access";
 
-const OPEN_API = [/^\/api\/cards\//, /^\/api\/shares(\/|$)/, /^\/api\/work\/s\//, /^\/api\/auth(\/|$)/, /^\/api\/health$/, /^\/api\/github\/webhooks$/];
+const OPEN_API = [/^\/api\/cards\//, /^\/api\/shares(\/|$)/, /^\/api\/work\/s\//, /^\/api\/auth(\/|$)/, /^\/api\/health$/, /^\/api\/github\/webhooks$/, /^\/api\/telemetry$/];
 
 const OPEN_FILES = [/^\/assets\//, /^\/fonts\//, /^\/favicon\.svg$/, /^\/robots\.txt$/, /^\/mcp$/, /^\/ingest\//];
 
@@ -18,7 +18,7 @@ export type Access = { kind: "open" } | { kind: "redirect"; to: string } | { kin
 
 const OPEN: Access = { kind: "open" };
 
-/** What a request may do: Cards, Shared Reports, shared Proof of Work, signing in, health, webhooks, files and the counting PostHog does through the Site are open; anything else needs a session, so a page sends someone signed out to sign in and back, and the API and server functions answer 401. */
+/** What a request may do: Cards, Shared Reports, shared Proof of Work, signing in, health, webhooks, the command's usage counts, files and the counting PostHog does through the Site are open; anything else needs a session, so a page sends someone signed out to sign in and back, and the API and server functions answer 401. */
 export async function accessOf(url: URL, method: string, options: GateOptions): Promise<Access> {
   const path = url.pathname;
   const reading = method === "GET" || method === "HEAD";

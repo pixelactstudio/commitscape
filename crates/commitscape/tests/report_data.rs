@@ -29,6 +29,7 @@ fn report_data(args: &[&str]) -> serde_json::Value {
     let dir = tempfile::tempdir().expect("a temporary directory");
     let out = dir.path().join("ownership.json.gz");
     let run = Command::new(env!("CARGO_BIN_EXE_commitscape"))
+        .env("COMMITSCAPE_TELEMETRY", "0")
         .args(["report", "--no-cache", "--offline", "--window", "all"])
         .args(args)
         .arg("--out")
@@ -129,6 +130,7 @@ fn the_commit_list_says_a_commit_with_no_counted_change_was_not_counted() {
     let dir = tempfile::tempdir().expect("a temporary directory");
     let out = dir.path().join("lines.json.gz");
     let run = Command::new(env!("CARGO_BIN_EXE_commitscape"))
+        .env("COMMITSCAPE_TELEMETRY", "0")
         .args([
             "report",
             "--no-cache",

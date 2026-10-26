@@ -38,6 +38,7 @@ const OPEN = [
   ["POST", "/api/auth/sign-in/social"],
   ["GET", "/api/health"],
   ["POST", "/api/github/webhooks"],
+  ["POST", "/api/telemetry"],
   ["POST", "/mcp"],
   ["GET", "/s/AbCdEfGhIjKlMnOpQrStUv"],
   ["GET", "/u/alice/work/abc123"],
@@ -57,7 +58,7 @@ const PAGES = ["/dashboard", "/me", "/u/alice", "/u/alice/cards", "/u/alice/work
 const API = ["/api/reports/acme/ownership/answer?key=x", "/api/reports/acme/ownership/commits", "/api/reports/acme/ownership/git/tree.json", "/api/reports/acme/ownership/atlas", "/api/work/u/alice/proof.md", "/api/nope", "/api/cards"];
 
 describe("the gate", () => {
-  test("Cards, Shared Reports, shared Proof of Work, signing in, health, webhooks, MCP, files and PostHog's counting stay open, without reading a session", async () => {
+  test("Cards, Shared Reports, shared Proof of Work, signing in, health, webhooks, the command's usage counts, MCP, files and PostHog's counting stay open, without reading a session", async () => {
     for (const [method, path] of OPEN) {
       const { o, asked } = options(false);
       expect(await accessOf(at(path), method, o), `${method} ${path}`).toEqual({ kind: "open" });

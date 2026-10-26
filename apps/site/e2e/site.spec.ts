@@ -42,7 +42,7 @@ function builder(command: string): string {
 function share(...args: string[]) {
   const done = spawnSync(join(root, "target/release/commitscape"), ["share", "--cache-dir", join(root, "target/site-e2e-share-cache"), ...args], {
     encoding: "utf8",
-    env: { ...process.env, COMMITSCAPE_SITE: site },
+    env: { ...process.env, COMMITSCAPE_SITE: site, COMMITSCAPE_TELEMETRY: "0" },
   });
   if (done.status !== 0) throw new Error(done.stderr);
   return done.stdout.trim().split("\n").find((l) => l.startsWith("http")) ?? done.stdout.trim();

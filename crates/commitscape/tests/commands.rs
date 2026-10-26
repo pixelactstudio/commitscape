@@ -19,6 +19,7 @@ fn commitscape() -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_commitscape"));
     command
         .env("COMMITSCAPE_SITE", "http://127.0.0.1:9")
+        .env("COMMITSCAPE_TELEMETRY", "0")
         .stdin(Stdio::null());
     command
 }

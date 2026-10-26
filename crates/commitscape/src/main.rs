@@ -6,6 +6,7 @@ mod health;
 mod share;
 mod signatures;
 mod surviving;
+mod telemetry;
 
 use std::collections::HashMap;
 use std::io::{IsTerminal, Write};
@@ -215,12 +216,27 @@ fn parse_span(s: &str) -> Result<Span, String> {
     Span::from_label(s).ok_or_else(|| format!("expected 30d, 90d, 1y or all, got {s:?}"))
 }
 
+fn counted_as(command: Option<&Command>) -> Option<&'static str> {
+    match command {
+        None | Some(Command::Share(_)) => Some("share"),
+        Some(Command::Health(_)) => Some("health"),
+        Some(Command::Surviving(_)) => Some("surviving"),
+        Some(Command::Report(_)) => Some("report"),
+        Some(Command::Signatures(_) | Command::Export(_) | Command::Build(_)) => None,
+    }
+}
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let _ = rayon::ThreadPoolBuilder::new()
         .num_threads(commitscape_index::threads(usize::MAX))
         .build_global();
-    match run(cli) {
+    let counted = telemetry::start(counted_as(cli.command.as_ref()));
+    let result = run(cli);
+    if let Some(run) = counted {
+        run.finish(result.is_ok());
+    }
+    match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("commitscape: {e:#}");

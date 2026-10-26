@@ -20,6 +20,7 @@ import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as YouRouteImport } from './routes/you'
 import { Route as ApiSplatRouteImport } from './routes/api/$'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
+import { Route as ApiTelemetryRouteImport } from './routes/api/telemetry'
 import { Route as IngestSplatRouteImport } from './routes/ingest.$'
 import { Route as SIdRouteImport } from './routes/s.$id'
 import { Route as ULoginRouteImport } from './routes/u.$login'
@@ -102,6 +103,11 @@ const ApiSplatRoute = ApiSplatRouteImport.update({
 const ApiHealthRoute = ApiHealthRouteImport.update({
   id: '/api/health',
   path: '/api/health',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiTelemetryRoute = ApiTelemetryRouteImport.update({
+  id: '/api/telemetry',
+  path: '/api/telemetry',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IngestSplatRoute = IngestSplatRouteImport.update({
@@ -264,6 +270,7 @@ export interface FileRoutesByFullPath {
   '/you': typeof YouRoute
   '/api/$': typeof ApiSplatRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/telemetry': typeof ApiTelemetryRoute
   '/ingest/$': typeof IngestSplatRoute
   '/s/$id': typeof SIdRoute
   '/u/$login': typeof ULoginRoute
@@ -305,6 +312,7 @@ export interface FileRoutesByTo {
   '/you': typeof YouRoute
   '/api/$': typeof ApiSplatRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/telemetry': typeof ApiTelemetryRoute
   '/ingest/$': typeof IngestSplatRoute
   '/s/$id': typeof SIdRoute
   '/u/$login': typeof ULoginRoute
@@ -347,6 +355,7 @@ export interface FileRoutesById {
   '/you': typeof YouRoute
   '/api/$': typeof ApiSplatRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/telemetry': typeof ApiTelemetryRoute
   '/ingest/$': typeof IngestSplatRoute
   '/s/$id': typeof SIdRoute
   '/u/$login': typeof ULoginRoute
@@ -390,6 +399,7 @@ export interface FileRouteTypes {
     | '/you'
     | '/api/$'
     | '/api/health'
+    | '/api/telemetry'
     | '/ingest/$'
     | '/s/$id'
     | '/u/$login'
@@ -431,6 +441,7 @@ export interface FileRouteTypes {
     | '/you'
     | '/api/$'
     | '/api/health'
+    | '/api/telemetry'
     | '/ingest/$'
     | '/s/$id'
     | '/u/$login'
@@ -472,6 +483,7 @@ export interface FileRouteTypes {
     | '/you'
     | '/api/$'
     | '/api/health'
+    | '/api/telemetry'
     | '/ingest/$'
     | '/s/$id'
     | '/u/$login'
@@ -514,6 +526,7 @@ export interface RootRouteChildren {
   YouRoute: typeof YouRoute
   ApiSplatRoute: typeof ApiSplatRoute
   ApiHealthRoute: typeof ApiHealthRoute
+  ApiTelemetryRoute: typeof ApiTelemetryRoute
   IngestSplatRoute: typeof IngestSplatRoute
   SIdRoute: typeof SIdRoute
   ULoginRoute: typeof ULoginRoute
@@ -621,6 +634,13 @@ declare module '@tanstack/react-router' {
       path: '/api/health'
       fullPath: '/api/health'
       preLoaderRoute: typeof ApiHealthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/telemetry': {
+      id: '/api/telemetry'
+      path: '/api/telemetry'
+      fullPath: '/api/telemetry'
+      preLoaderRoute: typeof ApiTelemetryRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/ingest/$': {
@@ -834,6 +854,7 @@ const rootRouteChildren: RootRouteChildren = {
   YouRoute: YouRoute,
   ApiSplatRoute: ApiSplatRoute,
   ApiHealthRoute: ApiHealthRoute,
+  ApiTelemetryRoute: ApiTelemetryRoute,
   IngestSplatRoute: IngestSplatRoute,
   SIdRoute: SIdRoute,
   ULoginRoute: ULoginRoute,

@@ -63,7 +63,7 @@ test("Cards still load for anyone, and one of someone not read yet reads nothing
 test("a Shared Report opens for someone signed out", async ({ page }) => {
   const done = spawnSync(join(root, "target/release/commitscape"), ["share", "--yes", "--cache-dir", join(root, "target/site-e2e-share-cache"), join(root, "fixtures/ownership")], {
     encoding: "utf8",
-    env: { ...process.env, COMMITSCAPE_SITE: site },
+    env: { ...process.env, COMMITSCAPE_SITE: site, COMMITSCAPE_TELEMETRY: "0" },
   });
   expect(done.status).toBe(0);
   const link = done.stdout.trim().split("\n").find((l) => l.startsWith("http")) ?? "";

@@ -111,6 +111,7 @@ fn without_a_bulk_commit_the_reformat_keeps_every_line_it_touched() {
 
 fn run(args: &[&str]) -> Vec<u8> {
     let out = Command::new(env!("CARGO_BIN_EXE_commitscape"))
+        .env("COMMITSCAPE_TELEMETRY", "0")
         .args(args)
         .output()
         .expect("running commitscape");
