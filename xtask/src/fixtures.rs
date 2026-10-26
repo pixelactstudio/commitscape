@@ -1038,7 +1038,7 @@ fn crafted(dir: &Path) -> Result<()> {
         HOUR,
         "-0800",
     )?;
-    link(&c.fx.root)?;
+    link(&c.fx)?;
     c.commit("bob", "build: a link", vec![], HOUR, "+0000")?;
     c.commit("ada", "chore: empty", vec![], HOUR, "+0000")?;
     c.commit(
@@ -1122,11 +1122,13 @@ fn crafted(dir: &Path) -> Result<()> {
 }
 
 #[cfg(unix)]
-fn link(root: &Path) -> Result<()> {
-    std::os::unix::fs::symlink("src/app.ts", root.join("link")).context("making the link")
+fn link(fx: &Fx) -> Result<()> {
+    std::os::unix::fs::symlink("src/app.ts", fx.root.join("link")).context("making the link")
 }
 
-#[cfg(not(unix))]
-fn link(root: &Path) -> Result<()> {
-    std::fs::write(root.join("link"), "src/app.ts").context("making the link")
+#[cfg(windows)]
+fn link(fx: &Fx) -> Result<()> {
+    fx.git(&["config", "core.symlinks", "true"])?;
+    std::os::windows::fs::symlink_file("src/app.ts", fx.root.join("link"))
+        .context("making the link (needs Developer Mode or an administrator)")
 }
