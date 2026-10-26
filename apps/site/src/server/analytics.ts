@@ -1,8 +1,8 @@
 import "@tanstack/react-start/server-only";
 import { randomUUID } from "node:crypto";
 import { analyticsId } from "@commitscape/server";
-import { addressFor, visitorOf } from "#/lib/analytics-config";
-import { visitorAddress } from "./http";
+import { addressFor, visitorOf } from "@commitscape/data/analytics";
+import { visitorAddress } from "@commitscape/data/posthog";
 
 export type Moment =
   | "signed in"

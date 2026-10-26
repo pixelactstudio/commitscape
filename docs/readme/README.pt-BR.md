@@ -116,7 +116,7 @@ Um único motor em Rust lê a história do git: dentro da CLI na sua máquina e 
 - **O site** (TanStack Start sobre Node) desenha cada página no servidor, para quem está logado. Guarda linhas de dados e a fila de builds (Builds) no Postgres e arquivos no R2, e pergunta ao serviço do motor tudo o que exige percorrer a história de um repositório.
 - **O serviço do motor (engine service)** (Rust, `apps/engine`) responde a partir de packs: cada um é o índice (Index) de um repositório em um head, escrito por um build e nunca alterado. Ele busca um pack no R2 uma única vez e o mantém em disco e na memória, então qualquer janela (Window) de qualquer repositório leva milissegundos.
 - **O Builder** pega builds da fila, clona o repositório e roda `commitscape build`.
-- **A página inicial** é estática, fica no Cloudflare Pages, separada do site.
+- **A página inicial** é estática, fica no Cloudflare Workers, separada do site.
 
 ![Um build: primeiro o relatório, depois as linhas alteradas, a linha principal primeiro](../diagrams/build.svg)
 
@@ -132,7 +132,7 @@ O loader de uma página lê a chave do pack no Postgres, pergunta ao serviço do
 | `apps/site/` | O site: TanStack Start sobre Node, renderizado no servidor, com Better Auth |
 | `apps/engine/` | O serviço do motor: responde às perguntas do site a partir de packs (axum, tokio) |
 | `apps/builder/` | O Builder: pega builds de uma fila no Postgres, clona o repositório, roda `commitscape build`, carrega o índice armazenado no Postgres e envia o pack para o R2 |
-| `apps/landing/` | A página inicial: HTML estático desenhado no build, para o Cloudflare Pages |
+| `apps/landing/` | A página inicial: HTML estático desenhado no build, para o Cloudflare Workers |
 | `packages/server/` | O schema e as migrações do banco, o armazenamento no R2, a fila e o carregador do índice armazenado |
 | `packages/ui/` | Cada tela e gráfico que o site mostra |
 | `packages/data/` | Os tipos do relatório, gerados a partir do Rust, e as fontes de dados |
@@ -149,7 +149,7 @@ Estes documentos estão em inglês:
 
 ## Hospedar por conta própria
 
-O site, o serviço do motor e o Builder são publicados como imagens Docker a cada merge e a cada versão. O [DEPLOY.md](../../DEPLOY.md) explica como rodá-los no Dokploy, em um ou dois servidores, com Postgres, um bucket do Cloudflare R2 e a página inicial no Cloudflare Pages.
+O site, o serviço do motor e o Builder são publicados como imagens Docker a cada merge e a cada versão. O [DEPLOY.md](../../DEPLOY.md) explica como rodá-los no Dokploy, em um ou dois servidores, com Postgres, um bucket do Cloudflare R2 e a página inicial no Cloudflare Workers.
 
 ## Desenvolvimento
 

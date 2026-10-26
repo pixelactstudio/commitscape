@@ -116,7 +116,7 @@ git の履歴を読むのはひとつの Rust エンジンです。あなたの�
 - **サイト**（Node 上の TanStack Start）は、サインインした人のためにすべてのページをサーバーで描画します。行データとビルド（Build）のキューは Postgres に、ファイルは R2 に置き、リポジトリの履歴をたどる必要がある問いはすべてエンジンサービスに尋ねます。
 - **エンジンサービス（engine service）**（Rust、`apps/engine`）は pack から答えます。pack はあるリポジトリのある head におけるインデックス（Index）で、ビルドが書き出し、その後は変わりません。R2 から一度だけ取得してディスクとメモリに保持するので、どのリポジトリのどの期間（Window）でも数ミリ秒で答えます。
 - **Builder** はキューからビルドを取り出し、リポジトリをクローンして `commitscape build` を実行します。
-- **ランディングページ** は静的で、サイトとは別に Cloudflare Pages に置かれています。
+- **ランディングページ** は静的で、サイトとは別に Cloudflare Workers に置かれています。
 
 ![ビルド：まず最初のレポート、次に変更行数、メインライン優先](../diagrams/build.svg)
 
@@ -132,7 +132,7 @@ git の履歴を読むのはひとつの Rust エンジンです。あなたの�
 | `apps/site/` | サイト：Node 上の TanStack Start、サーバーレンダリング、Better Auth |
 | `apps/engine/` | エンジンサービス：pack からサイトの問いに答える（axum、tokio） |
 | `apps/builder/` | Builder：Postgres のキューからビルドを取り、リポジトリをクローンし、`commitscape build` を実行し、保存インデックスを Postgres に読み込み、pack を R2 にアップロードする |
-| `apps/landing/` | ランディングページ：ビルド時に描く静的 HTML、Cloudflare Pages 用 |
+| `apps/landing/` | ランディングページ：ビルド時に描く静的 HTML、Cloudflare Workers 用 |
 | `packages/server/` | データベースのスキーマとマイグレーション、R2 ストレージ、キュー、保存インデックスのローダー |
 | `packages/ui/` | サイトが表示するすべての画面とグラフ |
 | `packages/data/` | Rust から生成したレポートの型と、データソース |
@@ -149,7 +149,7 @@ git の履歴を読むのはひとつの Rust エンジンです。あなたの�
 
 ## セルフホスト
 
-サイト、エンジンサービス、Builder は、マージとリリースのたびに Docker イメージとして公開されます。[DEPLOY.md](../../DEPLOY.md) では、それらを Dokploy で 1 台または 2 台のサーバーに載せ、Postgres、Cloudflare R2 のバケット、Cloudflare Pages 上のランディングページと組み合わせて動かす方法を説明しています。
+サイト、エンジンサービス、Builder は、マージとリリースのたびに Docker イメージとして公開されます。[DEPLOY.md](../../DEPLOY.md) では、それらを Dokploy で 1 台または 2 台のサーバーに載せ、Postgres、Cloudflare R2 のバケット、Cloudflare Workers 上のランディングページと組み合わせて動かす方法を説明しています。
 
 ## 開発
 

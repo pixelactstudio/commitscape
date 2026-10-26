@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { getCookie, getRequest } from "@tanstack/react-start/server";
 import { analyticsId } from "@commitscape/server";
 import { MODE_COOKIE, modeOf } from "@commitscape/ui/mode";
-import { visitorOf } from "#/lib/analytics-config";
+import { visitorOf } from "@commitscape/data/analytics";
 import { deleteMyData, mine } from "#/server/me";
 import { deletePerson } from "#/server/posthog-people";
 import { auth, githubTokenOf } from "#/server/auth";

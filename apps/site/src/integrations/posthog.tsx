@@ -3,7 +3,8 @@ import posthog from "posthog-js";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouterState } from "@tanstack/react-router";
 import { applyLevel, recording, startAnalytics, track, UNRECORDED, type Person } from "#/lib/analytics";
-import { CONSENT_COOKIE, levelOf, regionById, type Choice, type Level, type Region } from "#/lib/analytics-config";
+import { consentCookie, levelOf, regionById, sharedCookieDomain, type Choice, type Level, type Region } from "@commitscape/data/analytics";
+import { publicEnv } from "#/lib/env";
 
 export type AnalyticsState = { on: boolean; region: Region; choice: Choice | null; level: Level; choose: (c: Choice) => void };
 
@@ -31,7 +32,8 @@ export function Analytics({ children, on, region: regionId, choice: chosen, leve
   }, [path, level]);
   const choose = useCallback(
     (c: Choice) => {
-      document.cookie = `${CONSENT_COOKIE}=${c}; path=/; max-age=31536000; samesite=lax${window.location.protocol === "https:" ? "; secure" : ""}`;
+      const landing = publicEnv.PUBLIC_LANDING_URL ? new URL(publicEnv.PUBLIC_LANDING_URL).hostname : null;
+      document.cookie = consentCookie(c, sharedCookieDomain(window.location.hostname, landing), window.location.protocol === "https:");
       applyLevel(levelOf(region, c, false), person);
       track("analytics choice made", { choice: c, region: region.id });
       setChoice(c);

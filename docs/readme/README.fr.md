@@ -116,7 +116,7 @@ Un seul moteur en Rust lit l'historique git : dans la CLI sur votre machine, et 
 - **Le site** (TanStack Start sur Node) dessine chaque page côté serveur, pour les personnes connectées. Il garde des lignes et la file des builds (Builds) dans Postgres et des fichiers dans R2, et demande au service du moteur tout ce qui exige de parcourir l'historique d'un dépôt.
 - **Le service du moteur (engine service)** (Rust, `apps/engine`) répond à partir de packs : chacun est l'index (Index) d'un dépôt à une tête, écrit par un build et jamais modifié ensuite. Il récupère un pack dans R2 une seule fois et le garde sur disque et en mémoire, si bien que n'importe quelle fenêtre (Window) de n'importe quel dépôt prend quelques millisecondes.
 - **Le Builder** prend les builds dans la file, clone le dépôt et lance `commitscape build`.
-- **La page d'accueil** est statique, sur Cloudflare Pages, à part du site.
+- **La page d'accueil** est statique, sur Cloudflare Workers, à part du site.
 
 ![Un build : d'abord le rapport, puis les lignes modifiées, la ligne principale en premier](../diagrams/build.svg)
 
@@ -132,7 +132,7 @@ Le loader d'une page lit la clé du pack dans Postgres, interroge le service du 
 | `apps/site/` | Le site : TanStack Start sur Node, rendu côté serveur, avec Better Auth |
 | `apps/engine/` | Le service du moteur : répond aux questions du site à partir de packs (axum, tokio) |
 | `apps/builder/` | Le Builder : prend les builds d'une file Postgres, clone le dépôt, lance `commitscape build`, charge l'index stocké dans Postgres et envoie le pack vers R2 |
-| `apps/landing/` | La page d'accueil : du HTML statique dessiné au build, pour Cloudflare Pages |
+| `apps/landing/` | La page d'accueil : du HTML statique dessiné au build, pour Cloudflare Workers |
 | `packages/server/` | Le schéma et les migrations de la base, le stockage R2, la file et le chargeur de l'index stocké |
 | `packages/ui/` | Chaque écran et chaque graphique du site |
 | `packages/data/` | Les types du rapport, générés depuis Rust, et les sources de données |
@@ -149,7 +149,7 @@ Ces documents sont en anglais :
 
 ## Héberger soi-même
 
-Le site, le service du moteur et le Builder sont publiés en images Docker à chaque fusion et à chaque version. [DEPLOY.md](../../DEPLOY.md) explique comment les faire tourner dans Dokploy, sur un ou deux serveurs, avec Postgres, un bucket Cloudflare R2 et la page d'accueil sur Cloudflare Pages.
+Le site, le service du moteur et le Builder sont publiés en images Docker à chaque fusion et à chaque version. [DEPLOY.md](../../DEPLOY.md) explique comment les faire tourner dans Dokploy, sur un ou deux serveurs, avec Postgres, un bucket Cloudflare R2 et la page d'accueil sur Cloudflare Workers.
 
 ## Développement
 

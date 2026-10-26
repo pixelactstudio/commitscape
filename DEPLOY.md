@@ -3,7 +3,7 @@
 commitscape runs as three applications, a Postgres database, an R2 bucket and
 a static landing page. In Dokploy you create the database and the three
 applications from the images CI publishes to GitHub's container registry, so
-your servers never build anything; the landing page goes on Cloudflare Pages.
+your servers never build anything; the landing page goes on a Cloudflare Worker.
 
 ![Who talks to whom](./docs/diagrams/system.svg)
 
@@ -14,7 +14,7 @@ your servers never build anything; the landing page goes on Cloudflare Pages.
 | `builder` | Takes Builds from the queue, clones the repository, runs `commitscape build`, loads the Stored Index into Postgres and uploads the pack to R2 | Nobody: it reaches out to Postgres, R2 and GitHub |
 | `postgres` | Repositories, Stored Indexes, Builds, Profiles, sign-ins and the Build queue (pg-boss) | The Site and the Builder, over the private network |
 | R2 bucket | Packs, file text, pull request diffs, the Universe's Atlas, Cards and Shared Reports | The three applications |
-| Landing page | The static page signed-out visitors land on, on Cloudflare Pages | Anyone |
+| Landing page | The static page signed-out visitors land on, on a Cloudflare Worker | Anyone |
 
 | Image | Tags |
 |---|---|
@@ -325,7 +325,7 @@ PUBLIC_POSTHOG_KEY=phc_...               # optional: usage data from the browser
 PUBLIC_POSTHOG_HOST=https://us.i.posthog.com
 ```
 
-What is collected, from whom, is `apps/site/src/lib/analytics-config.ts`:
+What is collected, from whom, is `packages/data/src/analytics.ts`, shared with the landing page:
 each feature, and for each region of countries what runs before the visitor
 chooses (`before`) and what Only basic and Allow all turn on. The privacy
 page is drawn from it. The browser sends PostHog's events to the Site's own
@@ -373,34 +373,53 @@ service.
 
 ## 7. The landing page
 
-`apps/landing` is drawn to static HTML at build time. Create a Cloudflare
-Pages project from this repository (Workers & Pages, Create, Pages, Connect
-to Git):
+`apps/landing` is drawn to static HTML at build time and served by a small
+Cloudflare Worker (`apps/landing/wrangler.jsonc`, `apps/landing/worker/`):
+every file comes straight from the Worker's static assets, and the Worker
+runs only for the page itself, to write in the visitor's analytics region
+and choice, and for `/ingest/*`, which passes PostHog's requests on the
+same way the Site's `/ingest` does. Without `POSTHOG_KEY` it serves the
+page as it is.
+
+Create it from this repository (Workers & Pages, Create, Import a
+repository), with Workers Builds:
 
 | Setting | Value |
 |---|---|
+| Project name | `commitscape-landing`, the `name` in `wrangler.jsonc` |
 | Production branch | `main` |
-| Framework preset | None |
 | Build command | `pnpm install --frozen-lockfile --filter @commitscape/landing... && pnpm --filter @commitscape/landing build` |
-| Build output directory | `apps/landing/dist` |
-| Root directory | empty: the repository's root |
+| Deploy command | `pnpm --filter @commitscape/landing exec wrangler deploy` |
+| Path (root directory) | `/`, the repository's root |
 | Build watch paths, include | `apps/landing/*`, `packages/ui/*`, `packages/data/*`, `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml` |
 
-Environment variables, for production and previews alike:
+Build variables:
 
 | Variable | Value |
 |---|---|
 | `NODE_VERSION` | `24` |
 | `PNPM_VERSION` | `12.6.0` |
-| `SKIP_DEPENDENCY_INSTALL` | `1`, so Pages leaves the install to the build command |
+| `SKIP_DEPENDENCY_INSTALL` | `1`, so the build leaves the install to the build command |
 | `PUBLIC_APP_URL` | The Site's address, like `https://example.com`: where "Sign in", "Open the app", the lookup, the examples and the hero's Cards go |
 | `PUBLIC_LANDING_URL` | The page's own address, like `https://example.org`: its canonical link, Open Graph image, `robots.txt` and sitemap |
 
-Set both `PUBLIC_*` values: their defaults are the project's own addresses.
-They are read at build time, so after changing one, retry the latest
-deployment. Then set the Site's `PUBLIC_LANDING_URL` to the same address.
-`apps/landing/public/og.png` is the preview image shared links show; for
-your own address, save the Site's
+Both `PUBLIC_*` values default to the project's own addresses and are read
+at build time, so after changing one, retry the latest build.
+
+The Worker's own variables (Settings, Variables and Secrets; `keep_vars`
+keeps them across deploys):
+
+| Variable | Value |
+|---|---|
+| `POSTHOG_KEY` | The same project key as the Site's `PUBLIC_POSTHOG_KEY`; unset, the page sends nothing |
+| `POSTHOG_HOST` | Optional, `https://us.i.posthog.com` by default |
+
+In the Worker's Settings, Domains & Routes, add the page's address as a
+custom domain. Then set the Site's `PUBLIC_LANDING_URL` to it: signed-out
+visitors to the Site's `/` go there, and a visitor's analytics choice is
+kept for both when they share a parent domain (`commitscape.com` and
+`app.commitscape.com`). `apps/landing/public/og.png` is the preview image
+shared links show; for your own address, save the Site's
 `https://example.com/api/cards/site/preview.png` over it.
 
 ## 8. Cloudflare in front of the Site

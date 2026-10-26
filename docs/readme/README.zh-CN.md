@@ -116,7 +116,7 @@ https://app.commitscape.com/s/k3f9q2x7#0dbf…
 - **网站**（TanStack Start，运行在 Node 上）在服务器端绘制每个页面，面向已登录的人。它把数据行和构建（Build）队列放在 Postgres，把文件放在 R2，凡是需要遍历仓库历史的问题都去问引擎服务。
 - **引擎服务（engine service）**（Rust，`apps/engine`）根据 pack 作答：每个 pack 是一个仓库在某个 head 上的索引（Index），由一次构建写出，此后不再改变。它只从 R2 取一次 pack，并保留在磁盘和内存中，因此任何仓库的任意时间窗口（Window）都只需几毫秒。
 - **Builder** 从队列里取出构建任务，克隆仓库，运行 `commitscape build`。
-- **落地页** 是静态的，放在 Cloudflare Pages 上，与网站分开。
+- **落地页** 是静态的，放在 Cloudflare Workers 上，与网站分开。
 
 ![一次构建：先出第一份报告，再算改动行数，主线优先](../diagrams/build.svg)
 
@@ -132,7 +132,7 @@ https://app.commitscape.com/s/k3f9q2x7#0dbf…
 | `apps/site/` | 网站：运行在 Node 上的 TanStack Start，服务端渲染，使用 Better Auth |
 | `apps/engine/` | 引擎服务：根据 pack 回答网站的问题（axum、tokio） |
 | `apps/builder/` | Builder：从 Postgres 队列取构建任务，克隆仓库，运行 `commitscape build`，把存储索引载入 Postgres，把 pack 上传到 R2 |
-| `apps/landing/` | 落地页：构建时绘制的静态 HTML，用于 Cloudflare Pages |
+| `apps/landing/` | 落地页：构建时绘制的静态 HTML，用于 Cloudflare Workers |
 | `packages/server/` | 数据库结构与迁移、R2 存储、队列，以及存储索引的加载器 |
 | `packages/ui/` | 网站展示的每个界面和图表 |
 | `packages/data/` | 从 Rust 生成的报告类型，以及数据源 |
@@ -149,7 +149,7 @@ https://app.commitscape.com/s/k3f9q2x7#0dbf…
 
 ## 自行托管
 
-网站、引擎服务和 Builder 在每次合并和每次发布时都会发布为 Docker 镜像。[DEPLOY.md](../../DEPLOY.md) 说明如何在 Dokploy 中运行它们：一台或两台服务器，加上 Postgres、一个 Cloudflare R2 存储桶，以及放在 Cloudflare Pages 上的落地页。
+网站、引擎服务和 Builder 在每次合并和每次发布时都会发布为 Docker 镜像。[DEPLOY.md](../../DEPLOY.md) 说明如何在 Dokploy 中运行它们：一台或两台服务器，加上 Postgres、一个 Cloudflare R2 存储桶，以及放在 Cloudflare Workers 上的落地页。
 
 ## 开发
 

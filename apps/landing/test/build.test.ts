@@ -60,7 +60,7 @@ describe("the built landing page", () => {
     expect(readFileSync(`${dist}_headers`, "utf8")).toContain("/assets/*\n  Cache-Control: public, max-age=31536000, immutable");
   });
 
-  test("stays within Cloudflare Pages' free plan: few files, none over 25 MiB", () => {
+  test("stays within Cloudflare Workers' free plan for static assets: few files, none over 25 MiB", () => {
     const files = execFileSync("find", [dist, "-type", "f", "-size", "+25M"], { encoding: "utf8" }).trim();
     expect(files).toBe("");
     const count = execFileSync("find", [dist, "-type", "f"], { encoding: "utf8" }).trim().split("\n").length;

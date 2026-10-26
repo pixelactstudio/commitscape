@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { addressFor, choiceOf, cookieValue, eventAllowed, FEATURES, featuresAt, levelOf, regionById, regionOf, REGIONS, visitorOf, type FeatureId } from "./analytics-config";
+import { addressFor, choiceOf, consentCookie, cookieValue, eventAllowed, FEATURES, featuresAt, levelOf, regionById, regionOf, REGIONS, sharedCookieDomain, visitorOf, type FeatureId } from "./analytics";
 
 const ASK = regionById("ask");
 const TELL = regionById("tell");
@@ -59,5 +59,18 @@ describe("the analytics config", () => {
     expect(v.region.id).toBe("ask");
     expect(visitorOf(new Headers({ "cf-ipcountry": "US", "sec-gpc": "1" }), "cf-ipcountry").level).toBe("basic");
     expect(visitorOf(null, "cf-ipcountry").level).toBe("basic");
+  });
+});
+
+describe("the choice's cookie", () => {
+  test("is shared by the app and its landing page under their parent domain, and kept to one host otherwise", () => {
+    expect(sharedCookieDomain("app.commitscape.com", "commitscape.com")).toBe("commitscape.com");
+    expect(sharedCookieDomain("commitscape.com", "app.commitscape.com")).toBe("commitscape.com");
+    expect(sharedCookieDomain("app.commitscape.com", "example.org")).toBeNull();
+    expect(sharedCookieDomain("localhost", "localhost")).toBeNull();
+    expect(sharedCookieDomain("10.0.0.1", "10.0.0.2")).toBeNull();
+    expect(sharedCookieDomain("app.commitscape.com", undefined)).toBeNull();
+    expect(consentCookie("all", "commitscape.com", true)).toBe("commitscape.analytics=all; path=/; max-age=31536000; samesite=lax; domain=commitscape.com; secure");
+    expect(consentCookie("basic", null, false)).toBe("commitscape.analytics=basic; path=/; max-age=31536000; samesite=lax");
   });
 });

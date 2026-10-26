@@ -49,6 +49,7 @@ allowBuilds:
   "@astryxdesign/core": false
   core-js: false
   esbuild: true
+  workerd: true
 
 overrides:
   seroval: ^1.6.7
@@ -59,3 +60,4 @@ overrides:
   body-parser: ^2.4.0
   launch-editor: ^2.14.2
   "zod@>=4.0.0 <4.6.6": 4.6.7
+  undici: ^7.30.1

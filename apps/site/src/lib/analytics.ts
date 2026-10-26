@@ -1,7 +1,7 @@
 import posthog, { type CaptureResult, type CapturedNetworkRequest } from "posthog-js";
-import { eventAllowed, featuresAt, MASKED_TEXT, type Level, type Region } from "#/lib/analytics-config";
+import { eventAllowed, featuresAt, MASKED_TEXT, type Level, type Region } from "@commitscape/data/analytics";
 import { publicEnv } from "#/lib/env";
-import { INGEST, uiHostOf } from "#/lib/posthog-hosts";
+import { INGEST, uiHostOf } from "@commitscape/data/posthog";
 
 export type Person = { id: string; login: string | null; name: string | null; image: string | null };
 

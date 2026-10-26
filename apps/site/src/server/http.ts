@@ -1,4 +1,5 @@
 import "@tanstack/react-start/server-only";
+import { visitorAddress } from "@commitscape/data/posthog";
 
 export class SiteError extends Error {
   readonly status: number;
@@ -29,11 +30,6 @@ export async function answer(run: () => Promise<Response>): Promise<Response> {
     if (e instanceof SiteError) return json({ error: e.message, ...e.detail }, e.status);
     throw e;
   }
-}
-
-/** The visitor's whole address from the proxy's header, or null when no proxy said. */
-export function visitorAddress(headers: Headers, header: string): string | null {
-  return headers.get("cf-connecting-ip")?.trim() || headers.get(header)?.split(",")[0]?.trim() || null;
 }
 
 /** The visitor's address from the proxy's header; an IPv6 address counts as its /64. */

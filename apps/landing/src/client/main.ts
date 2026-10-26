@@ -1,5 +1,6 @@
 import { parseTarget } from "@commitscape/data/github";
 import { app, THEME_KEY } from "../env";
+import { startAnalytics, track } from "./analytics";
 import type { Scene } from "./scene";
 
 const root = document.documentElement;
@@ -51,6 +52,7 @@ function themeToggle(): void {
     const next = isDark() ? "light" : "dark";
     root.dataset.theme = next;
     remember(next);
+    track("theme changed", { theme: next });
     label();
     dressCards();
   });
@@ -95,6 +97,7 @@ function lookups(): void {
       e.preventDefault();
       const target = parseTarget(input.value);
       if (!target) return wrong(true);
+      track("lookup submitted", { kind: target.kind });
       window.location.assign(app(target.kind === "person" ? `/u/${encodeURIComponent(target.login)}` : `/gh/${encodeURIComponent(target.owner)}/${encodeURIComponent(target.name)}`));
     });
     if (form.hasAttribute("data-autofocus") && window.matchMedia("(hover: hover) and (pointer: fine)").matches && window.scrollY === 0 && !window.location.hash) input.focus({ preventScroll: true });
@@ -143,7 +146,10 @@ function installPicker(): void {
     if (radio?.dataset.value) return show(radio.dataset.value, false, "radio");
     if (!target.closest("[data-copy]")) return;
     const command = view.querySelector("[data-command]")?.textContent?.trim() ?? "";
-    void navigator.clipboard?.writeText(command).then(() => show(tab, true, "copy"));
+    void navigator.clipboard?.writeText(command).then(() => {
+      track("install command copied", { how: tab });
+      show(tab, true, "copy");
+    });
   });
   view.addEventListener("keydown", (e) => {
     if (!(e.target as Element).closest('[role="radio"]')) return;
@@ -163,3 +169,5 @@ reveals();
 lookups();
 scenes();
 installPicker();
+if ("requestIdleCallback" in window) window.requestIdleCallback(() => void startAnalytics(), { timeout: 2000 });
+else setTimeout(() => void startAnalytics(), 500);

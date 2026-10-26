@@ -9,6 +9,7 @@ import {
   PRIORITY,
   queueBuild,
   readEntry,
+  readIndex,
   reportIndexOf,
   REPORT_FOR,
   repoId,
@@ -194,10 +195,34 @@ export function lookupOf(row: Row, build: Awaited<ReturnType<typeof lastBuild>>,
   };
 }
 
+const STORED_FOR = 3600;
+const STORED_KEPT = 10_000;
+const stored = new Map<string, number>();
+
+/** The row with a Report the storage still holds: a Report written before the Builder kept its meta on the row is looked for in storage, and when its objects are gone (deleted, or never copied to a new bucket) its pointer is cleared, so the repository reads as never built and its next Build starts. */
+export async function withStoredReport(deps: Pick<Deps, "db" | "storage">, row: Row): Promise<Row> {
+  const key = row.reportKey;
+  if (!key || row.reportMeta) return row;
+  if ((stored.get(key) ?? 0) > now() - STORED_FOR) return row;
+  if (await readIndex(deps.storage, key)) {
+    if (stored.size >= STORED_KEPT) stored.clear();
+    stored.set(key, now());
+    return row;
+  }
+  const gone = { reportKey: null, reportAt: null, reportBytes: null, reportLines: null };
+  const [cleared] = await deps.db
+    .update(repositories)
+    .set(gone)
+    .where(and(eq(repositories.id, row.id), eq(repositories.reportKey, key)))
+    .returning();
+  return cleared ?? { ...row, ...gone };
+}
+
 /** A repository's row and what the viewer may know of it. */
 export async function resolve(deps: Deps, viewer: Viewer, owner: string, name: string): Promise<{ row: Row; access: Lookup["access"] }> {
-  const row = await known(deps, owner, name, viewer.address, viewer.token);
-  if (!row) throw new SiteError(503, "GitHub could not be asked just now. Try again in a moment.");
+  const found = await known(deps, owner, name, viewer.address, viewer.token);
+  if (!found) throw new SiteError(503, "GitHub could not be asked just now. Try again in a moment.");
+  const row = await withStoredReport(deps, found);
   if (row.status === "ok" && !row.installationId) return { row, access: "public" };
   return connected(deps, viewer, row);
 }

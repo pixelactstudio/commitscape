@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { ingest, ingestTarget } from "./ingest";
+import { ingest, ingestTarget } from "./posthog";
 
 const HOST = "https://us.i.posthog.com";
 const OPTIONS = { apiHost: HOST, countryHeader: "cf-ipcountry", addressHeader: "x-forwarded-for" };

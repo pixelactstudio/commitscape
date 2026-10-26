@@ -116,7 +116,7 @@ Eine einzige Rust-Engine liest die git-Geschichte: in der CLI auf deinem Rechner
 - **Die Website** (TanStack Start auf Node) zeichnet jede Seite auf dem Server, für angemeldete Personen. Sie hält Zeilen und die Warteschlange der Builds in Postgres und Dateien in R2 und fragt den Engine-Dienst nach allem, wofür die Geschichte eines Repositorys durchlaufen werden muss.
 - **Der Engine-Dienst (engine service)** (Rust, `apps/engine`) antwortet aus Packs: Jedes ist der Index eines Repositorys an einem Head, von einem Build geschrieben und danach nie verändert. Er holt ein Pack einmal aus R2 und hält es auf der Platte und im Speicher, sodass jedes Zeitfenster (Window) jedes Repositorys Millisekunden dauert.
 - **Der Builder** nimmt Builds aus der Warteschlange, klont das Repository und führt `commitscape build` aus.
-- **Die Startseite** ist statisch und liegt auf Cloudflare Pages, getrennt von der Website.
+- **Die Startseite** ist statisch und liegt auf Cloudflare Workers, getrennt von der Website.
 
 ![Ein Build: zuerst der Bericht, dann die geänderten Zeilen, die Hauptlinie zuerst](../diagrams/build.svg)
 
@@ -132,7 +132,7 @@ Der Loader einer Seite liest den Schlüssel des Packs aus Postgres, fragt damit 
 | `apps/site/` | Die Website: TanStack Start auf Node, serverseitig gerendert, mit Better Auth |
 | `apps/engine/` | Der Engine-Dienst: beantwortet die Fragen der Website aus Packs (axum, tokio) |
 | `apps/builder/` | Der Builder: nimmt Builds aus einer Postgres-Warteschlange, klont das Repository, führt `commitscape build` aus, lädt den gespeicherten Index in Postgres und das Pack nach R2 |
-| `apps/landing/` | Die Startseite: beim Build gezeichnetes statisches HTML für Cloudflare Pages |
+| `apps/landing/` | Die Startseite: beim Build gezeichnetes statisches HTML für Cloudflare Workers |
 | `packages/server/` | Datenbankschema und Migrationen, R2-Speicher, die Warteschlange und der Lader des gespeicherten Index |
 | `packages/ui/` | Jeder Bildschirm und jedes Diagramm der Website |
 | `packages/data/` | Die Typen des Berichts, aus Rust erzeugt, und die Datenquellen |
@@ -149,7 +149,7 @@ Diese Dokumente sind auf Englisch:
 
 ## Selbst betreiben
 
-Website, Engine-Dienst und Builder werden bei jedem Merge und jedem Release als Docker-Images veröffentlicht. [DEPLOY.md](../../DEPLOY.md) beschreibt, wie man sie in Dokploy betreibt, auf einem oder zwei Servern, mit Postgres, einem Cloudflare-R2-Bucket und der Startseite auf Cloudflare Pages.
+Website, Engine-Dienst und Builder werden bei jedem Merge und jedem Release als Docker-Images veröffentlicht. [DEPLOY.md](../../DEPLOY.md) beschreibt, wie man sie in Dokploy betreibt, auf einem oder zwei Servern, mit Postgres, einem Cloudflare-R2-Bucket und der Startseite auf Cloudflare Workers.
 
 ## Entwicklung
 
