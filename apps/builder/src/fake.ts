@@ -35,6 +35,8 @@ export async function writeBuilt(args: string[], over: FakeBuild = {}): Promise<
     max_changeset_size: 50,
     coupling_support: 5,
     ownership_min_commits: 10,
+    mark: `${head}.${noLines ? "-.-" : `${total}.1`}.0`,
+    changes_only: after && args.includes("--since"),
   };
   const summary: Summary = {
     meta: { name: "rocket", windows: ["all"], window: "all", anchor: 1, history: "complete", lines: noLines ? "off" : "counted", avatars: false },

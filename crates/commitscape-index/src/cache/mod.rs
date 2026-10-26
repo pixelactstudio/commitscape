@@ -19,7 +19,7 @@ use format::{BlockEntry, Head, Previous, SortedIds, Unusable};
 pub use blame_store::{BlameStore, Known, Moved};
 pub use identity_store::IdentityStore;
 pub(crate) use line_store::Counted;
-pub use line_store::LineStore;
+pub use line_store::{LineStore, LogMark};
 pub use location::default_cache_root;
 
 const LOAD_LOCK: &str = "index.load";

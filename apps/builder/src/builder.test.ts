@@ -78,7 +78,7 @@ function fake(answer: (call: Call) => Ran | Promise<Ran> = () => ok, built: Fake
       load: async (dir): Promise<Loaded> => {
         const m = await readManifest(dir);
         loads.push({ full: m.full, lines: m.lines_mainline });
-        index.live = { id: 1, lineage: m.lineage, kept: true, frontier: m.frontier, lines: m.lines_mainline, linesLeft: m.lines_left, head: m.head, pack: null };
+        index.live = { id: 1, lineage: m.lineage, kept: true, frontier: m.frontier, lines: m.lines_mainline, linesLeft: m.lines_left, head: m.head, pack: null, mark: m.mark };
         return { si: 1, full: m.full, commits: m.commits, total: m.total, mainline: 0, lines: 0, seconds: 0 };
       },
     },
@@ -127,6 +127,7 @@ test("a cold Build clones quickly without old contents and in full at once, publ
   expect(second?.args).not.toContain("--no-lines");
   expect(flagOf(second?.args ?? [], "--lines-budget")).toBe("120");
   expect(flagOf(second?.args ?? [], "--lineage")).toBe("7");
+  expect(flagOf(second?.args ?? [], "--since")).toBe(`${"a".repeat(40)}.-.-.0`);
   expect(second?.args.at(-1)).toBe(full);
   for (const call of f.calls.filter((c) => c.cmd !== "git")) {
     expect(flagOf(call.args, "--cache-dir")).toBe(join(work, "caches", "acme", "rocket"));
@@ -152,7 +153,7 @@ test("a warm Build brings the kept clone up to date and goes straight to the ful
   const work = await mkdtemp(join(tmpdir(), "builder-"));
   const full = join(work, "repos", "acme", "rocket", "full");
   await mkdir(join(full, ".git"), { recursive: true });
-  const f = fake(() => ok, {}, { id: 1, lineage: "7", kept: true, frontier: ["b".repeat(40)], lines: true, linesLeft: 0, head: "b".repeat(40), pack: "packs/acme/rocket/1/b-lines.pack" });
+  const f = fake(() => ok, {}, { id: 1, lineage: "7", kept: true, frontier: ["b".repeat(40)], lines: true, linesLeft: 0, head: "b".repeat(40), pack: "packs/acme/rocket/1/b-lines.pack", mark: null });
   const outcome = await build(req(), cfg(work), f.deps);
   expect(outcome).toMatchObject({ published: "full", kind: "warm" });
   expect(commands(f.calls)).toEqual(["git rev-parse", "git fetch", "git reset", "signatures", "build"]);
@@ -168,7 +169,7 @@ test("a warm Build brings the kept clone up to date and goes straight to the ful
 
 test("a cold Build of a repository whose Stored Index has lines skips the quick phase, and so does one whose Report has them", async () => {
   const work = await mkdtemp(join(tmpdir(), "builder-"));
-  const f = fake(() => ok, {}, { id: 1, lineage: "7", kept: true, frontier: ["b".repeat(40)], lines: true, linesLeft: 3, head: "b".repeat(40), pack: null });
+  const f = fake(() => ok, {}, { id: 1, lineage: "7", kept: true, frontier: ["b".repeat(40)], lines: true, linesLeft: 3, head: "b".repeat(40), pack: null, mark: null });
   expect(await build(req(), cfg(work), f.deps)).toMatchObject({ published: "full", kind: "cold" });
   expect(commands(f.calls)).toEqual(["git clone", "git commit-graph", "signatures", "build"]);
   expect(f.published).toEqual(["full"]);

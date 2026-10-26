@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use commitscape_core::{LineDelta, Oid, RepoIdentity};
 use foldhash::{HashMap, HashMapExt};
+use xxhash_rust::xxh3::xxh3_64;
 
 use super::CacheOptions;
 
@@ -15,6 +16,12 @@ pub struct LineStore {
 }
 
 pub type Counted = HashMap<Oid, Vec<Option<LineDelta>>>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LogMark {
+    pub len: u64,
+    pub hash: u64,
+}
 
 impl LineStore {
     pub fn for_repo(options: &CacheOptions, repo: &RepoIdentity) -> Option<Self> {
@@ -40,6 +47,36 @@ impl LineStore {
                 .and_then(|f| f.set_len(whole as u64));
         }
         counted
+    }
+
+    /// Where the store's log ends now, and the commits counted into it after `mark`, an earlier end: `None` when the log no longer begins with what `mark` covered.
+    pub fn since(&self, mark: Option<LogMark>) -> (LogMark, Option<Vec<Oid>>) {
+        let bytes = std::fs::read(self.path()).unwrap_or_default();
+        let from = mark.map_or(0, |m| m.len);
+        let mut after = Vec::new();
+        let mut whole = 0usize;
+        if let Some(mut rest) = bytes.strip_prefix(MAGIC) {
+            whole = MAGIC.len();
+            while let Some((id, _, next)) = record(rest) {
+                if whole as u64 >= from {
+                    after.push(id);
+                }
+                whole += rest.len() - next.len();
+                rest = next;
+            }
+        }
+        let hash_of = |len: u64| {
+            usize::try_from(len)
+                .ok()
+                .and_then(|n| bytes.get(..n.min(whole)).filter(|b| b.len() == n))
+                .map(xxh3_64)
+        };
+        let now = LogMark {
+            len: whole as u64,
+            hash: hash_of(whole as u64).unwrap_or_default(),
+        };
+        let held = mark.filter(|m| hash_of(m.len) == Some(m.hash));
+        (now, held.map(|_| after))
     }
 
     pub fn append(&self, counted: &[(Oid, Vec<Option<LineDelta>>)]) -> io::Result<()> {

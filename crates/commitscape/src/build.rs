@@ -4,13 +4,15 @@ use std::path::{Path, PathBuf};
 
 use clap::Args;
 use commitscape_core::{CommitFlags, Index, Oid};
-use commitscape_index::{load, GixRepo, Loaded, Mainline, RepoSource};
+use commitscape_index::mainline::mainline_since;
+use commitscape_index::{load, GixRepo, LineStore, Loaded, Mainline, RepoSource};
 use commitscape_metrics::Span;
-use commitscape_report::export::{self, Manifest};
+use commitscape_report::export::{self, Manifest, Since};
 use commitscape_report::pack::{write_pack, Pack, Reading};
 use commitscape_report::report::{summary, Report};
 use tracing::field::Empty;
 
+use crate::mark::{fingerprint, Mark};
 use crate::{
     commit_link, count_lines_into, events, read_accounts, repo_name, with_accounts, Common,
     LineCount, ProgressLine, RunArgs,
@@ -44,6 +46,12 @@ pub struct ExportArgs {
     #[arg(long)]
     lineage: Option<u64>,
 
+    /// The mark the export the Site last loaded left in its manifest. While
+    /// it holds, only the Mainline that moved and the Lines Changed counted
+    /// since are written for the commits the Site has.
+    #[arg(long, value_name = "MARK", requires = "after")]
+    since: Option<String>,
+
     #[command(flatten)]
     run: RunArgs,
 
@@ -58,6 +66,9 @@ struct Read {
     lines: Option<LineCount>,
     accounts: HashMap<String, String>,
     known: Option<HashSet<Oid>>,
+    moved: Option<Vec<bool>>,
+    counted: Option<HashSet<Oid>>,
+    mark: Mark,
     releases: Vec<(String, i64)>,
     release_commits: Vec<(String, Oid)>,
     anchor: i64,
@@ -70,7 +81,26 @@ fn read(args: &ExportArgs) -> anyhow::Result<Read> {
     let mut meter = ProgressLine::new();
     let mut loaded = load(&repo, &options, &mut |p| meter.show(p))?;
     meter.clear();
-    let mainline = commitscape_index::mainline(&repo, &loaded.index)?;
+    let known = match (&args.after, args.lineage) {
+        (Some(file), Some(lineage)) if lineage == loaded.lineage => {
+            repo.ancestors(&frontier(file)?)?
+        }
+        _ => None,
+    };
+    let ignored = repo.blame_ignore_revs()?;
+    let truncated = loaded.index.history_truncated;
+    let fingerprint = fingerprint(
+        args.common.metrics().max_changeset_size,
+        &ignored,
+        truncated,
+    );
+    let held = args
+        .since
+        .as_deref()
+        .and_then(Mark::parse)
+        .filter(|m| known.is_some() && m.fingerprint == fingerprint);
+    let before = held.and_then(|m| m.head).filter(|_| !truncated);
+    let (mainline, moved) = mainline_since(&repo, &loaded.index, before)?;
     let lines = if args.no_lines {
         None
     } else {
@@ -83,14 +113,24 @@ fn read(args: &ExportArgs) -> anyhow::Result<Read> {
             Some(mainline.bits.clone()),
         )?)
     };
-    mark_ignored(&repo, &mut loaded.index)?;
-    let accounts = with_accounts(&repo, &options, &mut loaded.index, given.as_ref())?;
-    let known = match (&args.after, args.lineage) {
-        (Some(file), Some(lineage)) if lineage == loaded.lineage => {
-            repo.ancestors(&frontier(file)?)?
+    let (log, counted) = match LineStore::for_repo(&options, &loaded.index.repo) {
+        Some(store) => {
+            let (now, after) = store.since(held.and_then(|m| m.lines));
+            (Some(now), after.map(|a| a.into_iter().collect()))
         }
-        _ => None,
+        None => (None, None),
     };
+    let mark = Mark {
+        head: loaded.index.head_commit,
+        lines: match (&lines, &known) {
+            (Some(_), _) => log,
+            (None, Some(_)) => held.and_then(|m| m.lines),
+            (None, None) => None,
+        },
+        fingerprint,
+    };
+    mark_ignored(&mut loaded.index, &ignored);
+    let accounts = with_accounts(&repo, &options, &mut loaded.index, given.as_ref())?;
     let tags = repo.release_tags();
     Ok(Read {
         releases: tags.iter().map(|(n, t, _)| (n.clone(), *t)).collect(),
@@ -101,6 +141,9 @@ fn read(args: &ExportArgs) -> anyhow::Result<Read> {
         lines,
         accounts,
         known,
+        moved,
+        counted,
+        mark,
         anchor: args.common.anchor(),
     })
 }
@@ -112,17 +155,16 @@ fn frontier(file: &Path) -> anyhow::Result<Vec<Oid>> {
         .collect()
 }
 
-fn mark_ignored(repo: &GixRepo, index: &mut Index) -> anyhow::Result<()> {
-    let ignored: HashSet<Oid> = repo.blame_ignore_revs()?.into_iter().collect();
+fn mark_ignored(index: &mut Index, ignored: &[Oid]) {
+    let ignored: HashSet<Oid> = ignored.iter().copied().collect();
     if ignored.is_empty() {
-        return Ok(());
+        return;
     }
     for c in &mut index.commits {
         if ignored.contains(&c.id) {
             c.flags = c.flags.with(CommitFlags::BLAME_IGNORED);
         }
     }
-    Ok(())
 }
 
 fn write_export(r: &Read, args: &ExportArgs) -> anyhow::Result<Manifest> {
@@ -146,6 +188,11 @@ fn write_export(r: &Read, args: &ExportArgs) -> anyhow::Result<Manifest> {
                 arrival: &r.mainline.arrival,
             },
             known: r.known.as_ref(),
+            since: Since {
+                moved: r.moved.as_deref(),
+                counted: r.counted.as_ref(),
+            },
+            mark: r.mark.to_string(),
             lineage: r.loaded.lineage,
             kept: r.loaded.kept,
         },

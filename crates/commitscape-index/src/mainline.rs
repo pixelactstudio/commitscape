@@ -16,29 +16,25 @@ pub struct Mainline {
 
 /// Works out the Mainline of an Index from its repository's HEAD: which commits HEAD reaches (bit 8), which are on its first-parent line (bit 16), and when each reached the default branch, aligned with `index.commits`.
 pub fn mainline<S: RepoSource>(source: &S, index: &Index) -> Result<Mainline, S::Error> {
+    Ok(mainline_since(source, index, None)?.0)
+}
+
+/// Works out the Mainline as `mainline` does, and which commits' Mainline moved since it was worked out from `before`, an earlier HEAD: `None` when `before` is not in HEAD's history.
+pub fn mainline_since<S: RepoSource>(
+    source: &S,
+    index: &Index,
+    before: Option<Oid>,
+) -> Result<(Mainline, Option<Vec<bool>>), S::Error> {
     let span = tracing::info_span!("mainline", reachable = Empty, first_parent = Empty);
     let _entered = span.enter();
     let mut graph = Graph::default();
     let head = source.head_history(&mut |id, time, parents| graph.push(id, time, parents))?;
-    let (bits, arrival) = graph.mainline(head);
-
     let mut at: HashMap<Oid, usize> = HashMap::with_capacity(index.commits.len());
     for (i, c) in index.commits.iter().enumerate() {
         at.insert(c.id, i);
     }
-    let mut out = Mainline {
-        bits: vec![0; index.commits.len()],
-        arrival: vec![None; index.commits.len()],
-    };
-    for ((id, b), a) in graph.ids.iter().zip(bits).zip(arrival) {
-        let Some(&i) = at.get(id) else {
-            continue;
-        };
-        if let (Some(slot), Some(when)) = (out.bits.get_mut(i), out.arrival.get_mut(i)) {
-            *slot = b;
-            *when = a;
-        }
-    }
+    let (bits, arrival) = graph.mainline(head);
+    let out = graph.place(&at, index.commits.len(), bits, arrival);
     span.record(
         "reachable",
         out.bits.iter().filter(|b| *b & REACHABLE != 0).count(),
@@ -47,7 +43,28 @@ pub fn mainline<S: RepoSource>(source: &S, index: &Index) -> Result<Mainline, S:
         "first_parent",
         out.bits.iter().filter(|b| *b & FIRST_PARENT != 0).count(),
     );
-    Ok(out)
+    let moved = before.and_then(|before| {
+        if head == Some(before) {
+            return Some(vec![false; index.commits.len()]);
+        }
+        let reached = graph.reached_from(before)?;
+        let (bits, arrival) = graph.mainline(Some(before));
+        let bits = bits
+            .into_iter()
+            .zip(reached)
+            .map(|(b, r)| if r { b } else { 0 })
+            .collect();
+        let then = graph.place(&at, index.commits.len(), bits, arrival);
+        Some(
+            out.bits
+                .iter()
+                .zip(&then.bits)
+                .zip(out.arrival.iter().zip(&then.arrival))
+                .map(|((now, was), (came, had))| now != was || came != had)
+                .collect(),
+        )
+    });
+    Ok((out, moved))
 }
 
 #[derive(Default)]
@@ -64,6 +81,48 @@ impl Graph {
         self.times.push(time);
         self.parents.extend_from_slice(parents);
         self.ends.push(self.parents.len());
+    }
+
+    fn place(
+        &self,
+        at: &HashMap<Oid, usize>,
+        len: usize,
+        bits: Vec<u8>,
+        arrival: Vec<Option<i64>>,
+    ) -> Mainline {
+        let mut out = Mainline {
+            bits: vec![0; len],
+            arrival: vec![None; len],
+        };
+        for ((id, b), a) in self.ids.iter().zip(bits).zip(arrival) {
+            let Some(&i) = at.get(id) else {
+                continue;
+            };
+            if let (Some(slot), Some(when)) = (out.bits.get_mut(i), out.arrival.get_mut(i)) {
+                *slot = b;
+                *when = a;
+            }
+        }
+        out
+    }
+
+    fn reached_from(&self, from: Oid) -> Option<Vec<bool>> {
+        let at: HashMap<Oid, usize> = self
+            .ids
+            .iter()
+            .enumerate()
+            .map(|(i, id)| (*id, i))
+            .collect();
+        let mut reached = vec![false; self.ids.len()];
+        let mut stack = vec![*at.get(&from)?];
+        while let Some(i) = stack.pop() {
+            match reached.get_mut(i) {
+                Some(r) if !*r => *r = true,
+                _ => continue,
+            }
+            stack.extend(self.parents_of(i).iter().filter_map(|p| at.get(p).copied()));
+        }
+        Some(reached)
     }
 
     fn parents_of(&self, i: usize) -> &[Oid] {

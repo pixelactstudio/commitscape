@@ -102,7 +102,7 @@ fn build_writes_the_export_the_pack_and_the_meta_from_one_reading() {
     );
 
     let manifest = json(&out.join("manifest.json"));
-    assert_eq!(manifest["format"], 3);
+    assert_eq!(manifest["format"], 4);
     assert_eq!(manifest["full"], true);
     assert_eq!(manifest["lines"], true);
     assert_eq!(manifest["lines_counted"], 6);
@@ -118,11 +118,14 @@ fn build_writes_the_export_the_pack_and_the_meta_from_one_reading() {
         assert!(!out.join(gone).exists(), "{gone}");
     }
     let commits = rows(&out.join("commits.tsv"));
-    let mainline = rows(&out.join("mainline.tsv"));
     assert_eq!(commits.len(), 7);
-    assert_eq!(mainline.len(), 7);
     assert!(commits.iter().all(|c| c.len() == 13));
+    assert!(rows(&out.join("mainline.tsv")).is_empty());
     assert!(rows(&out.join("lines.tsv")).is_empty());
+    let mainline: Vec<Vec<String>> = commits
+        .iter()
+        .map(|c| vec![c[0].clone(), c[6].clone(), c[7].clone()])
+        .collect();
     let reformat = git(&["-C", repo.to_str().unwrap_or("."), "rev-parse", "HEAD~2"]);
     let flags: Vec<(String, u8)> = mainline
         .iter()
@@ -175,7 +178,7 @@ fn build_writes_the_export_the_pack_and_the_meta_from_one_reading() {
         let row = mainline
             .iter()
             .find(|r| r[0].ends_with(&c.id.to_hex()))
-            .expect("in mainline.tsv");
+            .expect("in commits.tsv");
         assert_eq!(row[1], (c.flags.0 | bits).to_string());
         assert_eq!(row[2], arrival.map_or("\\N".to_string(), |a| a.to_string()));
     }
@@ -404,4 +407,69 @@ fn two_clones_with_one_cache_key_walk_the_history_once() {
         ],
     );
     assert_eq!(field(&events(&unkeyed), "load", "freshness"), "built");
+}
+
+#[test]
+fn a_build_after_the_mark_the_site_holds_writes_only_what_changed_since() {
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let cache = dir.path().join("cache");
+    let repo = fixture("lines");
+    let build = |name: &str, extra: &[&str], after: Option<&Value>| -> Value {
+        let out = dir.path().join(name);
+        let mut args = vec!["build", "--offline", "--cache-key", "acme/rocket"];
+        args.extend_from_slice(extra);
+        let frontier = dir.path().join(format!("{name}.frontier"));
+        let (lineage, mark);
+        if let Some(m) = after {
+            let tips: Vec<&str> = m["frontier"]
+                .as_array()
+                .expect("a frontier")
+                .iter()
+                .filter_map(Value::as_str)
+                .collect();
+            std::fs::write(&frontier, tips.join("\n")).expect("the frontier");
+            lineage = m["lineage"].as_str().unwrap_or("").to_string();
+            mark = m["mark"].as_str().unwrap_or("").to_string();
+            args.extend_from_slice(&["--lineage", &lineage, "--since", &mark]);
+            args.push("--after");
+            commitscape(
+                &args,
+                &[
+                    &frontier,
+                    Path::new("--cache-dir"),
+                    &cache,
+                    Path::new("--out"),
+                    &out,
+                    &repo,
+                ],
+            );
+        } else {
+            args.push("--cache-dir");
+            commitscape(&args, &[&cache, Path::new("--out"), &out, &repo]);
+        }
+        let mut manifest = json(&out.join("manifest.json"));
+        manifest["mainline_rows"] = rows(&out.join("mainline.tsv")).len().into();
+        manifest["lines_rows"] = rows(&out.join("lines.tsv")).len().into();
+        manifest
+    };
+
+    let quick = build("quick", &["--no-lines"], None);
+    assert!(quick["mark"].as_str().expect("a mark").contains(".-.-."));
+    let counted = build("counted", &[], Some(&quick));
+    assert_eq!(counted["full"], false);
+    assert_eq!(counted["changes_only"], false);
+    assert_eq!(counted["mainline_rows"], 0);
+    assert!(counted["lines_rows"].as_u64().unwrap_or(0) >= 6);
+    let quiet = build("quiet", &[], Some(&counted));
+    assert_eq!(quiet["changes_only"], true);
+    assert_eq!(
+        (quiet["mainline_rows"].clone(), quiet["lines_rows"].clone()),
+        (0.into(), 0.into())
+    );
+    let mut lost = counted.clone();
+    lost["mark"] = "not a mark".into();
+    let resent = build("resent", &[], Some(&lost));
+    assert_eq!(resent["changes_only"], false);
+    assert_eq!(resent["mainline_rows"], 7);
+    assert_eq!(resent["lines_rows"], counted["lines_rows"]);
 }

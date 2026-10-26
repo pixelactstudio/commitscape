@@ -3,7 +3,7 @@
 use commitscape_core::{LineDelta, Oid};
 use commitscape_index::source::RawChangeKind::{Added, Deleted, Modified};
 use commitscape_index::{
-    index_from_scratch, line_pass, CacheOptions, LinePlan, LineStore, ScriptedRepo,
+    index_from_scratch, line_pass, CacheOptions, LinePlan, LineStore, LogMark, ScriptedRepo,
 };
 
 const ALICE: (&str, &str) = ("Alice Example", "alice@example.com");
@@ -282,4 +282,36 @@ fn a_spent_budget_counts_nothing_and_the_next_run_carries_on() {
     .expect("counting");
     assert_eq!(asked.last(), Some(&(3, 3)));
     assert_eq!((rest.counted, rest.left), (3, 0));
+}
+
+#[test]
+fn the_log_names_what_was_counted_after_a_mark_and_refuses_a_mark_it_does_not_begin_with() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let options = CacheOptions {
+        root: Some(dir.path().to_path_buf()),
+        key: None,
+    };
+    let idx = index_from_scratch(&repo()).expect("indexing");
+    let store = LineStore::for_repo(&options, &idx.repo).expect("a store");
+    let (empty, all) = store.since(None);
+    assert_eq!(all, None);
+    store
+        .append(&[(blob(1), vec![d(1, 0)]), (blob(2), vec![d(2, 1)])])
+        .expect("append");
+    let (first, after_empty) = store.since(Some(empty));
+    assert_eq!(after_empty, Some(vec![blob(1), blob(2)]));
+    store.append(&[(blob(3), vec![None])]).expect("append");
+    let (second, after_first) = store.since(Some(first));
+    assert_eq!(after_first, Some(vec![blob(3)]));
+    assert_eq!(store.since(Some(second)).1, Some(vec![]));
+    let forged = LogMark {
+        hash: first.hash ^ 1,
+        ..first
+    };
+    assert_eq!(store.since(Some(forged)).1, None);
+    let past = LogMark {
+        len: second.len + 1,
+        ..second
+    };
+    assert_eq!(store.since(Some(past)).1, None);
 }

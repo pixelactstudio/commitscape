@@ -123,7 +123,7 @@ commitscape health owner/name
 
 `signatures`, `build`, `export` and `report` are hidden: they are the
 Builder's and the tests'. `build` writes, from one reading of the history,
-the export (the Index as Postgres `COPY` files, export format 3, with each
+the export (the Index as Postgres `COPY` files, export format 4, with each
 commit's Mainline and Main Arrival), the pack the engine service answers
 from (`pack.bin`, no email addresses in it) and the Report's meta, stats and
 people (`meta.json`). `export` writes only the `COPY` files, and `report`
@@ -134,7 +134,10 @@ next run carries on where it stopped), `--events FILE` writes one JSON line
 per finished step with its start, end and counts, and `COMMITSCAPE_THREADS`
 caps the threads every step uses. `--cache-key KEY` names the cache by KEY
 instead of the clone's path, so the Build's two clones share one cache and
-the history is walked once. `--anchor SECONDS` ends every Window there
+the history is walked once. `--after FILE --lineage N` writes only the
+commits the frontier in FILE does not reach, and `--since MARK`, the mark
+the last loaded export left, narrows the earlier commits' rows to the
+Mainline that moved and the Lines Changed counted since. `--anchor SECONDS` ends every Window there
 instead of now, so the output comes out the same every time.
 `COMMITSCAPE_SITE` points `share` at another Site.
 

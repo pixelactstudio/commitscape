@@ -493,6 +493,7 @@ export const storedIndexes = pgTable(
     options: jsonb("options").$type<IndexOptions>().notNull().default({ max_changeset_size: 50, coupling_support: 5, ownership_min_commits: 10 }),
     snapshot: jsonb("snapshot").$type<IndexSnapshot>(),
     pack: text("pack"),
+    mark: text("mark"),
   },
   (t) => [index("stored_indexes_repo").on(t.repoId)],
 );

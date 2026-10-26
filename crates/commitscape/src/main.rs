@@ -3,6 +3,7 @@ mod clone;
 mod events;
 mod format;
 mod health;
+mod mark;
 mod share;
 mod signatures;
 mod surviving;

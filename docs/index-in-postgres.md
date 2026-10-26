@@ -61,8 +61,10 @@ rename touches one row.
 the next export may append), `head`, `frontier` (the heads the export was
 made at), `commits`, `lines` (whether the Mainline's Lines Changed are all
 counted), `lines_left` (commits the line pass has not reached yet), `pack`
-(the R2 key of the current pack), `state` (`loading`, `live`), `built_at`,
-`loaded_at`. `repositories.index_id` points at the live one.
+(the R2 key of the current pack), `mark` (where the last loaded export left
+the Stored Index: the next export writes only the Mainline that moved and
+the Lines Changed counted after it), `state` (`loading`, `live`),
+`built_at`, `loaded_at`. `repositories.index_id` points at the live one.
 
 **Facts, appended**
 

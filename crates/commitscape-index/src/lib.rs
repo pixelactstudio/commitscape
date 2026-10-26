@@ -20,7 +20,7 @@ mod threads;
 pub use build::IndexBuilder;
 pub use cache::{
     default_cache_root, load, repo_dir, BlameStore, CacheOptions, Freshness, IdentityStore,
-    LineStore, Loaded, Progress, RebuildReason,
+    LineStore, Loaded, LogMark, Progress, RebuildReason,
 };
 pub use commitscape_core::LinePass;
 pub use gix_source::{GixError, GixRepo, GixThreads};

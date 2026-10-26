@@ -11,7 +11,7 @@ import * as schema from "./db/schema";
 import { indexCommits, repositories, storedIndexes, type IndexSnapshot } from "./db/schema";
 import { now } from "./time";
 
-export const EXPORT_FORMAT = 3;
+export const EXPORT_FORMAT = 4;
 
 export type ExportManifest = {
   format: number;
@@ -30,11 +30,13 @@ export type ExportManifest = {
   max_changeset_size: number;
   coupling_support: number;
   ownership_min_commits: number;
+  mark: string;
+  changes_only: boolean;
 };
 
 export const LOADED = "stored_index_loaded";
 
-export type LiveIndex = { id: number; lineage: string; kept: boolean; frontier: string[]; lines: boolean; linesLeft: number | null; head: string | null; pack: string | null };
+export type LiveIndex = { id: number; lineage: string; kept: boolean; frontier: string[]; lines: boolean; linesLeft: number | null; head: string | null; pack: string | null; mark: string | null };
 
 export type Loaded = { si: number; full: boolean; commits: number; total: number; mainline: number; lines: number; seconds: number };
 
@@ -65,7 +67,7 @@ async function readSnapshot(dir: string): Promise<IndexSnapshot | null> {
 /** The repository's live Stored Index, or null when it has none. */
 export async function liveIndex(db: Db, repoId: string): Promise<LiveIndex | null> {
   const [row] = await db
-    .select({ id: storedIndexes.id, lineage: storedIndexes.lineage, kept: storedIndexes.kept, frontier: storedIndexes.frontier, lines: storedIndexes.lines, linesLeft: storedIndexes.linesLeft, head: storedIndexes.head, pack: storedIndexes.pack })
+    .select({ id: storedIndexes.id, lineage: storedIndexes.lineage, kept: storedIndexes.kept, frontier: storedIndexes.frontier, lines: storedIndexes.lines, linesLeft: storedIndexes.linesLeft, head: storedIndexes.head, pack: storedIndexes.pack, mark: storedIndexes.mark })
     .from(repositories)
     .innerJoin(storedIndexes, eq(storedIndexes.id, repositories.indexId))
     .where(eq(repositories.id, repoId));
@@ -111,6 +113,7 @@ export async function loadExport(pool: pg.Pool, repoId: string, dir: string): Pr
         anchor: manifest.anchor,
         options: { max_changeset_size: manifest.max_changeset_size, coupling_support: manifest.coupling_support, ownership_min_commits: manifest.ownership_min_commits },
         snapshot: await readSnapshot(dir),
+        mark: manifest.mark,
       })
       .where(eq(storedIndexes.id, si));
     await db.update(repositories).set({ indexId: si }).where(eq(repositories.id, repoId));

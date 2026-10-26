@@ -41,6 +41,8 @@ function writeExport(manifest: Partial<ExportManifest>, commits: Commit[], extra
     max_changeset_size: 50,
     coupling_support: 5,
     ownership_min_commits: 10,
+    mark: "full mark",
+    changes_only: false,
     ...manifest,
   };
   const arr = (xs: number[] | null) => (xs ? `{${xs.join(",")}}` : "\\N");
@@ -61,7 +63,7 @@ function writeExport(manifest: Partial<ExportManifest>, commits: Commit[], extra
 }
 
 describe("appendable", () => {
-  const live = { id: 1, lineage: "7", kept: true, frontier: ["a"], lines: true, linesLeft: 0, head: "a", pack: null };
+  const live = { id: 1, lineage: "7", kept: true, frontier: ["a"], lines: true, linesLeft: 0, head: "a", pack: null, mark: null };
   test("only a kept Stored Index with a frontier takes what is new", () => {
     expect(appendable(live)).toBe(true);
     expect(appendable(null)).toBe(false);
@@ -115,7 +117,7 @@ describe.skipIf(!url)("loading an export into Postgres", async () => {
     const loaded = await loadExport(pool, repo, dir);
     expect(loaded).toMatchObject({ full: true, total: 2, mainline: 0, lines: 0 });
     const live = await liveIndex(db, repo);
-    expect(live).toMatchObject({ id: loaded.si, lineage: "7", lines: true, kept: true });
+    expect(live).toMatchObject({ id: loaded.si, lineage: "7", lines: true, kept: true, mark: "full mark" });
     expect(await db.select({ person: indexPeople.person, login: indexPeople.login }).from(indexPeople).where(eq(indexPeople.si, loaded.si))).toHaveLength(2);
     expect((await commitRows(loaded.si)).map((r) => [r.flags, r.arrival, r.added, r.removed])).toEqual([
       [24, 86_400, 7, 0],
@@ -129,7 +131,7 @@ describe.skipIf(!url)("loading an export into Postgres", async () => {
     const live = await liveIndex(db, repo);
     if (!live) throw new Error("no live Stored Index");
     const [before] = await db.select({ loadedAt: storedIndexes.loadedAt }).from(storedIndexes).where(eq(storedIndexes.id, live.id));
-    const dir = writeExport({ full: false, total: 3 }, [{ n: 3, at: 2 * 86_400 + 60, signature: 0, files: [1], added: [1], flags: 25, arrival: 2 * 86_400 + 60 }], {
+    const dir = writeExport({ full: false, total: 3, mark: "appended mark", changes_only: true }, [{ n: 3, at: 2 * 86_400 + 60, signature: 0, files: [1], added: [1], flags: 25, arrival: 2 * 86_400 + 60 }], {
       mainline: [
         { n: 1, flags: 24, arrival: 86_400 },
         { n: 2, flags: 8, arrival: 2 * 86_400 + 60 },
@@ -138,6 +140,7 @@ describe.skipIf(!url)("loading an export into Postgres", async () => {
     });
     const loaded = await loadExport(pool, repo, dir);
     expect(loaded).toMatchObject({ si: live.id, full: false, commits: 1, total: 3, mainline: 1 });
+    expect((await liveIndex(db, repo))?.mark).toBe("appended mark");
     expect((await commitRows(live.id)).map((r) => [r.flags, r.arrival])).toEqual([
       [24, 86_400],
       [8, 2 * 86_400 + 60],

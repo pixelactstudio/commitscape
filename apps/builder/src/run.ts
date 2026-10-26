@@ -204,7 +204,7 @@ export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<
     if (appendable(before)) {
       const frontier = join(scratch, `${phase}.frontier`);
       await writeFile(frontier, before.frontier.join("\n"));
-      args.push("--after", frontier, "--lineage", before.lineage);
+      args.push("--after", frontier, "--lineage", before.lineage, ...(before.mark ? ["--since", before.mark] : []));
     }
     args.push("--", dir);
     const t = Date.now();
