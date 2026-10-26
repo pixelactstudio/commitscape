@@ -12,7 +12,7 @@ The Site counted page views and four server moments, under a keyed hash, and not
 
 ## Decision
 
-- **One config file** (`apps/site/src/lib/analytics-config.ts`) lists every feature with what it collects, and every region of countries with what runs before the visitor chooses, at Only basic and at Allow all. The browser, the `/ingest` proxy, the server's events and the privacy page all read it.
+- **One config file** (`packages/data/src/analytics.ts`) lists every feature with what it collects, and every region of countries with what runs before the visitor chooses, at Only basic and at Allow all. The Site's browser code, its `/ingest` proxy, its server events, its privacy page and the landing page all read it.
 - **Two levels.** Basic is cookieless (PostHog's server hash): pages, time on a page, Web Vitals, the Site's moments and the country from the address with its last part removed. Allow all adds autocapture, rage and dead clicks, heatmaps, session replay with console, network timings and the Universe's canvas, identify with the GitHub login, name and picture, and the city from the whole address.
 - **Two regions to start.** The EU, the EEA, the UK, Switzerland and India start at basic and ask; everywhere else starts at all and tells. A visitor whose country is unknown is in the region that asks. Do Not Track or Global Privacy Control start a visitor at basic; a choice made in the corner box, Settings or the privacy page always wins.
 - **Never recorded:** what is typed into a field, source code and diffs (masked), request and response bodies, cookies and sign-in headers, Shared Report pages and their keys.

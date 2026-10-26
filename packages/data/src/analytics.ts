@@ -138,3 +138,22 @@ export function visitorOf(headers: Headers | null | undefined, countryHeader: st
   const level = levelOf(region, choice, signalled);
   return { region, choice, level, features: featuresAt(region, level) };
 }
+
+/** The parent domain two hosts share, for a cookie both can read (`commitscape.com` for `app.commitscape.com` and `commitscape.com`); null for one host, unrelated hosts, `localhost` or addresses. */
+export function sharedCookieDomain(host: string, other: string | null | undefined): string | null {
+  if (!other) return null;
+  const a = host.toLowerCase().split(".");
+  const b = other.toLowerCase().split(".");
+  const common: string[] = [];
+  while (a.length > 0 && b.length > 0 && a.at(-1) === b.at(-1)) {
+    common.unshift(a.pop() ?? "");
+    b.pop();
+  }
+  if (common.length < 2 || /^\d+$/.test(common.at(-1) ?? "")) return null;
+  return common.join(".");
+}
+
+/** The `Set-Cookie`-style text that keeps a visitor's choice for a year, on the shared parent domain when there is one. */
+export function consentCookie(choice: Choice, domain: string | null, secure: boolean): string {
+  return `${CONSENT_COOKIE}=${choice}; path=/; max-age=31536000; samesite=lax${domain ? `; domain=${domain}` : ""}${secure ? "; secure" : ""}`;
+}

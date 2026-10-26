@@ -49,6 +49,7 @@ allowBuilds:
   "@astryxdesign/core": false
   core-js: false
   esbuild: true
+  workerd: true
 
 overrides:
   seroval: ^1.6.7

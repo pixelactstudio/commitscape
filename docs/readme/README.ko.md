@@ -116,7 +116,7 @@ git 히스토리를 읽는 것은 하나의 Rust 엔진입니다. 내 컴퓨터�
 - **사이트**(Node 위의 TanStack Start)는 로그인한 사람을 위해 모든 페이지를 서버에서 그립니다. 행 데이터와 빌드(Build) 대기열은 Postgres에, 파일은 R2에 두고, 저장소 히스토리를 훑어야 하는 질문은 모두 엔진 서비스에 묻습니다.
 - **엔진 서비스(engine service)**(Rust, `apps/engine`)는 pack으로 답합니다. pack은 한 저장소의 한 head 시점 인덱스(Index)로, 빌드가 써 두고 그 뒤로는 바뀌지 않습니다. R2에서 한 번만 가져와 디스크와 메모리에 두기 때문에, 어떤 저장소의 어떤 기간(Window)이든 몇 밀리초면 답합니다.
 - **Builder**는 대기열에서 빌드를 꺼내 저장소를 클론하고 `commitscape build`를 실행합니다.
-- **랜딩 페이지**는 정적 페이지로, 사이트와 따로 Cloudflare Pages에 있습니다.
+- **랜딩 페이지**는 정적 페이지로, 사이트와 따로 Cloudflare Workers에 있습니다.
 
 ![빌드: 첫 리포트, 그다음 변경된 줄, 메인라인 먼저](../diagrams/build.svg)
 
@@ -132,7 +132,7 @@ git 히스토리를 읽는 것은 하나의 Rust 엔진입니다. 내 컴퓨터�
 | `apps/site/` | 사이트: Node 위의 TanStack Start, 서버 렌더링, Better Auth |
 | `apps/engine/` | 엔진 서비스: pack으로 사이트의 질문에 답한다(axum, tokio) |
 | `apps/builder/` | Builder: Postgres 대기열에서 빌드를 받아 저장소를 클론하고, `commitscape build`를 실행하고, 저장 인덱스를 Postgres에 적재하고, pack을 R2에 올린다 |
-| `apps/landing/` | 랜딩 페이지: 빌드할 때 그리는 정적 HTML, Cloudflare Pages용 |
+| `apps/landing/` | 랜딩 페이지: 빌드할 때 그리는 정적 HTML, Cloudflare Workers용 |
 | `packages/server/` | 데이터베이스 스키마와 마이그레이션, R2 저장소, 대기열, 저장 인덱스 로더 |
 | `packages/ui/` | 사이트가 보여 주는 모든 화면과 차트 |
 | `packages/data/` | Rust에서 생성한 리포트 타입과 데이터 소스 |
@@ -149,7 +149,7 @@ git 히스토리를 읽는 것은 하나의 Rust 엔진입니다. 내 컴퓨터�
 
 ## 직접 호스팅
 
-사이트, 엔진 서비스, Builder는 병합과 릴리스 때마다 Docker 이미지로 게시됩니다. [DEPLOY.md](../../DEPLOY.md)는 이것들을 Dokploy로 서버 한 대 또는 두 대에서 Postgres, Cloudflare R2 버킷, Cloudflare Pages의 랜딩 페이지와 함께 실행하는 방법을 설명합니다.
+사이트, 엔진 서비스, Builder는 병합과 릴리스 때마다 Docker 이미지로 게시됩니다. [DEPLOY.md](../../DEPLOY.md)는 이것들을 Dokploy로 서버 한 대 또는 두 대에서 Postgres, Cloudflare R2 버킷, Cloudflare Workers의 랜딩 페이지와 함께 실행하는 방법을 설명합니다.
 
 ## 개발
 

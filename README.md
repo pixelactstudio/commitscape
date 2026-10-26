@@ -166,7 +166,7 @@ Builder for the Site. The Site never runs git.
   Window of any repository takes milliseconds.
 - **The Builder** takes Builds from the queue, clones the repository and
   runs `commitscape build`.
-- **The landing page** is static, on Cloudflare Pages, apart from the Site.
+- **The landing page** is static, on Cloudflare Workers, apart from the Site.
 
 ![A Build: the first Report, then Lines Changed, the Mainline first](./docs/diagrams/build.svg)
 
@@ -191,7 +191,7 @@ repository's addresses pinned to a Build are cached for a year.
 | `apps/site/` | The Site: TanStack Start on Node, server-rendered, with Better Auth |
 | `apps/engine/` | The engine service: answers the Site's questions from packs (axum, tokio) |
 | `apps/builder/` | The Builder: takes Builds from a Postgres queue, clones the repository, runs `commitscape build`, loads the Stored Index into Postgres and uploads the pack to R2 |
-| `apps/landing/` | The landing page: static HTML drawn at build time, for Cloudflare Pages |
+| `apps/landing/` | The landing page: static HTML drawn at build time, for Cloudflare Workers |
 | `packages/server/` | The database schema and migrations, R2 storage, the queue and the Stored Index loader |
 | `packages/ui/` | Every screen and chart the Site shows |
 | `packages/data/` | The Report's types, generated from Rust, and the Data Sources |
@@ -209,7 +209,7 @@ repository's addresses pinned to a Build are cached for a year.
 The Site, the engine service and the Builder are published as Docker images
 on every merge and every release. [DEPLOY.md](./DEPLOY.md) runs them in
 Dokploy, on one server or two, with Postgres, a Cloudflare R2 bucket and
-the landing page on Cloudflare Pages.
+the landing page on Cloudflare Workers.
 
 ## Development
 

@@ -1,4 +1,5 @@
 import { Closing } from "./Closing";
+import { Consent } from "./Consent";
 import { Features } from "./Features";
 import { Footer } from "./Footer";
 import { Header } from "./Header";
@@ -25,6 +26,7 @@ export function Page() {
         </Rails>
       </main>
       <Footer />
+      <Consent />
     </div>
   );
 }

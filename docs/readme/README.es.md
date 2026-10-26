@@ -116,7 +116,7 @@ Un único motor en Rust lee la historia de git: dentro de la CLI en tu máquina 
 - **El sitio** (TanStack Start sobre Node) dibuja cada página en el servidor, para quien ha iniciado sesión. Guarda filas y la cola de compilaciones (Builds) en Postgres y archivos en R2, y pregunta al servicio del motor todo lo que exige recorrer la historia de un repositorio.
 - **El servicio del motor (engine service)** (Rust, `apps/engine`) responde a partir de packs: cada uno es el índice (Index) de un repositorio en una cabeza, escrito por una compilación y nunca modificado. Trae un pack de R2 una sola vez y lo guarda en disco y en memoria, así que cualquier ventana (Window) de cualquier repositorio tarda milisegundos.
 - **El Builder** toma compilaciones de la cola, clona el repositorio y ejecuta `commitscape build`.
-- **La página de inicio** es estática, está en Cloudflare Pages, aparte del sitio.
+- **La página de inicio** es estática, está en Cloudflare Workers, aparte del sitio.
 
 ![Una compilación: primero el informe, después las líneas cambiadas, la línea principal primero](../diagrams/build.svg)
 
@@ -132,7 +132,7 @@ El loader de una página lee la clave del pack en Postgres, pregunta con ella al
 | `apps/site/` | El sitio: TanStack Start sobre Node, renderizado en el servidor, con Better Auth |
 | `apps/engine/` | El servicio del motor: responde a las preguntas del sitio a partir de packs (axum, tokio) |
 | `apps/builder/` | El Builder: toma compilaciones de una cola en Postgres, clona el repositorio, ejecuta `commitscape build`, carga el índice guardado en Postgres y sube el pack a R2 |
-| `apps/landing/` | La página de inicio: HTML estático dibujado al compilar, para Cloudflare Pages |
+| `apps/landing/` | La página de inicio: HTML estático dibujado al compilar, para Cloudflare Workers |
 | `packages/server/` | El esquema y las migraciones de la base de datos, el almacenamiento en R2, la cola y el cargador del índice guardado |
 | `packages/ui/` | Cada pantalla y gráfico que muestra el sitio |
 | `packages/data/` | Los tipos del informe, generados desde Rust, y las fuentes de datos |
@@ -149,7 +149,7 @@ Estos documentos están en inglés:
 
 ## Alojarlo tú mismo
 
-El sitio, el servicio del motor y el Builder se publican como imágenes de Docker con cada fusión y cada versión. [DEPLOY.md](../../DEPLOY.md) explica cómo ejecutarlos en Dokploy, en uno o dos servidores, con Postgres, un bucket de Cloudflare R2 y la página de inicio en Cloudflare Pages.
+El sitio, el servicio del motor y el Builder se publican como imágenes de Docker con cada fusión y cada versión. [DEPLOY.md](../../DEPLOY.md) explica cómo ejecutarlos en Dokploy, en uno o dos servidores, con Postgres, un bucket de Cloudflare R2 y la página de inicio en Cloudflare Workers.
 
 ## Desarrollo
 

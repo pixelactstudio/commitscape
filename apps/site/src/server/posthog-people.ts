@@ -1,5 +1,5 @@
 import "@tanstack/react-start/server-only";
-import { uiHostOf } from "#/lib/posthog-hosts";
+import { uiHostOf } from "@commitscape/data/posthog";
 
 export type PostHogAdmin = { apiHost: string; key: string | undefined; project: string | undefined };
 

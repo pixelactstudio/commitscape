@@ -2,14 +2,15 @@
   "name": "@commitscape/landing",
   "private": true,
   "version": "0.0.0",
-  "description": "The landing page: static HTML for Cloudflare Pages, drawn at build time from the Site's components, with a little JavaScript for its scenes.",
+  "description": "The landing page: static HTML for Cloudflare Workers, drawn at build time from the Site's components, with a little JavaScript for its scenes.",
   "type": "module",
   "scripts": {
     "dev": "vite --port 3200",
     "build": "vite build && node scripts/prerender.ts",
     "preview": "vite preview --port 3200",
-    "typecheck": "tsc --noEmit",
-    "lint": "oxlint -c ../../.oxlintrc.json src scripts test",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p worker",
+    "lint": "oxlint -c ../../.oxlintrc.json src scripts test worker",
     "test": "vitest run"
   },
   "dependencies": {
@@ -21,10 +22,12 @@
     "@stylexjs/stylex": "catalog:",
     "gsap": "3.15.0",
     "lucide-react": "1.48.0",
+    "posthog-js": "1.434.15",
     "react": "catalog:",
     "react-dom": "catalog:"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "5.20261025.1",
     "@tailwindcss/vite": "4.3.3",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
@@ -35,6 +38,7 @@
     "tailwindcss": "4.3.3",
     "typescript": "catalog:",
     "vite": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "wrangler": "4.152.0"
   }
 }

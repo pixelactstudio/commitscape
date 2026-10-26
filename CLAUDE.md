@@ -12,7 +12,7 @@ uses (Report, Build, Window, Pack); use them.
 | `apps/site/` | The Site: TanStack Start on Node (Nitro), Postgres, R2, the engine service |
 | `apps/engine/` | The engine service (Rust, axum): answers the Site's questions from packs in R2 |
 | `apps/builder/` | The Builder: takes Builds from the pg-boss queue and runs `commitscape build` |
-| `apps/landing/` | The landing page: static HTML drawn at build time, for Cloudflare Pages |
+| `apps/landing/` | The landing page: static HTML drawn at build time, for Cloudflare Workers |
 | `packages/server/` | Drizzle schema and migrations, R2, the queue, the Stored Index loader. Used by the Site and the Builder |
 | `packages/ui/` | Every screen and chart the Site shows a Report with |
 | `packages/data/` | The Report's types (`types.ts` is generated from Rust) and the Data Sources |

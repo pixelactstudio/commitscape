@@ -3,7 +3,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { PRODUCT } from "@commitscape/data";
 import { Eyebrow, Page } from "@commitscape/ui";
 import { AnalyticsChoice } from "#/components/Consent";
-import { FEATURES, featuresAt, REGIONS, SIGNALLED, type FeatureId, type Region } from "#/lib/analytics-config";
+import { FEATURES, featuresAt, REGIONS, SIGNALLED, type FeatureId, type Region } from "@commitscape/data/analytics";
 
 export const Route = createFileRoute("/privacy")({
   head: () => ({ meta: [{ title: `What ${PRODUCT} keeps` }] }),
@@ -89,7 +89,7 @@ function Privacy() {
           </Part>
 
           <Part id="analytics" title="Making the Site better">
-            <Item>We learn from how the Site is used, so we can fix what is slow or confusing and build what people come back for. We do it with PostHog, through our own server, and only for that: nothing is sold, and nothing is used for advertising.</Item>
+            <Item>We learn from how the Site and its landing page are used, so we can fix what is slow or confusing and build what people come back for. We do it with PostHog, through our own server, and only for that: nothing is sold, and nothing is used for advertising.</Item>
             {GROUPS.map((g) => (
               <Fragment key={g.regions.map((r) => r.id).join()}>
                 <Item label={GROUPS.length > 1 ? `For everyone in ${g.regions.map((r) => r.name).join(" and ")}, without cookies` : "For everyone, without cookies"}>
