@@ -17,10 +17,13 @@ import {
   type Loaded,
   type Storage,
   type SurvivalJob,
+  unchanged,
+  whole,
 } from "@commitscape/server";
 import type { BuildFailure, Meta } from "@commitscape/data";
 import { accountsFor } from "./accounts";
 import { replaceIndex } from "./atlas";
+import { cloneUrl, gitEnv, remoteHead } from "./clone";
 import type { Config } from "./config";
 import type { SummaryPerson } from "./engine";
 import type { GitHubApi } from "./github";
@@ -36,6 +39,8 @@ const COUNTED_AT_ONCE = 10;
 
 export const MORE_LINES_MAX = 3;
 export const MORE_LINES_AFTER = 60;
+
+const HEAD_CHECK_MS = 30_000;
 
 export type JobContext = {
   db: Db;
@@ -110,6 +115,13 @@ async function claimedJob(buildId: string, ctx: JobContext, attempt: number, ask
   const gh: GitHubApi = { ...ctx.github, token: token ?? ctx.github.token };
   let pullsQueued = !!more;
   const started = Date.now();
+  if (!more && attempt === 1 && (await keptUnchanged(ctx, repo, repo.isPrivate ? token : null))) {
+    const seconds = (Date.now() - started) / 1000;
+    await end("done", { seconds, partial: false });
+    ctx.telemetry?.capture("build unchanged", who, { ...about, seconds });
+    log(`build ${buildId} ${repo.id}: its head has not moved, so the Report is kept, in ${seconds.toFixed(2)} s`);
+    return;
+  }
   const load = ctx.loadIndex ?? (ctx.pool ? (repoId: string, dir: string) => loadExport(ctx.pool as NonNullable<JobContext["pool"]>, repoId, dir) : null);
 
   const publish = async (made: Made): Promise<boolean> => {
@@ -211,6 +223,16 @@ async function claimedJob(buildId: string, ctx: JobContext, attempt: number, ask
     await end("failed", { reason: why?.reason ?? "error", detail: why?.detail ?? null });
   }
   ctx.telemetry?.capture("build failed", who, { ...summary, reason: why?.reason ?? "error", published: outcome.published });
+}
+
+/** Whether a Build can end at its head check: the Report is whole and the remote's default branch is still at the head it was built from, asked with one `git ls-remote`, without a clone, the engine or an upload. Records when that was found. */
+async function keptUnchanged(ctx: JobContext, repo: typeof repositories.$inferSelect, token: string | null): Promise<boolean> {
+  const live = await liveIndex(ctx.db, repo.id);
+  if (!whole(repo, live)) return false;
+  const head = await remoteHead(ctx.run, cloneUrl(ctx.cfg, repo.owner, repo.name), gitEnv(token), HEAD_CHECK_MS).catch(() => null);
+  if (!unchanged(repo, live, head)) return false;
+  await ctx.db.update(repositories).set({ checkedAt: now() }).where(eq(repositories.id, repo.id));
+  return true;
 }
 
 async function queueMoreLines(ctx: JobContext, repoId: string, more: number): Promise<void> {

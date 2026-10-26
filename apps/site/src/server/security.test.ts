@@ -113,6 +113,18 @@ describe("repositories", () => {
     expect(deps.sent).toHaveLength(1);
   });
 
+  test("a Report a day old is stale, unless the Builder found its head unmoved since", async () => {
+    const deps = await testDeps();
+    const meta = { name: "rocket", windows: ["all"], window: "all", anchor: 1, history: "complete", lines: "counted", avatars: false };
+    const old = now() - 2 * 24 * 3600;
+    await deps.db.insert(repositories).values([
+      { id: "acme/rocket", owner: "acme", name: "rocket", githubId: 1, reportKey: reportPrefix("acme/rocket", "b1"), reportAt: old, reportLines: true, reportMeta: meta, factsAt: now() },
+      { id: "acme/other", owner: "acme", name: "other", githubId: 3, reportKey: reportPrefix("acme/other", "b1"), reportAt: old, checkedAt: now() - 60, reportLines: true, reportMeta: { ...meta, name: "other" }, factsAt: now() },
+    ]);
+    expect(await lookup(deps, viewer(), "acme", "rocket")).toMatchObject({ stale: true, report: { at: old } });
+    expect(await lookup(deps, viewer(), "acme", "other")).toMatchObject({ stale: false, canBuild: false, report: { at: old } });
+  });
+
   test("a Build asked for by someone signed out is refused, and nothing is queued", async () => {
     const deps = await testDeps();
     vi.stubGlobal("fetch", fakeGitHub({ "/repos/acme/rocket": repoFacts(1) }).fetcher);

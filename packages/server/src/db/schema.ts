@@ -96,6 +96,7 @@ export const repositories = pgTable(
     reportBytes: integer("report_bytes"),
     reportLines: boolean("report_lines"),
     viewedAt: seconds("viewed_at"),
+    checkedAt: seconds("checked_at"),
     installationId: bigint("installation_id", { mode: "number" }),
     connectedBy: text("connected_by").references(() => user.id, { onDelete: "set null" }),
     seed: boolean("seed").notNull().default(false),

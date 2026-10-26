@@ -11,9 +11,9 @@ import { lendToken, memoryStorage, now, PRIORITY, readManifest, schema, settleRe
 import type { Config } from "./config";
 import { cacheDir, inUse, sweep } from "./disk";
 import { fakePerson, flagOf, writeBuilt, type FakeBuild } from "./fake";
-import { MORE_LINES_AFTER, MORE_LINES_MAX, runJob, type JobContext } from "./job";
+import { MORE_LINES_AFTER, MORE_LINES_MAX, runJob, type JobAsked, type JobContext } from "./job";
 import { BUILD_ATTEMPTS, type Ran } from "./run";
-import { queueSeeds } from "./seeds";
+import { headsOf, queueSeeds, type Named } from "./seeds";
 import type { Telemetry, Who } from "./telemetry";
 
 const { builds, repoPeople, repositories, storedIndexes, surviving } = schema;
@@ -246,6 +246,65 @@ test("a Build of a repository found renamed while it ran stores its Report and p
   expect((await db.select().from(builds)).map((b) => [b.repoId, b.state])).toEqual([["react/react", "done"]]);
 });
 
+async function wholeReport(db: Db, id: string, head: string, over: Partial<typeof repositories.$inferInsert> = {}) {
+  const [owner = "", name = ""] = id.split("/");
+  await db.insert(repositories).values({ id, owner, name, sizeKb: 10, reportKey: `reports/gh/${id}/b0`, reportAt: now() - 3 * 24 * 3600, reportLines: true, ...over });
+  const [si] = await db
+    .insert(storedIndexes)
+    .values({ repoId: id, lineage: "7", kept: true, head, frontier: [head], lines: true, linesLeft: 0, pack: `packs/${id}/1/${head}-b0-lines.pack`, state: "live", builtAt: 1 })
+    .returning({ id: storedIndexes.id });
+  await db.update(repositories).set({ indexId: si?.id ?? null }).where(eq(repositories.id, id));
+}
+
+test("a Build whose Report is whole and whose head has not moved ends at its head check, without a clone, the engine or an upload", async () => {
+  const db = await database();
+  const head = "c".repeat(40);
+  const ran: string[] = [];
+  const ctx = await context(db, {
+    run: async (cmd, args) => {
+      ran.push(`${cmd} ${args[0]}`);
+      return cmd === "git" && args[0] === "ls-remote" ? { ...ok, stdout: `${head}\tHEAD\n` } : ok;
+    },
+  });
+  await wholeReport(db, "acme/rocket", head);
+  await db.insert(builds).values({ id: "b1", repoId: "acme/rocket", state: "queued", requestedAt: 1 });
+  await runJob("b1", ctx);
+  expect(ran).toEqual(["git ls-remote"]);
+  expect(await db.select().from(builds)).toMatchObject([{ state: "done", partial: false, reason: null }]);
+  const repo = await repoRow(db);
+  expect(repo?.checkedAt).toBeGreaterThan(now() - 60);
+  expect(repo?.reportKey).toBe("reports/gh/acme/rocket/b0");
+  expect(ctx.captured.map((c) => c[0])).toEqual(["build started", "build unchanged"]);
+  expect(packs(ctx)).toEqual([]);
+});
+
+test("a Build goes on when the head moved, when the Report is not whole, or for quiet Builds and retries, and asks the remote only when the Report is whole", async () => {
+  const head = "c".repeat(40);
+  const cases: [string, Partial<typeof repositories.$inferInsert>, string, number, JobAsked, boolean][] = [
+    ["moved", {}, "d".repeat(40), 1, {}, true],
+    ["a week old", { reportAt: now() - 8 * 24 * 3600 }, head, 1, {}, false],
+    ["without lines", { reportLines: false }, head, 1, {}, false],
+    ["quiet", {}, head, 1, { more: 1 }, false],
+    ["a retry", {}, head, 2, {}, false],
+  ];
+  for (const [label, over, remote, attempt, asked, asks] of cases) {
+    const db = await database();
+    const ran: string[] = [];
+    const base = tools();
+    const ctx = await context(db, {
+      run: async (cmd, args) => {
+        ran.push(`${cmd} ${args[0]}`);
+        return cmd === "git" && args[0] === "ls-remote" ? { ...ok, stdout: `${remote}\tHEAD\n` } : base(cmd, args);
+      },
+    });
+    await wholeReport(db, "acme/rocket", head, over);
+    await db.insert(builds).values({ id: "b1", repoId: "acme/rocket", state: "queued", requestedAt: 1 });
+    await runJob("b1", ctx, attempt, asked);
+    expect([label, ran.includes("git ls-remote")]).toEqual([label, asks]);
+    expect([label, ran.some((r) => r.startsWith("commitscape build"))]).toEqual([label, true]);
+  }
+});
+
 test("seeds are kept under the name GitHub's search gives, and a row under an older name moves there", async () => {
   const db = await database();
   const storage = memoryStorage();
@@ -259,6 +318,61 @@ test("seeds are kept under the name GitHub's search gives, and a row under an ol
     ["react/react", true, "reports/gh/facebook/react/b1"],
   ]);
   expect((await db.select().from(builds)).map((b) => b.repoId)).toEqual(["a/one"]);
+});
+
+test("a whole seed is built again only when its head moved and someone viewed it since, or once it is a week old; an unmoved one is marked checked", async () => {
+  const db = await database();
+  const head = "c".repeat(40);
+  const week = 8 * 24 * 3600;
+  const seen = now() - 3 * 24 * 3600 + 60;
+  await wholeReport(db, "a/unmoved", head, { seed: true, viewedAt: seen });
+  await wholeReport(db, "a/moved-unseen", head, { seed: true });
+  await wholeReport(db, "a/moved-seen", head, { seed: true, viewedAt: seen });
+  await wholeReport(db, "a/old", head, { seed: true, reportAt: now() - week });
+  await wholeReport(db, "a/unknown-unseen", head, { seed: true });
+  await db.insert(repositories).values({ id: "a/never", owner: "a", name: "never", seed: true });
+  const asked: Named[][] = [];
+  const heads = async (repos: Named[]) => {
+    asked.push(repos);
+    const moved = "d".repeat(40);
+    return new Map([
+      ["a/unmoved", head],
+      ["a/moved-unseen", moved],
+      ["a/moved-seen", moved],
+      ["a/old", head],
+    ]);
+  };
+  const sent: string[] = [];
+  const queue: Queue = { send: async (job) => void sent.push(job.repoId ?? "") };
+  expect(await queueSeeds(db, queue, [], 10, null, heads)).toBe(3);
+  expect(sent.sort()).toEqual(["a/moved-seen", "a/never", "a/old"]);
+  expect(asked.flat().map((r) => r.id).sort()).toEqual(["a/moved-seen", "a/moved-unseen", "a/unknown-unseen", "a/unmoved"]);
+  const rows = await db.select().from(repositories);
+  expect(rows.filter((r) => r.checkedAt !== null).map((r) => r.id)).toEqual(["a/unmoved"]);
+});
+
+test("heads are asked of GitHub's GraphQL API a hundred repositories to a request, and one GitHub does not know is left out", async () => {
+  const bodies: { query: string; variables: Record<string, string> }[] = [];
+  const fetcher = (async (_url: string, init: RequestInit) => {
+    const body = JSON.parse(String(init.body)) as { query: string; variables: Record<string, string> };
+    bodies.push(body);
+    const data = Object.fromEntries(
+      Object.keys(body.variables)
+        .filter((k) => k.startsWith("o"))
+        .map((k) => {
+          const j = k.slice(1);
+          const name = body.variables[`n${j}`] ?? "";
+          return [`r${j}`, name === "gone" ? null : { defaultBranchRef: { target: { oid: name.padEnd(40, "0") } } }];
+        }),
+    );
+    return new Response(JSON.stringify({ data }), { status: 200 });
+  }) as unknown as typeof fetch;
+  const repos = Array.from({ length: 150 }, (_, i) => ({ id: `o/r${i}`, owner: "o", name: i === 7 ? "gone" : `r${i}` }));
+  const heads = await headsOf({ api: "http://github.test", token: "t", fetcher }, repos);
+  expect(bodies).toHaveLength(2);
+  expect(heads.size).toBe(149);
+  expect(heads.get("o/r0")).toBe("r0".padEnd(40, "0"));
+  expect(heads.has("o/r7")).toBe(false);
 });
 
 test("a private repository with no installation token fails as private and reads nothing", async () => {

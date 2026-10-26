@@ -227,7 +227,7 @@ In Schedules, add two jobs for this application:
 | Cron | Command | What it does |
 |---|---|---|
 | `*/15 * * * *` | `node builder.mjs cleanup` | Deletes expired Shared Reports, old rate-limit counts, expired GitHub answers, ended sessions, and Connected Repositories' Reports unseen for 30 days |
-| `0 3 * * *` | `node builder.mjs seed` | Queues the night's seed Builds |
+| `0 3 * * *` | `node builder.mjs seed` | Queues the night's seed Builds: a seed whose Report is whole is queued only when its head moved (asked of GitHub's GraphQL API, a hundred repositories to a request) and someone viewed it since its last Build, or when its Report is a week old |
 
 `node builder.mjs rebuild` queues a Build, at the lowest priority, for every
 repository whose live Stored Index has no pack. Run it once after upgrading

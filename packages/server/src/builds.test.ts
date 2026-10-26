@@ -3,7 +3,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { expect, test } from "vitest";
-import { busy, queueBuild, reapBuilds, RESEND_AFTER, RETRY_AFTER } from "./builds";
+import { busy, currentAt, queueBuild, reapBuilds, RESEND_AFTER, RETRY_AFTER, UNCHANGED_FOR, unchanged, whole } from "./builds";
 import type { Db } from "./db/client";
 import * as schema from "./db/schema";
 import { LONGEST_JOB_SECONDS, type BuildJob, type Queue } from "./queue";
@@ -23,6 +23,24 @@ test("a running Build stays busy until the longest a job may run, and one that e
   expect(busy({ state: "done", reason: "timed_out", requestedAt: 0, finishedAt: at - 60 }, at)).toBe(true);
   expect(busy({ state: "done", reason: "timed_out", requestedAt: 0, finishedAt: at - RETRY_AFTER - 1 }, at)).toBe(false);
   expect(busy({ state: "done", reason: null, requestedAt: 0, finishedAt: at - 60 }, at)).toBe(false);
+});
+
+test("a Report is whole when it has its pack, every line counted and none left, and was built within a week; only then may a Build stop at an unmoved head", () => {
+  const at = 10_000_000;
+  const row = { reportKey: "reports/x", reportAt: at - 3600, reportLines: true, checkedAt: null };
+  const live = { pack: "packs/x.pack", lines: true, linesLeft: 0, head: "a".repeat(40) };
+  expect(whole(row, live, at)).toBe(true);
+  expect(unchanged(row, live, "a".repeat(40), at)).toBe(true);
+  expect(unchanged(row, live, "b".repeat(40), at)).toBe(false);
+  expect(unchanged(row, live, null, at)).toBe(false);
+  expect(whole({ ...row, reportLines: false }, live, at)).toBe(false);
+  expect(whole({ ...row, reportAt: at - UNCHANGED_FOR }, live, at)).toBe(false);
+  expect(whole(row, { ...live, linesLeft: 12 }, at)).toBe(false);
+  expect(whole(row, { ...live, lines: false }, at)).toBe(false);
+  expect(whole(row, { ...live, pack: null }, at)).toBe(false);
+  expect(whole(row, null, at)).toBe(false);
+  expect(currentAt({ ...row, checkedAt: at - 60 })).toBe(at - 60);
+  expect(currentAt(row)).toBe(at - 3600);
 });
 
 test("a queued Build is sent with its repository as the key that keeps its Builds one at a time", async () => {

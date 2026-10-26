@@ -31,7 +31,7 @@ import { jobLimitOf, run, sharingEngine } from "./run";
 import { pullsToken, readPulls } from "./pulls";
 import { budgetOf, runSurvival } from "./survival";
 import { queueRebuilds } from "./rebuild";
-import { queueSeeds, seedConfig, seedList } from "./seeds";
+import { headsOf, queueSeeds, seedConfig, seedList } from "./seeds";
 
 const env = loadEnv();
 const telemetry = startTelemetry({
@@ -178,7 +178,7 @@ async function once(what: string) {
       const s = { ...seedConfig(env), token: await site.ready() };
       const list = await seedList(s);
       const boss = await startQueue(env.DATABASE_URL, { worker: false });
-      const queued = await queueSeeds(db, bossQueue(boss), list, s.budget, storage);
+      const queued = await queueSeeds(db, bossQueue(boss), list, s.budget, storage, (repos) => headsOf({ api: env.GITHUB_API, token: s.token ?? null }, repos));
       await boss.stop();
       console.log(`seeds: ${list.length} from GitHub's search, ${queued} queued`);
     } else if (what === "rebuild") {

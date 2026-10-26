@@ -91,6 +91,13 @@ export async function ensureClone(
   return { ok: true, fresh: true, seconds: seconds() };
 }
 
+/** The commit a repository's HEAD points at on its remote, asked without fetching anything; null when the remote cannot tell. */
+export async function remoteHead(run: typeof runCommand, url: string, env: NodeJS.ProcessEnv, timeoutMs: number): Promise<string | null> {
+  const ran = await run("git", ["ls-remote", "--", url, "HEAD"], env, timeoutMs);
+  if (ran.code !== 0) return null;
+  return /^([0-9a-f]{40}|[0-9a-f]{64})\tHEAD$/m.exec(ran.stdout ?? "")?.[1] ?? null;
+}
+
 const inClone = (dir: string, env: NodeJS.ProcessEnv) => ({ ...env, GIT_DIR: join(dir, ".git") });
 
 /** The objects every ref of a clone points at. */

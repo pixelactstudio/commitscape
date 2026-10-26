@@ -4,6 +4,7 @@ import { FAILURE_WORDS, key as keyOf, limited, NOT_IN_REPORT, topOf, withoutTop,
 import {
   busy,
   cachedGet,
+  currentAt,
   installationOf,
   now,
   PRIORITY,
@@ -171,7 +172,7 @@ export async function lastBuild(db: Db, id: string) {
 
 export function lookupOf(row: Row, build: Awaited<ReturnType<typeof lastBuild>>, seen: Lookup["access"] = "public", at = now()): Lookup {
   const visible = row.status === "ok" || seen === "allowed";
-  const stale = (!!row.reportAt && row.reportAt < at - REPORT_FOR) || (!!row.reportKey && row.reportLines === false);
+  const stale = (!!row.reportAt && currentAt(row) < at - REPORT_FOR) || (!!row.reportKey && row.reportLines === false);
   return {
     id: row.id,
     owner: row.owner,

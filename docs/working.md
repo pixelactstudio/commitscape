@@ -31,12 +31,19 @@ The engine service never reads git either: it reads packs.
 
 A signed-in person opens `/gh/<owner>/<name>`. The Site reads GitHub's facts
 (through the Postgres cache, see [github-api.md](./github-api.md)), and when
-there is no Report, or it is more than a day old, it queues a Build. A push
+there is no Report, or it is more than a day old (built, or found unchanged,
+`checked_at`), it queues a Build. A push
 to a repository the App is installed on, the nightly seeds and
 `node builder.mjs rebuild` queue Builds too. Then the Builder:
 
 1. **Claims the Build** in one database update, on the `builds` queue, or
    `builds-large` for a repository over `LARGE_REPOSITORY_MB`.
+   When the Report is whole (its pack, every Mainline line counted and
+   none left, built within a week), one `git ls-remote` asks where the
+   default branch's head is; if it is still the head the Report was built
+   from, the Build ends there, without a clone, the engine or an upload,
+   and `repositories.checked_at` records that the Report is current. Quiet
+   Builds and retries skip the check.
 2. **Starts two clones at once** on a cold Build: a quick clone without old
    file contents (`git clone --filter=blob:none`) into the Build's scratch
    folder, and the full clone, kept under `WORK_DIR/repos/<owner>/<name>/full`

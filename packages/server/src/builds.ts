@@ -3,12 +3,31 @@ import type { Db } from "./db/client";
 import { builds, repositories } from "./db/schema";
 import { LONGEST_JOB_SECONDS, PRIORITY, type BuildJob, type Queue } from "./queue";
 import { randomId } from "./random";
+import type { LiveIndex } from "./stored-index";
 import { now } from "./time";
 
 export const BUILD_LOST_AFTER = 30 * 60;
 export const RETRY_AFTER = 3600;
 export const REPORT_FOR = 24 * 3600;
 export const RESEND_AFTER = 120;
+export const UNCHANGED_FOR = 7 * 24 * 3600;
+
+type Reported = Pick<typeof repositories.$inferSelect, "reportKey" | "reportAt" | "reportLines"> & { checkedAt?: number | null };
+
+/** When a repository's Report was last known current: built, or found with its head where the Build left it. */
+export function currentAt(row: Reported): number {
+  return Math.max(row.reportAt ?? 0, row.checkedAt ?? 0);
+}
+
+/** Whether a repository's Report is whole: published with every Mainline line counted and none left to count, from a Stored Index with a pack, and built less than UNCHANGED_FOR ago, so the time Windows have not drifted further than that. Only a whole Report is kept when its head has not moved. */
+export function whole(row: Reported, live: Pick<LiveIndex, "pack" | "lines" | "linesLeft" | "head"> | null, at = now()): boolean {
+  return !!row.reportKey && row.reportLines === true && (row.reportAt ?? 0) > at - UNCHANGED_FOR && !!live?.pack && live.lines && (live.linesLeft ?? 0) === 0 && !!live.head;
+}
+
+/** Whether a Build has nothing to do: the Report is whole and the default branch's head is still the one it was built from. */
+export function unchanged(row: Reported, live: Pick<LiveIndex, "pack" | "lines" | "linesLeft" | "head"> | null, head: string | null, at = now()): boolean {
+  return !!head && whole(row, live, at) && live?.head === head;
+}
 
 type BuildState = Pick<typeof builds.$inferSelect, "state" | "reason" | "requestedAt" | "finishedAt"> & { startedAt?: number | null };
 
