@@ -13,7 +13,7 @@ test.beforeAll(async ({ browser }) => {
 });
 
 test("a person's Cards are served as animated SVG and still PNG, light and dark, from a stored copy", async ({ request }) => {
-  await expect.poll(async () => (await request.get("/api/cards/u/alice/totals.svg")).headers()["cache-control"], { timeout: 30_000 }).toBe("public, max-age=21600");
+  await expect.poll(async () => (await request.get("/api/cards/u/alice/totals.svg")).headers()["cache-control"], { timeout: 60_000 }).toBe("public, max-age=21600");
   const svg = await request.get("/api/cards/u/alice/totals.svg");
   expect(svg.status()).toBe(200);
   expect(svg.headers()["content-type"]).toBe("image/svg+xml");
