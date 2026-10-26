@@ -1,4 +1,4 @@
-import { eq, lt } from "drizzle-orm";
+import { and, eq, gt, inArray, lt, sql } from "drizzle-orm";
 import type { Db } from "./db/client";
 import * as schema from "./db/schema";
 import { sha256 } from "./random";
@@ -250,6 +250,35 @@ export async function githubGraphql<T = unknown>(db: Db | null, q: GitHubQuery):
     }),
   );
   return shaped<GraphqlBody<T>>(raw);
+}
+
+/** The fresh answers kept under keys a caller made, for answers that come many to one request (a GraphQL query about many commits), each body by its key. */
+export async function keptAnswers<T = unknown>(db: Db, keys: string[]): Promise<Map<string, T>> {
+  const found = new Map<string, T>();
+  const at = now();
+  for (let i = 0; i < keys.length; i += 500) {
+    const chunk = keys.slice(i, i + 500);
+    if (chunk.length === 0) continue;
+    const rows = await db
+      .select({ key: schema.githubCache.key, body: schema.githubCache.body })
+      .from(schema.githubCache)
+      .where(and(inArray(schema.githubCache.key, chunk), gt(schema.githubCache.until, at)));
+    for (const r of rows) found.set(r.key, parse(r.body) as T);
+  }
+  return found;
+}
+
+/** Keeps answers that came many to one request, each under its own key, for `ttl` seconds. */
+export async function keepAnswers(db: Db, answers: { key: string; body: unknown }[], ttl: number): Promise<void> {
+  const at = now();
+  for (let i = 0; i < answers.length; i += 500) {
+    const rows = answers.slice(i, i + 500).map((a) => ({ key: a.key, etag: null, status: 200, body: JSON.stringify(a.body), fetchedAt: at, until: at + ttl }));
+    if (rows.length === 0) continue;
+    await db
+      .insert(schema.githubCache)
+      .values(rows)
+      .onConflictDoUpdate({ target: schema.githubCache.key, set: { body: sql`excluded.body`, status: sql`excluded.status`, fetchedAt: sql`excluded.fetched_at`, until: sql`excluded.until` } });
+  }
 }
 
 /** Deletes cached GitHub answers that expired more than a day ago. */

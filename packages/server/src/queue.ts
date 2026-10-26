@@ -5,13 +5,15 @@ export const BUILD_LARGE_QUEUE = "builds-large";
 export const SURVIVAL_QUEUE = "surviving-by-people";
 export const PULLS_QUEUE = "pulls-by-repo";
 
-export type BuildJob = { buildId: string; repoId?: string; attempt?: number };
+export type BuildTrace = { sentryTrace: string; baggage: string };
+
+export type BuildJob = { buildId: string; repoId?: string; attempt?: number; trace?: BuildTrace; queuedAt?: number; userId?: string; more?: number };
 
 export type SurvivalJob = { repoId: string; reportKey: string; personIds: number[]; attempt?: number };
 
 export type PullsJob = { repoId: string };
 
-export const PRIORITY = { person: 10, seed: 0 } as const;
+export const PRIORITY = { person: 10, seed: 0, lines: -10, rebuild: -20 } as const;
 
 export const LONGEST_JOB_SECONDS = 24 * 3600;
 
@@ -45,7 +47,7 @@ export async function startQueue(url: string, options: { worker: boolean; expire
 export function bossQueue(boss: PgBoss): Queue {
   return {
     async send(job, priority) {
-      await boss.send(BUILD_QUEUE, job, { priority, singletonKey: buildKey(job) });
+      await boss.send(BUILD_QUEUE, { queuedAt: Date.now(), ...job }, { priority, singletonKey: buildKey(job) });
     },
     async count(job) {
       await boss.send(SURVIVAL_QUEUE, job, { singletonKey: survivalKey(job) });

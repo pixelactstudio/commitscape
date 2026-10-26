@@ -1,5 +1,5 @@
 import { and, count, desc, eq, ilike, or, sql, type SQL } from "drizzle-orm";
-import { pageLimit, seqOf, UNKNOWN_PERSON, wordsOf, type CommitPage, type CommitQuery, type CommitRow, type PersonRef } from "@commitscape/data";
+import { afterCommit, afterOf, pageLimit, seqOf, UNKNOWN_PERSON, wordsOf, type CommitPage, type CommitQuery, type CommitRow, type PersonRef } from "@commitscape/data";
 import type { Db } from "./db/client";
 import { indexCommits, indexPeople, storedIndexes } from "./db/schema";
 
@@ -8,19 +8,6 @@ export const COMMIT_KINDS = ["features", "fixes", "docs", "refactors", "tests", 
 export type IndexCommitAsk = Omit<CommitQuery, "under"> & { si: number; link: string | null; cursor?: string | null; shas?: string[] };
 
 const escaped = (word: string) => word.replace(/[\\%_]/g, (c) => `\\${c}`);
-
-const KEYSET = /^(-?[0-9a-z]{1,12})\.([0-9a-f]{40,64})$/;
-
-/** The cursor of the page after a commit: its time and sha, so the next page starts below it however many commits came before. */
-export const afterCommit = (at: number, sha: string): string => `${at.toString(36)}.${sha}`;
-
-/** The commit a cursor from `afterCommit` names, or null when it is not one. */
-export function afterOf(cursor: string | null | undefined): { at: number; sha: string } | null {
-  const m = cursor ? KEYSET.exec(cursor) : null;
-  if (!m) return null;
-  const at = Number.parseInt(m[1] ?? "", 36);
-  return Number.isSafeInteger(at) && (m[2] ?? "").length % 2 === 0 ? { at, sha: m[2] ?? "" } : null;
-}
 
 type Who = { signature: number; person: number | null; ref: PersonRef };
 
@@ -132,8 +119,8 @@ export async function indexCommitPage(db: Db, ask: IndexCommitAsk): Promise<Comm
       kind: r.kind,
       merge: (r.flags & 1) !== 0,
       files: r.files,
-      added: index.lines && r.hasLines ? (r.added ?? 0) : null,
-      removed: index.lines && r.hasLines ? (r.removed ?? 0) : null,
+      added: index.lines && r.hasLines ? (r.added ?? (r.files === 0 ? 0 : null)) : null,
+      removed: index.lines && r.hasLines ? (r.removed ?? (r.files === 0 ? 0 : null)) : null,
     };
   });
   return {
