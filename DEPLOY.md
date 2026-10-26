@@ -321,28 +321,48 @@ the page:
 ```sh
 PUBLIC_LANDING_URL=https://example.org   # optional: where / sends people who are signed out; else to /sign-in
 PUBLIC_SENTRY_DSN=...                    # optional: the browser's errors
-PUBLIC_POSTHOG_KEY=phc_...               # optional: page views and the server's product events
+PUBLIC_POSTHOG_KEY=phc_...               # optional: usage data from the browser, the server and the command
 PUBLIC_POSTHOG_HOST=https://us.i.posthog.com
 ```
 
-The browser sends PostHog's events to the Site's own `/ingest`, which passes
-them on to `PUBLIC_POSTHOG_HOST` without cookies, the visitor's address or
-the page they came from. Nothing is sent for a browser that asks not to be
-tracked (`DNT` or `Sec-GPC`).
+What is collected, from whom, is `apps/site/src/lib/analytics-config.ts`:
+each feature, and for each region of countries what runs before the visitor
+chooses (`before`) and what Only basic and Allow all turn on. The privacy
+page is drawn from it. The browser sends PostHog's events to the Site's own
+`/ingest`, which passes them on to `PUBLIC_POSTHOG_HOST` without cookies or
+sign-in, and with as much of the visitor's address as their level allows:
+all of it at Allow all, the first three parts at basic. A browser that sends
+`DNT` or `Sec-GPC` starts at basic. The region comes from Cloudflare's
+`cf-ipcountry`; without it, a visitor is in the region that asks first.
+
+In PostHog's project settings, turn on cookieless server hash mode (basic
+counting is dropped without it), session replay with canvas recording,
+console logs and network capture, heatmaps, Web Vitals, and set recordings
+to be kept for 30 days, as the privacy page says. Turn exception
+autocapture off: Sentry has errors.
+
+```sh
+POSTHOG_PERSONAL_API_KEY=phx_...         # optional, with person:write: "Delete my data" also deletes the person in PostHog
+POSTHOG_PROJECT_ID=...                   # the project the key deletes in
+```
+
+The privacy page says "Delete my data" deletes what PostHog holds about the
+person, so set both wherever `PUBLIC_POSTHOG_KEY` is set.
 
 Optional, with their defaults:
 
 | Variable | Default | What |
 |---|---|---|
-| `CLIENT_IP_HEADER` | `x-forwarded-for` | Where the visitor's address is read from, for rate limits, when there is no `cf-connecting-ip` |
+| `CLIENT_IP_HEADER` | `x-forwarded-for` | Where the visitor's address is read from, for rate limits and PostHog, when there is no `cf-connecting-ip` |
+| `COUNTRY_HEADER` | `cf-ipcountry` | Where the visitor's country is read from, for their analytics region |
 | `S3_REGION`, `S3_FORCE_PATH_STYLE` | auto, false | For an S3 store other than R2 |
 | `GITHUB_API` | https://api.github.com | GitHub's API, for a fake one in tests |
 | `SENTRY_ENVIRONMENT`, `SENTRY_TRACES_SAMPLE_RATE` | production, 0.1 | Sentry's environment, and the share of requests traced |
 
 In Domains, add `example.com` with container port 3000 and HTTPS on. Every
 page needs a signed-in person, except the sign-in page, `/privacy`, Shared
-Reports and shared Proof of Work; Cards, the webhooks, `/api/health` and
-`/ingest` answer anyone.
+Reports and shared Proof of Work; Cards, the webhooks, `/api/health`,
+`/api/telemetry` (the command's usage counts) and `/ingest` answer anyone.
 
 The image has a health check on `/api/health`. For deploys without
 downtime, add the same check in Advanced, Swarm Settings, with the update

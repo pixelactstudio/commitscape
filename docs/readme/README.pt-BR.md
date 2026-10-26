@@ -98,11 +98,12 @@ Ou incorpore diretamente o endereço de um card do site; o estúdio de cards em 
 
 ## Privacidade
 
-Na sua máquina, o commitscape não envia nada para lugar nenhum até você dizer sim:
+Na sua máquina, o commitscape não envia nenhum repositório para lugar nenhum até você dizer sim:
 
 - `share` (e `commitscape` sozinho) envia o relatório criptografado com AES-256-GCM. A chave fica só no link, depois do `#`, que os navegadores nunca enviam, então o site guarda algo que não consegue ler. Nenhum endereço de e-mail é incluído.
 - `surviving` lê o repositório na sua máquina (se você der um endereço do GitHub, ele clona). `health` pergunta ao GitHub, pela [GitHub CLI](https://cli.github.com), sobre o projeto que recebe.
-- Sem analytics, sem verificação de atualizações e nada executado na instalação.
+- Cada execução de `share`, `health`, `surviving` ou `report` envia ao site uma contagem de uso anônima: o comando, quanto tempo levou, como terminou, a versão e a sua plataforma, sob um id aleatório. Nunca um caminho nem nada de um repositório. `COMMITSCAPE_TELEMETRY=0` ou `DO_NOT_TRACK=1` desliga isso.
+- Sem verificação de atualizações e nada executado na instalação.
 
 No site, nenhum endereço de e-mail sai do Builder: os packs com que o serviço do motor responde não têm nenhum.
 

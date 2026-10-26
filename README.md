@@ -130,7 +130,7 @@ read it.
 
 ## Privacy
 
-On your machine, commitscape sends nothing anywhere until you say yes:
+On your machine, commitscape sends a repository nowhere until you say yes:
 
 - `share` (and a bare `commitscape`) uploads the Report encrypted with
   AES-256-GCM. The key is only in the link, after the `#`, which browsers
@@ -139,7 +139,12 @@ On your machine, commitscape sends nothing anywhere until you say yes:
 - `surviving` reads the repository on your machine (given a GitHub address
   instead, it clones it). `health` asks GitHub, through the
   [GitHub CLI](https://cli.github.com), about the project it is given.
-- No analytics, no update checks, and nothing runs at install time.
+- Each run of `share`, `health`, `surviving` or `report` sends one
+  anonymous usage count to the Site: the command, how long it took, how it
+  ended, the version and your platform, under a random id. Never a path or
+  anything from a repository. `COMMITSCAPE_TELEMETRY=0` or `DO_NOT_TRACK=1`
+  turns it off.
+- No update checks, and nothing runs at install time.
 
 On the Site, no email address leaves the Builder: the packs the engine
 service answers from hold none.

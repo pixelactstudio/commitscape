@@ -98,11 +98,12 @@ Vous pouvez aussi intégrer directement l'adresse d'une carte du site ; son atel
 
 ## Confidentialité
 
-Sur votre machine, commitscape n'envoie rien nulle part tant que vous n'avez pas dit oui :
+Sur votre machine, commitscape n'envoie aucun dépôt nulle part tant que vous n'avez pas dit oui :
 
 - `share` (et `commitscape` seul) envoie le rapport chiffré avec AES-256-GCM. La clé n'est que dans le lien, après le `#`, que les navigateurs n'envoient jamais : le site stocke donc ce qu'il ne peut pas lire. Aucune adresse e-mail n'y figure jamais.
 - `surviving` lit le dépôt sur votre machine (si on lui donne une adresse GitHub, il le clone). `health` interroge GitHub, via la [CLI GitHub](https://cli.github.com), sur le projet qu'on lui donne.
-- Pas d'analytics, pas de vérification de mises à jour, et rien ne s'exécute à l'installation.
+- Chaque exécution de `share`, `health`, `surviving` ou `report` envoie au site un comptage d'usage anonyme : la commande, sa durée, son issue, la version et votre plateforme, sous un identifiant aléatoire. Jamais un chemin ni rien d'un dépôt. `COMMITSCAPE_TELEMETRY=0` ou `DO_NOT_TRACK=1` le désactive.
+- Pas de vérification de mises à jour, et rien ne s'exécute à l'installation.
 
 Sur le site, aucune adresse e-mail ne quitte le Builder : les packs à partir desquels répond le service du moteur n'en contiennent aucune.
 

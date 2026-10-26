@@ -98,11 +98,12 @@ Oder bette die Adresse einer Karte der Website direkt ein; ihr Kartenstudio unte
 
 ## Datenschutz
 
-Auf deinem Rechner schickt commitscape nichts irgendwohin, bevor du ja sagst:
+Auf deinem Rechner schickt commitscape kein Repository irgendwohin, bevor du ja sagst:
 
 - `share` (und `commitscape` ohne Befehl) lädt den Bericht mit AES-256-GCM verschlüsselt hoch. Der Schlüssel steht nur im Link, hinter dem `#`, den Browser nie senden; die Website speichert also, was sie nicht lesen kann. E-Mail-Adressen sind nie enthalten.
 - `surviving` liest das Repository auf deinem Rechner (bekommt es eine GitHub-Adresse, klont es das Repository). `health` fragt GitHub über die [GitHub CLI](https://cli.github.com) nach dem angegebenen Projekt.
-- Keine Analytics, keine Update-Prüfungen, und bei der Installation läuft nichts.
+- Jeder Lauf von `share`, `health`, `surviving` oder `report` schickt der Website eine anonyme Nutzungszählung: den Befehl, wie lange er dauerte, wie er endete, die Version und deine Plattform, unter einer zufälligen ID. Nie einen Pfad oder etwas aus einem Repository. `COMMITSCAPE_TELEMETRY=0` oder `DO_NOT_TRACK=1` schaltet das ab.
+- Keine Update-Prüfungen, und bei der Installation läuft nichts.
 
 Auf der Website verlässt keine E-Mail-Adresse den Builder: Die Packs, aus denen der Engine-Dienst antwortet, enthalten keine.
 

@@ -98,11 +98,12 @@ https://app.commitscape.com/s/k3f9q2x7#0dbf…
 
 ## 隐私
 
-在你的机器上，你同意之前 commitscape 不会向任何地方发送任何东西：
+在你的机器上，你同意之前 commitscape 不会把任何仓库发送到任何地方：
 
 - `share`（以及单独的 `commitscape`）上传用 AES-256-GCM 加密的报告。密钥只在链接 `#` 之后的部分里，浏览器从不发送这部分，所以网站存的是它自己读不了的内容。报告中从不包含任何电子邮件地址。
 - `surviving` 读取你机器上的仓库（如果给的是 GitHub 地址，就先克隆它）。`health` 通过 [GitHub CLI](https://cli.github.com) 向 GitHub 询问你给它的那个项目。
-- 没有分析统计，没有更新检查，安装时也不运行任何东西。
+- 每次运行 `share`、`health`、`surviving` 或 `report`，都会向网站发送一条匿名使用计数：哪个命令、用了多久、结果如何、版本和你的平台，附带一个随机 ID。从不发送路径或仓库里的任何内容。设置 `COMMITSCAPE_TELEMETRY=0` 或 `DO_NOT_TRACK=1` 即可关闭。
+- 没有更新检查，安装时也不运行任何东西。
 
 在网站上，任何电子邮件地址都不会离开 Builder：引擎服务所读取的 pack 里一个也没有。
 
