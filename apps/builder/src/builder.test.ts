@@ -510,6 +510,27 @@ test("runs of the engine share its slots in the order they asked, while every ot
   expect(order.filter((o) => o.includes("commitscape"))).toEqual(["start commitscape a", "end commitscape a", "start commitscape fails", "end commitscape fails", "start commitscape c", "end commitscape c"]);
 });
 
+test("the Atlas shares the engine's slot, so it never runs beside a run of the engine", async () => {
+  const order: string[] = [];
+  const open: (() => void)[] = [];
+  const slow = async (cmd: string): Promise<Ran> => {
+    order.push(`start ${cmd}`);
+    await new Promise<void>((r) => open.push(r));
+    order.push(`end ${cmd}`);
+    return { code: 0, stderr: "", timedOut: false };
+  };
+  const shared = sharingEngine(slow, ["commitscape", "node"], 1);
+  const runs = [shared("commitscape", [], {}, 1000), shared("node", ["builder.mjs", "atlas"], {}, 1000)];
+  await new Promise((r) => setTimeout(r, 10));
+  expect(order).toEqual(["start commitscape"]);
+  for (let i = 0; i < 2; i++) {
+    open.shift()?.();
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  await Promise.all(runs);
+  expect(order).toEqual(["start commitscape", "end commitscape", "start node", "end node"]);
+});
+
 test("a command past its time is stopped with everything it started", async () => {
   const started = Date.now();
   const ran = await run("sh", ["-c", "sleep 30 & sleep 30"], {}, 300);

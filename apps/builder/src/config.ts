@@ -31,6 +31,7 @@ export function loadEnv(runtimeEnv: Record<string, string | undefined> = process
       DISK_BUDGET_GB: positive(20),
       CACHE_BUDGET_GB: positive(5),
       ENGINE_SLOTS: z.coerce.number().int().positive().default(1),
+      ATLAS_QUALITY: z.coerce.number().int().min(1).max(11).default(5),
       SURVIVING_BUDGET_SECONDS: positive(60),
       PULLS_TIME_LIMIT_SECONDS: positive(1800),
       GIT_DATA: z.stringbool().default(true),
@@ -105,7 +106,10 @@ export type Config = {
   moreLinesBudget: number;
   gitBase: string | undefined;
   git?: GitSettings | undefined;
+  atlas?: AtlasSettings | undefined;
 };
+
+export type AtlasSettings = { command: string; args: string[]; quality: number };
 
 export function configOf(env: Env): Config {
   return {

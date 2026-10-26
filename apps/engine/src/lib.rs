@@ -13,7 +13,6 @@ pub mod routes;
 pub mod s3;
 pub mod settings;
 pub mod telemetry;
-pub mod universe;
 pub mod view;
 pub mod work;
 

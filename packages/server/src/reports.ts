@@ -14,6 +14,13 @@ export type ReportIndex = {
 type Written = { meta: Meta; data: Record<string, unknown>; stats?: BuildStats | null };
 
 export const reportPrefix = (repoId: string, buildId: string) => `reports/gh/${repoId}/${buildId}`;
+
+export type AtlasPart = "map" | "names";
+
+/** Where a part of the Atlas of a Stored Index's pack is kept: named by the pack, so a new pack never serves an old Atlas. */
+export function atlasKey(si: number, pack: string, part: AtlasPart): string {
+  return `atlas/${si}/${sha256(pack).slice(0, 16)}/${part}.bin.br`;
+}
 const entryKey = (prefix: string, key: string) => `${prefix}/e/${sha256(key).slice(0, 32)}.json`;
 
 const gz = (value: unknown) => gzipSync(JSON.stringify(value));

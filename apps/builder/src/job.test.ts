@@ -7,13 +7,14 @@ import { and, eq, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { expect, test } from "vitest";
-import { lendToken, memoryStorage, now, PRIORITY, readManifest, schema, settleRepository, type BuildJob, type Db, type Loaded, type Queue, type SurvivalJob } from "@commitscape/server";
+import { atlasKey, lendToken, memoryStorage, now, PRIORITY, readManifest, schema, settleRepository, type BuildJob, type Db, type Loaded, type Queue, type SurvivalJob } from "@commitscape/server";
 import type { Config } from "./config";
 import { cacheDir, inUse, sweep } from "./disk";
 import { fakePerson, flagOf, writeBuilt, type FakeBuild } from "./fake";
 import { MORE_LINES_AFTER, MORE_LINES_MAX, runJob, type JobAsked, type JobContext } from "./job";
 import { BUILD_ATTEMPTS, type Ran } from "./run";
 import { headsOf, queueSeeds, type Named } from "./seeds";
+import { writeAtlas } from "./universe";
 import type { Telemetry, Who } from "./telemetry";
 
 const { builds, repoPeople, repositories, storedIndexes, surviving } = schema;
@@ -112,6 +113,53 @@ test("a Build publishes its Stored Index: the pack in R2 and on the Stored Index
   expect(ctx.captured.at(-1)?.[1]).toEqual({ userId: undefined, repo: "acme/rocket" });
   expect(ctx.captured.at(-1)?.[2]).toMatchObject({ kind: "cold", commits: 3, lines_left: 0 });
   expect(Object.keys(ctx.captured.at(-1)?.[2] ?? {})).toEqual(expect.arrayContaining(["seconds_clone_full", "seconds_build_full", "seconds_load_full", "seconds_upload_full", "seconds_publish_full"]));
+});
+
+test("a Build makes its pack's Atlas in a process of its own, under the engine's slot, and stores it before the pack is published, so the Site never makes it", async () => {
+  const db = await database();
+  const order: string[] = [];
+  const base = tools();
+  const ctx = await context(db, {
+    run: async (cmd, args) => {
+      if (cmd === "node-for-atlas") {
+        order.push("atlas");
+        const [, , rows = "", dir = "", quality = ""] = args;
+        await writeAtlas(rows, dir, Number(quality));
+        return ok;
+      }
+      return base(cmd, args);
+    },
+  });
+  ctx.cfg = { ...ctx.cfg, atlas: { command: "node-for-atlas", args: ["builder.mjs"], quality: 5 } };
+  const put = ctx.storage.put.bind(ctx.storage);
+  ctx.storage.put = async (key, body, options) => {
+    if (key.startsWith("atlas/")) {
+      const [row] = await db.select({ pack: storedIndexes.pack }).from(storedIndexes);
+      order.push(`${key.split("/").at(-1)} ${row?.pack ? "after" : "before"} the publish`);
+    }
+    return put(key, body, options);
+  };
+  await db.insert(repositories).values({ id: "acme/rocket", owner: "acme", name: "rocket", sizeKb: 10, reportKey: "reports/gh/acme/rocket/old", reportLines: true });
+  await db.insert(builds).values({ id: "b1", repoId: "acme/rocket", state: "queued", requestedAt: 1 });
+  await runJob("b1", ctx);
+  const [si] = await db.select().from(storedIndexes);
+  expect(si?.pack).toBeTruthy();
+  expect(ctx.storage.objects.has(atlasKey(si?.id ?? 0, si?.pack ?? "", "map"))).toBe(true);
+  expect(ctx.storage.objects.has(atlasKey(si?.id ?? 0, si?.pack ?? "", "names"))).toBe(true);
+  expect(order).toEqual(["atlas", "map.bin.br before the publish", "names.bin.br before the publish"]);
+  expect(Object.keys(ctx.captured.at(-1)?.[2] ?? {})).toContain("seconds_atlas_full");
+});
+
+test("a Build whose Atlas fails is still published, and the Site makes the Atlas", async () => {
+  const db = await database();
+  const base = tools();
+  const ctx = await context(db, { run: async (cmd, args) => (cmd === "node-for-atlas" ? { code: 1, stderr: "killed", timedOut: false } : base(cmd, args)) });
+  ctx.cfg = { ...ctx.cfg, atlas: { command: "node-for-atlas", args: [], quality: 5 } };
+  await db.insert(repositories).values({ id: "acme/rocket", owner: "acme", name: "rocket", sizeKb: 10, reportKey: "reports/gh/acme/rocket/old", reportLines: true });
+  await db.insert(builds).values({ id: "b1", repoId: "acme/rocket", state: "queued", requestedAt: 1 });
+  await runJob("b1", ctx);
+  expect(await db.select().from(builds)).toMatchObject([{ state: "done" }]);
+  expect([...ctx.storage.objects.keys()].filter((k) => k.startsWith("atlas/"))).toEqual([]);
 });
 
 test("a repository with no Report gets the quick Stored Index without lines while its lines are counted, then the same one with them", async () => {

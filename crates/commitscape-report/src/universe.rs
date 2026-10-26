@@ -1,9 +1,11 @@
 use std::collections::{HashMap, HashSet};
+use std::io::Write;
 
 use commitscape_core::{CommitFlags, FileId, Oid, SignatureId};
-use commitscape_report::export::Files;
-use commitscape_report::pack::Pack;
 use serde::Serialize;
+
+use crate::export::Files;
+use crate::pack::Pack;
 
 const REACHABLE: u8 = 8;
 
@@ -50,8 +52,13 @@ pub struct Rows {
     pub releases: Vec<(String, i64)>,
 }
 
-/// What the Atlas is made from, as the Site's `atlasRows` read it from the Stored Index before: the commits that reached the default branch by when they did (every commit when no Mainline is known), Merge Commits left out, files by id, people in the order of their first Signature, and each release at its commit's Main Arrival.
-pub fn rows(pack: &Pack) -> Rows {
+struct Header {
+    mainline: bool,
+    newest: i64,
+    picked: Vec<(i64, usize)>,
+}
+
+fn header(pack: &Pack) -> Header {
     let index = &pack.index;
     let bits = |at: usize| pack.mainline.get(at).copied().unwrap_or(0);
     let arrival = |at: usize| pack.arrival.get(at).copied().flatten();
@@ -71,27 +78,114 @@ pub fn rows(pack: &Pack) -> Rows {
         })
         .collect();
     picked.sort_unstable();
-    let mut newest = 0;
-    let commits = picked
-        .into_iter()
-        .filter_map(|(t, _, _, at)| {
-            let c = index.commits.get(at)?;
-            newest = newest.max(t);
-            let changes = index.changes_of(c);
-            Some(CommitRow {
-                time: t,
-                person: index.author_of(c).map_or(-1, |p| i64::from(p.0)),
-                bulk: c.flags.contains(CommitFlags::BULK),
-                first_parent: bits(at) & FIRST_PARENT != 0,
-                files: changes.iter().map(|ch| ch.file.0).collect(),
-                changes: changes.iter().map(|ch| ch.kind as u8).collect(),
-            })
-        })
-        .collect();
+    let newest = picked.iter().map(|p| p.0).max().unwrap_or(0).max(0);
+    Header {
+        mainline,
+        newest,
+        picked: picked.into_iter().map(|(t, _, _, at)| (t, at)).collect(),
+    }
+}
 
+fn commit_row(pack: &Pack, t: i64, at: usize) -> Option<CommitRow> {
+    let index = &pack.index;
+    let c = index.commits.get(at)?;
+    let changes = index.changes_of(c);
+    Some(CommitRow {
+        time: t,
+        person: index.author_of(c).map_or(-1, |p| i64::from(p.0)),
+        bulk: c.flags.contains(CommitFlags::BULK),
+        first_parent: pack.mainline.get(at).copied().unwrap_or(0) & FIRST_PARENT != 0,
+        files: changes.iter().map(|ch| ch.file.0).collect(),
+        changes: changes.iter().map(|ch| ch.kind as u8).collect(),
+    })
+}
+
+/// What the Atlas is made from, as the Site's `atlasRows` read it from the Stored Index before: the commits that reached the default branch by when they did (every commit when no Mainline is known), Merge Commits left out, files by id, people in the order of their first Signature, and each release at its commit's Main Arrival.
+pub fn rows(pack: &Pack) -> Rows {
+    let Header {
+        mainline,
+        newest,
+        picked,
+    } = header(pack);
+    Rows {
+        mainline,
+        newest,
+        commits: picked
+            .into_iter()
+            .filter_map(|(t, at)| commit_row(pack, t, at))
+            .collect(),
+        files: files(pack),
+        people: people(pack),
+        releases: releases(pack),
+    }
+}
+
+#[derive(Serialize)]
+struct Counts<'a> {
+    mainline: bool,
+    newest: i64,
+    releases: &'a [(String, i64)],
+    commits: usize,
+    files: usize,
+    people: usize,
+}
+
+/// Writes the rows `rows` gives as JSON lines, one commit, file or person at a time: a first line with the Mainline flag, the newest time, the releases and how many of each follow, then the commits, the files and the people.
+pub fn write_rows(pack: &Pack, out: &mut impl Write) -> std::io::Result<()> {
+    let Header {
+        mainline,
+        newest,
+        picked,
+    } = header(pack);
+    let files = files(pack);
+    let people = people(pack);
+    let releases = releases(pack);
+    let line = |out: &mut dyn Write, value: &dyn erased::Line| -> std::io::Result<()> {
+        value.write_to(out)?;
+        out.write_all(b"\n")
+    };
+    line(
+        out,
+        &Counts {
+            mainline,
+            newest,
+            releases: &releases,
+            commits: picked.len(),
+            files: files.len(),
+            people: people.len(),
+        },
+    )?;
+    for (t, at) in picked {
+        let row = commit_row(pack, t, at)
+            .ok_or_else(|| std::io::Error::other("a commit the pack does not hold"))?;
+        line(out, &row)?;
+    }
+    for f in &files {
+        line(out, f)?;
+    }
+    for p in &people {
+        line(out, p)?;
+    }
+    Ok(())
+}
+
+mod erased {
+    pub(super) trait Line {
+        fn write_to(&self, out: &mut dyn std::io::Write) -> std::io::Result<()>;
+    }
+
+    impl<T: serde::Serialize> Line for T {
+        fn write_to(&self, out: &mut dyn std::io::Write) -> std::io::Result<()> {
+            serde_json::to_writer(out, self).map_err(std::io::Error::other)
+        }
+    }
+}
+
+fn files(pack: &Pack) -> Vec<FileRow> {
+    let index = &pack.index;
     let facts = Files::of(index);
     let loc: HashMap<FileId, u32> = index.head.iter().map(|h| (h.file, h.loc)).collect();
-    let files = (0..index.paths.len())
+    (0..index.paths.len())
         .map(|i| {
             let file = FileId(i as u32);
             let f = facts.facts(file);
@@ -106,15 +200,18 @@ pub fn rows(pack: &Pack) -> Rows {
                 lines: loc.get(&file).copied(),
             }
         })
-        .collect();
+        .collect()
+}
 
+fn people(pack: &Pack) -> Vec<PersonRow> {
+    let index = &pack.index;
     let logins: HashMap<u32, &str> = pack
         .logins
         .iter()
         .map(|(id, login)| (*id, login.as_str()))
         .collect();
     let mut seen = HashSet::new();
-    let people = (0..index.authors.signature_count())
+    (0..index.authors.signature_count())
         .filter_map(|i| {
             let sig = SignatureId(i as u32);
             let person = index.authors.person_of(sig)?;
@@ -134,8 +231,12 @@ pub fn rows(pack: &Pack) -> Rows {
                 bot: index.authors.is_bot(person),
             })
         })
-        .collect();
+        .collect()
+}
 
+fn releases(pack: &Pack) -> Vec<(String, i64)> {
+    let index = &pack.index;
+    let arrival = |at: usize| pack.arrival.get(at).copied().flatten();
     let commit_of: HashMap<&str, Oid> = pack
         .release_commits
         .iter()
@@ -150,8 +251,7 @@ pub fn rows(pack: &Pack) -> Rows {
             }
         }
     }
-    let releases = pack
-        .releases
+    pack.releases
         .iter()
         .map(|(name, t)| {
             let at = commit_of
@@ -161,14 +261,5 @@ pub fn rows(pack: &Pack) -> Rows {
                 .filter(|&a| a != 0);
             (name.clone(), at.unwrap_or(*t))
         })
-        .collect();
-
-    Rows {
-        mainline,
-        newest,
-        commits,
-        files,
-        people,
-        releases,
-    }
+        .collect()
 }

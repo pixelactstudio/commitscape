@@ -48,6 +48,13 @@ export async function writeBuilt(args: string[], over: FakeBuild = {}): Promise<
   await writeFile(join(out, "manifest.json"), JSON.stringify(manifest));
   await writeFile(join(out, "meta.json"), JSON.stringify(summary));
   await writeFile(join(out, "pack.bin"), `pack ${noLines ? "quick" : "lines"} ${head}`);
+  const universe = [
+    { mainline: true, newest: 2, releases: [], commits: 1, files: 1, people: 1 },
+    { time: 2, person: 1, bulk: false, firstParent: true, files: [0], changes: [0] },
+    { file: 0, path: "src/a.rs", alive: true, role: 0, language: "Rust", generated: false, lockfile: false, lines: 40 },
+    { id: 1, name: "P1", login: "ada", bot: false },
+  ];
+  await writeFile(join(out, "universe.jsonl"), `${universe.map((r) => JSON.stringify(r)).join("\n")}\n`);
   const events = flagOf(args, "--events");
   if (events) {
     const now = Date.now();

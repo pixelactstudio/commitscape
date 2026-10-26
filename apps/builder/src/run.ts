@@ -82,8 +82,9 @@ function lowered(pid: number, nice: number): boolean {
 /** Runs a command with only safe environment variables, at a lower priority when `nice` is given, killing it and its children after `timeoutMs`. */
 export type Runner = (cmd: string, args: string[], env: NodeJS.ProcessEnv, timeoutMs: number, opts?: RunOptions) => Promise<Ran>;
 
-/** A runner through which at most `slots` runs of the engine (`bin`) go at once, the rest waiting in the order they asked; every other command (git, the network) runs at once. A run's time limit starts when it gets its slot. */
-export function sharingEngine(runner: Runner, bin: string, slots: number): Runner {
+/** A runner through which at most `slots` runs of the engine (`bin`, and any other heavy command named) go at once, the rest waiting in the order they asked; every other command (git, the network) runs at once. A run's time limit starts when it gets its slot. */
+export function sharingEngine(runner: Runner, bin: string | string[], slots: number): Runner {
+  const heavy = new Set(typeof bin === "string" ? [bin] : bin);
   let free = Math.max(1, Math.floor(slots));
   const waiting: (() => void)[] = [];
   const take = () => (free > 0 ? ((free -= 1), Promise.resolve()) : new Promise<void>((r) => waiting.push(r)));
@@ -93,7 +94,7 @@ export function sharingEngine(runner: Runner, bin: string, slots: number): Runne
     else free += 1;
   };
   return async (cmd, args, env, timeoutMs, opts) => {
-    if (cmd !== bin) return runner(cmd, args, env, timeoutMs, opts);
+    if (!heavy.has(cmd)) return runner(cmd, args, env, timeoutMs, opts);
     await take();
     try {
       return await runner(cmd, args, env, timeoutMs, opts);

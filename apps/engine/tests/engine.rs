@@ -542,6 +542,41 @@ async fn the_universe_rows_are_what_the_atlas_is_made_from() {
     assert_eq!(rows["releases"], json!([["v1.0.0", DAY0 + DAY + 60]]));
 }
 
+#[test]
+fn the_universe_rows_a_build_writes_are_the_rows_the_engine_answers_one_per_line() {
+    let pack = pack("acme/rocket");
+    let mut bytes = Vec::new();
+    commitscape_report::universe::write_rows(&pack, &mut bytes).unwrap();
+    let lines: Vec<Value> = String::from_utf8(bytes)
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    let rows = serde_json::to_value(commitscape_report::universe::rows(&pack)).unwrap();
+    let head = &lines[0];
+    assert_eq!(head["mainline"], rows["mainline"]);
+    assert_eq!(head["newest"], rows["newest"]);
+    assert_eq!(head["releases"], rows["releases"]);
+    let (commits, files, people) = (
+        head["commits"].as_u64().unwrap() as usize,
+        head["files"].as_u64().unwrap() as usize,
+        head["people"].as_u64().unwrap() as usize,
+    );
+    assert_eq!(lines.len(), 1 + commits + files + people);
+    assert_eq!(
+        Value::Array(lines[1..1 + commits].to_vec()),
+        rows["commits"]
+    );
+    assert_eq!(
+        Value::Array(lines[1 + commits..1 + commits + files].to_vec()),
+        rows["files"]
+    );
+    assert_eq!(
+        Value::Array(lines[1 + commits + files..].to_vec()),
+        rows["people"]
+    );
+}
+
 #[tokio::test]
 async fn warming_works_out_the_answers_named() {
     let s = setup().await;

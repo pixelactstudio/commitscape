@@ -197,6 +197,7 @@ Optional, with their defaults:
 | `ENGINE_NICE` | 10 | The engine runs at this lower priority (0 to 19), so git, the database and the Builder stay responsive |
 | `LINES_BUDGET_SECONDS` | 120 | How long a Build's line pass may count Lines Changed, the Mainline first, newest first. Lines show once the Mainline's are counted; the commits left are counted by a quiet Build queued a minute later (three at most), and by the next Build |
 | `MORE_LINES_BUDGET_SECONDS` | 600 | How long such a quiet Build may count, kept two minutes inside `TIME_LIMIT_SECONDS`: nobody waits for it, so it counts what is left in one go and publishes once |
+| `ATLAS_QUALITY` | 5 | The brotli quality the Builder packs each pack's Universe Atlas with, 1 to 11. On linux 5 takes 4.8 CPU-s for a 7.8 MB map and 11 takes 35 CPU-s for 6.6 MB; the Atlas is made once per pack, in a process of its own that waits for an engine slot |
 | `LARGE_REPOSITORY_MB` | 1500 | Repositories larger than this, by GitHub's size, are built in a lane of their own |
 | `LARGE_CONCURRENCY` | 1 | Builds at a time in that lane |
 | `MAX_REPOSITORY_MB` | none | Unset, every repository is cloned, however big; set, larger repositories are refused |

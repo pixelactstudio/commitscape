@@ -111,8 +111,12 @@ queued ones whose job was lost.
   the engine service which commits, then read their rows from Postgres.
 - The Code window's tree, coupling, story and history, a folder's newest
   commits, a pull request's insight and the Universe's rows come from the
-  engine service. The Site makes the Universe's Atlas from those rows and
-  keeps it in R2. Branches, tags and pull requests are rows; file text is
+  engine service. The Universe's Atlas is made by the Builder from the
+  rows `build` writes beside the pack (`universe.jsonl`), in a process of
+  its own that takes an engine slot (`node builder.mjs atlas`), and stored
+  in R2 before the pack is published; the Site sends those bytes, and makes
+  the Atlas from the engine service's rows only for a pack the Builder did
+  not make one for. Branches, tags and pull requests are rows; file text is
   in R2.
 - A Shared Report is one locked file. The browser downloads it, decrypts it
   with the key after the `#`, and pages its Commit List itself; the Site
@@ -132,8 +136,9 @@ commitscape health owner/name
 Builder's and the tests'. `build` writes, from one reading of the history,
 the export (the Index as Postgres `COPY` files, export format 4, with each
 commit's Mainline and Main Arrival), the pack the engine service answers
-from (`pack.bin`, no email addresses in it) and the Report's meta, stats and
-people (`meta.json`). `export` writes only the `COPY` files, and `report`
+from (`pack.bin`, no email addresses in it), the Report's meta, stats and
+people (`meta.json`) and the rows the Universe's Atlas is made from
+(`universe.jsonl`, one commit, file or person a line). `export` writes only the `COPY` files, and `report`
 the whole Report as gzipped JSON, which `share` locks and uploads.
 `--accounts FILE` (`{"<email>": "<login>"}`) joins identities on those
 logins. `--lines-budget SECONDS` stops the line pass after that long (the

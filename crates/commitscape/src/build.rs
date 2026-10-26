@@ -11,6 +11,7 @@ use commitscape_metrics::Span;
 use commitscape_report::export::{self, Manifest, Since};
 use commitscape_report::pack::{write_pack, Pack, Reading};
 use commitscape_report::report::{summary, Report};
+use commitscape_report::universe::write_rows;
 use tracing::field::Empty;
 
 use crate::mark::{fingerprint, Mark};
@@ -245,7 +246,7 @@ pub fn export(args: ExportArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// `commitscape build`: from one reading of the history, writes the export, the Report's meta, stats and people as `meta.json`, and the pack as `pack.bin`.
+/// `commitscape build`: from one reading of the history, writes the export, the Report's meta, stats and people as `meta.json`, the pack as `pack.bin`, and the rows the Universe's Atlas is made from as `universe.jsonl`.
 pub fn build(args: ExportArgs) -> anyhow::Result<()> {
     events::record_to(args.run.events.as_deref())?;
     let r = read(&args)?;
@@ -302,6 +303,17 @@ pub fn build(args: ExportArgs) -> anyhow::Result<()> {
     let path = args.out.join("pack.bin");
     let mut out = BufWriter::with_capacity(1 << 20, std::fs::File::create(&path)?);
     write_pack(&pack, &mut out)?;
+    out.flush()?;
+    drop(out);
+    span.record("bytes", std::fs::metadata(&path)?.len());
+    drop(entered);
+    drop(span);
+
+    let span = tracing::info_span!("universe", bytes = Empty);
+    let entered = span.enter();
+    let path = args.out.join("universe.jsonl");
+    let mut out = BufWriter::with_capacity(1 << 20, std::fs::File::create(&path)?);
+    write_rows(&pack, &mut out)?;
     out.flush()?;
     drop(out);
     span.record("bytes", std::fs::metadata(&path)?.len());

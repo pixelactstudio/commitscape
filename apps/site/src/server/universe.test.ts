@@ -1,8 +1,8 @@
 import { brotliCompressSync, brotliDecompressSync, constants } from "node:zlib";
 import { eq } from "drizzle-orm";
 import { describe, expect, test } from "vitest";
-import { decodeAtlas, decodeNames, type AtlasRows } from "@commitscape/data/universe";
-import { now, schema, seedIndex, type SeedIndex } from "@commitscape/server";
+import { atlasOf, decodeAtlas, decodeNames, encodeAtlas, encodeNames, type AtlasRows } from "@commitscape/data/universe";
+import { atlasKey, now, schema, seedIndex, type SeedIndex } from "@commitscape/server";
 import { fakeEngine, packed, testDeps, viewer, type Asked } from "#/test/deps";
 import { SiteError } from "./http";
 import { atlasBody, atlasFile, atlasOfPack, warmAtlas } from "./universe";
@@ -72,6 +72,19 @@ describe("the Atlas", () => {
     expect((await deps.storage.keys?.("atlas/"))?.length ?? 0).toBeGreaterThanOrEqual(2);
     await packed(deps.db, deps.si, "packs/acme/rocket/1/next.pack");
     expect((await atlasFile(deps, viewer(), "acme", "rocket", "map", 500, found.etag)).etag).not.toBe(found.etag);
+  });
+
+  test("the Builder stored for a pack is sent as it is, and the Site never makes it or asks the engine service for rows", async () => {
+    const deps = await stored();
+    const { atlas, names } = atlasOf(rows);
+    const map = brotliCompressSync(encodeAtlas(atlas));
+    await deps.storage.put(atlasKey(deps.si, deps.pack, "map"), map, { type: "application/octet-stream", encoding: "br" });
+    await deps.storage.put(atlasKey(deps.si, deps.pack, "names"), brotliCompressSync(encodeNames(names)), { type: "application/octet-stream", encoding: "br" });
+    expect(await warmAtlas(deps, deps.si, deps.pack)).toBe(true);
+    const { found, bytes } = await bytesOf(deps, "map");
+    expect(Buffer.from(found.body?.br ?? new Uint8Array()).equals(map)).toBe(true);
+    expect(decodeAtlas(bytes).people.names).toEqual(["Alice Example", "ci-bot"]);
+    expect(deps.engine.asked).toEqual([]);
   });
 
   test("is made ahead of its first visitor, and what the Stored Index's earlier packs left in storage is deleted", async () => {

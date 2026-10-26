@@ -21,8 +21,8 @@ use crate::lru::SizedLru;
 use crate::packs::{PackFailure, Packs};
 use crate::params::{self, Params};
 use crate::questions::{self, Question};
-use crate::universe;
 use crate::work::{Work, WorkError};
+use commitscape_report::universe;
 
 pub const ANSWER_BYTES: u64 = 128 * 1024 * 1024;
 

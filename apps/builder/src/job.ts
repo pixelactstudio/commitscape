@@ -29,8 +29,9 @@ import type { SummaryPerson } from "./engine";
 import type { GitHubApi } from "./github";
 import { buildGitData } from "./gitdata";
 import { pullsToken } from "./pulls";
-import { build, BUILD_ATTEMPTS, type Deps, type Made, type Outcome } from "./run";
+import { build, BUILD_ATTEMPTS, timeLimitOf, type Deps, type Made, type Outcome } from "./run";
 import { Phases, type Telemetry } from "./telemetry";
+import { storeAtlas } from "./universe";
 
 const { builds, repoPeople, repositories, storedIndexes, surviving } = schema;
 
@@ -270,6 +271,12 @@ async function publishBuild(ctx: JobContext, phases: Phases, buildId: string, ma
   const pack = `packs/${named.id}/${si}/${made.manifest.head ?? "empty"}-${buildId}-${made.phase === "quick" ? "quick" : "lines"}.pack`;
   const body = await readFile(made.pack);
   await phases.time(`upload ${made.phase}`, "http.client", () => storage.put(pack, body, { type: "application/octet-stream" }));
+  const atlas = ctx.cfg.atlas;
+  if (atlas) {
+    await phases
+      .time(`atlas ${made.phase}`, "atlas", () => storeAtlas(ctx.run, atlas, storage, { si, pack, dir: made.dir, timeoutMs: timeLimitOf(ctx.cfg) * 1000, nice: ctx.cfg.nice }))
+      .catch((e: unknown) => ctx.log(`atlas of ${named.id}: ${(e as Error).message}, so the Site makes it`));
+  }
   const lines = made.phase === "full" && made.manifest.lines_mainline;
   const same = made.phase === "full" && named.reportLines === true && !made.loaded.full && made.before?.id === si && made.before.head === made.manifest.head;
   const prefix = same && named.reportKey ? named.reportKey : reportPrefix(named.id, made.phase === "full" ? buildId : `${buildId}-quick`);

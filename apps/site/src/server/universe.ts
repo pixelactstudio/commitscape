@@ -2,7 +2,7 @@ import "@tanstack/react-start/server-only";
 import { promisify } from "node:util";
 import { brotliCompress, brotliDecompress, constants, gzip } from "node:zlib";
 import { atlasOf, encodeAtlas, encodeNames } from "@commitscape/data/universe";
-import { sha256, type Storage } from "@commitscape/server";
+import { atlasKey, sha256, type AtlasPart, type Storage } from "@commitscape/server";
 import { withPack } from "./answers";
 import type { EngineService } from "./engine-service";
 import { SiteError } from "./http";
@@ -12,7 +12,7 @@ const brotliAsync = promisify(brotliCompress);
 const unbrotliAsync = promisify(brotliDecompress);
 const gzipAsync = promisify(gzip);
 
-export type AtlasPart = "map" | "names";
+export type { AtlasPart };
 
 const NO_HISTORY = "This repository's history is read at its next Build.";
 const YEAR = 31_536_000;
@@ -31,7 +31,7 @@ export type ServedAtlas = { body: Packed | null; etag: string; cacheControl: str
 
 const versionOf = (pack: string) => sha256(pack).slice(0, 16);
 
-const keyOf = (si: number, pack: string, part: AtlasPart) => `atlas/${si}/${versionOf(pack)}/${part}.bin.br`;
+const keyOf = atlasKey;
 
 const brotli = (bytes: Uint8Array, quality: number) =>
   brotliAsync(bytes, { params: { [constants.BROTLI_PARAM_QUALITY]: quality, [constants.BROTLI_PARAM_LGWIN]: 24, [constants.BROTLI_PARAM_SIZE_HINT]: bytes.byteLength } }).then(

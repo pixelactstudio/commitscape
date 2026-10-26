@@ -31,7 +31,15 @@ import { jobLimitOf, run, sharingEngine } from "./run";
 import { pullsToken, readPulls } from "./pulls";
 import { budgetOf, runSurvival } from "./survival";
 import { queueRebuilds } from "./rebuild";
+import { writeAtlas } from "./universe";
 import { headsOf, queueSeeds, seedConfig, seedList } from "./seeds";
+
+const command = process.argv[2] ?? "work";
+if (command === "atlas") {
+  const [rows = "", dir = "", quality = ""] = process.argv.slice(3);
+  await writeAtlas(rows, dir, Number(quality));
+  process.exit(0);
+}
 
 const env = loadEnv();
 const telemetry = startTelemetry({
@@ -42,7 +50,7 @@ const telemetry = startTelemetry({
   posthogHost: env.POSTHOG_HOST,
   analyticsSecret: env.TOKEN_SECRET,
 });
-const cfg = configOf(env);
+const cfg = { ...configOf(env), atlas: { command: process.execPath, args: [process.argv[1] ?? "builder.mjs"], quality: env.ATLAS_QUALITY } };
 const storage = s3Storage({
   endpoint: env.S3_ENDPOINT,
   bucket: env.S3_BUCKET,
@@ -109,7 +117,7 @@ async function work() {
   const reapTimed = timed("builder-reaper", REAP_MINUTES, reap);
   const tidyTimed = timed("builder-tidy", TIDY_MINUTES, tidy);
   const ctx = { db, pool, storage, cfg, app, run, github, tokenSecret: env.TOKEN_SECRET, log, telemetry, queuePulls, queueCounts, queueBuild };
-  const buildCtx = { ...ctx, run: sharingEngine(run, cfg.bin, cfg.engineSlots) };
+  const buildCtx = { ...ctx, run: sharingEngine(run, [cfg.bin, cfg.atlas.command], cfg.engineSlots) };
   const building = (queue: string, job: { id: string; data: BuildJob }) =>
     inQueueSpan(job, queue, () => runJob(job.data.buildId, buildCtx, job.data.attempt ?? 1, { ...(job.data.userId ? { userId: job.data.userId } : {}), ...(job.data.more ? { more: job.data.more } : {}) }));
   await reapTimed();
@@ -192,7 +200,6 @@ async function once(what: string) {
   }
 }
 
-const command = process.argv[2] ?? "work";
 if (command === "migrate") {
   await runMigrations(env.DATABASE_URL, env.MIGRATIONS_DIR);
   console.log("migrations applied");
@@ -203,6 +210,6 @@ if (command === "migrate") {
 } else if (command === "work") {
   await work();
 } else {
-  console.error(`unknown command ${command}: work, seed, rebuild, cleanup or migrate`);
+  console.error(`unknown command ${command}: work, seed, rebuild, cleanup, migrate or atlas`);
   process.exit(2);
 }

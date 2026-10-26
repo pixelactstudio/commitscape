@@ -163,7 +163,7 @@ The repository's whole default-branch history as a map to explore: one hex for e
 _Avoid_: galaxy, 3D view, city.
 
 **Atlas**:
-The compact binary history the Universe is made from: the files, folders and people of a Pack and every commit on the Mainline by when it arrived, Merge Commits left out. It is made once per Pack.
+The compact binary history the Universe is made from: the files, folders and people of a Pack and every commit on the Mainline by when it arrived, Merge Commits left out. The Builder makes it once per Pack, from rows the Build writes beside it, and stores it before the Pack is published; the Site only sends it, and makes it itself only for a Pack the Builder did not.
 _Avoid_: payload, snapshot, graph.
 
 **Branch state**:
