@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use clap::Args;
 use commitscape_core::{CommitFlags, Index, Oid};
+use commitscape_index::graph::CommitGraph;
 use commitscape_index::mainline::mainline_since;
 use commitscape_index::{load, GixRepo, LineStore, Loaded, Mainline, RepoSource};
 use commitscape_metrics::Span;
@@ -65,7 +66,7 @@ struct Read {
     mainline: Mainline,
     lines: Option<LineCount>,
     accounts: HashMap<String, String>,
-    known: Option<HashSet<Oid>>,
+    known: Option<Vec<bool>>,
     moved: Option<Vec<bool>>,
     counted: Option<HashSet<Oid>>,
     mark: Mark,
@@ -81,14 +82,25 @@ fn read(args: &ExportArgs) -> anyhow::Result<Read> {
     let mut meter = ProgressLine::new();
     let mut loaded = load(&repo, &options, &mut |p| meter.show(p))?;
     meter.clear();
+    let truncated = loaded.index.history_truncated;
+    let mut graph = (!truncated)
+        .then(|| CommitGraph::of(&repo, &options, &loaded.index, loaded.lineage))
+        .transpose()?;
     let known = match (&args.after, args.lineage) {
-        (Some(file), Some(lineage)) if lineage == loaded.lineage => {
-            repo.ancestors(&frontier(file)?)?
-        }
+        (Some(file), Some(lineage)) if lineage == loaded.lineage => match &graph {
+            Some(g) => g.reached_from(&loaded.index, &frontier(file)?),
+            None => repo.ancestors(&frontier(file)?)?.map(|reached| {
+                loaded
+                    .index
+                    .commits
+                    .iter()
+                    .map(|c| reached.contains(&c.id))
+                    .collect()
+            }),
+        },
         _ => None,
     };
     let ignored = repo.blame_ignore_revs()?;
-    let truncated = loaded.index.history_truncated;
     let fingerprint = fingerprint(
         args.common.metrics().max_changeset_size,
         &ignored,
@@ -100,7 +112,14 @@ fn read(args: &ExportArgs) -> anyhow::Result<Read> {
         .and_then(Mark::parse)
         .filter(|m| known.is_some() && m.fingerprint == fingerprint);
     let before = held.and_then(|m| m.head).filter(|_| !truncated);
-    let (mainline, moved) = mainline_since(&repo, &loaded.index, before)?;
+    let (mainline, moved) = match graph.as_mut() {
+        Some(g) => {
+            let found = g.mainline_since(&loaded.index, before);
+            g.keep(&loaded.index);
+            found
+        }
+        None => mainline_since(&repo, &loaded.index, before)?,
+    };
     let lines = if args.no_lines {
         None
     } else {
@@ -187,7 +206,7 @@ fn write_export(r: &Read, args: &ExportArgs) -> anyhow::Result<Manifest> {
                 bits: &r.mainline.bits,
                 arrival: &r.mainline.arrival,
             },
-            known: r.known.as_ref(),
+            known: r.known.as_deref(),
             since: Since {
                 moved: r.moved.as_deref(),
                 counted: r.counted.as_ref(),

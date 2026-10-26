@@ -53,7 +53,7 @@ A repository's Index at one head as the engine service reads it, with its people
 _Avoid_: snapshot, bundle, cache, export.
 
 **Mainline**:
-The commits of a Stored Index that the default branch holds: every commit reachable from HEAD, and among them the first-parent line, the commits HEAD itself went through. The Stored Index also holds commits only other branches and tags reach, which never reached the default branch; the Mainline tells them apart. A Build works it out again each time, since a merge brings older commits into it.
+The commits of a Stored Index that the default branch holds: every commit reachable from HEAD, and among them the first-parent line, the commits HEAD itself went through. The Stored Index also holds commits only other branches and tags reach, which never reached the default branch; the Mainline tells them apart. A Build brings it up to date from the commits added since, walking only the new part of the first-parent line, and works it out again whole when that line no longer runs through the head it was last worked out for, since a merge can bring older commits into it.
 _Avoid_: main branch, trunk, reachable commits.
 
 **Main Arrival**:

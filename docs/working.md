@@ -144,7 +144,11 @@ instead of the clone's path, so the Build's two clones share one cache and
 the history is walked once. `--after FILE --lineage N` writes only the
 commits the frontier in FILE does not reach, and `--since MARK`, the mark
 the last loaded export left, narrows the earlier commits' rows to the
-Mainline that moved and the Lines Changed counted since. `--anchor SECONDS` ends every Window there
+Mainline that moved and the Lines Changed counted since. Beside the Index
+the cache keeps its commit graph (`graph`: each commit's parents by place,
+and the Mainline of the head it was last worked out for); a Build brings it
+up to date from the commits added since, so the Mainline and the commits
+the frontier reaches come from memory instead of from walking git. `--anchor SECONDS` ends every Window there
 instead of now, so the output comes out the same every time.
 `COMMITSCAPE_SITE` points `share` at another Site.
 

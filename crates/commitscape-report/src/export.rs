@@ -26,7 +26,7 @@ pub struct Export<'a> {
     pub release_commits: &'a [(String, Oid)],
     pub lines: Option<Lines<'a>>,
     pub mainline: Mainline<'a>,
-    pub known: Option<&'a HashSet<Oid>>,
+    pub known: Option<&'a [bool]>,
     pub since: Since<'a>,
     pub mark: String,
     pub lineage: u64,
@@ -93,7 +93,7 @@ pub fn write(e: &Export<'_>, dir: &Path) -> std::io::Result<Manifest> {
         .commits
         .iter()
         .enumerate()
-        .filter(|(_, c)| e.known.is_none_or(|k| !k.contains(&c.id)))
+        .filter(|(i, _)| e.known.is_none_or(|k| !k.get(*i).copied().unwrap_or(false)))
         .map(|(i, _)| i)
         .collect();
 
@@ -330,7 +330,7 @@ fn write_mainline(dir: &Path, index: &Index, e: &Export<'_>) -> std::io::Result<
                 .since
                 .moved
                 .is_none_or(|m| m.get(at).copied().unwrap_or(true));
-            if !moved || !known.contains(&c.id) {
+            if !moved || !known.get(at).copied().unwrap_or(false) {
                 continue;
             }
             out.oid(c.id).num(c.flags.0 | e.mainline.bits(at));
@@ -349,7 +349,7 @@ fn write_lines(dir: &Path, index: &Index, e: &Export<'_>) -> std::io::Result<()>
     if let Some(known) = e.known {
         for (at, c) in index.commits.iter().enumerate() {
             let counted = e.since.counted.is_none_or(|s| s.contains(&c.id));
-            if !counted || !known.contains(&c.id) || !settled(e, at) {
+            if !counted || !known.get(at).copied().unwrap_or(false) || !settled(e, at) {
                 continue;
             }
             out.oid(c.id);
@@ -672,7 +672,7 @@ mod tests {
 
     fn export(
         index: &Index,
-        known: Option<&HashSet<Oid>>,
+        known: Option<&[bool]>,
         lines: Option<Lines<'_>>,
         dir: &Path,
     ) -> Manifest {
@@ -681,7 +681,7 @@ mod tests {
 
     fn export_since(
         index: &Index,
-        known: Option<&HashSet<Oid>>,
+        known: Option<&[bool]>,
         lines: Option<Lines<'_>>,
         since: Since<'_>,
         dir: &Path,
@@ -785,12 +785,12 @@ mod tests {
     fn an_export_after_known_commits_holds_what_is_new_and_the_lines_settled_since() {
         let repo = repo();
         let index = index_of(&repo);
-        let known: HashSet<Oid> = index.commits.iter().take(2).map(|c| c.id).collect();
+        let known: Vec<bool> = (0..index.commits.len()).map(|i| i < 2).collect();
         let dir = scratch("after");
         let settled = [true, false, true];
         let m = export(
             &index,
-            Some(&known),
+            Some(known.as_slice()),
             Some(Lines {
                 settled: &settled,
                 counted: 2,
@@ -817,14 +817,14 @@ mod tests {
     fn an_export_after_a_mark_that_holds_writes_only_the_mainline_that_moved_and_the_lines_counted_since(
     ) {
         let index = index_of(&repo());
-        let known: HashSet<Oid> = index.commits.iter().map(|c| c.id).collect();
+        let known: Vec<bool> = vec![true; index.commits.len()];
         let dir = scratch("since");
         let settled = [true; 3];
         let moved = [false, true, false];
         let counted: HashSet<Oid> = [index.commits[2].id].into_iter().collect();
         let m = export_since(
             &index,
-            Some(&known),
+            Some(known.as_slice()),
             Some(Lines {
                 settled: &settled,
                 counted: 3,

@@ -6,7 +6,7 @@ use gix::objs::TreeRefIter;
 use crate::mailmap::Mailmap;
 use crate::source::{
     BlameCommit, BlameSource, BlameThreads, BlobSink, CommitSink, HeadChange, HeadEntry, InParent,
-    Indexed, LineSink, LineWork, Moves, RepoSource, WalkStats,
+    Indexed, LineSink, LineWork, Moves, Parents, RepoSource, WalkStats,
 };
 
 macro_rules! git_ctx {
@@ -488,6 +488,56 @@ impl RepoSource for GixRepo {
             visit(Self::to_oid(info.id.as_ref())?, time, &parents);
         }
         Ok(Some(Self::to_oid(head.as_ref())?))
+    }
+
+    fn history_parents(&self, visit: &mut dyn FnMut(Oid, &[Oid])) -> Result<(), Self::Error> {
+        let tips: Vec<gix::ObjectId> = self.tips_gix()?.into_iter().map(|(_, id)| id).collect();
+        if tips.is_empty() {
+            return Ok(());
+        }
+        let walk = git_ctx!(
+            self.repo.rev_walk(tips).all(),
+            "walking the history the refs reach"
+        )?;
+        let mut parents = Vec::new();
+        for info in walk {
+            let info = git_ctx!(info, "walking the history the refs reach")?;
+            parents.clear();
+            for p in &info.parent_ids {
+                parents.push(Self::to_oid(p.as_ref())?);
+            }
+            visit(Self::to_oid(info.id.as_ref())?, &parents);
+        }
+        Ok(())
+    }
+
+    fn parents_of(&self, ids: &[Oid]) -> Result<Vec<Option<Parents>>, Self::Error> {
+        let time_of = |id: gix::ObjectId| -> Result<Option<i64>, GixError> {
+            let Ok(commit) = self.repo.find_commit(id) else {
+                return Ok(None);
+            };
+            Ok(Some(
+                git_ctx!(commit.time(), "reading a commit time")?.seconds,
+            ))
+        };
+        let mut out = Vec::with_capacity(ids.len());
+        for id in ids {
+            let Some(found) = Self::to_gix(*id).and_then(|id| self.repo.find_commit(id).ok())
+            else {
+                out.push(None);
+                continue;
+            };
+            let mut parents = Vec::new();
+            for p in found.parent_ids() {
+                let Some(time) = time_of(p.detach())? else {
+                    parents.clear();
+                    break;
+                };
+                parents.push((Self::to_oid(p.as_ref())?, time));
+            }
+            out.push((parents.len() == found.parent_ids().count()).then_some(parents));
+        }
+        Ok(out)
     }
 
     fn blame_ignore_revs(&self) -> Result<Vec<Oid>, Self::Error> {
