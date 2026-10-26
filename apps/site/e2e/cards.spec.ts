@@ -10,10 +10,16 @@ test.beforeAll(async ({ browser }) => {
   await page.goto("/u/alice");
   await expect(page.getByRole("group", { name: "Lines merged", exact: true })).not.toContainText("—", { timeout: 30_000 });
   await context.close();
+  const other = await browser.newContext();
+  await signInAs(other, "bob");
+  const seen = await other.newPage();
+  await seen.goto("/u/alice");
+  await expect(seen.getByRole("group", { name: "Lines merged", exact: true })).not.toContainText("—", { timeout: 30_000 });
+  await other.close();
 });
 
 test("a person's Cards are served as animated SVG and still PNG, light and dark, from a stored copy", async ({ request }) => {
-  await expect.poll(async () => (await request.get("/api/cards/u/alice/totals.svg")).headers()["cache-control"], { timeout: 60_000 }).toBe("public, max-age=21600");
+  await expect.poll(async () => (await request.get("/api/cards/u/alice/totals.svg")).headers()["cache-control"], { timeout: 30_000 }).toBe("public, max-age=21600");
   const svg = await request.get("/api/cards/u/alice/totals.svg");
   expect(svg.status()).toBe(200);
   expect(svg.headers()["content-type"]).toBe("image/svg+xml");
