@@ -1,0 +1,116 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 520" width="900" height="520" role="img" aria-labelledby="title desc">
+<title id="title">commitscape: who talks to whom</title>
+<desc id="desc">Browsers, the CLI, MCP clients and README embeds reach the Site through Cloudflare; signed-out visitors land on a static landing page on Cloudflare Pages. The Site asks the engine service for answers with a pack key, keeps rows and the Build queue in Postgres, keeps files in R2, and reads GitHub's API and webhooks. The Builder takes Builds from the queue, clones from GitHub, copies rows into Postgres and uploads packs to R2, which the engine service fetches once.</desc>
+<style>
+svg{--bg:#ffffff;--fg:#1f2328;--mute:#59636e;--line:#d1d9e0;--panel:#ffffff;--soft:#f6f8fa;--acc:#1a7f37;--accs:#e6f4ea;--warn:#9a6700;--warns:#fff8c5;--onacc:#ffffff}
+@media (prefers-color-scheme:dark){svg{--bg:#0d1117;--fg:#e6edf3;--mute:#9198a1;--line:#3d444d;--panel:#151b23;--soft:#212830;--acc:#3fb950;--accs:#12261e;--warn:#d29922;--warns:#2b2111;--onacc:#0d1117}}
+text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans",Helvetica,Arial,sans-serif;fill:var(--fg);font-size:11px}
+.tt{font-size:13px;font-weight:650}
+.t{font-size:11.5px;font-weight:600}
+.s{font-size:10px;fill:var(--mute)}
+.m{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;font-size:10.5px}
+.lbl{font-size:10px;fill:var(--mute);paint-order:stroke;stroke:var(--bg);stroke-width:4px;stroke-linejoin:round}
+.bg{fill:var(--bg);stroke:var(--line)}
+.box{fill:var(--panel);stroke:var(--line)}
+.svc{fill:var(--panel);stroke:var(--acc);stroke-width:1.5}
+.pill{fill:var(--soft)}
+.store{fill:var(--accs);stroke:var(--acc)}
+.ext{fill:var(--panel);stroke:var(--mute);stroke-dasharray:4 3}
+.band{fill:var(--soft);stroke:var(--line)}
+.ar{stroke:var(--mute);stroke-width:1.3;fill:none}
+.dash{stroke-dasharray:4 3}
+.ah{fill:var(--mute)}
+</style>
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0L10,5L0,10z"/></marker></defs>
+<rect class="bg" x="0.5" y="0.5" width="899" height="519" rx="10"/>
+
+<g class="n"><rect class="box" x="324" y="16" width="190" height="52" rx="8"/>
+<text class="t" x="419" y="37" text-anchor="middle">Landing page</text>
+<text class="s" x="419" y="54" text-anchor="middle">static, on Cloudflare Pages</text></g>
+
+<g class="n"><rect class="box" x="16" y="100" width="164" height="48" rx="8"/>
+<text class="t" x="98" y="120" text-anchor="middle">Browser</text>
+<text class="s" x="98" y="136" text-anchor="middle">pages and the API</text></g>
+<g class="n"><rect class="box" x="16" y="164" width="164" height="48" rx="8"/>
+<text class="t m" x="98" y="184" text-anchor="middle">commitscape share</text>
+<text class="s" x="98" y="200" text-anchor="middle">uploads a locked Report</text></g>
+<g class="n"><rect class="box" x="16" y="228" width="164" height="48" rx="8"/>
+<text class="t" x="98" y="248" text-anchor="middle">MCP client</text>
+<text class="s" x="98" y="264" text-anchor="middle">reads Reports at /mcp</text></g>
+<g class="n"><rect class="box" x="16" y="292" width="164" height="48" rx="8"/>
+<text class="t" x="98" y="312" text-anchor="middle">README embeds</text>
+<text class="s" x="98" y="328" text-anchor="middle">Cards, open to anyone</text></g>
+
+<g class="n"><rect class="band" x="206" y="100" width="92" height="240" rx="8"/>
+<text class="t" x="252" y="196" text-anchor="middle">Cloudflare</text>
+<text class="s" x="252" y="214" text-anchor="middle">DNS · proxy</text>
+<text class="s" x="252" y="228" text-anchor="middle">SSL</text>
+<text class="s" x="252" y="242" text-anchor="middle">cache rules</text>
+<text class="s" x="252" y="256" text-anchor="middle">bot checks</text></g>
+
+<g class="n"><rect class="svc" x="324" y="100" width="190" height="240" rx="10"/>
+<text class="tt" x="419" y="124" text-anchor="middle">Site</text>
+<text class="s" x="419" y="140" text-anchor="middle">Node · TanStack Start</text>
+<g class="n"><rect class="pill" x="334" y="154" width="170" height="26" rx="6"/><text class="s" x="419" y="171" text-anchor="middle">pages, for people signed in</text></g>
+<g class="n"><rect class="pill" x="334" y="186" width="170" height="26" rx="6"/><text class="s" x="419" y="203" text-anchor="middle">open: Cards, Shared Reports</text></g>
+<g class="n"><rect class="pill" x="334" y="218" width="170" height="26" rx="6"/><text class="s" x="419" y="235" text-anchor="middle">API · webhooks · MCP</text></g>
+<g class="n"><rect class="pill" x="334" y="250" width="170" height="26" rx="6"/><text class="s" x="419" y="267" text-anchor="middle">keeps the answers it sent</text></g>
+<g class="n"><rect class="pill" x="334" y="282" width="170" height="26" rx="6"/><text class="s" x="419" y="299" text-anchor="middle">never runs git</text></g></g>
+
+<g class="n"><rect class="svc" x="576" y="160" width="140" height="146" rx="10"/>
+<text class="tt" x="646" y="184" text-anchor="middle">Engine service</text>
+<text class="s" x="646" y="200" text-anchor="middle">Rust, private network</text>
+<g class="n"><rect class="pill" x="586" y="212" width="120" height="24" rx="6"/><text class="s" x="646" y="228" text-anchor="middle">answers any Window</text></g>
+<g class="n"><rect class="pill" x="586" y="242" width="120" height="24" rx="6"/><text class="s" x="646" y="258" text-anchor="middle">Code and Universe</text></g>
+<g class="n"><rect class="pill" x="586" y="272" width="120" height="24" rx="6"/><text class="s" x="646" y="288" text-anchor="middle">keeps its packs</text></g></g>
+
+<g class="n"><rect class="ext" x="760" y="100" width="124" height="86" rx="8"/>
+<text class="t" x="822" y="121" text-anchor="middle">GitHub</text>
+<text class="s" x="822" y="139" text-anchor="middle">REST · GraphQL API</text>
+<text class="s" x="822" y="154" text-anchor="middle">webhooks</text>
+<text class="s" x="822" y="169" text-anchor="middle">git clone, fetch</text></g>
+
+<g class="n"><rect class="svc" x="760" y="392" width="124" height="72" rx="10"/>
+<text class="tt" x="822" y="413" text-anchor="middle">Builder</text>
+<text class="s" x="822" y="430" text-anchor="middle">Node + the CLI</text>
+<text class="s" x="822" y="445" text-anchor="middle">clone, build, load</text></g>
+
+<g class="n"><path class="store" d="M324,404 v66 a95,9 0 0 0 190,0 v-66"/><ellipse class="store" cx="419" cy="404" rx="95" ry="9"/>
+<text class="t" x="419" y="434" text-anchor="middle">Postgres</text>
+<text class="s" x="419" y="450" text-anchor="middle">Stored Index rows, accounts</text>
+<text class="s" x="419" y="464" text-anchor="middle">Builds, pg-boss queue</text></g>
+
+<g class="n"><path class="store" d="M576,404 v66 a70,9 0 0 0 140,0 v-66"/><ellipse class="store" cx="646" cy="404" rx="70" ry="9"/>
+<text class="t" x="646" y="434" text-anchor="middle">R2, private</text>
+<text class="s" x="646" y="450" text-anchor="middle">packs, file text</text>
+<text class="s" x="646" y="464" text-anchor="middle">Atlas, Cards, shares</text></g>
+
+<path class="ar" d="M98,100 V42 H322" marker-end="url(#a)"/>
+<text class="lbl" x="214" y="36" text-anchor="middle">signed out</text>
+<path class="ar dash" d="M419,68 V98" marker-end="url(#a)"/>
+<text class="lbl" x="427" y="88">links to sign in, shows Cards</text>
+<line class="ar" x1="180" y1="124" x2="204" y2="124" marker-end="url(#a)"/>
+<line class="ar" x1="180" y1="188" x2="204" y2="188" marker-end="url(#a)"/>
+<line class="ar" x1="180" y1="252" x2="204" y2="252" marker-end="url(#a)"/>
+<line class="ar" x1="180" y1="316" x2="204" y2="316" marker-end="url(#a)"/>
+<line class="ar" x1="298" y1="220" x2="322" y2="220" marker-end="url(#a)"/>
+<line class="ar" x1="514" y1="118" x2="758" y2="118" marker-end="url(#a)"/>
+<text class="lbl" x="636" y="112" text-anchor="middle">reads facts, Profiles</text>
+<line class="ar" x1="758" y1="150" x2="516" y2="150" marker-end="url(#a)"/>
+<text class="lbl" x="636" y="144" text-anchor="middle">webhooks</text>
+<line class="ar" x1="514" y1="232" x2="574" y2="232" marker-end="url(#a)"/>
+<text class="lbl" x="545" y="225" text-anchor="middle">pack key</text>
+<line class="ar" x1="646" y1="306" x2="646" y2="393" marker-end="url(#a)"/>
+<text class="lbl" x="654" y="356">each pack, once</text>
+<line class="ar" x1="419" y1="340" x2="419" y2="393" marker-end="url(#a)"/>
+<text class="lbl" x="411" y="372" text-anchor="end">rows · sessions · queue</text>
+<path class="ar" d="M480,340 V378 H604 V393" marker-end="url(#a)"/>
+<text class="lbl" x="542" y="371" text-anchor="middle">files, Atlas, Cards</text>
+<line class="ar" x1="840" y1="392" x2="840" y2="188" marker-end="url(#a)"/>
+<text class="lbl" x="832" y="290" text-anchor="end">git clone, fetch</text>
+<text class="lbl" x="832" y="304" text-anchor="end">GraphQL</text>
+<line class="ar" x1="758" y1="428" x2="718" y2="428" marker-end="url(#a)"/>
+<text class="lbl" x="738" y="421" text-anchor="middle">packs</text>
+<path class="ar" d="M800,464 V500 H419 V481" marker-start="url(#a)" marker-end="url(#a)"/>
+<text class="lbl" x="610" y="494" text-anchor="middle">takes Builds from the queue, copies rows in</text>
+</svg>
