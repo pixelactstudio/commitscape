@@ -24,14 +24,24 @@ import {
   type SurvivalJob,
 } from "@commitscape/server";
 import { configOf, loadEnv, type Config } from "./config";
+import { inQueueSpan, log, monitored, startTelemetry } from "./telemetry";
 import { inUse, prune, sweep } from "./disk";
 import { runJob } from "./job";
 import { jobLimitOf, run } from "./run";
 import { pullsToken, readPulls } from "./pulls";
 import { budgetOf, runSurvival } from "./survival";
+import { queueRebuilds } from "./rebuild";
 import { queueSeeds, seedConfig, seedList } from "./seeds";
 
 const env = loadEnv();
+const telemetry = startTelemetry({
+  sentryDsn: env.SENTRY_DSN,
+  environment: env.SENTRY_ENVIRONMENT,
+  tracesSampleRate: env.SENTRY_TRACES_SAMPLE_RATE,
+  posthogKey: env.POSTHOG_KEY,
+  posthogHost: env.POSTHOG_HOST,
+  analyticsSecret: env.TOKEN_SECRET,
+});
 const cfg = configOf(env);
 const storage = s3Storage({
   endpoint: env.S3_ENDPOINT,
@@ -45,7 +55,8 @@ const app = env.GITHUB_APP_ID && env.GITHUB_APP_PRIVATE_KEY ? { appId: env.GITHU
 
 const site = siteToken(app, env.GITHUB_APP_INSTALLATION_ID ?? null, env.GITHUB_TOKEN);
 
-const REAP_EVERY = 5 * 60 * 1000;
+const REAP_MINUTES = 5;
+const TIDY_MINUTES = 15;
 const PULLS_AGAIN_SECONDS = 60;
 
 /** The lane a Build runs in: large repositories wait for each other, never for small ones. */
@@ -76,44 +87,47 @@ async function work() {
     const seconds = budgetOf(env.SURVIVING_BUDGET_SECONDS, job.attempt) * job.personIds.length + cfg.timeLimit + cfg.cloneLimit + 300;
     await boss.send(SURVIVAL_QUEUE, job, { singletonKey: survivalKey(job), expireInSeconds: Math.min(LONGEST_JOB_SECONDS, Math.ceil(seconds)) });
   };
-  const sendBuild = async (queue: string, job: BuildJob, priority: number) => {
-    await boss.send(queue, job, { priority, singletonKey: buildKey(job), expireInSeconds: Math.min(LONGEST_JOB_SECONDS, jobLimitOf(cfg, job.attempt ?? 1)) });
+  const sendBuild = async (queue: string, job: BuildJob, priority: number, startAfter?: number) => {
+    await boss.send(queue, job, { priority, singletonKey: buildKey(job), expireInSeconds: Math.min(LONGEST_JOB_SECONDS, jobLimitOf(cfg, job.attempt ?? 1)), ...(startAfter ? { startAfter } : {}) });
   };
-  const queueBuild = async (job: BuildJob & { attempt: number }, priority: number) => {
+  const queueBuild = async (job: BuildJob & { attempt: number }, priority: number, startAfter?: number) => {
     const lane = await laneOf(db, cfg, job.buildId);
-    await sendBuild(lane?.queue ?? BUILD_QUEUE, job, priority);
+    await sendBuild(lane?.queue ?? BUILD_QUEUE, { queuedAt: Date.now(), ...job }, priority, startAfter);
   };
   const tidy = async () => {
-    for (const p of await sweep(db, cfg).catch(() => [])) console.log(`swept ${p}`);
+    for (const p of await sweep(db, cfg).catch(() => [])) log(`swept ${p}`);
     const keep = await inUse(db, cfg).catch(() => null);
-    if (keep) for (const p of await prune(cfg.work, cfg.diskGb * 1024 ** 3, keep)) console.log(`pruned ${p}`);
+    if (keep) for (const p of await prune(cfg.work, cfg.diskGb * 1024 ** 3, keep)) log(`pruned ${p}`);
   };
   const reap = async () => {
-    const reaped = await reapBuilds(db, (id) => buildJobStates(boss, id), bossQueue(boss)).catch((e: unknown) => {
-      console.log(`reaper: ${(e as Error).message}`);
-      return null;
-    });
-    if (reaped && reaped.failed + reaped.resent > 0) console.log(`reaper: ${reaped.failed} Builds ended, ${reaped.resent} sent again`);
+    const reaped = await reapBuilds(db, (id) => buildJobStates(boss, id), bossQueue(boss));
+    if (reaped.failed + reaped.resent > 0) log(`reaper: ${reaped.failed} Builds ended, ${reaped.resent} sent again`);
   };
-  const ctx = { db, pool, storage, cfg, app, run, github, tokenSecret: env.TOKEN_SECRET, log: console.log, queuePulls, queueCounts, queueBuild };
-  await reap();
-  await tidy();
-  const reaper = setInterval(() => void reap(), REAP_EVERY);
+  const timed = (slug: string, minutes: number, fn: () => Promise<void>) => () => monitored(slug, minutes, fn).catch((e: unknown) => log(`${slug}: ${(e as Error).message}`));
+  const reapTimed = timed("builder-reaper", REAP_MINUTES, reap);
+  const tidyTimed = timed("builder-tidy", TIDY_MINUTES, tidy);
+  const ctx = { db, pool, storage, cfg, app, run, github, tokenSecret: env.TOKEN_SECRET, log, telemetry, queuePulls, queueCounts, queueBuild };
+  const building = (queue: string, job: { id: string; data: BuildJob }) =>
+    inQueueSpan(job, queue, () => runJob(job.data.buildId, ctx, job.data.attempt ?? 1, { ...(job.data.userId ? { userId: job.data.userId } : {}), ...(job.data.more ? { more: job.data.more } : {}) }));
+  await reapTimed();
+  await tidyTimed();
+  const reaper = setInterval(() => void reapTimed(), REAP_MINUTES * 60_000);
+  const tidier = setInterval(() => void tidyTimed(), TIDY_MINUTES * 60_000);
   await boss.work<BuildJob>(BUILD_QUEUE, { localConcurrency: cfg.concurrency, batchSize: 1 }, async ([job]) => {
     if (!job) return;
     await site.ready();
     const lane = await laneOf(db, cfg, job.data.buildId);
     if (lane?.queue === BUILD_LARGE_QUEUE) {
-      await sendBuild(BUILD_LARGE_QUEUE, { ...job.data, repoId: lane.repoId }, lane.seed ? PRIORITY.seed : PRIORITY.person);
+      await sendBuild(BUILD_LARGE_QUEUE, { ...job.data, repoId: lane.repoId }, job.data.more ? PRIORITY.lines : lane.seed ? PRIORITY.seed : PRIORITY.person);
       return;
     }
-    await runJob(job.data.buildId, ctx, job.data.attempt ?? 1);
+    await building(BUILD_QUEUE, job);
     await tidy();
   });
   await boss.work<BuildJob>(BUILD_LARGE_QUEUE, { localConcurrency: cfg.largeConcurrency, batchSize: 1 }, async ([job]) => {
     if (!job) return;
     await site.ready();
-    await runJob(job.data.buildId, ctx, job.data.attempt ?? 1);
+    await building(BUILD_LARGE_QUEUE, job);
     await tidy();
   });
   await boss.work<SurvivalJob>(SURVIVAL_QUEUE, { localConcurrency: 1, batchSize: 1 }, async ([job]) => {
@@ -130,20 +144,22 @@ async function work() {
     if (!token) return;
     const before = repo.pullsCursor;
     const read = await readPulls(db, { ...github, token }, repo.id, repo.owner, repo.name, Date.now() + env.PULLS_TIME_LIMIT_SECONDS * 1000).catch(async (e: unknown) => {
-      console.log(`pulls ${repo.id}: ${(e as Error).message}`);
+      log(`pulls ${repo.id}: ${(e as Error).message}`);
       const [after] = await db.select({ cursor: schema.repositories.pullsCursor }).from(schema.repositories).where(eq(schema.repositories.id, repo.id));
       if (after?.cursor && after.cursor !== before) await boss.send(PULLS_QUEUE, { repoId: repo.id }, { singletonKey: repo.id, startAfter: PULLS_AGAIN_SECONDS }).catch(() => undefined);
       return null;
     });
-    if (read) console.log(`pulls ${repo.id}: ${read.pulls} pull requests in ${read.pages} pages, ${read.seconds.toFixed(1)} s${read.whole ? ", all of them" : ""}${read.done ? "" : ", stopped at the time limit"}`);
+    if (read) log(`pulls ${repo.id}: ${read.pulls} pull requests in ${read.pages} pages, ${read.seconds.toFixed(1)} s${read.whole ? ", all of them" : ""}${read.done ? "" : ", stopped at the time limit"}`);
     if (read && !read.done && read.pages > 0) await boss.send(PULLS_QUEUE, { repoId: repo.id }, { singletonKey: repo.id, startAfter: PULLS_AGAIN_SECONDS }).catch(() => undefined);
   });
-  console.log(`builder working, ${cfg.concurrency} Build${cfg.concurrency > 1 ? "s" : ""} at a time and ${cfg.largeConcurrency} over ${cfg.largeMb} MB; clones in ${cfg.work}`);
+  log(`builder working, ${cfg.concurrency} Build${cfg.concurrency > 1 ? "s" : ""} at a time and ${cfg.largeConcurrency} over ${cfg.largeMb} MB; clones in ${cfg.work}`);
   const stop = async () => {
-    console.log("builder stopping");
+    log("builder stopping");
     clearInterval(reaper);
+    clearInterval(tidier);
     await boss.stop({ graceful: true, timeout: 30_000 });
     await pool.end();
+    await telemetry.stop();
     process.exit(0);
   };
   process.once("SIGTERM", () => void stop());
@@ -162,6 +178,11 @@ async function once(what: string) {
       const queued = await queueSeeds(db, bossQueue(boss), list, s.budget, storage);
       await boss.stop();
       console.log(`seeds: ${list.length} from GitHub's search, ${queued} queued`);
+    } else if (what === "rebuild") {
+      const boss = await startQueue(env.DATABASE_URL, { worker: false });
+      const { queued } = await queueRebuilds(db, bossQueue(boss));
+      await boss.stop();
+      console.log(`rebuild: ${queued} Builds queued for repositories whose Stored Index has no pack`);
     }
   } finally {
     await pool.end();
@@ -172,11 +193,13 @@ const command = process.argv[2] ?? "work";
 if (command === "migrate") {
   await runMigrations(env.DATABASE_URL, env.MIGRATIONS_DIR);
   console.log("migrations applied");
-} else if (command === "cleanup" || command === "seed") {
+  await telemetry.stop();
+} else if (command === "cleanup" || command === "seed" || command === "rebuild") {
   await once(command);
+  await telemetry.stop();
 } else if (command === "work") {
   await work();
 } else {
-  console.error(`unknown command ${command}: work, seed, cleanup or migrate`);
+  console.error(`unknown command ${command}: work, seed, rebuild, cleanup or migrate`);
   process.exit(2);
 }

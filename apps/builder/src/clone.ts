@@ -7,14 +7,18 @@ import type { run as runCommand } from "./run";
 
 export type Cloned = { ok: true; fresh: boolean; seconds: number } | { ok: false; reason: BuildFailure; detail?: string };
 
-/** The environment git runs in: no prompts, and a private repository's token as a header, never in an argument, a URL or the clone's config. */
+/** The environment git runs in: no prompts, a commit-graph kept up to date on every fetch, and a private repository's token as a header, never in an argument, a URL or the clone's config. */
 export function gitEnv(token: string | null): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { GIT_TERMINAL_PROMPT: "0" };
-  if (token) {
-    env.GIT_CONFIG_COUNT = "1";
-    env.GIT_CONFIG_KEY_0 = "http.https://github.com/.extraheader";
-    env.GIT_CONFIG_VALUE_0 = `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`;
-  }
+  const config: [string, string][] = [
+    ["fetch.writeCommitGraph", "true"],
+    ["core.commitGraph", "true"],
+  ];
+  if (token) config.push(["http.https://github.com/.extraheader", `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`]);
+  const env: NodeJS.ProcessEnv = { GIT_TERMINAL_PROMPT: "0", GIT_CONFIG_COUNT: String(config.length) };
+  config.forEach(([key, value], i) => {
+    env[`GIT_CONFIG_KEY_${i}`] = key;
+    env[`GIT_CONFIG_VALUE_${i}`] = value;
+  });
   return env;
 }
 
@@ -81,7 +85,25 @@ export async function ensureClone(
     await rm(temp, { recursive: true, force: true });
     return ran.timedOut ? timedOut : { ok: false, reason: failure(ran.stderr), detail: lastLine(ran.stderr) };
   }
+  if (!how.blobless) await run("git", ["commit-graph", "write", "--reachable", "--no-progress"], { ...how.env, GIT_DIR: join(temp, ".git") }, left());
   await rm(how.dir, { recursive: true, force: true });
   await rename(temp, how.dir);
   return { ok: true, fresh: true, seconds: seconds() };
+}
+
+const inClone = (dir: string, env: NodeJS.ProcessEnv) => ({ ...env, GIT_DIR: join(dir, ".git") });
+
+/** The objects every ref of a clone points at. */
+export async function tipsOf(run: typeof runCommand, dir: string, env: NodeJS.ProcessEnv, timeoutMs: number): Promise<string[]> {
+  const ran = await run("git", ["for-each-ref", "--format=%(objectname)"], inClone(dir, env), timeoutMs);
+  if (ran.code !== 0) return [];
+  return [...new Set((ran.stdout ?? "").split("\n").map((l) => l.trim()).filter((l) => /^[0-9a-f]{40,64}$/.test(l)))];
+}
+
+/** Which of `ids` a clone lacks. */
+export async function missingIn(run: typeof runCommand, dir: string, ids: string[], env: NodeJS.ProcessEnv, timeoutMs: number): Promise<string[]> {
+  if (ids.length === 0) return [];
+  const ran = await run("git", ["cat-file", "--batch-check=%(objectname) %(objecttype)"], inClone(dir, env), timeoutMs, { input: `${ids.join("\n")}\n` });
+  if (ran.code !== 0) return [];
+  return (ran.stdout ?? "").split("\n").flatMap((l) => (l.endsWith(" missing") ? [l.slice(0, -" missing".length)] : []));
 }

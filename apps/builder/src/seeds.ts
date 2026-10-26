@@ -59,7 +59,7 @@ function pause(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-/** Marks the list as Leaderboard seeds under their current names, moving rows kept under older ones, and queues tonight's Builds within the budget. */
+/** Marks the list as seeds under their current names, moving rows kept under older ones, and queues tonight's Builds within the budget. */
 export async function queueSeeds(db: Db, queue: Queue, list: Seed[], budget: number, storage: Storage | null = null): Promise<number> {
   const valid = list.filter((r) => repoId(r.owner, r.name)).slice(0, 500);
   for (const r of valid) {

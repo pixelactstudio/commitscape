@@ -1,40 +1,46 @@
-import { and, eq } from "drizzle-orm";
+import { readFile } from "node:fs/promises";
+import { and, eq, sql } from "drizzle-orm";
 import {
   type createDb,
   liveIndex,
+  LOADED,
   loadExport,
   now,
   PRIORITY,
+  randomId,
   reportPrefix,
   schema,
-  storeReport,
+  sha256,
   type BuildJob,
   type Db,
   type GitHubApp,
+  type Loaded,
   type Storage,
   type SurvivalJob,
 } from "@commitscape/server";
-import type { BuildFailure } from "@commitscape/data";
+import type { BuildFailure, Meta } from "@commitscape/data";
 import { accountsFor } from "./accounts";
 import { replaceIndex } from "./atlas";
-import { issueAnswers, type Answers } from "./answers";
 import type { Config } from "./config";
+import type { SummaryPerson } from "./engine";
 import type { GitHubApi } from "./github";
 import { buildGitData } from "./gitdata";
-import { markMainline } from "./mainline";
-import { peopleOf, type RepoPerson } from "./people";
 import { pullsToken } from "./pulls";
-import { build, BUILD_ATTEMPTS, type Deps, type Made, type Phase } from "./run";
+import { build, BUILD_ATTEMPTS, type Deps, type Made, type Outcome } from "./run";
+import { Phases, type Telemetry } from "./telemetry";
 
-const { builds, repoPeople, repositories, surviving } = schema;
+const { builds, repoPeople, repositories, storedIndexes, surviving } = schema;
 
 export const SEED_COUNTED = 30;
-const MAINLINE_SECONDS = 300;
 const COUNTED_AT_ONCE = 10;
+
+export const MORE_LINES_MAX = 3;
+export const MORE_LINES_AFTER = 60;
 
 export type JobContext = {
   db: Db;
   pool?: ReturnType<typeof createDb>["pool"];
+  loadIndex?: (repoId: string, dir: string) => Promise<Loaded>;
   storage: Storage;
   cfg: Config;
   app: GitHubApp | null;
@@ -42,13 +48,16 @@ export type JobContext = {
   github: GitHubApi;
   tokenSecret?: string;
   log: (line: string) => void;
+  telemetry?: Telemetry;
   queuePulls?: (repoId: string) => Promise<void>;
   queueCounts?: (job: SurvivalJob) => Promise<void>;
-  queueBuild?: (job: BuildJob & { attempt: number }, priority: number) => Promise<void>;
+  queueBuild?: (job: BuildJob & { attempt: number }, priority: number, startAfter?: number) => Promise<void>;
 };
 
-/** Runs one queued Build: claims it, publishes the quick Report without lines as soon as it is made and the full one after, and always leaves the Build ended or queued again; one past its time limit is queued again to go on from the lines it counted. */
-export async function runJob(buildId: string, ctx: JobContext, attempt = 1): Promise<void> {
+export type JobAsked = Pick<BuildJob, "userId" | "more">;
+
+/** Runs one queued Build: claims it, publishes the Stored Index without lines as soon as it is loaded and with them after, and always leaves the Build ended or queued again. One past its time limit is queued again to go on from the lines it counted; one that left commits not counted queues a quiet Build to count them. */
+export async function runJob(buildId: string, ctx: JobContext, attempt = 1, asked: JobAsked = {}): Promise<void> {
   const { db, log } = ctx;
   const [claimed] = await db
     .update(builds)
@@ -57,7 +66,7 @@ export async function runJob(buildId: string, ctx: JobContext, attempt = 1): Pro
     .returning({ id: builds.id });
   if (!claimed) return;
   try {
-    await claimedJob(buildId, ctx, attempt);
+    await claimedJob(buildId, ctx, attempt, asked);
   } catch (e) {
     log(`build ${buildId}: ${(e as Error).message}`);
   } finally {
@@ -69,7 +78,9 @@ export async function runJob(buildId: string, ctx: JobContext, attempt = 1): Pro
   }
 }
 
-async function claimedJob(buildId: string, ctx: JobContext, attempt: number): Promise<void> {
+const said = (phases: Phases) => Object.fromEntries(Object.entries(phases.seconds).map(([k, v]) => [`seconds_${k.replace(/ /g, "_")}`, v]));
+
+async function claimedJob(buildId: string, ctx: JobContext, attempt: number, asked: JobAsked): Promise<void> {
   const { db, log } = ctx;
   const [found] = await db
     .select({ repo: repositories })
@@ -78,6 +89,11 @@ async function claimedJob(buildId: string, ctx: JobContext, attempt: number): Pr
     .where(eq(builds.id, buildId));
   if (!found) return;
   const { repo } = found;
+  const more = asked.more ?? 0;
+  const who = { userId: asked.userId, repo: repo.isPrivate ? `private:${sha256(repo.id).slice(0, 16)}` : repo.id };
+  const phases = new Phases();
+  const about = { attempt, more, private: repo.isPrivate, seed: repo.seed, size_kb: repo.sizeKb ?? null };
+  ctx.telemetry?.capture("build started", who, about);
   const end = (state: "failed" | "done", set: { reason?: BuildFailure | null; detail?: string | null; seconds?: number; partial?: boolean }) =>
     db
       .update(builds)
@@ -87,96 +103,139 @@ async function claimedJob(buildId: string, ctx: JobContext, attempt: number): Pr
   const token = await pullsToken(db, ctx.app, ctx.tokenSecret, repo, null);
   if (repo.isPrivate && !token) {
     await end("failed", { reason: "private", detail: "no installation token" });
+    ctx.telemetry?.capture("build failed", who, { ...about, reason: "private" });
     return;
   }
   const scope = repo.isPrivate ? repo.id : "public";
   const gh: GitHubApi = { ...ctx.github, token: token ?? ctx.github.token };
-  let answers: Answers | null | undefined;
-  const asked = repo.seed ? issueAnswers(db, gh, repo.owner, repo.name, scope).catch(() => null) : Promise.resolve(null);
-  void asked.then((a) => {
-    answers = a;
-  });
-  let pullsQueued = false;
+  let pullsQueued = !!more;
   const started = Date.now();
+  const load = ctx.loadIndex ?? (ctx.pool ? (repoId: string, dir: string) => loadExport(ctx.pool as NonNullable<JobContext["pool"]>, repoId, dir) : null);
 
-  const publish = async (phase: Phase, made: Made): Promise<boolean> => {
-    const target = await publishReport(ctx, buildId, phase, made, phase === "full" ? await asked : answers);
+  const publish = async (made: Made): Promise<boolean> => {
+    const continuing = made.phase === "quick" || (!!ctx.queueBuild && more < MORE_LINES_MAX);
+    const target = await publishBuild(ctx, phases, buildId, made, continuing);
     if (!target) return false;
-    if (phase === "quick") await db.update(builds).set({ partial: true }).where(eq(builds.id, buildId));
+    const at = (Date.now() - started) / 1000;
+    if (made.phase === "quick") {
+      await db.update(builds).set({ partial: true }).where(eq(builds.id, buildId));
+      ctx.telemetry?.capture("build quick published", who, { ...about, kind: phases.kind, seconds: at, commits: made.manifest.total, ...said(phases) });
+    } else {
+      await end("done", { seconds: at, partial: false });
+    }
     if (!pullsQueued) {
       pullsQueued = true;
       await ctx.queuePulls?.(target.id).catch((e: unknown) => log(`pulls for ${target.id} not queued: ${(e as Error).message}`));
     }
-    if (phase === "full" && repo.seed) await queueSeedCounts(ctx, target.id, target.prefix, target.people).catch((e: unknown) => log(`counts for ${target.id} not queued: ${(e as Error).message}`));
-    log(`build ${buildId} ${target.id}: ${phase} Report published after ${((Date.now() - started) / 1000).toFixed(1)} s, made in ${made.seconds} s`);
+    if (made.phase === "full" && repo.seed && target.fresh) await queueSeedCounts(ctx, target.id, target.prefix, target.people).catch((e: unknown) => log(`counts for ${target.id} not queued: ${(e as Error).message}`));
+    log(`build ${buildId} ${target.id}: ${made.phase} Report published after ${at.toFixed(1)} s, built in ${made.seconds} s`);
     return true;
   };
 
+  const currentId = async () => (await db.select({ id: builds.repoId }).from(builds).where(eq(builds.id, buildId)))[0]?.id ?? repo.id;
   const gitCfg = ctx.cfg.git;
-  const pool = ctx.pool;
-  const outcome = await build(
-    { id: buildId, owner: repo.owner, name: repo.name, sizeKb: repo.sizeKb ?? 0, private: repo.isPrivate, token: repo.isPrivate ? token : null, seed: repo.seed, attempt },
-    ctx.cfg,
-    {
-      run: ctx.run,
-      log,
-      progress: async (step) => {
-        await db
-          .update(builds)
-          .set({ step })
-          .where(and(eq(builds.id, buildId), eq(builds.state, "running")));
-      },
-      accounts: async (signatures) => {
-        const found = await accountsFor(db, gh, { owner: repo.owner, name: repo.name, scope }, signatures, ctx.cfg.logins);
-        log(`build ${buildId}: logins for ${Object.keys(found.accounts).length} of ${signatures.length} emails, ${found.asked} asked`);
-        return found.accounts;
-      },
-      publish,
-      ...(pool
-        ? {
-            index: {
-              live: () => liveIndex(db, repo.id),
-              load: async (dir: string) => {
-                const before = await liveIndex(db, repo.id);
-                return replaceIndex(ctx.storage, before, () => loadExport(pool, repo.id, dir));
-              },
-              mainline: async (clone: string, env: NodeJS.ProcessEnv, si: number) => {
-                const m = await markMainline(db, { dir: clone, env, deadline: Date.now() + MAINLINE_SECONDS * 1000 }, si);
-                if (m) log(`mainline of ${repo.id}: ${m.commits} commits from HEAD, ${m.firstParent} first-parent, ${m.changed} rows changed, ${m.releases} releases in ${m.seconds.toFixed(1)} s`);
-              },
+  const outcome = load
+    ? await build(
+        {
+          id: buildId,
+          repo: repo.id,
+          owner: repo.owner,
+          name: repo.name,
+          sizeKb: repo.sizeKb ?? 0,
+          private: repo.isPrivate,
+          token: repo.isPrivate ? token : null,
+          seed: repo.seed,
+          attempt,
+          hasLines: !!repo.reportKey && repo.reportLines !== false,
+          more: more > 0,
+        },
+        ctx.cfg,
+        {
+          run: ctx.run,
+          log,
+          phases,
+          progress: async (step) => {
+            await db
+              .update(builds)
+              .set({ step })
+              .where(and(eq(builds.id, buildId), eq(builds.state, "running")));
+          },
+          accounts: async (signatures) => {
+            const got = await accountsFor(db, gh, { owner: repo.owner, name: repo.name, scope }, signatures, ctx.cfg.logins);
+            log(`build ${buildId}: logins for ${Object.keys(got.accounts).length} of ${signatures.length} emails, ${got.asked} asked in ${got.requests} requests`);
+            return got.accounts;
+          },
+          publish,
+          index: {
+            live: async () => liveIndex(db, await currentId()),
+            load: async (dir: string) => {
+              const id = await currentId();
+              const before = await liveIndex(db, id);
+              return replaceIndex(ctx.storage, before, () => load(id, dir));
             },
-          }
-        : {}),
-      ...(gitCfg
-        ? {
-            git: async (dir: string, env: NodeJS.ProcessEnv) => {
-              await end("done", { seconds: (Date.now() - started) / 1000, partial: false });
-              await buildGitData({ db, storage: ctx.storage, cfg: gitCfg, repoId: repo.id, buildId, dir, env, log, private: repo.isPrivate });
-            },
-          }
-        : {}),
-    },
-  );
+          },
+          ...(gitCfg ? { git: (dir: string, env: NodeJS.ProcessEnv) => buildGitData({ db, storage: ctx.storage, cfg: gitCfg, repoId: repo.id, buildId, dir, env, log, private: repo.isPrivate }).then(() => undefined) } : {}),
+        },
+      )
+    : ({ published: null, seconds: 0, failure: { reason: "error", detail: "no database to load the Stored Index into" }, resumable: false, kind: phases.kind, made: null } satisfies Outcome);
   const why = outcome.failure;
-  log(`build ${buildId} ${repo.id}: ${outcome.published ?? "nothing"} published${why ? `, ${why.reason}` : ""} in ${outcome.seconds} s, attempt ${attempt}`);
+  log(`build ${buildId} ${repo.id}: ${outcome.published ?? "nothing"} published${why ? `, ${why.reason}` : ""} in ${outcome.seconds} s, ${outcome.kind}, attempt ${attempt}${more ? `, more lines ${more}` : ""}`);
+  log(`build ${buildId} steps: ${Object.entries(phases.seconds).map(([step, s]) => `${step} ${s} s`).join(", ") || "none"}`);
+  const summary = { ...about, kind: outcome.kind, seconds: outcome.seconds, commits: outcome.made?.manifest.total ?? null, lines_left: outcome.made?.manifest.lines_left ?? null, ...said(phases) };
   if (why?.reason === "timed_out" && attempt < BUILD_ATTEMPTS && ctx.queueBuild) {
     await db.update(builds).set({ state: "queued", step: null, startedAt: null, requestedAt: now() }).where(eq(builds.id, buildId));
+    const again = { buildId, repoId: repo.id, attempt: attempt + 1, ...(asked.userId ? { userId: asked.userId } : {}), ...(more ? { more } : {}) };
     const queued = await ctx
-      .queueBuild({ buildId, repoId: repo.id, attempt: attempt + 1 }, repo.seed ? PRIORITY.seed : PRIORITY.person)
+      .queueBuild(again, more ? PRIORITY.lines : repo.seed ? PRIORITY.seed : PRIORITY.person)
       .then(() => true)
       .catch((e: unknown) => {
         log(`build ${buildId} not queued again: ${(e as Error).message}`);
         return false;
       });
-    if (queued) return;
+    if (queued) {
+      ctx.telemetry?.capture("build failed", who, { ...summary, reason: why.reason, again: true });
+      return;
+    }
   }
-  if (outcome.published === "full") await end("done", { seconds: outcome.seconds, partial: false });
-  else if (outcome.published === "quick") await end("done", { seconds: outcome.seconds, partial: true, reason: why?.reason ?? "error", detail: why?.detail ?? null });
-  else await end("failed", { reason: why?.reason ?? "error", detail: why?.detail ?? null });
+  if (outcome.published === "full") {
+    await end("done", { seconds: outcome.seconds, partial: false });
+    const left = outcome.made?.manifest.lines_left ?? 0;
+    if (left > 0) await queueMoreLines(ctx, await currentId(), more + 1);
+    ctx.telemetry?.capture("build done", who, summary);
+    return;
+  }
+  if (outcome.published === "quick") {
+    await end("done", { seconds: outcome.seconds, partial: true, reason: why?.reason ?? "error", detail: why?.detail ?? null });
+    await linesOff(db, buildId).catch((e: unknown) => log(`build ${buildId}: ${(e as Error).message}`));
+  } else {
+    await end("failed", { reason: why?.reason ?? "error", detail: why?.detail ?? null });
+  }
+  ctx.telemetry?.capture("build failed", who, { ...summary, reason: why?.reason ?? "error", published: outcome.published });
 }
 
-/** Stores a Report and its commits under the repository's current name, makes it the repository's Report with its people, and deletes the one it replaces; a quick Report never replaces one with lines. */
-async function publishReport(ctx: JobContext, buildId: string, phase: Phase, made: Made, answers: Answers | null | undefined): Promise<{ id: string; prefix: string; people: RepoPerson[] } | null> {
+async function queueMoreLines(ctx: JobContext, repoId: string, more: number): Promise<void> {
+  if (!ctx.queueBuild || more > MORE_LINES_MAX) return;
+  const id = randomId();
+  await ctx.db.insert(builds).values({ id, repoId, state: "queued", requestedAt: now() });
+  await ctx.queueBuild({ buildId: id, repoId, attempt: 1, more }, PRIORITY.lines, MORE_LINES_AFTER).catch(async (e: unknown) => {
+    ctx.log(`more lines for ${repoId} not queued: ${(e as Error).message}`);
+    await ctx.db.update(builds).set({ state: "failed", reason: "paused", detail: String(e), finishedAt: now() }).where(eq(builds.id, id));
+  });
+}
+
+async function linesOff(db: Db, buildId: string): Promise<void> {
+  const [named] = await db.select({ id: repositories.id }).from(builds).innerJoin(repositories, eq(repositories.id, builds.repoId)).where(eq(builds.id, buildId));
+  if (!named) return;
+  await db
+    .update(repositories)
+    .set({ reportMeta: sql`jsonb_set(${repositories.reportMeta}, '{lines}', '"off"')` })
+    .where(and(eq(repositories.id, named.id), eq(repositories.reportLines, false), sql`${repositories.reportMeta}->>'lines' = 'counting'`));
+}
+
+type Published = { id: string; prefix: string; people: SummaryPerson[]; fresh: boolean };
+
+/** Uploads a Build's pack, then makes its Stored Index the repository's Report: the pack's key on the Stored Index, the Report's meta and stats on the repository, its people, and the version the rest compares against, deleting the pack and Report objects it replaces. A quick one never replaces one with lines, and one of the same head and Stored Index keeps its version, so counts made for it stay. */
+async function publishBuild(ctx: JobContext, phases: Phases, buildId: string, made: Made, continuing: boolean): Promise<Published | null> {
   const { db, storage } = ctx;
   const [named] = await db
     .select({ id: repositories.id, reportKey: repositories.reportKey, reportLines: repositories.reportLines })
@@ -184,15 +243,16 @@ async function publishReport(ctx: JobContext, buildId: string, phase: Phase, mad
     .innerJoin(repositories, eq(repositories.id, builds.repoId))
     .where(eq(builds.id, buildId));
   if (!named) return null;
-  if (phase === "quick" && named.reportKey && named.reportLines !== false) return null;
-  const prefix = reportPrefix(named.id, phase === "full" ? buildId : `${buildId}-quick`);
-  const stored = await storeReport(storage, prefix, made.report, { entries: !made.indexed }).catch(async (e: unknown) => {
-    await storage.deletePrefix(`${prefix}/`).catch(() => undefined);
-    throw e;
-  });
-  const { index, bytes } = stored;
-  const stats = made.stats ?? index.stats;
-  const people = peopleOf(made.report);
+  if (made.phase === "quick" && named.reportKey && named.reportLines !== false) return null;
+  const si = made.loaded.si;
+  const pack = `packs/${named.id}/${si}/${made.manifest.head ?? "empty"}-${buildId}-${made.phase === "quick" ? "quick" : "lines"}.pack`;
+  const body = await readFile(made.pack);
+  await phases.time(`upload ${made.phase}`, "http.client", () => storage.put(pack, body, { type: "application/octet-stream" }));
+  const lines = made.phase === "full" && made.manifest.lines_mainline;
+  const same = made.phase === "full" && named.reportLines === true && !made.loaded.full && made.before?.id === si && made.before.head === made.manifest.head;
+  const prefix = same && named.reportKey ? named.reportKey : reportPrefix(named.id, made.phase === "full" ? buildId : `${buildId}-quick`);
+  const { stats, people } = made.summary;
+  const meta: Meta = { ...made.summary.meta, lines: lines ? "counted" : continuing ? "counting" : "off" };
   const target = await db.transaction(async (tx) => {
     const [current] = await tx
       .select({ id: repositories.id, reportKey: repositories.reportKey })
@@ -200,46 +260,56 @@ async function publishReport(ctx: JobContext, buildId: string, phase: Phase, mad
       .innerJoin(repositories, eq(repositories.id, builds.repoId))
       .where(eq(builds.id, buildId));
     if (!current) return null;
+    const [index] = await tx.select({ pack: storedIndexes.pack }).from(storedIndexes).where(eq(storedIndexes.id, si));
+    await tx.update(storedIndexes).set({ pack }).where(eq(storedIndexes.id, si));
     await tx
       .update(repositories)
       .set({
         reportKey: prefix,
         reportAt: now(),
-        reportBytes: bytes,
-        reportLines: phase === "full",
-        ...(stats
-          ? {
-              busFactor: stats.bus_factor,
-              maintainers: stats.maintainers,
-              commits30d: stats.commits_30d,
-              people30d: stats.people_30d,
-              codeLines: stats.code_lines,
-              untouched5y: stats.untouched_5y,
-            }
-          : {}),
-        ...(answers ? { answered: answers.answered, answerHours: answers.typical_hours } : {}),
+        reportBytes: body.length,
+        reportLines: lines,
+        reportMeta: meta,
+        reportStats: stats,
+        busFactor: stats.bus_factor,
+        maintainers: stats.maintainers,
+        commits30d: stats.commits_30d,
+        codeLines: stats.code_lines,
       })
       .where(eq(repositories.id, current.id));
-    const rows = people.map((p) => ({ ...p, repoId: current.id, reportKey: prefix }));
+    const rows = people.map((p) => ({
+      repoId: current.id,
+      personId: p.person_id,
+      name: p.name,
+      login: p.login,
+      commits: p.commits,
+      linesAdded: lines ? p.lines_added : null,
+      linesRemoved: lines ? p.lines_removed : null,
+      first: p.first,
+      last: p.last,
+      reportKey: prefix,
+    }));
     await tx.delete(repoPeople).where(eq(repoPeople.repoId, current.id));
     for (let i = 0; i < rows.length; i += 1000) await tx.insert(repoPeople).values(rows.slice(i, i + 1000));
-    return current;
+    await tx.execute(sql`SELECT pg_notify(${LOADED}, ${String(si)})`);
+    return { current, replaced: index?.pack ?? null };
   });
   if (!target) {
-    await storage.deletePrefix(`${prefix}/`);
+    await storage.delete([pack]).catch(() => undefined);
     return null;
   }
-  if (target.reportKey && target.reportKey !== prefix) await storage.deletePrefix(`${target.reportKey}/`);
-  return { id: target.id, prefix, people };
+  if (target.replaced && target.replaced !== pack) await storage.delete([target.replaced]).catch(() => undefined);
+  if (target.current.reportKey && target.current.reportKey !== prefix) await storage.deletePrefix(`${target.current.reportKey}/`).catch(() => undefined);
+  return { id: target.current.id, prefix, people, fresh: target.current.reportKey !== prefix };
 }
 
-async function queueSeedCounts(ctx: JobContext, repoId: string, reportKey: string, people: RepoPerson[]): Promise<void> {
+async function queueSeedCounts(ctx: JobContext, repoId: string, reportKey: string, people: SummaryPerson[]): Promise<void> {
   if (!ctx.queueCounts) return;
   const ids = people
     .filter((p) => p.login && !p.login.endsWith("[bot]"))
     .sort((a, b) => b.commits - a.commits)
     .slice(0, SEED_COUNTED)
-    .map((p) => p.personId);
+    .map((p) => p.person_id);
   if (ids.length === 0) return;
   await ctx.db.insert(surviving).values(ids.map((personId) => ({ repoId, reportKey, personId, status: "queued", askedAt: now() }))).onConflictDoNothing();
   for (let i = 0; i < ids.length; i += COUNTED_AT_ONCE) await ctx.queueCounts({ repoId, reportKey, personIds: ids.slice(i, i + COUNTED_AT_ONCE) });

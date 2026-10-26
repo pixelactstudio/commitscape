@@ -3,6 +3,8 @@ WORKDIR /src
 COPY Cargo.toml Cargo.lock rust-toolchain.toml clippy.toml ./
 COPY .cargo .cargo
 COPY crates crates
+COPY apps/engine/Cargo.toml apps/engine/Cargo.toml
+COPY apps/engine/src apps/engine/src
 COPY xtask xtask
 RUN cargo build --profile dist -p commitscape
 
