@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 
 use commitscape_core::{AuthorId, ChangeKind, CommitFlags, FileClass, FileId, Index, Oid};
 
-use crate::blame::{blame_in_threads, spans_at, BlameFile, Walked};
+use crate::blame::{blame_in_threads, spans_at, BlameFile, Walked, BATCH_BYTES};
 use crate::cache::{BlameStore, CacheOptions, Known, Moved};
 use crate::lines::MAX_BYTES;
 use crate::similarity::rename_source;
@@ -35,6 +35,7 @@ pub struct Survival<'i> {
     paths: Option<HashMap<FileId, Vec<Vec<u8>>>>,
     commit_at: HashMap<Oid, usize>,
     files_at: HashMap<Vec<u8>, Vec<FileId>>,
+    batch_bytes: usize,
 }
 
 impl<'i> Survival<'i> {
@@ -101,6 +102,7 @@ impl<'i> Survival<'i> {
                 .map(|(i, c)| (c.id, i))
                 .collect(),
             files_at: HashMap::new(),
+            batch_bytes: BATCH_BYTES,
         })
     }
 
@@ -143,6 +145,7 @@ impl<'i> Survival<'i> {
                 store,
                 commit_at,
                 files_at,
+                batch_bytes,
                 ..
             } = self;
             let index: &Index = index;
@@ -168,6 +171,7 @@ impl<'i> Survival<'i> {
                 pass_through,
                 &may_change,
                 Some(deadline),
+                *batch_bytes,
                 &mut |i, blamed| {
                     if let Some(file) = todo.get(i) {
                         if let Some(store) = store.as_ref() {
@@ -400,6 +404,45 @@ mod tests {
             )
             .commit(4, CAROL, &[(b"lib/a.rs", Modified, blob(3))])
             .head_file(b"lib/a.rs", "a1\nb2\nc3\na4\nb5\n")
+    }
+
+    #[test]
+    fn blaming_one_file_per_walk_counts_the_same_as_one_walk_for_all() {
+        let repo = ScriptedRepo::new()
+            .blob(blob(1), "a1\na2\n")
+            .blob(blob(2), "x1\nx2\nx3\n")
+            .blob(blob(3), "a1\nb2\nb3\n")
+            .blob(blob(4), "x1\nc2\nx3\n")
+            .commit(
+                1,
+                ALICE,
+                &[(b"src/a.rs", Added, blob(1)), (b"src/x.rs", Added, blob(2))],
+            )
+            .commit(2, BOB, &[(b"src/a.rs", Modified, blob(3))])
+            .commit(3, CAROL, &[(b"src/x.rs", Modified, blob(4))])
+            .head_file(b"src/a.rs", "a1\nb2\nb3\n")
+            .head_file(b"src/x.rs", "x1\nc2\nx3\n");
+        let index = index_from_scratch(&repo).unwrap();
+        let ignored = repo.blame_ignore_revs().unwrap();
+        let counted = |batch_bytes: usize| -> Vec<u64> {
+            let mut survival =
+                Survival::new(&index, &ignored, 50, &CacheOptions::default()).unwrap();
+            survival.batch_bytes = batch_bytes;
+            ["Alice Example", "Bob Example", "Carol Example"]
+                .iter()
+                .map(|name| {
+                    match survival
+                        .person(&repo, person(&index, name), MINUTE)
+                        .unwrap()
+                    {
+                        Survived::Counted { lines, .. } => lines,
+                        Survived::OverBudget { .. } => unreachable!(),
+                    }
+                })
+                .collect()
+        };
+        assert_eq!(counted(1), [3, 2, 1]);
+        assert_eq!(counted(1), counted(BATCH_BYTES));
     }
 
     #[test]

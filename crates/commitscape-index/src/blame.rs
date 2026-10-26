@@ -12,6 +12,8 @@ const UNMAPPED: u32 = u32::MAX;
 
 const MAX_THREADS: usize = 8;
 
+pub const BATCH_BYTES: usize = 256 << 20;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlameFile {
     pub path: Vec<u8>,
@@ -65,7 +67,8 @@ struct Walk<'a, S: BlameSource> {
     counts: Vec<HashMap<Oid, u32>>,
 }
 
-/// Blames each file at `head`, passing the lines of `pass_through` commits to their parent, and hands each file's line count per commit to `finished` as soon as it is known. `may_change` says whether a one-parent commit may have changed a path; where it says no, the commit is passed over unread.
+/// Blames each file at `head`, passing the lines of `pass_through` commits to their parent, and hands each file's line count per commit to `finished` as soon as it is known. `may_change` says whether a one-parent commit may have changed a path; where it says no, the commit is passed over unread. One walk holds at most `batch_bytes` of head file text (always at least one file); the files past it get walks of their own, one after another, each freed before the next.
+#[allow(clippy::too_many_arguments)]
 pub fn blame<S: BlameSource>(
     source: &S,
     head: Oid,
@@ -73,53 +76,65 @@ pub fn blame<S: BlameSource>(
     pass_through: &HashSet<Oid>,
     may_change: MayChange<'_>,
     deadline: Option<Instant>,
+    batch_bytes: usize,
     finished: &mut dyn FnMut(usize, Blamed),
 ) -> Result<Walked, S::Error> {
-    let mut walk = Walk {
-        source,
-        may_change,
-        pass_through,
-        pending: HashMap::new(),
-        heap: BinaryHeap::new(),
-        queued: HashSet::new(),
-        commits: HashMap::new(),
-        left: vec![0; files.len()],
-        counts: vec![HashMap::new(); files.len()],
-    };
     let late = || deadline.is_some_and(|d| Instant::now() >= d);
-    for (i, f) in files.iter().enumerate() {
-        if late() {
-            return Ok(Walked::OutOfTime);
-        }
-        let text = source.blame_blob(f.blob)?;
-        let n = line_count(&text);
-        if n == 0 {
-            finished(i, Vec::new());
-            continue;
-        }
-        if let Some(slot) = walk.left.get_mut(i) {
-            *slot = n;
-        }
-        walk.push(
-            head,
-            Item {
-                file: i,
-                path: f.path.as_slice().into(),
-                blob: f.blob,
-                text: Rc::new(text),
-                segs: vec![(0, n)],
-            },
-        )?;
-    }
-    while let Some((_, id)) = walk.heap.pop() {
-        if late() {
-            return Ok(Walked::OutOfTime);
-        }
-        walk.queued.remove(&id);
-        let Some(items) = walk.pending.remove(&id) else {
-            continue;
+    let mut next = 0;
+    while next < files.len() {
+        let mut walk = Walk {
+            source,
+            may_change,
+            pass_through,
+            pending: HashMap::new(),
+            heap: BinaryHeap::new(),
+            queued: HashSet::new(),
+            commits: HashMap::new(),
+            left: vec![0; files.len()],
+            counts: vec![HashMap::new(); files.len()],
         };
-        walk.process(id, items, finished)?;
+        let start = next;
+        let mut held = 0usize;
+        while let Some(f) = files.get(next) {
+            if next > start && held >= batch_bytes {
+                break;
+            }
+            if late() {
+                return Ok(Walked::OutOfTime);
+            }
+            let i = next;
+            next += 1;
+            let text = source.blame_blob(f.blob)?;
+            held += text.len();
+            let n = line_count(&text);
+            if n == 0 {
+                finished(i, Vec::new());
+                continue;
+            }
+            if let Some(slot) = walk.left.get_mut(i) {
+                *slot = n;
+            }
+            walk.push(
+                head,
+                Item {
+                    file: i,
+                    path: f.path.as_slice().into(),
+                    blob: f.blob,
+                    text: Rc::new(text),
+                    segs: vec![(0, n)],
+                },
+            )?;
+        }
+        while let Some((_, id)) = walk.heap.pop() {
+            if late() {
+                return Ok(Walked::OutOfTime);
+            }
+            walk.queued.remove(&id);
+            let Some(items) = walk.pending.remove(&id) else {
+                continue;
+            };
+            walk.process(id, items, finished)?;
+        }
     }
     Ok(Walked::Finished)
 }
@@ -340,6 +355,7 @@ pub(crate) fn spans_at<S: BlameSource>(
 }
 
 /// Blames the files on several threads at once, each with its own handle on the repository and a share of the files grouped by folder, handing every file's result to `finished` on the calling thread.
+#[allow(clippy::too_many_arguments)]
 pub fn blame_in_threads<T: BlameThreads>(
     threads: &T,
     head: Oid,
@@ -347,6 +363,7 @@ pub fn blame_in_threads<T: BlameThreads>(
     pass_through: &HashSet<Oid>,
     may_change: &(dyn Fn(Oid, &[u8]) -> bool + Sync),
     deadline: Option<Instant>,
+    batch_bytes: usize,
     finished: &mut dyn FnMut(usize, Blamed),
 ) -> Result<Walked, <T::Local as BlameSource>::Error> {
     let count = crate::threads::threads(files.len())
@@ -360,9 +377,11 @@ pub fn blame_in_threads<T: BlameThreads>(
             pass_through,
             may_change,
             deadline,
+            batch_bytes,
             finished,
         );
     }
+    let per_thread = (batch_bytes / count).max(1);
     let mut folders: HashMap<&[u8], Vec<usize>> = HashMap::new();
     for (i, f) in files.iter().enumerate() {
         folders.entry(folder(&f.path)).or_default().push(i);
@@ -396,6 +415,7 @@ pub fn blame_in_threads<T: BlameThreads>(
                         pass_through,
                         may_change,
                         deadline,
+                        per_thread,
                         &mut |j, blamed| {
                             if let Some(&i) = shard.get(j) {
                                 let _ = sent.send((i, blamed));
