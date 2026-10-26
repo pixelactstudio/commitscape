@@ -184,3 +184,25 @@ describe("what asking GitHub costs", () => {
     expect(gh.seen[2]?.match).toBeNull();
   });
 });
+
+describe("a Report whose objects are gone", () => {
+  test("reads as never built, so the page waits for a Build instead of failing, and its pointer is cleared", async () => {
+    const deps = await testDeps();
+    const key = reportPrefix("acme/gone", "old");
+    await deps.db.insert(repositories).values({ id: "acme/gone", owner: "acme", name: "gone", githubId: 77, status: "ok", reportKey: key, reportAt: now() - 3 * 86_400, reportLines: true, factsAt: now() - 60, facts: facts("acme/gone") });
+    const found = await lookup(deps, viewer(), "acme", "gone");
+    expect(found).toMatchObject({ report: null, canBuild: true });
+    const [row] = await deps.db.select().from(repositories).where(eq(repositories.id, "acme/gone"));
+    expect(row).toMatchObject({ reportKey: null, reportAt: null, reportLines: null });
+  });
+
+  test("keeps a Report from before the Builder kept its meta on the row while its index is still stored", async () => {
+    const deps = await testDeps();
+    const key = reportPrefix("acme/kept", "old");
+    await deps.db.insert(repositories).values({ id: "acme/kept", owner: "acme", name: "kept", githubId: 78, status: "ok", reportKey: key, reportAt: now() - 60, reportLines: true, factsAt: now() - 60, facts: facts("acme/kept") });
+    await deps.storage.put(`${key}/index.json`, JSON.stringify({ meta: {}, stats: null, keys: [] }), { type: "application/json" });
+    expect(await lookup(deps, viewer(), "acme", "kept")).toMatchObject({ report: { lines: true } });
+    const [row] = await deps.db.select().from(repositories).where(eq(repositories.id, "acme/kept"));
+    expect(row?.reportKey).toBe(key);
+  });
+});

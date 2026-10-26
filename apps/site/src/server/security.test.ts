@@ -101,9 +101,10 @@ describe("repositories", () => {
 
   test("a fresh Report read without lines is stale, so the next visit builds it again with them", async () => {
     const deps = await testDeps();
+    const meta = { name: "rocket", windows: ["all"], window: "all", anchor: 1, history: "complete", lines: "counting", avatars: false };
     await deps.db.insert(repositories).values([
-      { id: "acme/rocket", owner: "acme", name: "rocket", githubId: 1, reportKey: reportPrefix("acme/rocket", "b1"), reportAt: now(), reportLines: false, factsAt: now() },
-      { id: "acme/other", owner: "acme", name: "other", githubId: 3, reportKey: reportPrefix("acme/other", "b1"), reportAt: now(), reportLines: true, factsAt: now() },
+      { id: "acme/rocket", owner: "acme", name: "rocket", githubId: 1, reportKey: reportPrefix("acme/rocket", "b1"), reportAt: now(), reportLines: false, reportMeta: meta, factsAt: now() },
+      { id: "acme/other", owner: "acme", name: "other", githubId: 3, reportKey: reportPrefix("acme/other", "b1"), reportAt: now(), reportLines: true, reportMeta: { ...meta, name: "other", lines: "counted" }, factsAt: now() },
     ]);
     expect(await lookup(deps, viewer(), "acme", "rocket")).toMatchObject({ stale: true, canBuild: true, report: { lines: false } });
     expect(await lookup(deps, viewer(), "acme", "other")).toMatchObject({ stale: false, canBuild: false });
