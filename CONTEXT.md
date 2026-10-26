@@ -45,8 +45,12 @@ The complete set of facts extracted from a repository by walking its history onc
 _Avoid_: database, cache, model, store.
 
 **Stored Index**:
-A repository's Index as the Site keeps it, in Postgres: every commit with its Changeset as arrays, its files and folders, its people, daily sums by Landing Day, and its HEAD. A Build appends the commits it has not seen; a rebuilt engine cache starts a new one. The Site answers every screen from it, for any Window.
+A repository's Index as the Site keeps it, in Postgres: every commit with its Changeset and its Mainline, its files and folders, its people, and its HEAD. A Build appends the commits it has not seen and fills in the Lines Changed counted since; a rebuilt engine cache starts a new one. The Site looks rows up in it (the Commit List, a person's commits on a day, branches, pull requests); every screen's answer comes from its Pack.
 _Avoid_: index tables, commit store.
+
+**Pack**:
+A repository's Index at one head as the engine service reads it, with its people already resolved to their GitHub logins and colours, its Mainline, and no email address. Each publish of a Build writes a new one, which never changes; the Stored Index names the current one.
+_Avoid_: snapshot, bundle, cache, export.
 
 **Mainline**:
 The commits of a Stored Index that the default branch holds: every commit reachable from HEAD, and among them the first-parent line, the commits HEAD itself went through. The Stored Index also holds commits only other branches and tags reach, which never reached the default branch; the Mainline tells them apart. A Build works it out again each time, since a merge brings older commits into it.
@@ -61,7 +65,7 @@ The set of files a single commit touched, along with how each was touched. The I
 _Avoid_: diff, commit contents, file list.
 
 **Lines Changed**:
-The lines a change added and removed, counted as `git diff --numstat` counts them by a pass that runs after the first screen. A person's Lines Changed leave out Merge Commits, Bulk Commits, commits named in `.git-blame-ignore-revs`, lockfiles, and Generated Files. A change to a binary file, or to a file over a megabyte, is not counted, which is shown as such and never as zero. One of several views of what a person did; never combined with the others into a score.
+The lines a change added and removed, counted as `git diff --numstat` counts them by a pass that runs after the first screen: the Mainline first, newest first, then the commits only other branches and tags reach. The pass never counts Bulk Commits, lockfiles or Generated Files, nor a change to a binary file or to a file over a megabyte: each is not counted, which is shown as such and never as zero. A pass given a time budget stops when it runs out; the commits it did not reach are its lines left, not counted until a later pass counts them. The Site shows a repository's Lines Changed once the Mainline's are all counted. A person's Lines Changed also leave out Merge Commits and commits named in `.git-blame-ignore-revs`. One of several views of what a person did; never combined with the others into a score.
 _Avoid_: LOC, churn, impact, productivity.
 
 **Merge Commit**:
@@ -69,7 +73,7 @@ A commit with more than one parent. Its Changeset is usually empty. Excluded fro
 _Avoid_: merge, pull request.
 
 **Bulk Commit**:
-A commit touching more than a configured number of files. Excluded from Churn, Change Coupling and Ownership because reformats, lockfile regenerations, and vendored drops would otherwise dominate every ranking.
+A commit touching more than a configured number of files. Excluded from Churn, Change Coupling and Ownership because reformats, lockfile regenerations, and vendored drops would otherwise dominate every ranking, and its Lines Changed are never counted.
 _Avoid_: large commit, mega commit, noise.
 
 **File Identity**:
@@ -123,7 +127,7 @@ The code at HEAD drawn as nested rectangles, each as large as its lines of code,
 _Avoid_: treemap, tree view, file browser.
 
 **Card**:
-One of a set of images made for sharing, about a person, a person in a repository, a Versus, a Race, a Season or a repository: one React component, shown on the Site, embedded in a README as animated SVG, and used as a PNG link preview (ADR-0021). The tool's growth mechanism, treated as a product feature.
+One of a set of images made for sharing, about a person, a person in a repository, a Versus or a repository: one React component, shown on the Site, embedded in a README as animated SVG, and used as a PNG link preview (ADR-0021). The tool's growth mechanism, treated as a product feature.
 _Avoid_: summary image, badge, widget (and report, which is the Report).
 
 **Embed**:
@@ -131,7 +135,7 @@ A Card placed in a README or elsewhere by its address, served from a stored copy
 _Avoid_: badge, widget, stats image.
 
 **Report**:
-Every screen's answer for every Window, written ahead of time by `commitscape report`: it needs no server and answers only what it was written with. Stored on the Site for a repository, with its Commit List kept apart as rows in Postgres (ADR-0024), or uploaded whole as a Shared Report.
+A repository's story told screen by screen (the Overview, Activity, People, a person, the Map, a file) for a Window. On the Site the engine service answers each screen from the repository's Pack, for any Window, and its Commit List is rows in the Stored Index. A Shared Report carries every screen's answer for its Windows, written ahead of time on someone's machine, and answers only what it was written with.
 _Avoid_: export, snapshot, dump.
 
 **Shared Report**:
@@ -159,7 +163,7 @@ The repository's whole default-branch history as a map to explore: one hex for e
 _Avoid_: galaxy, 3D view, city.
 
 **Atlas**:
-The compact binary history the Universe is made from: the files, folders and people of a Stored Index and every commit on the Mainline by when it arrived, Merge Commits left out. It is made once per load of a Stored Index.
+The compact binary history the Universe is made from: the files, folders and people of a Pack and every commit on the Mainline by when it arrived, Merge Commits left out. It is made once per Pack.
 _Avoid_: payload, snapshot, graph.
 
 **Branch state**:
@@ -181,24 +185,28 @@ _Avoid_: stale pull request, abandoned.
 ### Where it runs
 
 **Site**:
-The hosted website: the landing page, Profiles, any public GitHub repository's Report, Shared Reports, a signed-in person's Connected Repositories, and the Leaderboards.
+The hosted website, for people signed in: Profiles, any public GitHub repository's Report, a person's Connected Repositories, Versus and Wrapped. Cards, Shared Reports and shared Proof of Work open without signing in. The Landing page is not part of it.
 _Avoid_: dashboard, cloud, platform, web app.
 
+**Landing page**:
+The public page that says what commitscape is and leads to signing in: a static page apart from the Site, holding no data. Its Cards are the Site's.
+_Avoid_: home page, marketing site.
+
 **Builder**:
-What reads a repository's history for the Site: it clones the repository, runs the same engine the CLI runs, and stores the Report in R2 and its Commit List in Postgres. The Site never runs git.
+What reads a repository's history for the Site: it clones the repository, runs the same engine the CLI runs, loads the Stored Index into Postgres and stores the Pack in R2. The Site never runs git.
 _Avoid_: worker, backend, crawler.
 
 **Build**:
-One run of the Builder for one repository, from clone to stored Report, in two phases at once: a clone without old file contents gives a Report without Lines Changed, shown at once, while a full clone gives the Report with them that replaces it. A repository's Report is rebuilt when someone asks for it and it is more than a day old.
+One run of the Builder for one repository, from clone to published Pack, in two phases at once: a clone without old file contents gives a Report without Lines Changed, shown at once, while a full clone counts them, the Mainline first, and replaces it. Quiet Builds that follow count the lines left. A repository's Report is rebuilt when someone asks for it and it is more than a day old, or after a push where commitscape's GitHub App is installed.
 _Avoid_: job, scan, analysis, refresh.
+
+**Engine service**:
+What answers the Site's questions about a repository from its Pack: every screen of its Report for any Window, the Code window, Commits under a folder and the Universe's rows. Only the Site asks it, over a private network, and like the Site it never reads git.
+_Avoid_: API, backend, server, engine (the engine is the code that reads git, wherever it runs).
 
 **Connected Repository**:
 A repository someone let the Site read by choosing it in commitscape's GitHub App. Its Report is shown only to people who can see the repository on GitHub.
 _Avoid_: linked repo, imported repo, private repo.
-
-**Leaderboard**:
-A ranking of repositories, or of people who haven't hidden, by one view at a time, such as Bus Factor or merged pull requests this Season. It says when it was built and from how many repositories.
-_Avoid_: score, top developers.
 
 ### People
 
@@ -207,7 +215,7 @@ Everything commitscape shows about one GitHub login: their totals, their Archety
 _Avoid_: account, user page, dashboard.
 
 **Hidden**:
-Said of a Profile whose person chose to stay out of comparisons: it appears in no Versus, Leaderboard, Race or other person's Standings.
+Said of a Profile whose person chose to stay out of comparisons: it appears in no Versus or other person's Standings.
 _Avoid_: private profile, opted out.
 
 **Surviving Lines**:
@@ -229,10 +237,6 @@ _Avoid_: report (that is the Report), timesheet, invoice.
 **Versus**:
 Two Profiles side by side, with a winner for each view and no overall winner.
 _Avoid_: battle, duel, comparison score.
-
-**Rival**:
-A person someone chose to measure themselves against, whose gap shows on their own Profile.
-_Avoid_: friend, follow.
 
 **Archetype**:
 A label for how a person works, from a written rule over their numbers, shown with its rule. Nobody under 50 contributions has one. The rules are tried in this order, and the first that fits is theirs (the others show as "also"):
@@ -256,15 +260,3 @@ A milestone a person reached, from a written rule, shown with the day it was rea
 - **10,000 lines still running**: Surviving Lines at the heads of the repositories commitscape has read.
 - **A line that has survived five years**: a line of theirs still at a repository's head, from a commit authored five years ago or more.
 _Avoid_: badge, trophy.
-
-**Season**:
-One calendar month, after which Crew Standings and people Leaderboards start again.
-_Avoid_: period, sprint.
-
-**Race**:
-A fixed window in which two or more people who accepted compare their Standings live, ending with a finish Card.
-_Avoid_: challenge, competition, contest.
-
-**Crew**:
-A group of people who accepted an invitation to compare themselves every Season.
-_Avoid_: team, group, organisation.
