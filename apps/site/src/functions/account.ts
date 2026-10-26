@@ -1,9 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getCookie, getRequest } from "@tanstack/react-start/server";
 import { MODE_COOKIE, modeOf } from "@commitscape/ui/mode";
-import { z } from "zod";
-import { leaderboards } from "#/server/boards";
-import { peopleBoards } from "#/server/people-boards";
 import { deleteMyData, mine } from "#/server/me";
 import { auth, githubTokenOf } from "#/server/auth";
 import { db, reports } from "#/server/context";
@@ -11,14 +8,6 @@ import { env } from "#/server/env";
 import { sameOrigin, SiteError } from "#/server/http";
 import { loginOf } from "#/server/logins";
 import { loginFor, profileDeps } from "#/server/viewer";
-
-/** The Leaderboards of repositories. */
-export const getBoards = createServerFn({ method: "GET" }).handler(() => leaderboards(db(), env.BOARDS_CACHE_SECONDS));
-
-/** The Leaderboards of people, for a window and optionally one repository. */
-export const getPeopleBoards = createServerFn({ method: "GET" })
-  .validator(z.object({ window: z.enum(["season", "last-season", "90d", "all"]), repo: z.string().max(140).nullable() }))
-  .handler(({ data }) => peopleBoards(db(), data.window, data.repo));
 
 /** The signed-in person's repositories, or null. */
 export const getMe = createServerFn({ method: "GET" }).handler(async () => {
@@ -48,7 +37,7 @@ export const getViewer = createServerFn({ method: "GET" }).handler(async () => {
   const s = await auth.api.getSession({ headers: request.headers });
   return {
     origin: new URL(env.BETTER_AUTH_URL).origin,
-    public: { PUBLIC_SENTRY_DSN: env.PUBLIC_SENTRY_DSN, PUBLIC_POSTHOG_KEY: env.PUBLIC_POSTHOG_KEY, PUBLIC_POSTHOG_HOST: env.PUBLIC_POSTHOG_HOST },
+    public: { PUBLIC_SENTRY_DSN: env.PUBLIC_SENTRY_DSN, PUBLIC_POSTHOG_KEY: env.PUBLIC_POSTHOG_KEY, PUBLIC_POSTHOG_HOST: env.PUBLIC_POSTHOG_HOST, PUBLIC_LANDING_URL: env.PUBLIC_LANDING_URL },
     user: s ? { login: await loginFor(request, s.user.id), name: s.user.name, image: s.user.image ?? null } : null,
     mode: modeOf(getCookie(MODE_COOKIE)),
   };

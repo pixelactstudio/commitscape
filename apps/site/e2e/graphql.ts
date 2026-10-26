@@ -39,6 +39,10 @@ const alice = {
 
 const bob = { ...alice, login: "bob", databaseId: 1002, name: "Bob Example", avatarUrl: "http://127.0.0.1/bob.png", bio: null, contributionsCollection: { contributionYears: [2026] }, merged: { totalCount: 5 }, open: { totalCount: 0 }, closed: { totalCount: 1 } };
 
+const quiet = (login: string, databaseId: number, name: string) => ({ ...bob, login, databaseId, name, avatarUrl: `http://127.0.0.1/${login}.png`, merged: { totalCount: 0 }, open: { totalCount: 0 }, closed: { totalCount: 0 } });
+
+const QUIET: Record<string, ReturnType<typeof quiet>> = { dana: quiet("dana", 1003, "Dana Example"), erin: quiet("erin", 1004, "Erin Example") };
+
 const calendar = (year: number, every: number) => {
   const days = [];
   for (let d = Date.UTC(year, 0, 1); d <= Date.UTC(year, 11, 31); d += 86_400_000) {
@@ -117,6 +121,7 @@ export function graphqlAnswer(query: string, variables: Record<string, unknown>)
   if (query.includes("repositoryOwner")) {
     if (login === "alice") return { data: { repositoryOwner: alice } };
     if (login === "bob") return { data: { repositoryOwner: bob } };
+    if (QUIET[login]) return { data: { repositoryOwner: QUIET[login] } };
     if (login === "acme") return { data: { repositoryOwner: { __typename: "Organization", login: "acme", databaseId: 2002, name: "Acme", avatarUrl: "http://127.0.0.1/acme.png", description: "Rockets", createdAt: "2018-01-01T00:00:00Z" } } };
     return { data: { repositoryOwner: null }, errors: [{ type: "NOT_FOUND", message: "Could not resolve to a User" }] };
   }
@@ -142,6 +147,7 @@ export function graphqlAnswer(query: string, variables: Record<string, unknown>)
   }
   if (query.includes("contributionsCollection(from")) {
     if (login === "bob") return { data: { user: { y2026: { ...(years.y2026 as object), totalCommitContributions: 40, totalPullRequestReviewContributions: 2, restrictedContributionsCount: 0, contributionCalendar: calendar(2026, 2) } } } };
+    if (QUIET[login]) return { data: { user: { y2026: { totalCommitContributions: 0, totalPullRequestContributions: 0, totalPullRequestReviewContributions: 0, totalIssueContributions: 0, restrictedContributionsCount: 0, contributionCalendar: calendar(2026, 32), commitContributionsByRepository: [], pullRequestReviewContributionsByRepository: [], pullRequestContributionsByRepository: [] } } } };
     if (login !== "alice") return { data: { user: null } };
     return { data: { user: Object.fromEntries(Object.entries(years).filter(([k]) => query.includes(`${k}: contributionsCollection`))) } };
   }

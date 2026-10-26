@@ -49,7 +49,7 @@ function share(...args: string[]) {
 }
 
 test("a pasted link shows GitHub's facts at once, then the Report once it is built", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/dashboard");
   await page.waitForLoadState("networkidle");
   const box = page.getByRole("combobox", { name: "A GitHub username or repository" }).first();
   await box.fill("https://github.com/acme/ownership/tree/main");
@@ -132,13 +132,18 @@ test("/privacy says what is kept", async ({ page }) => {
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("What commitscape keeps, and who can read it");
 });
 
-test("an AI agent reads a Report through MCP", async ({ request }) => {
-  const call = (id: number, method: string, params: unknown) =>
-    request.post("/mcp", { data: { jsonrpc: "2.0", id, method, params }, headers: { accept: "application/json, text/event-stream" } });
+test("an AI agent with the Site's MCP token reads a Report through MCP, and one without it is refused", async ({ playwright }) => {
+  const request = await playwright.request.newContext({ storageState: { cookies: [], origins: [] } });
+  const call = (id: number, method: string, params: unknown, token = "e2e-mcp-token-e2e-mcp-token-e2e-mcp-token") =>
+    request.post("/mcp", { data: { jsonrpc: "2.0", id, method, params }, headers: { accept: "application/json, text/event-stream", authorization: `Bearer ${token}` } });
   const hello = await (await call(1, "initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "e2e", version: "1" } })).json();
   expect(hello.result.serverInfo.name).toBe("commitscape");
   const answer = await (await call(2, "tools/call", { name: "read_report", arguments: { owner: "acme", repo: "ownership", screen: "overview", window: "all" } })).json();
   expect(JSON.parse(answer.result.content[0].text).totals.commits).toBe(21);
+  const tools = await (await call(3, "tools/list", {})).json();
+  expect(tools.result.tools.map((t: { name: string }) => t.name)).not.toContain("request_build");
+  expect((await call(4, "tools/list", {}, "wrong")).status()).toBe(401);
+  await request.dispose();
 });
 
 test("a Shared Report opens from the link commitscape share printed, and its key never leaves the browser", async ({ page }) => {
@@ -203,22 +208,22 @@ test("an expired Shared Report answers 410, and the cleanup removes it", async (
   expect((await request.get(`/api/shares/${id}`)).status()).toBe(404);
 });
 
-test("the Leaderboards rank repositories from the night's seed Builds", async ({ page }) => {
+test("the night's seed Builds read the most starred repositories again", async () => {
   test.setTimeout(90_000);
   await sql("UPDATE repositories SET report_at = 1 WHERE id = 'acme/ownership'");
   expect(builder("seed")).toContain("1 queued");
   await expect
-    .poll(async () => (await sql("SELECT seed, answered, report_at FROM repositories WHERE id = 'acme/ownership'"))[0], { timeout: 60_000 })
-    .toMatchObject({ seed: true, answered: 12 });
-  await page.goto("/leaderboards?tab=repositories");
-  await expect(page.getByRole("heading", { name: "Leaderboards", level: 1 })).toBeVisible();
-  await expect(page.getByText(/The people boards count 1 repository; here it is ranked/)).toBeVisible();
-  const answers = page.locator("#answers");
-  await expect(answers.getByRole("link", { name: "acme/ownership" })).toHaveAttribute("href", "/gh/acme/ownership");
-  await expect(answers.getByText("4 h")).toBeVisible();
+    .poll(
+      async () => {
+        const row = (await sql("SELECT seed, report_at FROM repositories WHERE id = 'acme/ownership'"))[0];
+        return { seed: row?.seed, built: Number(row?.report_at) > 1 };
+      },
+      { timeout: 60_000 },
+    )
+    .toEqual({ seed: true, built: true });
 });
 
-const PAGES = ["/", "/leaderboards", "/privacy", "/me", "/u/alice", "/u/alice/acme/ownership", "/gh/acme/ownership", "/gh/acme/ownership?screen=people", "/gh/nobody/nothing"];
+const PAGES = ["/dashboard", "/privacy", "/me", "/u/alice", "/u/alice/acme/ownership", "/gh/acme/ownership", "/gh/acme/ownership?screen=people", "/gh/nobody/nothing"];
 
 for (const path of PAGES) {
   test(`${path} has no serious accessibility problems`, async ({ page }) => {

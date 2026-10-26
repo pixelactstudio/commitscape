@@ -4,7 +4,7 @@ import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/Segme
 import { Spinner } from "@astryxdesign/core/Spinner";
 import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, redirect } from "@tanstack/react-router";
-import { Briefcase, Eye, EyeOff, GitBranch, GitFork, GitMerge, GitPullRequest, Hash, Image as ImageIcon, Lock, Plus, Rocket, Settings, Sparkles, Star, Swords, Tag, Upload, type LucideIcon } from "lucide-react";
+import { Briefcase, Eye, EyeOff, GitBranch, GitFork, GitMerge, GitPullRequest, Hash, Image as ImageIcon, Lock, Plus, Settings, Sparkles, Star, Swords, Tag, Upload, type LucideIcon } from "lucide-react";
 import type { PrivateShow } from "@commitscape/data";
 import { PRODUCT } from "@commitscape/data";
 import { Chip, Face, grouped, LangDot, many, Meter, Page, PageHead, Panel, PanelSkeleton, Stat, Surface } from "@commitscape/ui";
@@ -12,15 +12,13 @@ import { ICON } from "@commitscape/ui/design";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { Section } from "#/components/Boundary";
 import { Lookup } from "#/components/Lookup";
-import { RivalGaps } from "#/components/Rivals";
 import { setPrivateWork } from "#/functions/dashboard";
 import { dashboardQuery, profileQuery } from "#/lib/queries";
-import { unlocked } from "#/lib/gates";
 import { useToast } from "#/lib/toast";
 
 export const Route = createFileRoute("/dashboard")({
   beforeLoad: ({ context }) => {
-    if (!context.user) throw redirect({ to: "/me" });
+    if (!context.user) throw redirect({ to: "/sign-in", search: { next: "/dashboard" } });
   },
   loader: ({ context }) => void context.queryClient.prefetchQuery(dashboardQuery()),
   head: () => ({ meta: [{ title: `Dashboard · ${PRODUCT}` }] }),
@@ -53,9 +51,6 @@ function Dashboard() {
           <YourNumbers login={login} />
         </Section>
       )}
-      <Section fallback={null}>
-        <RivalGaps />
-      </Section>
       {login && <Shortcuts login={login} />}
       <Section fallback={<Skeletons />}>
         <Body />
@@ -82,7 +77,7 @@ function NumbersSkeleton() {
 }
 
 function YourNumbers({ login }: { login: string }) {
-  const profile = unlocked(useSuspenseQuery(profileQuery(login)).data);
+  const profile = useSuspenseQuery(profileQuery(login)).data;
   const t = profile.totals;
   const cells: [string, string, string][] = [
     [grouped(t.prsMerged), "Pull requests merged", t.prsOpened > 0 ? `${Math.round((t.prsMerged * 100) / t.prsOpened)}% of ${grouped(t.prsOpened)} opened` : "none opened yet"],
@@ -118,10 +113,9 @@ function Shortcuts({ login }: { login: string }) {
     ["Proof of Work", `/u/${login}/work`, Briefcase],
     [`Wrapped ${YEAR}`, `/u/${login}/wrapped/${YEAR}`, Sparkles],
     ["Versus", "/vs", Swords],
-    ["Races", "/races", Rocket],
   ];
   return (
-    <nav aria-label="Your pages" className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 [&>:last-child:nth-child(odd)]:max-sm:col-span-2">
+    <nav aria-label="Your pages" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
       {items.map(([label, href, Glyph]) => (
         <Link key={href} to={href as "/"} preload="intent" className="group surface row-hover flex items-center gap-2.5 px-3.5 py-3 text-primary no-underline">
           <Glyph size={ICON.md} aria-hidden className="flex-none text-tertiary transition-colors group-hover:text-brand" />

@@ -1,7 +1,6 @@
 import "@tanstack/react-start/server-only";
 import { and, desc, eq } from "drizzle-orm";
-import { FAILURE_WORDS, key as keyOf, NOT_IN_REPORT, type Lookup } from "@commitscape/data";
-import { limited, topOf, withoutTop } from "@commitscape/data/answers";
+import { FAILURE_WORDS, key as keyOf, limited, NOT_IN_REPORT, topOf, withoutTop, type Lookup } from "@commitscape/data";
 import {
   busy,
   cachedGet,
@@ -10,7 +9,7 @@ import {
   PRIORITY,
   queueBuild,
   readEntry,
-  readIndex,
+  reportIndexOf,
   REPORT_FOR,
   repoId,
   repoNamed,
@@ -26,15 +25,16 @@ import {
 } from "@commitscape/server";
 import { lendToken } from "@commitscape/server";
 import { apiOf, askGitHub, GITHUB_TTL, type GitHubConfig } from "./github";
-import { GATES } from "#/lib/gates";
 import { SiteError } from "./http";
 import { allow, RANGE_LIMIT } from "./limits";
-import { askedKey, isRange, keptAnswer, keptEntry, packedOf, stampOf, wholeDays } from "./answers";
-import type { Packed } from "./packed";
+import { askedKey, isKept, isRange, keptEntry, keptText, packedOf, withPack, wholeDays } from "./answers";
+import { answerTimed } from "./telemetry";
+import type { EngineService } from "./engine-service";
+import { jsonOf, type Packed } from "./packed";
 
 const { access, builds, repoNames, repoPeople, repositories } = schema;
 
-export type Deps = { db: Db; storage: Storage; github: GitHubConfig; app: GitHubApp | null; queue: () => Promise<Queue>; tokenSecret?: string };
+export type Deps = { db: Db; storage: Storage; github: GitHubConfig; app: GitHubApp | null; queue: () => Promise<Queue>; engine: EngineService; tokenSecret?: string };
 
 export type Viewer = {
   address: string;
@@ -216,14 +216,14 @@ export async function requestBuild(deps: Deps, viewer: Viewer, owner: string, na
   if (state.status === "not_found") throw new SiteError(404, FAILURE_WORDS.not_found);
   if (!state.canBuild) return state;
   const s = await viewer.session();
-  if (GATES.build.on && !s) throw new SiteError(401, GATES.build.title, { gate: "build" });
+  if (!s) throw new SiteError(401, "Sign in to read this repository.");
   if (!viewer.sameOrigin) throw new SiteError(403, "Not from this Site.");
   if (!(await allow(deps.db, BUILD_LIMIT, viewer.address))) throw new SiteError(429, "This address has asked for many Builds this hour. Try again later.");
   if ((await waitingBuilds(deps.db)) >= WAITING_MAX) throw new SiteError(503, "The Builder has many repositories to read just now. Try again in a few minutes.");
   const queue = await deps.queue().catch(() => null);
   if (queue) {
-    await queueBuild(deps.db, queue, row.id, PRIORITY.person);
-    if (s && deps.tokenSecret && !row.isPrivate) await lendToken(deps.db, deps.tokenSecret, row.id, s.userId, await viewer.token().catch(() => null));
+    await queueBuild(deps.db, queue, row.id, PRIORITY.person, { userId: s.userId });
+    if (deps.tokenSecret && !row.isPrivate) await lendToken(deps.db, deps.tokenSecret, row.id, s.userId, await viewer.token().catch(() => null));
   }
   else await deps.db.insert(builds).values({ id: crypto.randomUUID(), repoId: row.id, state: "failed", reason: "paused", requestedAt: now(), finishedAt: now() });
   return lookupOf(row, await lastBuild(deps.db, row.id), seen);
@@ -270,11 +270,11 @@ export async function readable(deps: Deps, viewer: Viewer, owner: string, name: 
 
 export type ReportHead = { at: number; index: ReportIndex; private: boolean; logins: [number, string][]; ranges: boolean };
 
-/** A readable Report's index, when it was built, and the GitHub login of each of its people the Builder found. */
+/** A readable Report's meta and stats (from the repository's row, or the R2 index of a Report not built since), when it was built, and the GitHub login of each of its people the Builder found. */
 export async function reportHead(deps: Deps, viewer: Viewer, owner: string, name: string): Promise<ReportHead> {
   const row = await readable(deps, viewer, owner, name);
   const [index, people] = await Promise.all([
-    readIndex(deps.storage, row.reportKey),
+    reportIndexOf(deps.storage, row),
     deps.db
       .select({ id: repoPeople.personId, login: repoPeople.login })
       .from(repoPeople)
@@ -307,38 +307,63 @@ const fromReport = (deps: Deps, reportKey: string, asked: ReturnType<typeof aske
   return found === null ? null : limited(asked.path, topOf(asked.params), found);
 };
 
-/** One answer of a Report the viewer may read: worked out from its Stored Index when it has one, else read from the stored Report; a range of dates only as whole days and within the address's limit. */
+/** One answer of a pack as JSON packed to send, asked of the engine service once per pack and question; a range of dates not asked before counts against the address's limit. Null when there is no such answer. */
+function packedAnswer(deps: Deps, viewer: Viewer, pack: string, asked: ReturnType<typeof askedKey>): Promise<Packed | null> {
+  const kept = `${pack}#${asked.key}`;
+  return keptText(
+    kept,
+    async () => {
+      if (isRange(asked.params) && !isKept(kept)) await admitting(deps, viewer)();
+      return deps.engine.answerText(pack, asked.path, asked.params);
+    },
+    5,
+    "answer",
+  );
+}
+
+/** One answer of a Report the viewer may read: from the engine service, which answers from its Stored Index's pack, else read from the stored Report of a repository not built since; a range of dates only as whole days and within the address's limit. */
 export async function reportEntry(deps: Deps, viewer: Viewer, owner: string, name: string, key: string): Promise<unknown> {
+  const started = performance.now();
   const row = await readable(deps, viewer, owner, name);
   const asked = questionOf(key);
-  if (row.indexId !== null) {
-    const found = await keptAnswer(deps.db, row.indexId, key, admitting(deps, viewer));
-    if (found !== undefined) return found.kept.value;
+  const found = await withPack(deps.db, row.indexId, (pack) => packedAnswer(deps, viewer, pack, asked), row.reportAt);
+  if (found) {
+    if (found.value === null) return null;
+    const value = await jsonOf(found.value);
+    answerTimed(asked.path, "engine", performance.now() - started);
+    return value;
   }
-  return (await keptEntry(`${row.reportKey}#${asked.key}`, fromReport(deps, row.reportKey, asked)))?.value ?? null;
+  const kept = await keptEntry(`${row.reportKey}#${asked.key}`, fromReport(deps, row.reportKey, asked));
+  if (kept) answerTimed(asked.path, "report", performance.now() - started);
+  return kept?.value ?? null;
 }
 
 const matches = (seen: string | null | undefined, etag: string) => !!seen && seen.split(",").some((t) => t.trim().replace(/^W\//, "") === etag);
 
 /** One answer of a Report the viewer may read as JSON packed to send, with its ETag and how long a browser may keep it: for good when `at` names the Report it is of. No body when `seen` is its ETag already. */
 export async function reportAnswer(deps: Deps, viewer: Viewer, owner: string, name: string, key: string, at: number | null, seen?: string | null): Promise<SentAnswer> {
+  const started = performance.now();
   const row = await readable(deps, viewer, owner, name);
   const asked = questionOf(key);
   const pinned = at !== null && at === row.reportAt;
   const cacheControl = row.isPrivate ? "private, max-age=60" : pinned ? `public, max-age=${YEAR}, immutable` : "public, max-age=60";
   const tagOf = (version: string) => `"${sha256(`${version}\n${asked.key}`).slice(0, 32)}"`;
-  if (row.indexId !== null) {
-    const stamp = await stampOf(deps.db, row.indexId, pinned ? (row.reportAt ?? undefined) : undefined);
-    if (stamp !== null) {
-      const etag = tagOf(`${row.indexId}@${stamp}`);
-      if (matches(seen, etag)) return { packed: null, etag, cacheControl };
-      const found = await keptAnswer(deps.db, row.indexId, key, admitting(deps, viewer), true);
-      if (found !== undefined) return { packed: await packedOf(found.kept), etag: tagOf(`${row.indexId}@${found.stamp}`), cacheControl };
-    }
+  const found = await withPack(deps.db, row.indexId, async (pack) => {
+    const etag = tagOf(pack);
+    if (matches(seen, etag)) return { packed: null, etag };
+    const made = await packedAnswer(deps, viewer, pack, asked);
+    if (!made) throw new SiteError(404, NOT_IN_REPORT);
+    return { packed: made, etag };
+  }, row.reportAt);
+  if (found) {
+    answerTimed(asked.path, found.value.packed ? "engine" : "unchanged", performance.now() - started);
+    return { ...found.value, cacheControl };
   }
   const etag = tagOf(row.reportKey);
   if (matches(seen, etag)) return { packed: null, etag, cacheControl };
   const kept = await keptEntry(`${row.reportKey}#${asked.key}`, fromReport(deps, row.reportKey, asked), true);
   if (!kept) throw new SiteError(404, NOT_IN_REPORT);
-  return { packed: await packedOf(kept), etag, cacheControl };
+  const sent = { packed: await packedOf(kept), etag, cacheControl };
+  answerTimed(asked.path, "report", performance.now() - started);
+  return sent;
 }

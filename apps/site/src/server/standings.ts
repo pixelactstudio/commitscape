@@ -2,7 +2,7 @@ import "@tanstack/react-start/server-only";
 import { and, count, eq, isNotNull } from "drizzle-orm";
 import { key, VIEWS, type Person, type Place, type StandingRow, type Standings, type View } from "@commitscape/data";
 import { readEntry, repoId as idOfRepo, schema } from "@commitscape/server";
-import { indexAnswer } from "./answers";
+import { packOf } from "./answers";
 import { askCounts, wantsCount } from "./engine";
 import { hiddenAmong } from "./people";
 import { SiteError } from "./http";
@@ -63,7 +63,7 @@ export function limitStandings(people: StandingRow[], limit: number, focus?: str
   return { people: people.filter((r) => keep.has(r.key)), places };
 }
 
-/** Everyone's Standings in one repository the Site has built, view by view and never combined; a private one only for people GitHub shows it to, and nobody who chose to hide but the viewer. With `limit`, only the first in each view, the viewer and the person in focus, with their places and how many there are. */
+/** Everyone's Standings in one repository the Site has built, view by view and never combined; a private one only for people GitHub shows it to, and nobody who chose to hide but the viewer. With `limit`, only the first in each view, the viewer and the person in focus, with their places and how many there are. Only someone signed in starts work: counting Surviving Lines, and what each person works on. */
 export async function standingsOf(deps: Deps, viewer: StandingsViewer, owner: string, name: string, focus?: string, limit?: number): Promise<Standings> {
   const named = idOfRepo(owner, name);
   const repo = named ? await rowOf(deps.db, named) : undefined;
@@ -163,12 +163,14 @@ export async function standingsOf(deps: Deps, viewer: StandingsViewer, owner: st
   const ids = [...new Set(chosen.flatMap((r) => identities.get(r.key) ?? []))].filter((p) => wantsCount(counts.find((x) => x.personId === p), repo.reportLines));
 
   const reportKey = repo.reportKey;
+  const signedIn = (await viewer.session()) !== null;
+  const pack = signedIn ? await packOf(deps.db, repo.indexId, { after: repo.reportAt }) : null;
   const [asked] = await Promise.all([
-    askOnce(deps, viewer.address, id, reportKey, ids),
-    ...top.map(async (r) => {
-      const question = key("/api/person", { id: r.personId ?? -1, window: "all" });
-      const fromIndex = repo.indexId !== null ? ((await indexAnswer(deps.db, repo.indexId, question).catch(() => undefined)) as Person | undefined) : undefined;
-      const p = fromIndex ?? (await readEntry<Person>(deps.storage, reportKey, question).catch(() => null));
+    signedIn && askOnce(deps, viewer.address, id, reportKey, ids),
+    ...(signedIn ? top : []).map(async (r) => {
+      const id = r.personId ?? -1;
+      const fromEngine = pack === null ? null : await deps.engine.answer<Person>(pack, "/api/person", { id, window: "all" }).catch(() => null);
+      const p = fromEngine ?? (await readEntry<Person>(deps.storage, reportKey, key("/api/person", { id, window: "all" })).catch(() => null));
       r.worksOn = worksOn(p);
     }),
   ]);

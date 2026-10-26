@@ -6,7 +6,6 @@ import { cachedGet, now, schema, type Db } from "@commitscape/server";
 import { GITHUB_TTL } from "./github";
 import { graphql, type GraphQL } from "./graphql";
 import { SiteError } from "./http";
-import { allow } from "./limits";
 import { withPrivateWork } from "./private-work";
 
 const { people, profiles } = schema;
@@ -19,20 +18,24 @@ const AT_ONCE = 10;
 const YEARS_A_REQUEST = 2;
 const DAY = 86_400;
 
-export type ProfileDeps = { db: Db; github: { api: string; token?: string; fetcher?: typeof fetch }; visitorReads?: number };
+export type ProfileDeps = { db: Db; github: { api: string; token?: string; fetcher?: typeof fetch } };
 export type ProfileViewer = { login: () => Promise<string | null>; token: () => Promise<string | null>; member?: () => Promise<boolean> };
 
-export const VISITOR_WORDS = "Sign in with GitHub to read someone commitscape has not read yet. Reading a person takes many GitHub requests, so new ones are read for people signed in.";
-const VISITOR_READS = 60;
+export const NOT_READ = "commitscape has not read this person yet.";
 
-/** Whether a signed-in person is behind a request; their reads may spend the Site's token. */
+export class NotRead extends SiteError {
+  constructor() {
+    super(404, NOT_READ);
+    this.name = "NotRead";
+  }
+}
+
+export const STORED_ONLY: ProfileViewer = { login: async () => null, token: async () => null };
+
+/** Whether a signed-in person is behind a request: only their reads reach GitHub, everyone else gets what is stored. */
 export async function isMember(viewer: ProfileViewer): Promise<boolean> {
   if (await viewer.token().catch(() => null)) return true;
   return (await viewer.member?.().catch(() => false)) ?? false;
-}
-
-async function visitorMayRead(deps: ProfileDeps, what: string, max = deps.visitorReads ?? VISITOR_READS): Promise<boolean> {
-  return allow(deps.db, { action: `visitor-${what}`, max, seconds: 3600 }, "site");
 }
 
 type Owner = {
@@ -492,7 +495,7 @@ async function choices(db: Db, login: string): Promise<{ hidden: boolean; namePr
   return { hidden: row?.hidden ?? false, namePrivate: row?.namePrivate ?? false };
 }
 
-/** Who a GitHub login is, from the stored copy when it is a day old or less, else from GitHub; a hidden person is only "hidden", except to themselves. */
+/** Who a GitHub login is, from the stored copy when it is a day old or less, else from GitHub for someone signed in; a hidden person is only "hidden", except to themselves. */
 export async function lookupProfile(deps: ProfileDeps, viewer: ProfileViewer, login: string): Promise<ProfileLookup & { requests: number }> {
   if (!isLogin(login)) return { status: "not_found", login, requests: 0 };
   const self = (await scopeOf(viewer, login)) === "self";
@@ -504,8 +507,8 @@ export async function lookupProfile(deps: ProfileDeps, viewer: ProfileViewer, lo
     if (identity.kind === "organization") return { status: "organization", login: identity.login, identity, requests: 0 };
     return { status: "ok", identity, hidden: chosen.hidden, self, fetchedAt: kept.fetchedAt ?? null, requests: 0 };
   }
-  if (!(await isMember(viewer)) && !(await visitorMayRead(deps, "lookup", (deps.visitorReads ?? VISITOR_READS) * 5))) {
-    if (!kept) throw new SiteError(401, VISITOR_WORDS, { gate: "visitor" });
+  if (!(await isMember(viewer))) {
+    if (!kept) throw new NotRead();
     const identity = JSON.parse(kept.identity) as Identity;
     if (identity.kind === "organization") return { status: "organization", login: identity.login, identity, requests: 0 };
     return { status: "ok", identity, hidden: chosen.hidden, self, fetchedAt: kept.fetchedAt ?? null, requests: 0 };
@@ -548,7 +551,7 @@ async function save(db: Db, scope: Profile["scope"], profile: Profile, raw: Raw)
     .onConflictDoUpdate({ target: [profiles.login, profiles.scope], set: fields });
 }
 
-/** A person's Profile, their own private work only when they are the viewer and what private work they chose to show otherwise, from a copy at most a day old; `full` waits for their pull requests too. */
+/** A person's Profile, their own private work only when they are the viewer and what private work they chose to show otherwise, from a copy at most a day old; `full` waits for their pull requests too. Nobody signed in gets only the stored copy. */
 export async function readProfile(deps: ProfileDeps, viewer: ProfileViewer, login: string, wanted = false): Promise<Profile> {
   const p = await readOne(deps, viewer, login, wanted);
   return p.scope === "public" && !ownCopies.has(p) ? withPrivateWork(deps.db, p) : p;
@@ -575,7 +578,7 @@ async function readOne(deps: ProfileDeps, viewer: ProfileViewer, login: string, 
   const fresh = !!kept?.data && (kept.fetchedAt ?? 0) > now() - PROFILE_FOR;
   const keptProfile = kept?.data ? upgraded(JSON.parse(kept.data) as Profile) : null;
   if (!member && keptProfile) return { ...keptProfile, read: { ...keptProfile.read, requests: 0 } };
-  if (!member && !(await visitorMayRead(deps, "profile"))) throw new SiteError(401, VISITOR_WORDS, { gate: "visitor" });
+  if (!member) throw new NotRead();
   const full = wanted && member;
   const key = `${login.toLowerCase()}:${scope}`;
   const count = { requests: 0 };

@@ -1,7 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequest } from "@tanstack/react-start/server";
 import { z } from "zod";
-import { lockedFor, orLocked } from "#/server/gates";
 import { pullInsight } from "#/server/pull-insight";
 import { pullStats } from "#/server/pull-stats";
 import { listPulls, pullAuthors, pullConversation, pullHeader, pullLabels } from "#/server/pulls";
@@ -56,12 +55,7 @@ export const getPull = createServerFn({ method: "GET" })
   .validator(repo.extend({ number: z.number().int().min(1) }))
   .handler(({ data }) => pullHeader(deps(), viewerOf(getRequest()), data.owner, data.repo, data.number));
 
-/** A pull request's description and comments from GitHub, or the sign-in they need; read with the signed-in person's own token. */
+/** A pull request's description and comments from GitHub, read with the signed-in person's own token. */
 export const getPullConversation = createServerFn({ method: "GET" })
   .validator(repo.extend({ number: z.number().int().min(1) }))
-  .handler(async ({ data }) => {
-    const viewer = viewerOf(getRequest());
-    const locked = await lockedFor("pr", viewer);
-    if (locked) return locked;
-    return orLocked(() => pullConversation(deps(), viewer, data.owner, data.repo, data.number));
-  });
+  .handler(({ data }) => pullConversation(deps(), viewerOf(getRequest()), data.owner, data.repo, data.number));

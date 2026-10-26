@@ -2,10 +2,12 @@ import { PostHogProvider } from "@posthog/react";
 import posthog from "posthog-js";
 import type { ReactNode } from "react";
 import { publicEnv } from "#/lib/env";
+import { INGEST, uiHostOf } from "#/lib/posthog-hosts";
 
 if (typeof window !== "undefined" && publicEnv.PUBLIC_POSTHOG_KEY) {
   posthog.init(publicEnv.PUBLIC_POSTHOG_KEY, {
-    api_host: publicEnv.PUBLIC_POSTHOG_HOST,
+    api_host: INGEST,
+    ui_host: uiHostOf(publicEnv.PUBLIC_POSTHOG_HOST),
     defaults: "2025-11-30",
     capture_pageview: "history_change",
     person_profiles: "identified_only",

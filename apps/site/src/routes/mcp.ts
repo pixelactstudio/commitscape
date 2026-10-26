@@ -1,11 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { mcpServer } from "#/server/mcp";
+import { env } from "#/server/env";
+import { json } from "#/server/http";
+import { mcpAllowed, mcpServer } from "#/server/mcp";
 import { deps, viewerOf } from "#/server/viewer";
 
 async function handle(request: Request): Promise<Response> {
-  const viewer = viewerOf(request);
-  const anonymous = { ...viewer, sameOrigin: true, session: async () => null, token: async () => null };
+  if (!env.MCP_TOKEN) return json({ error: "This Site has no MCP server." }, 404);
+  if (!mcpAllowed(request, env.MCP_TOKEN)) return json({ error: "Send the Site's MCP token as a bearer token." }, 401, { "www-authenticate": 'Bearer realm="commitscape"' });
+  const anonymous = { ...viewerOf(request), sameOrigin: true, session: async () => null, token: async () => null };
   const server = mcpServer(deps(), anonymous);
   const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
   await server.connect(transport);

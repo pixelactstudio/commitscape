@@ -33,16 +33,21 @@ export function Footer({ compact = false }: { compact?: boolean }) {
     );
   const me = user?.login ? `/u/${user.login}` : null;
   const columns: Column[] = [
-    { title: "Explore", links: [["/leaderboards", "Leaderboards"], ["/vs", "Versus"], ["/races", "Races"], ["/crews", "Crews"]] },
+    ...(user ? [{ title: "Explore", links: [["/dashboard", "Dashboard"], ["/vs", "Versus"]] as [string, string][] }] : []),
     {
       title: "You",
-      links: [
-        [me ?? "/me", me ? "Your Profile" : user ? "Settings" : "Sign in"],
-        [me ? `${me}/cards` : "/me", "Your Cards"],
-        [me ? `${me}/work` : "/me", "Proof of Work"],
-        [me ? `${me}/wrapped/${YEAR}` : "/me", `Wrapped ${YEAR}`],
-        ["/privacy", "What we keep"],
-      ],
+      links: user
+        ? [
+            [me ?? "/me", me ? "Your Profile" : "Settings"],
+            [me ? `${me}/cards` : "/me", "Your Cards"],
+            [me ? `${me}/work` : "/me", "Proof of Work"],
+            [me ? `${me}/wrapped/${YEAR}` : "/me", `Wrapped ${YEAR}`],
+            ["/privacy", "What we keep"],
+          ]
+        : [
+            ["/sign-in", "Sign in"],
+            ["/privacy", "What we keep"],
+          ],
     },
     {
       title: "Open source",
@@ -67,7 +72,7 @@ export function Footer({ compact = false }: { compact?: boolean }) {
     <footer className="overflow-hidden border-t border-line">
       <div className="grid gap-12 px-(--frame-inset) pt-section pb-10 lg:grid-cols-[1.1fr_2fr]">
         <div className="flex max-w-sm flex-col gap-4">
-          <Link to="/" className="flex w-fit items-center gap-2 type-panel text-primary no-underline">
+          <Link to={user ? "/dashboard" : "/"} className="flex w-fit items-center gap-2 type-panel text-primary no-underline">
             <Logo size={24} />
             {PRODUCT}
           </Link>

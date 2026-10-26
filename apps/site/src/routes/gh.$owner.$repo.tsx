@@ -5,9 +5,7 @@ import { Icon } from "@astryxdesign/core/Icon";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { Spinner } from "@astryxdesign/core/Spinner";
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
-import { createFileRoute, Link, redirect, useNavigate, useRouteContext } from "@tanstack/react-router";
-import { Locked } from "#/components/Locked";
-import { GATES } from "#/lib/gates";
+import { createFileRoute, Link, redirect, useNavigate } from "@tanstack/react-router";
 import { Check, Download, ExternalLink, FileCode, History } from "lucide-react";
 import { FAILURE_WORDS, PRODUCT, VIEWS, type GitStatus, type Lookup, type View } from "@commitscape/data";
 import { App, CARDS, codeLink, dataQuery, date, GIT_SCREENS, gitKeyOf, hallOfFameCardSize, InlineLink, paramsOf, primaryRequest, pullAskOf, pullStatsAskOf, queryOf, Quiet, screensOf, REPO_CARDS, REPO_COMPACT_SIZE, REPO_STATS_SIZE, repoFacesCardSize, Leaderboard, Panel, SCREEN_SKELETONS, ScreenColumn, ScreenHeader, SourceContext, TITLES, toRoute, toSearch, Workspace, type Route as Where, type WorkspaceSlots } from "@commitscape/ui";
@@ -141,19 +139,17 @@ function Repository() {
   const where = toRoute(Route.useSearch());
   const queryClient = useQueryClient();
   const { data: lookup } = useSuspenseQuery(lookupQuery(owner, repo));
-  const { user } = useRouteContext({ from: "__root__" });
-  const mayBuild = !!user || !GATES.build.on;
   const build = useMutation({
     mutationFn: () => startBuild({ data: { owner, repo } }),
     onSuccess: (next) => queryClient.setQueryData(lookupQuery(owner, repo).queryKey, next),
   });
   const asked = useRef(false);
   useEffect(() => {
-    if (lookup.canBuild && mayBuild && !asked.current) {
+    if (lookup.canBuild && !asked.current) {
       asked.current = true;
       build.mutate();
     }
-  }, [lookup.canBuild, mayBuild, build]);
+  }, [lookup.canBuild, build]);
   useRemember(lookup.status === "ok" ? { kind: "repo", id: `${lookup.owner}/${lookup.name}` } : null);
   const busy = running(lookup);
   const slots = slotsOf(lookup, <BuildState lookup={lookup} busy={busy} />);
@@ -169,13 +165,7 @@ function Repository() {
     <Workspace slots={slots} route={where} screens={screensOf(false)} picker={null}>
       <ScreenColumn>
         <ScreenHeader title={`${lookup.owner}/${lookup.name}`} counts={busy ? "Its first Report is being built" : "It has no Report yet"} />
-        {!mayBuild && !busy && !(lookup.status === "ok" && lookup.build?.state === "failed" && lookup.build.reason === "too_big") ? (
-          <div className="pt-5">
-            <Locked gate="build" height={320} />
-          </div>
-        ) : (
-          <Waiting lookup={lookup} owner={owner} repo={repo} error={build.error?.message ?? null} />
-        )}
+        <Waiting lookup={lookup} owner={owner} repo={repo} error={build.error?.message ?? null} />
       </ScreenColumn>
     </Workspace>
   );
@@ -359,7 +349,7 @@ function NotFound({ lookup, owner, repo }: { lookup: Lookup; owner: string; repo
       note={
         lookup.access === "signed_out" ? (
           <>
-            If it is a private repository of yours, <InlineLink onClick={() => signIn(`/gh/${owner}/${repo}`)}>sign in with GitHub</InlineLink> to see it.
+            If it is a private repository of yours, <InlineLink onClick={() => void signIn(`/gh/${owner}/${repo}`)}>sign in with GitHub</InlineLink> to see it.
           </>
         ) : undefined
       }
@@ -377,7 +367,7 @@ function Waiting({ lookup, owner, repo, error }: { lookup: Lookup; owner: string
         <Banner
           status="warning"
           title={FAILURE_WORDS.not_found}
-          endContent={lookup.access === "signed_out" ? <Button label="Sign in with GitHub" variant="secondary" size="sm" onClick={() => signIn(`/gh/${owner}/${repo}`)} /> : undefined}
+          endContent={lookup.access === "signed_out" ? <Button label="Sign in with GitHub" variant="secondary" size="sm" onClick={() => void signIn(`/gh/${owner}/${repo}`)} /> : undefined}
         />
       )}
       {lookup.status === "private" && (

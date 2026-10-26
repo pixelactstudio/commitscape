@@ -1,18 +1,19 @@
 import "@tanstack/react-start/server-only";
 import { tanstackStartCookies } from "better-auth/tanstack-start";
-import { db, siteGitHub } from "./context";
+import { db, siteAnalytics, siteGitHub } from "./context";
 import { env } from "./env";
 import { syncLogin } from "./logins";
 import { createAuth, userTokenOf } from "./sign-in";
 
-/** Better Auth, signing in with GitHub only; every sign-in keeps the person's login. */
+/** Better Auth, signing in with GitHub only; every sign-in keeps the person's login and is counted. */
 export const auth = createAuth({
   db: db(),
   baseURL: env.BETTER_AUTH_URL,
   secret: env.BETTER_AUTH_SECRET,
   github: env.GITHUB_APP_CLIENT_ID && env.GITHUB_APP_CLIENT_SECRET ? { clientId: env.GITHUB_APP_CLIENT_ID, clientSecret: env.GITHUB_APP_CLIENT_SECRET } : null,
   plugins: [tanstackStartCookies()],
-  onSignIn: async (userId) => {
+  onSignIn: async (userId, { first, headers }) => {
+    siteAnalytics().capture("signed in", { userId, headers }, { first });
     await syncLogin({ db: db(), github: siteGitHub() }, userId, await githubTokenOf(userId));
   },
 });

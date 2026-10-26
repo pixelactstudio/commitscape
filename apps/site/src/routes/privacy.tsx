@@ -39,27 +39,27 @@ function Privacy() {
               When you are signed in and look at your own Profile, it is read with your own GitHub sign-in, so it can name your private repositories, to you alone, marked as such. It names them for everyone only if you choose so in <Inline to="/me">Settings</Inline>.
             </Item>
             <Item label="From the repositories we have read">Your commits, the lines you changed, and the lines of yours still at a repository’s head (Surviving Lines), under every address you commit with. Email addresses are used inside the reading and never shown.</Item>
-            <Item label="Where and how long">A copy of each Profile in our database, read again from GitHub when it is a day old and someone looks.</Item>
+            <Item label="Where and how long">A copy of each Profile in our database, read again from GitHub when it is a day old and someone signed in looks.</Item>
+            <Item label="Who can read it">Anyone signed in with GitHub. Without signing in, only its Cards open.</Item>
           </Part>
 
           <Part id="comparisons" title="Comparisons, and staying out">
-            <Item>People are compared view by view: in each repository (Standings), two at a time (Versus), on the Leaderboards, and in Races and Crews. Never with one combined score.</Item>
+            <Item>People are compared view by view: in each repository (Standings), and two at a time (Versus). Never with one combined score.</Item>
             <Item label="Staying out">
-              Sign in and turn on “Stay out of comparisons” in <Inline to="/me">Settings</Inline>. You then appear in no one else’s Standings, Versus, Leaderboards, Races or Crews, and your Profile shows others only that it is hidden.
+              Sign in and turn on “Stay out of comparisons” in <Inline to="/me">Settings</Inline>. You then appear in no one else’s Standings or Versus, and your Profile shows others only that it is hidden.
             </Item>
             <Item label="Private repositories">Their Standings are shown only to people GitHub says can see the repository, checked on every view.</Item>
-            <Item label="Races and Crews">They include you only after you accept an invitation, and leaving takes you out at once.</Item>
           </Part>
 
           <Part id="cards" title="Cards">
-            <Item>Cards are images of a Profile’s numbers, for READMEs and posts. They show only what the Profile shows anyone, are stored as images, and are refreshed at most every six hours; a hidden person has none.</Item>
+            <Item>Cards are images of a Profile’s numbers, for READMEs and posts. They show only what the Profile shows anyone, open without signing in, are stored as images, and are refreshed at most every six hours; a hidden person has none.</Item>
           </Part>
 
           <Part id="repositories" title="Repositories you look up">
             <Item label="What">The repository’s Report (its numbers, file paths, the names and GitHub logins of the people who committed, and each commit’s subject line), its pull requests and reviews (who, when, how big, the title), and the facts GitHub shows anyone. Never an email address.</Item>
             <Item label="Where">The Report in Cloudflare R2, the rest in a database on our own server. The history is read on our server too, from a clone kept to make the next update quick.</Item>
             <Item label="How long">While people look at it; it is rebuilt when it is more than a day old and someone asks.</Item>
-            <Item label="The Leaderboards">Each night our server also reads a budgeted number of the most starred public repositories, and ranks repositories, and the people in them who have not chosen to stay out.</Item>
+            <Item label="Each night">Our server also reads a budgeted number of the most starred public repositories, so their Reports are ready when someone looks.</Item>
           </Part>
 
           <Part id="shared" title="Shared Reports">
@@ -87,7 +87,8 @@ function Privacy() {
           <Part id="everyone" title="Everyone">
             <Item>To stop abuse, the Site counts how many lookups, Builds and Shared Reports each address starts in an hour (an IPv6 address counts with its neighbours in the same /64). It keeps a hash of the address, never the address, and deletes the count when the hour ends.</Item>
             <Item>Our server keeps logs of requests, as any host does.</Item>
-            <Item>Errors in the Site are reported to Sentry, without the request’s body or cookies. Pages viewed are counted with PostHog, which honours your browser’s Do Not Track setting and is never told who you are. No advertising.</Item>
+            <Item>Errors in the Site are reported to Sentry, without the request’s body, headers or cookies.</Item>
+            <Item>Pages viewed, and a few moments such as signing in, asking for a Build or opening a Profile, are counted with PostHog, through our own server. It honours your browser’s Do Not Track setting and is never told who you are: someone signed in is counted under a code made from their account with a key only our server holds, never their account or login. No advertising.</Item>
           </Part>
 
           <p className="mt-12 mb-0 surface px-panel py-4 type-description">

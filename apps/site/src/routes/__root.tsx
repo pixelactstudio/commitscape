@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import type { QueryClient } from "@tanstack/react-query";
 import { TanStackDevtools } from "@tanstack/react-devtools";
 import { ReactQueryDevtoolsPanel } from "@tanstack/react-query-devtools";
-import { createRootRouteWithContext, HeadContent, Outlet, Scripts, useRouteContext } from "@tanstack/react-router";
+import { createRootRouteWithContext, HeadContent, Outlet, redirect, Scripts, useRouteContext } from "@tanstack/react-router";
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import { Theme } from "@astryxdesign/core/theme";
 import { LinkProvider } from "@astryxdesign/core/Link";
@@ -13,6 +13,7 @@ import { commitscapeTheme, MODE_COOKIE, ModeContext, themeCss, type Mode } from 
 import { MotionProvider } from "@commitscape/ui/motion";
 import styles from "@commitscape/ui/styles.css?url";
 import type { getViewer } from "#/functions/account";
+import { isOpenPage, returnTo } from "#/lib/access";
 import { rememberViewer, viewer } from "#/lib/viewer";
 import { Analytics } from "#/integrations/posthog";
 import { PUBLIC_GLOBAL } from "#/lib/env";
@@ -27,7 +28,11 @@ type Viewer = Awaited<ReturnType<typeof getViewer>>;
 const THEME_CSS = themeCss();
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient } & Partial<Viewer>>()({
-  beforeLoad: () => viewer(),
+  beforeLoad: async ({ location }) => {
+    const v = await viewer();
+    if (!v.user && location.pathname !== "/" && !isOpenPage(location.pathname)) throw redirect({ to: "/sign-in", search: { next: returnTo(location.href) } });
+    return v;
+  },
   loader: ({ context }) => ({ public: context.public ?? {}, origin: context.origin ?? "" }),
   head: ({ loaderData }) => ({
     scripts: [{ children: `window.${PUBLIC_GLOBAL}=${JSON.stringify(loaderData?.public ?? {}).replaceAll("<", "\\u003c")}` }],

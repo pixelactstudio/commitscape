@@ -2,26 +2,13 @@ import { Component, Suspense, type ReactNode } from "react";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { useQueryErrorResetBoundary } from "@tanstack/react-query";
-import { Locked, LockedLine } from "#/components/Locked";
-import { LockedError, type Gate } from "#/lib/gates";
-
-export type LockedAs = { title?: string; height?: number; compact?: string; hide?: boolean };
-
-/** What a part kept for people signed in shows to everyone else: its sign-in prompt, in the size it asked for, or nothing. */
-export function LockedView({ gate, as }: { gate: Gate; as?: LockedAs }) {
-  if (as?.hide) return null;
-  if (as?.compact) return <LockedLine gate={gate} what={as.compact} />;
-  return <Locked gate={gate} title={as?.title} height={as?.height} />;
-}
-
-class Catch extends Component<{ children: ReactNode; locked?: LockedAs; quiet?: boolean; note?: string; onRetry?: () => void }, { error: Error | null }> {
+class Catch extends Component<{ children: ReactNode; quiet?: boolean; note?: string; onRetry?: () => void }, { error: Error | null }> {
   state = { error: null as Error | null };
   static getDerivedStateFromError(error: Error) {
     return { error };
   }
   render() {
     const error = this.state.error;
-    if (error instanceof LockedError) return <LockedView gate={error.gate} as={this.props.locked} />;
     if (error && this.props.quiet) return null;
     const retry = () => {
       this.props.onRetry?.();
@@ -41,11 +28,11 @@ class Catch extends Component<{ children: ReactNode; locked?: LockedAs; quiet?: 
   }
 }
 
-/** One slow part of a page: its skeleton until its data streams in, a sign-in prompt where it is kept for people signed in, and if it fails a banner with Try again, nothing at all (`quiet`) or, in a small slot, a short note (`note` is its classes). */
-export function Section({ fallback, locked, quiet = false, note, children }: { fallback: ReactNode; locked?: LockedAs; quiet?: boolean; note?: string; children: ReactNode }) {
+/** One slow part of a page: its skeleton until its data streams in, and if it fails a banner with Try again, nothing at all (`quiet`) or, in a small slot, a short note (`note` is its classes). */
+export function Section({ fallback, quiet = false, note, children }: { fallback: ReactNode; quiet?: boolean; note?: string; children: ReactNode }) {
   const { reset } = useQueryErrorResetBoundary();
   return (
-    <Catch locked={locked} quiet={quiet} note={note} onRetry={reset}>
+    <Catch quiet={quiet} note={note} onRetry={reset}>
       <Suspense fallback={fallback}>{children}</Suspense>
     </Catch>
   );

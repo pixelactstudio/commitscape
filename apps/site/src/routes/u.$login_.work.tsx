@@ -6,9 +6,7 @@ import { Icon } from "@astryxdesign/core/Icon";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { useMutation, useQuery, useSuspenseQuery } from "@tanstack/react-query";
-import { createFileRoute, Link, useNavigate, useRouteContext } from "@tanstack/react-router";
-import { LockedPage } from "#/components/Locked";
-import { GATES } from "#/lib/gates";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { ArrowLeft, Copy, Download, Link2, Lock, LogIn, Share2 } from "lucide-react";
 import { groupWork, inFilter, isWorkGate, periodDates, periodWords, PRODUCT, WORK_KINDS, type Work, type WorkGate, type WorkKind } from "@commitscape/data";
 import { Face, grouped, many, Page, PageHead, Panel, PeriodPicker, RepoPicker, WorkSkeleton, WorkView, type WorkLook } from "@commitscape/ui";
@@ -47,8 +45,6 @@ function ProofOfWork() {
   const { login } = Route.useParams();
   const search = Route.useSearch();
   const { data: lookup } = useSuspenseQuery(profileLookupQuery(login));
-  const { user } = useRouteContext({ from: "__root__" });
-  if (!user && GATES.work.on) return <LockedPage gate="work" />;
   if (lookup.status === "hidden") return <Missing title="This Proof of Work is hidden" words="This person has chosen to stay out, so their Proof of Work shows nothing." />;
   if (lookup.status !== "ok") return <Missing title={`No one called @${login}`} words="GitHub has no person by that name. Check its spelling, or search for them." />;
   const id = lookup.identity;
@@ -112,7 +108,7 @@ function SignInForWork({ gate, isOpen, onOpenChange, onShorter }: { gate: WorkGa
     <Dialog isOpen={isOpen} onOpenChange={onOpenChange} width={520} padding={5} purpose="info">
       {isOpen && gate && (
         <>
-          <DialogHeader title={gate.signedIn ? "Sign in again to read this much work" : "Sign in to read this much work"} onOpenChange={onOpenChange} />
+          <DialogHeader title="Sign in again to read this much work" onOpenChange={onOpenChange} />
           <SignInWords gate={gate} onShorter={onShorter} />
         </>
       )}
@@ -128,11 +124,11 @@ function SignInWords({ gate, onShorter }: { gate: WorkGate; onShorter: () => voi
         {gate.filter ? `, in ${gate.filter},` : ","} holds {gate.atLeast ? "at least" : "about"} {grouped(gate.prs + gate.commits)} merged pull requests and commits. Reading every one of them takes {gate.atLeast ? "at least" : "about"} {many(gate.requests, "request", "requests")} to GitHub.
       </p>
       <p className="m-0 type-description">
-        {gate.signedIn ? "GitHub no longer accepts your sign-in for reading, so" : "Without signing in,"} {PRODUCT} reads GitHub with one allowance that every visitor shares, and it reads no more than {gate.budget} requests for one Proof of Work. Sign in with GitHub{gate.signedIn ? " again" : ""} and it reads this one with your own GitHub allowance instead. It only reads; it never changes anything on GitHub.
+        GitHub no longer accepts your sign-in for reading, so {PRODUCT} reads GitHub with one allowance that everyone shares, and it reads no more than {gate.budget} requests for one Proof of Work. Sign in with GitHub again and it reads this one with your own GitHub allowance instead. It only reads; it never changes anything on GitHub.
       </p>
       <div className="flex flex-wrap justify-end gap-cluster">
         <Button label="Pick a shorter period" variant="secondary" onClick={onShorter} />
-        <Button label="Sign in with GitHub" variant="primary" icon={<Icon icon={LogIn} size="sm" />} onClick={() => signIn(here())} />
+        <Button label="Sign in with GitHub" variant="primary" icon={<Icon icon={LogIn} size="sm" />} onClick={() => void signIn(here())} />
       </div>
     </div>
   );
@@ -142,11 +138,11 @@ function Gated({ gate, onAsk, onShorter }: { gate: WorkGate; onAsk: () => void; 
   useEffect(() => onAsk(), [onAsk]);
   return (
     <Panel
-      title={gate.signedIn ? "This period needs you to sign in again" : "This period needs a sign-in"}
-      description={`${many(gate.prs, "merged pull request", "merged pull requests")} and ${gate.atLeast ? "at least" : "about"} ${many(gate.commits, "commit", "commits")}${gate.filter ? ` in ${gate.filter}` : ""}: reading them takes ${gate.atLeast ? "at least" : "about"} ${many(gate.requests, "request", "requests")} to GitHub, more than the ${gate.budget} the Site’s shared allowance gives one Proof of Work. Sign in${gate.signedIn ? " again" : ""} to read it with your own GitHub allowance, or pick a shorter period or one repository.`}
+      title="This period needs you to sign in again"
+      description={`${many(gate.prs, "merged pull request", "merged pull requests")} and ${gate.atLeast ? "at least" : "about"} ${many(gate.commits, "commit", "commits")}${gate.filter ? ` in ${gate.filter}` : ""}: reading them takes ${gate.atLeast ? "at least" : "about"} ${many(gate.requests, "request", "requests")} to GitHub, more than the ${gate.budget} the Site’s shared allowance gives one Proof of Work. Sign in again to read it with your own GitHub allowance, or pick a shorter period or one repository.`}
     >
       <div className="flex flex-wrap gap-cluster">
-        <Button label="Sign in with GitHub" variant="primary" icon={<Icon icon={LogIn} size="sm" />} onClick={() => signIn(here())} />
+        <Button label="Sign in with GitHub" variant="primary" icon={<Icon icon={LogIn} size="sm" />} onClick={() => void signIn(here())} />
         <Button label="Pick a shorter period" variant="secondary" onClick={onShorter} />
         <Button label="Why?" variant="ghost" onClick={onAsk} />
       </div>

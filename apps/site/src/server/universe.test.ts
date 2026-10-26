@@ -1,56 +1,47 @@
-import { brotliDecompressSync } from "node:zlib";
-import { sql } from "drizzle-orm";
+import { brotliCompressSync, brotliDecompressSync, constants } from "node:zlib";
+import { eq } from "drizzle-orm";
 import { describe, expect, test } from "vitest";
-import { decodeAtlas, decodeNames, folderPath, layoutOf } from "@commitscape/data/universe";
+import { decodeAtlas, decodeNames, type AtlasRows } from "@commitscape/data/universe";
 import { now, schema, seedIndex, type SeedIndex } from "@commitscape/server";
-import { testDeps, viewer } from "#/test/deps";
+import { fakeEngine, packed, testDeps, viewer, type Asked } from "#/test/deps";
 import { SiteError } from "./http";
-import { atlasBody, atlasFile, warmAtlas } from "./universe";
+import { atlasBody, atlasFile, atlasOfPack, warmAtlas } from "./universe";
 
 const { repositories } = schema;
 
-const commit = (k: number) => `c${k}`.repeat(20);
+const seed: SeedIndex = { anchor: 1000, persons: [{ id: 3, name: "Alice Example", login: "alice" }], files: [{ file: 0, path: "a.ts" }], commits: [{ sha: "c1".repeat(20), at: 100, person: 3, files: [0] }] };
 
-const seed: SeedIndex = {
-  anchor: 1000,
-  persons: [
-    { id: 3, name: "Alice Example", login: "alice" },
-    { id: 4, name: "Bob", login: null },
+const rows: AtlasRows = {
+  mainline: true,
+  newest: 300,
+  files: [
+    { file: 0, path: "README.md", alive: true, role: 3, language: "Markdown", generated: false, lockfile: false, lines: 3 },
+    { file: 1, path: "src/a.ts", alive: true, role: 0, language: "TypeScript", generated: false, lockfile: false, lines: 12 },
+  ],
+  people: [
+    { id: 3, name: "Alice Example", login: "alice", bot: false },
     { id: 5, name: "ci-bot", login: "ci[bot]", bot: true },
   ],
-  files: [
-    { file: 0, path: "README.md", born: 100, last: 100 },
-    { file: 1, path: "src/a.ts", born: 100, last: 300 },
-    { file: 2, path: "src/old.ts", born: 100, last: 250, alive: false },
-    { file: 3, path: "side/branch.ts", born: 220, last: 220, alive: false },
-  ],
-  headFiles: [
-    { file: 0, blob: "1".repeat(40), bytes: 5, lines: 3, class: "prose" },
-    { file: 1, blob: "2".repeat(40), bytes: 20, lines: 12, class: "source" },
-  ],
   commits: [
-    { sha: commit(1), at: 100, person: 3, files: [0, 1, 2] },
-    { sha: commit(2), at: 200, person: 4, files: [1] },
-    { sha: commit(3), at: 220, person: 4, files: [3] },
-    { sha: commit(4), at: 250, person: 3, files: [2] },
-    { sha: commit(5), at: 260, person: 3, files: [1], merge: true },
-    { sha: commit(6), at: 300, person: 5, files: [1] },
+    { time: 100, person: 3, bulk: false, firstParent: true, files: [0, 1], changes: [0, 0] },
+    { time: 300, person: 5, bulk: false, firstParent: true, files: [1], changes: [1] },
   ],
+  releases: [],
 };
 
+const answering = ({ endpoint }: Asked) => (endpoint === "/v1/universe/rows" ? rows : undefined);
+
 async function stored() {
-  const deps = await testDeps();
+  const engine = fakeEngine(answering);
+  const deps = await testDeps({ engine });
   await deps.db.insert(repositories).values([
     { id: "acme/rocket", owner: "acme", name: "rocket", githubId: 1, status: "ok", factsAt: now(), reportKey: "reports/gh/acme/rocket/b1", reportAt: 500 },
     { id: "acme/secret", owner: "acme", name: "secret", githubId: 2, status: "private", isPrivate: true, installationId: 5, factsAt: now(), reportKey: "reports/gh/acme/secret/b1", reportAt: 600 },
   ]);
-  for (const id of ["acme/rocket", "acme/secret"]) await seedIndex(deps.db, id, seed);
-  const main = [commit(1), commit(2), commit(4), commit(5), commit(6)];
-  await deps.db.execute(sql`UPDATE index_commits SET flags = flags | 8, arrival = at WHERE encode(sha, 'hex') = ANY (${sql.param(main)}::text[])`);
-  await deps.db.execute(sql`UPDATE index_commits SET arrival = 280 WHERE encode(sha, 'hex') = ${commit(2)}`);
-  await deps.db.execute(sql`UPDATE index_commits SET changes = '{0,0,0}' WHERE encode(sha, 'hex') = ${commit(1)}`);
-  await deps.db.execute(sql`UPDATE index_commits SET changes = '{2}' WHERE encode(sha, 'hex') = ${commit(4)}`);
-  return deps;
+  const si = await seedIndex(deps.db, "acme/rocket", seed);
+  const pack = await packed(deps.db, si, "packs/acme/rocket/1/pack.pack");
+  await packed(deps.db, await seedIndex(deps.db, "acme/secret", seed), "packs/acme/secret/2/pack.pack");
+  return Object.assign(deps, { engine, si, pack });
 }
 
 const bytesOf = async (deps: Awaited<ReturnType<typeof stored>>, part: "map" | "names", v: number | null = null) => {
@@ -60,22 +51,13 @@ const bytesOf = async (deps: Awaited<ReturnType<typeof stored>>, part: "map" | "
 };
 
 describe("the Atlas", () => {
-  test("carries the default branch's commits by when they arrived there, without Merge Commits or other branches", async () => {
+  test("is made from the rows the engine service reads from the Stored Index's pack, once per pack", async () => {
     const deps = await stored();
-    const { bytes } = await bytesOf(deps, "map");
-    const atlas = decodeAtlas(bytes);
-    expect(atlas.mainline).toBe(true);
-    expect(Array.from(atlas.commits.time)).toEqual([100, 250, 280, 300]);
-    expect(atlas.files.folder.length).toBe(3);
-    expect(atlas.people.names).toEqual(["Alice Example", "Bob", "ci-bot"]);
-    expect(Array.from(atlas.people.bot)).toEqual([0, 0, 1]);
-    const { born, died } = layoutOf(atlas);
-    const names = decodeNames((await bytesOf(deps, "names")).bytes).names;
-    const old = names.indexOf("old.ts");
-    expect(died[old]).toBe(250);
-    expect(born[names.indexOf("a.ts")]).toBe(100);
-    expect(folderPath(atlas, atlas.files.folder[old] as number)).toBe("src");
-    expect(atlas.files.lines[names.indexOf("a.ts")]).toBe(12);
+    const atlas = decodeAtlas((await bytesOf(deps, "map")).bytes);
+    expect(Array.from(atlas.commits.time)).toEqual([100, 300]);
+    expect(atlas.people.names).toEqual(["Alice Example", "ci-bot"]);
+    expect(decodeNames((await bytesOf(deps, "names")).bytes).names.sort()).toEqual(["README.md", "a.ts"]);
+    expect(deps.engine.asked).toEqual([{ endpoint: "/v1/universe/rows", body: { pack: deps.pack } }]);
   });
 
   test("answers again with 304, pins a year when the address names the Report, and keeps what it made", async () => {
@@ -86,21 +68,42 @@ describe("the Atlas", () => {
     expect(again.body).toBeNull();
     const loose = await atlasFile(deps, viewer(), "acme", "rocket", "map", 1);
     expect(loose.cacheControl).toBe("public, max-age=300");
+    await (await atlasOfPack(deps, deps.si, deps.pack)).kept;
     expect((await deps.storage.keys?.("atlas/"))?.length ?? 0).toBeGreaterThanOrEqual(2);
+    await packed(deps.db, deps.si, "packs/acme/rocket/1/next.pack");
+    expect((await atlasFile(deps, viewer(), "acme", "rocket", "map", 500, found.etag)).etag).not.toBe(found.etag);
   });
 
-  test("is made ahead of its first visitor, and what an earlier load of the Stored Index left in storage is deleted", async () => {
+  test("is made ahead of its first visitor, and what the Stored Index's earlier packs left in storage is deleted", async () => {
     const deps = await stored();
-    const [row] = await deps.db.select({ si: repositories.indexId }).from(repositories).where(sql`${repositories.id} = 'acme/rocket'`);
-    const si = row?.si as number;
-    await deps.storage.put(`atlas/${si}/0000000000000000/map.bin.br`, "old", { type: "application/octet-stream" });
-    expect(await warmAtlas(deps.db, deps.storage, si)).toBe(true);
-    expect(await warmAtlas(deps.db, deps.storage, si + 1000)).toBe(false);
-    const kept = (await deps.storage.keys?.(`atlas/${si}/`)) ?? [];
+    await deps.storage.put(`atlas/${deps.si}/0000000000000000/map.bin.br`, "old", { type: "application/octet-stream" });
+    expect(await warmAtlas(deps, deps.si, deps.pack)).toBe(true);
+    const kept = (await deps.storage.keys?.(`atlas/${deps.si}/`)) ?? [];
     expect(kept.length).toBe(2);
     expect(kept.some((k) => k.includes("0000000000000000"))).toBe(false);
     const again = await atlasFile(deps, viewer(), "acme", "rocket", "map", null);
     expect(again.body).not.toBeNull();
+    expect(deps.engine.asked).toHaveLength(1);
+  });
+
+  test("is sent packed quickly at once, then packed as small as brotli makes it, which is stored and sent from then on, the same bytes once unpacked", async () => {
+    const deps = await stored();
+    const built = await atlasOfPack(deps, deps.si, deps.pack);
+    const first = built.map.br;
+    const raw = brotliDecompressSync(first);
+    expect(first).toEqual(new Uint8Array(brotliCompressSync(raw, { params: { [constants.BROTLI_PARAM_QUALITY]: 5, [constants.BROTLI_PARAM_LGWIN]: 24, [constants.BROTLI_PARAM_SIZE_HINT]: raw.byteLength } })));
+    await built.kept;
+    const kept = await deps.storage.get(`atlas/${deps.si}/${(await deps.storage.keys?.(`atlas/${deps.si}/`))?.[0]?.split("/")[2]}/map.bin.br`);
+    expect(kept?.body).toEqual(built.map.br);
+    expect(built.map.br.byteLength).toBeLessThanOrEqual(first.byteLength);
+    expect(brotliDecompressSync(built.map.br)).toEqual(raw);
+    expect(brotliDecompressSync(built.names.br).byteLength).toBeGreaterThan(0);
+  });
+
+  test("is read at the next Build while the Stored Index has no pack", async () => {
+    const deps = await stored();
+    await deps.db.update(schema.storedIndexes).set({ pack: null }).where(eq(schema.storedIndexes.id, deps.si));
+    await expect(atlasFile(deps, viewer(), "acme", "rocket", "map", null)).rejects.toThrow("next Build");
   });
 
   test("sends brotli, gzip or plain bytes as the request accepts", async () => {

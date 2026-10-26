@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { now, schema, type SurvivalJob } from "@commitscape/server";
-import { fakeGitHub, testDeps, viewer } from "#/test/deps";
+import { fakeEngine, fakeGitHub, testDeps, viewer } from "#/test/deps";
 import { engineOf } from "./engine";
 import { mcpServer } from "./mcp";
 import { saveChoices } from "./people";
@@ -46,6 +46,7 @@ async function seeded() {
 
 const anyone = { ...viewer(), login: async () => null };
 const signedIn = (login: string, sessionId: string, userId: string) => ({ ...viewer({ session: async () => ({ id: sessionId, userId }), token: async () => `ghu_${login}` }), login: async () => login });
+const erin = signedIn("erin", "s-erin", "u-erin");
 
 describe("Standings", () => {
   test("each view ranks on its own, engine and pull requests joined by login, bots and nobodies left out", async () => {
@@ -79,11 +80,11 @@ describe("Standings", () => {
     const counted: SurvivalJob[] = [];
     deps.queue = async () => ({ send: async () => {}, count: async (job) => void counted.push(job) });
     await deps.db.update(surviving).set({ status: "over_budget", lines: null, askedAt: now() - 60 });
-    const fresh = await standingsOf(deps, anyone, "acme", "rocket");
+    const fresh = await standingsOf(deps, erin, "acme", "rocket");
     expect(fresh.people.find((r) => r.key === "alice")?.survivingStatus).toBe("over_budget");
     expect(counted.flatMap((j) => j.personIds)).toEqual([2]);
     await deps.db.update(surviving).set({ askedAt: now() - 3600 });
-    const again = await standingsOf(deps, anyone, "acme", "rocket");
+    const again = await standingsOf(deps, erin, "acme", "rocket");
     expect(again.people.find((r) => r.key === "alice")?.survivingStatus).toBe("counting");
     expect(counted.at(-1)?.personIds.sort()).toEqual([0, 1, 2]);
   });
@@ -93,12 +94,27 @@ describe("Standings", () => {
     const counted: SurvivalJob[] = [];
     deps.queue = async () => ({ send: async () => {}, count: async (job) => void counted.push(job) });
     await deps.db.insert(repoPeople).values({ repoId: "acme/rocket", reportKey: "r/rocket/b1", personId: 7, name: "Alice at work", login: "alice", commits: 4, linesAdded: 40, linesRemoved: 4, first: 1, last: 2 });
-    const first = await standingsOf(deps, anyone, "acme", "rocket");
+    const first = await standingsOf(deps, erin, "acme", "rocket");
     expect(first.people.find((r) => r.key === "alice")).toMatchObject({ commits: 34, surviving: null, survivingStatus: "counting" });
     expect(counted.flatMap((j) => j.personIds)).toContain(7);
     await deps.db.update(surviving).set({ status: "counted", lines: 20, added: 40 }).where(eq(surviving.personId, 7));
-    const both = await standingsOf(deps, anyone, "acme", "rocket");
+    const both = await standingsOf(deps, erin, "acme", "rocket");
     expect(both.people.find((r) => r.key === "alice")).toMatchObject({ surviving: 420, survivingStatus: "counted" });
+  });
+
+  test("someone signed out, such as a Card, starts no work: no count is asked for and the engine is not asked", async () => {
+    const deps = await seeded();
+    const counted: SurvivalJob[] = [];
+    deps.queue = async () => ({ send: async () => {}, count: async (job) => void counted.push(job) });
+    const engine = fakeEngine();
+    deps.engine = engine;
+    await deps.db.update(surviving).set({ status: "over_budget", lines: null, askedAt: now() - 3600 });
+    const s = await standingsOf(deps, anyone, "acme", "rocket");
+    expect(s.people.find((r) => r.key === "alice")?.survivingStatus).toBe("over_budget");
+    expect(s.people.every((r) => r.worksOn === undefined)).toBe(true);
+    expect(counted).toEqual([]);
+    expect(engine.asked).toEqual([]);
+    expect(await deps.db.select().from(surviving).where(eq(surviving.status, "queued"))).toEqual([]);
   });
 
   test("cut to the first in each view, the viewer and the person in focus, with places counted over everyone", async () => {

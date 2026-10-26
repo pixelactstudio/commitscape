@@ -1,6 +1,6 @@
 import "@tanstack/react-start/server-only";
 import { auth, githubTokenOf } from "./auth";
-import { builds, db, githubApp, reports, siteGitHub } from "./context";
+import { builds, db, engine, githubApp, reports, siteGitHub } from "./context";
 import { env } from "./env";
 import { clientAddress, sameOrigin } from "./http";
 import { loginOf } from "./logins";
@@ -8,7 +8,7 @@ import type { ProfileDeps, ProfileViewer } from "./profiles";
 import type { Deps, Viewer } from "./repos";
 
 export function deps(): Deps {
-  return { db: db(), storage: reports(), github: siteGitHub(), app: githubApp(), queue: builds, tokenSecret: env.TOKEN_SECRET };
+  return { db: db(), storage: reports(), github: siteGitHub(), app: githubApp(), queue: builds, engine: engine(), tokenSecret: env.TOKEN_SECRET };
 }
 
 /** Who a request is from; their session and GitHub token are read only when needed. */
@@ -44,7 +44,14 @@ export function profileViewer(request: Request): ProfileViewer & Viewer {
   return {
     ...viewer,
     login: () => (login ??= viewer.session().then((s) => (s ? loginFor(request, s.userId) : null))),
+    member: () => viewer.session().then((s) => s !== null),
   };
+}
+
+/** Reads someone's public Profile for the signed-in person, with their own GitHub token, as anyone else would see it. */
+export function publicReader(request: Request): ProfileViewer {
+  const viewer = profileViewer(request);
+  return { login: async () => null, token: viewer.token, member: viewer.member };
 }
 
 /** The signed-in person's account id and GitHub login, or null. */

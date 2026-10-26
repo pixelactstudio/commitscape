@@ -15,9 +15,5 @@ User-agent: Reflectionbot
 Disallow: /
 
 User-agent: *
-Disallow: /_serverFn/
-Disallow: /mcp
-Disallow: /vs/
-Disallow: /s/
-Disallow: /u/*/
-Allow: /
+Allow: /api/cards/
+Disallow: /

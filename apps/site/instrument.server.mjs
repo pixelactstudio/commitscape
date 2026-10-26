@@ -13,7 +13,7 @@ if (dsn) {
     dsn,
     environment: process.env.SENTRY_ENVIRONMENT ?? "production",
     tracesSampleRate: Number(process.env.SENTRY_TRACES_SAMPLE_RATE ?? 0.1),
-    sendDefaultPii: false,
+    dataCollection: { userInfo: false, cookies: false, httpHeaders: false, httpBodies: [], urlQueryParams: false },
     beforeSend: (event, hint) => (expected(hint.originalException) ? null : event),
   });
 }

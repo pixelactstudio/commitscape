@@ -81,7 +81,7 @@ test("Share opens the Card on a stage with the ways to take it out", async ({ pa
 test("every page carries a preview image", async ({ request }) => {
   const bot = { "user-agent": "Twitterbot/1.0" };
   const image = async (path: string) => /<meta property="og:image" content="([^"]+)"/.exec(await (await request.get(path, { headers: bot })).text())?.[1];
-  expect(await image("/")).toMatch(/\/api\/cards\/site\/preview\.png$/);
+  expect(await image("/dashboard")).toMatch(/\/api\/cards\/site\/preview\.png$/);
   expect(await image("/u/alice")).toMatch(/\/api\/cards\/u\/alice\/preview\.png$/);
   expect(await image("/u/alice/acme/ownership")).toMatch(/\/api\/cards\/u\/alice\/acme\/ownership\/standing\.png$/);
   expect(await image("/gh/acme/ownership")).toMatch(/\/api\/cards\/gh\/acme\/ownership\/hall-of-fame\.png$/);

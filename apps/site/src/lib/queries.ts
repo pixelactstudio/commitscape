@@ -1,6 +1,6 @@
 import { queryOptions } from "@tanstack/react-query";
 import type { Lookup } from "@commitscape/data";
-import { getBoards, getMe, getPeopleBoards } from "#/functions/account";
+import { getMe } from "#/functions/account";
 import { getDashboard } from "#/functions/dashboard";
 import { getGitStatus } from "#/functions/git";
 import { getPullConversation } from "#/functions/pulls";
@@ -8,8 +8,7 @@ import { getLookup, getReportHead } from "#/functions/repos";
 import { getMyChoices, getStandings } from "#/functions/standings";
 import { getCardGallery } from "#/functions/cards";
 import { getSharedWork, getWork } from "#/functions/work";
-import { getMyRivals, getRivalGaps, getVersus } from "#/functions/versus";
-import { getCrew, getMyRaces, getRace } from "#/functions/races";
+import { getVersus } from "#/functions/versus";
 import { getDayCommits, getEngine, getFullProfile, getProfile, getProfileLookup, getTraits, getWrapped } from "#/functions/profiles";
 
 const running = (l: Lookup | undefined) => !!l?.build && (l.build.state === "queued" || l.build.state === "running");
@@ -34,8 +33,6 @@ export const gitStatusQuery = (owner: string, repo: string, at: number) =>
 
 export const pullConversationQuery = (owner: string, repo: string, number: number) =>
   queryOptions({ queryKey: ["pull-conversation", owner.toLowerCase(), repo.toLowerCase(), number], queryFn: () => getPullConversation({ data: { owner, repo, number } }), staleTime: 5 * 60_000 });
-
-export const boardsQuery = () => queryOptions({ queryKey: ["boards"], queryFn: () => getBoards(), staleTime: 10 * 60_000 });
 
 export const meQuery = () => queryOptions({ queryKey: ["me"], queryFn: () => getMe(), staleTime: 60_000 });
 
@@ -79,20 +76,7 @@ export const sharedWorkQuery = (id: string) => queryOptions({ queryKey: ["shared
 
 export const versusQuery = (a: string, b: string) => queryOptions({ queryKey: ["versus", a.toLowerCase(), b.toLowerCase()], queryFn: () => getVersus({ data: { a, b } }), staleTime: 5 * 60_000 });
 
-export const rivalsQuery = () => queryOptions({ queryKey: ["rivals"], queryFn: () => getMyRivals(), staleTime: 60_000 });
-
-export const rivalGapsQuery = () => queryOptions({ queryKey: ["rival-gaps"], queryFn: () => getRivalGaps(), staleTime: 60_000 });
-
 export const traitsQuery = (login: string) => queryOptions({ queryKey: ["traits", login.toLowerCase()], queryFn: () => getTraits({ data: { login } }), staleTime: 5 * 60_000 });
-
-export const raceQuery = (id: string) => queryOptions({ queryKey: ["race", id], queryFn: () => getRace({ data: { id } }), staleTime: 60_000 });
-
-export const crewQuery = (id: string) => queryOptions({ queryKey: ["crew", id], queryFn: () => getCrew({ data: { id } }), staleTime: 60_000 });
-
-export const myRacesQuery = () => queryOptions({ queryKey: ["my-races"], queryFn: () => getMyRaces(), staleTime: 30_000 });
-
-export const peopleBoardsQuery = (window: "season" | "last-season" | "90d" | "all", repo: string | null) =>
-  queryOptions({ queryKey: ["people-boards", window, repo ?? ""], queryFn: () => getPeopleBoards({ data: { window, repo } }), staleTime: 5 * 60_000 });
 
 export const wrappedQuery = (login: string, year: number) => queryOptions({ queryKey: ["wrapped", login.toLowerCase(), year], queryFn: () => getWrapped({ data: { login, year } }), staleTime: 5 * 60_000 });
 
