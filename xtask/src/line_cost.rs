@@ -3,7 +3,7 @@ use std::sync::Mutex;
 use std::time::Instant;
 
 use anyhow::{Context, Result};
-use commitscape_index::{load, CacheOptions, GixRepo, RepoSource};
+use commitscape_index::{load, CacheOptions, GixRepo, LineWork, RepoSource};
 
 pub fn run(path: &Path, newest: Option<usize>, verify: bool) -> Result<()> {
     let source = GixRepo::open(path)?;
@@ -11,8 +11,15 @@ pub fn run(path: &Path, newest: Option<usize>, verify: bool) -> Result<()> {
         .join("target")
         .join("bench-cache")
         .join("line-cost");
-    let loaded = load(&source, &CacheOptions { root: Some(cache) }, &mut |_| {})
-        .context("loading the index")?;
+    let loaded = load(
+        &source,
+        &CacheOptions {
+            root: Some(cache),
+            key: None,
+        },
+        &mut |_| {},
+    )
+    .context("loading the index")?;
     let index = loaded.index;
     let mut commits: Vec<_> = index
         .commits
@@ -37,7 +44,7 @@ pub fn run(path: &Path, newest: Option<usize>, verify: bool) -> Result<()> {
         let ids: Vec<_> = set.iter().map(|(id, _)| *id).collect();
         let totals = Mutex::new((0u64, 0u64, 0u64, 0u64));
         let started = Instant::now();
-        source.count_lines(&ids, &|_, raws, deltas| {
+        source.count_lines(&work(&ids), None, &mut |_, raws, deltas| {
             if let Ok(mut t) = totals.lock() {
                 for (raw, d) in raws.iter().zip(deltas) {
                     t.0 += 1;
@@ -68,6 +75,17 @@ pub fn run(path: &Path, newest: Option<usize>, verify: bool) -> Result<()> {
     Ok(())
 }
 
+fn work(ids: &[commitscape_core::Oid]) -> Vec<LineWork<'static>> {
+    ids.iter()
+        .map(|&id| LineWork {
+            id,
+            time: 0,
+            mainline: true,
+            skip: &[],
+        })
+        .collect()
+}
+
 fn compare_with_git(
     path: &Path,
     source: &GixRepo,
@@ -75,7 +93,7 @@ fn compare_with_git(
 ) -> Result<()> {
     let ids: Vec<_> = commits.iter().map(|(id, _)| *id).collect();
     let ours = Mutex::new(Vec::new());
-    source.count_lines(&ids, &|id, raws, deltas| {
+    source.count_lines(&work(&ids), None, &mut |id, raws, deltas| {
         if let Ok(mut o) = ours.lock() {
             for (raw, d) in raws.iter().zip(deltas) {
                 o.push((id, String::from_utf8_lossy(raw.path).into_owned(), *d));

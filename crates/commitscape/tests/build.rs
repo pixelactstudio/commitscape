@@ -1,0 +1,407 @@
+#![allow(clippy::expect_used)]
+#![allow(clippy::indexing_slicing)]
+
+use std::io::Read;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+
+use commitscape_index::{load, CacheOptions, GixRepo};
+use commitscape_report::pack::{read_pack, MAGIC};
+use serde_json::Value;
+
+fn fixture(name: &str) -> PathBuf {
+    let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures")
+        .join(name);
+    assert!(
+        repo.exists(),
+        "fixture {name} is missing: run `cargo xtask fixtures --force`"
+    );
+    repo
+}
+
+fn commitscape(args: &[&str], paths: &[&Path]) -> String {
+    let run = Command::new(env!("CARGO_BIN_EXE_commitscape"))
+        .env("COMMITSCAPE_SITE", "http://127.0.0.1:9")
+        .stdin(Stdio::null())
+        .args(args)
+        .args(paths)
+        .output()
+        .expect("running commitscape");
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    String::from_utf8_lossy(&run.stdout).into_owned()
+}
+
+fn json(path: &Path) -> Value {
+    serde_json::from_slice(&std::fs::read(path).expect("written")).expect("JSON")
+}
+
+fn rows(path: &Path) -> Vec<Vec<String>> {
+    std::fs::read_to_string(path)
+        .expect("written")
+        .lines()
+        .map(|l| l.split('\t').map(str::to_string).collect())
+        .collect()
+}
+
+fn events(path: &Path) -> Vec<Value> {
+    std::fs::read_to_string(path)
+        .expect("events were written")
+        .lines()
+        .map(|l| serde_json::from_str(l).expect("one JSON object per line"))
+        .collect()
+}
+
+fn field(events: &[Value], span: &str, name: &str) -> Value {
+    events
+        .iter()
+        .find(|e| e["span"] == span)
+        .map(|e| e["fields"][name].clone())
+        .unwrap_or(Value::Null)
+}
+
+fn git(args: &[&str]) -> String {
+    let out = Command::new("git").args(args).output().expect("git");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).into_owned()
+}
+
+fn payload(bytes: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    flate2::read::ZlibDecoder::new(&bytes[MAGIC.len()..])
+        .read_to_end(&mut out)
+        .expect("zlib");
+    out
+}
+
+#[test]
+fn build_writes_the_export_the_pack_and_the_meta_from_one_reading() {
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let cache = dir.path().join("cache");
+    let out = dir.path().join("out");
+    let recorded = dir.path().join("events.jsonl");
+    let repo = fixture("lines");
+    commitscape(
+        &["build", "--offline", "--cache-dir"],
+        &[
+            &cache,
+            Path::new("--events"),
+            &recorded,
+            Path::new("--out"),
+            &out,
+            &repo,
+        ],
+    );
+
+    let manifest = json(&out.join("manifest.json"));
+    assert_eq!(manifest["format"], 3);
+    assert_eq!(manifest["full"], true);
+    assert_eq!(manifest["lines"], true);
+    assert_eq!(manifest["lines_counted"], 6);
+    assert_eq!(manifest["lines_mainline"], true);
+    assert_eq!(manifest["lines_left"], 0);
+    assert!(manifest.get("days").is_none());
+    for gone in [
+        "days.tsv",
+        "signature_days.tsv",
+        "folder_days.tsv",
+        "signature_folder_days.tsv",
+    ] {
+        assert!(!out.join(gone).exists(), "{gone}");
+    }
+    let commits = rows(&out.join("commits.tsv"));
+    let mainline = rows(&out.join("mainline.tsv"));
+    assert_eq!(commits.len(), 7);
+    assert_eq!(mainline.len(), 7);
+    assert!(commits.iter().all(|c| c.len() == 13));
+    assert!(rows(&out.join("lines.tsv")).is_empty());
+    let reformat = git(&["-C", repo.to_str().unwrap_or("."), "rev-parse", "HEAD~2"]);
+    let flags: Vec<(String, u8)> = mainline
+        .iter()
+        .map(|r| {
+            (
+                r[0].trim_start_matches("\\\\x").to_string(),
+                r[1].parse().unwrap_or(0),
+            )
+        })
+        .collect();
+    assert!(flags.iter().all(|(_, f)| f & 24 == 24));
+    assert!(flags
+        .iter()
+        .any(|(sha, f)| sha == reformat.trim() && f & 2 == 2));
+
+    let spans: Vec<String> = events(&recorded)
+        .iter()
+        .map(|e| e["span"].as_str().unwrap_or("").to_string())
+        .collect();
+    for span in [
+        "load",
+        "head_pass",
+        "mainline",
+        "line_pass",
+        "export",
+        "meta",
+        "pack",
+    ] {
+        assert!(spans.iter().any(|s| s == span), "{span} in {spans:?}");
+    }
+
+    let bytes = std::fs::read(out.join("pack.bin")).expect("a pack");
+    assert!(bytes.starts_with(MAGIC));
+    let pack = read_pack(&bytes).expect("it reads back");
+    assert_eq!(pack.format, 2);
+    assert_eq!(pack.head.as_deref(), manifest["head"].as_str());
+    assert_eq!(
+        pack.lineage.to_string(),
+        manifest["lineage"].as_str().unwrap_or("")
+    );
+    assert!(pack.lines_counted && pack.lines_complete && pack.lines_mainline);
+    assert_eq!(pack.mainline.len(), pack.index.commits.len());
+    assert_eq!(pack.arrival.len(), pack.index.commits.len());
+    for (c, (bits, arrival)) in pack
+        .index
+        .commits
+        .iter()
+        .zip(pack.mainline.iter().zip(&pack.arrival))
+    {
+        let row = mainline
+            .iter()
+            .find(|r| r[0].ends_with(&c.id.to_hex()))
+            .expect("in mainline.tsv");
+        assert_eq!(row[1], (c.flags.0 | bits).to_string());
+        assert_eq!(row[2], arrival.map_or("\\N".to_string(), |a| a.to_string()));
+    }
+
+    let options = CacheOptions {
+        root: Some(cache.clone()),
+        key: None,
+    };
+    let source = GixRepo::open(&repo).expect("the fixture");
+    let mut expected = load(&source, &options, &mut |_| {}).expect("warm").index;
+    let emails: Vec<String> = (0..expected.authors.signature_count())
+        .filter_map(|i| {
+            expected
+                .authors
+                .signature(commitscape_core::SignatureId(i as u32))
+                .map(|s| s.email.to_string())
+        })
+        .collect();
+    assert!(!emails.is_empty());
+    let raw = payload(&bytes);
+    for email in &emails {
+        assert!(
+            !raw.windows(email.len()).any(|w| w == email.as_bytes()),
+            "{email} is in the pack"
+        );
+    }
+    expected.authors.blank_emails();
+    for (c, packed) in expected.commits.iter_mut().zip(&pack.index.commits) {
+        c.flags = packed.flags;
+    }
+    for (ch, packed) in expected.changes.iter_mut().zip(&pack.index.changes) {
+        ch.lines = packed.lines;
+    }
+    assert_eq!(pack.index, expected);
+    let added: u64 = pack
+        .index
+        .changes
+        .iter()
+        .filter_map(|ch| ch.lines.map(|l| u64::from(l.added)))
+        .sum();
+    let exported: u64 = commits
+        .iter()
+        .flat_map(|c| {
+            c[11]
+                .trim_matches(|ch| ch == '{' || ch == '}')
+                .split(',')
+                .filter_map(|n| n.parse::<u64>().ok())
+                .collect::<Vec<_>>()
+        })
+        .sum();
+    assert_eq!(added, exported);
+
+    let report = dir.path().join("report.json.gz");
+    commitscape(
+        &[
+            "report",
+            "--no-emails",
+            "--offline",
+            "--window",
+            "all",
+            "--cache-dir",
+        ],
+        &[&cache, Path::new("--out"), &report, &repo],
+    );
+    let mut text = String::new();
+    flate2::read::GzDecoder::new(std::fs::File::open(&report).expect("a Report"))
+        .read_to_string(&mut text)
+        .expect("gzip");
+    let written: Value = serde_json::from_str(&text).expect("JSON");
+    let meta = json(&out.join("meta.json"));
+    let mut want = written["meta"].clone();
+    want["anchor"] = meta["meta"]["anchor"].clone();
+    assert_eq!(meta["meta"], want);
+    assert_eq!(meta["stats"], written["stats"]);
+    assert_eq!(meta["head"], manifest["head"]);
+    assert_eq!(meta["lines_counted"], true);
+    let people: Vec<Value> = written["data"]["/api/people?window=all"]["people"]
+        .as_array()
+        .expect("people")
+        .iter()
+        .map(|r| {
+            serde_json::json!({
+                "person_id": r["person"]["id"],
+                "name": r["person"]["name"],
+                "login": r["person"]["login"],
+                "commits": r["commits"],
+                "lines_added": r["lines_added"],
+                "lines_removed": r["lines_removed"],
+                "first": r["first"],
+                "last": r["last"],
+            })
+        })
+        .collect();
+    assert!(!people.is_empty());
+    assert_eq!(meta["people"], Value::Array(people));
+}
+
+#[test]
+fn build_without_lines_says_so_everywhere() {
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let out = dir.path().join("out");
+    commitscape(
+        &["build", "--offline", "--no-lines", "--no-cache", "--out"],
+        &[&out, &fixture("merges")],
+    );
+    let manifest = json(&out.join("manifest.json"));
+    assert_eq!(
+        (manifest["lines"].clone(), manifest["lines_counted"].clone()),
+        (false.into(), 0.into())
+    );
+    assert_eq!(manifest["lines_mainline"], false);
+    assert!(manifest["lines_left"].is_null());
+    assert!(rows(&out.join("commits.tsv"))
+        .iter()
+        .all(|c| c[11] == "\\N" && c[12] == "\\N"));
+    let pack = read_pack(&std::fs::read(out.join("pack.bin")).expect("a pack")).expect("read");
+    assert!(!pack.lines_counted && !pack.lines_complete && !pack.lines_mainline);
+    let first_parent = pack.mainline.iter().filter(|b| *b & 16 != 0).count();
+    let reachable = pack.mainline.iter().filter(|b| *b & 8 != 0).count();
+    assert_eq!((reachable, first_parent), (7, 5));
+    let meta = json(&out.join("meta.json"));
+    assert_eq!(meta["meta"]["lines"], "off");
+    assert!(meta["people"]
+        .as_array()
+        .expect("people")
+        .iter()
+        .all(|p| p["lines_added"].is_null()));
+}
+
+#[test]
+fn two_clones_with_one_cache_key_walk_the_history_once() {
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let cache = dir.path().join("cache");
+    let quick = dir.path().join("quick");
+    let full = dir.path().join("full");
+    let origin = format!("file://{}", fixture("lines").display());
+    git(&[
+        "clone",
+        "--quiet",
+        "--filter=blob:none",
+        "--upload-pack",
+        "git -c uploadpack.allowFilter=true upload-pack",
+        &origin,
+        quick.to_str().unwrap_or("quick"),
+    ]);
+    git(&["clone", "--quiet", &origin, full.to_str().unwrap_or("full")]);
+    let partial = git(&[
+        "-C",
+        quick.to_str().unwrap_or("."),
+        "config",
+        "--get",
+        "remote.origin.partialclonefilter",
+    ]);
+    assert_eq!(partial.trim(), "blob:none");
+
+    let quick_events = dir.path().join("quick.jsonl");
+    let quick_out = dir.path().join("quick-out");
+    commitscape(
+        &[
+            "build",
+            "--offline",
+            "--no-lines",
+            "--cache-key",
+            "acme/rocket",
+            "--cache-dir",
+        ],
+        &[
+            &cache,
+            Path::new("--events"),
+            &quick_events,
+            Path::new("--out"),
+            &quick_out,
+            &quick,
+        ],
+    );
+    let full_events = dir.path().join("full.jsonl");
+    let full_out = dir.path().join("full-out");
+    commitscape(
+        &[
+            "build",
+            "--offline",
+            "--cache-key",
+            "acme/rocket",
+            "--cache-dir",
+        ],
+        &[
+            &cache,
+            Path::new("--events"),
+            &full_events,
+            Path::new("--out"),
+            &full_out,
+            &full,
+        ],
+    );
+    let quick_events = events(&quick_events);
+    let full_events = events(&full_events);
+    assert_eq!(field(&quick_events, "load", "freshness"), "built");
+    assert_ne!(field(&full_events, "load", "freshness"), "built");
+    assert_eq!(field(&full_events, "load", "added"), 0);
+    assert!(full_events.iter().all(|e| e["span"] != "head_pass"));
+    assert_eq!(field(&full_events, "line_pass", "left"), 0);
+    assert_eq!(field(&full_events, "line_pass", "counted"), 6);
+    let (q, f) = (
+        json(&quick_out.join("manifest.json")),
+        json(&full_out.join("manifest.json")),
+    );
+    assert_eq!(q["lineage"], f["lineage"]);
+    assert_eq!(f["lines"], true);
+    let dirs: Vec<_> = std::fs::read_dir(&cache)
+        .expect("the cache")
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_dir())
+        .collect();
+    assert_eq!(dirs.len(), 1);
+
+    let unkeyed = dir.path().join("unkeyed.jsonl");
+    commitscape(
+        &["build", "--offline", "--no-lines", "--cache-dir"],
+        &[
+            &cache,
+            Path::new("--events"),
+            &unkeyed,
+            Path::new("--out"),
+            &dir.path().join("unkeyed"),
+            &full,
+        ],
+    );
+    assert_eq!(field(&events(&unkeyed), "load", "freshness"), "built");
+}

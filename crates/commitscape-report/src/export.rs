@@ -4,7 +4,7 @@ use std::io::{BufWriter, Write};
 use std::path::Path;
 
 use commitscape_core::{
-    ChangeKind, CommitFlags, CommitKind, CommitMeta, FileClass, FileId, Index, Oid, SignatureId,
+    ChangeKind, CommitKind, FileChange, FileClass, FileId, Index, Oid, SignatureId,
 };
 use commitscape_metrics::{
     is_lockfile, language_of, looks_generated, role_of, Analysis, Options, Role, Window,
@@ -13,10 +13,9 @@ use serde::Serialize;
 
 use crate::api;
 
-pub const FORMAT: u32 = 2;
+pub const FORMAT: u32 = 3;
 
-const DAY: i64 = 86_400;
-const FOLDER_DEPTH_BY_PERSON: usize = 3;
+const REACHABLE: u8 = 8;
 
 pub struct Export<'a> {
     pub index: &'a Index,
@@ -24,10 +23,35 @@ pub struct Export<'a> {
     pub options: Options,
     pub anchor: i64,
     pub releases: &'a [(String, i64)],
-    pub lines_counted: bool,
+    pub release_commits: &'a [(String, Oid)],
+    pub lines: Option<Lines<'a>>,
+    pub mainline: Mainline<'a>,
     pub known: Option<&'a HashSet<Oid>>,
     pub lineage: u64,
     pub kept: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Lines<'a> {
+    pub settled: &'a [bool],
+    pub counted: u64,
+    pub left: u64,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Mainline<'a> {
+    pub bits: &'a [u8],
+    pub arrival: &'a [Option<i64>],
+}
+
+impl Mainline<'_> {
+    fn bits(&self, at: usize) -> u8 {
+        self.bits.get(at).copied().unwrap_or(0)
+    }
+
+    fn arrival(&self, at: usize) -> Option<i64> {
+        self.arrival.get(at).copied().flatten()
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -37,72 +61,41 @@ pub struct Manifest {
     pub kept: bool,
     pub full: bool,
     pub lines: bool,
-    pub folders_full: bool,
+    pub lines_counted: u64,
+    pub lines_mainline: bool,
+    pub lines_left: Option<u64>,
     pub head: Option<String>,
     pub frontier: Vec<String>,
     pub commits: usize,
     pub total: usize,
-    pub days: usize,
     pub anchor: i64,
     pub max_changeset_size: u32,
     pub coupling_support: u32,
     pub ownership_min_commits: u32,
 }
 
-struct Sums {
-    commits: u32,
-    merges: u32,
-    bulk: u32,
-    changes: u32,
-    added: u64,
-    removed: u64,
-}
-
-impl Sums {
-    fn new() -> Sums {
-        Sums {
-            commits: 0,
-            merges: 0,
-            bulk: 0,
-            changes: 0,
-            added: 0,
-            removed: 0,
-        }
-    }
-}
-
-/// Writes the Index, or what is new since the commits the Site already holds, as Postgres `COPY` text files and a manifest.
+/// Writes the Index, or what is new since the commits the Site already holds, as Postgres `COPY` text files and a manifest: new commits, every commit's Mainline, and the Lines Changed of earlier commits now settled.
 pub fn write(e: &Export<'_>, dir: &Path) -> std::io::Result<Manifest> {
     std::fs::create_dir_all(dir)?;
     let index = e.index;
     let full = e.known.is_none();
-    let fresh: Vec<&CommitMeta> = index
+    let fresh: Vec<usize> = index
         .commits
         .iter()
-        .filter(|c| e.known.is_none_or(|k| !k.contains(&c.id)))
+        .enumerate()
+        .filter(|(_, c)| e.known.is_none_or(|k| !k.contains(&c.id)))
+        .map(|(i, _)| i)
         .collect();
-    let days: BTreeSet<i64> = if full {
-        index.commits.iter().map(landing_day).collect()
-    } else {
-        fresh.iter().map(|c| landing_day(c)).collect()
-    };
-    let folders_full = full
-        || fresh.iter().any(|c| {
-            index
-                .changes_of(c)
-                .iter()
-                .any(|ch| ch.kind == ChangeKind::Renamed)
-        });
-    let skipped = skipped_files(index);
 
     write_commits(dir, index, &fresh, e)?;
+    write_mainline(dir, index, e)?;
+    write_lines(dir, index, e)?;
     let files = touched_files(index, &fresh, full);
     write_files(dir, index, &files)?;
     write_folders(dir, index)?;
     write_people(dir, index, e.accounts)?;
     write_persons(dir, index)?;
     write_snapshot(dir, e)?;
-    write_days(dir, index, &days, folders_full, e, &skipped)?;
     write_head(dir, index)?;
 
     let manifest = Manifest {
@@ -110,13 +103,14 @@ pub fn write(e: &Export<'_>, dir: &Path) -> std::io::Result<Manifest> {
         lineage: e.lineage.to_string(),
         kept: e.kept,
         full,
-        lines: e.lines_counted,
-        folders_full,
+        lines: e.lines.is_some_and(|l| l.left == 0),
+        lines_counted: e.lines.map_or(0, |l| l.counted),
+        lines_mainline: mainline_counted(e),
+        lines_left: e.lines.map(|l| l.left),
         head: index.head_commit.map(|h| h.to_hex()),
         frontier: index.frontier.iter().map(|o| o.to_hex()).collect(),
         commits: fresh.len(),
         total: index.commits.len(),
-        days: days.len(),
         anchor: e.anchor,
         max_changeset_size: e.options.max_changeset_size,
         coupling_support: e.options.coupling_support,
@@ -127,39 +121,15 @@ pub fn write(e: &Export<'_>, dir: &Path) -> std::io::Result<Manifest> {
     Ok(manifest)
 }
 
-fn landing_day(c: &CommitMeta) -> i64 {
-    c.landed_clock().div_euclid(DAY)
+fn mainline_counted(e: &Export<'_>) -> bool {
+    e.lines.is_some()
+        && (0..e.index.commits.len())
+            .all(|at| e.mainline.bits(at) & REACHABLE == 0 || settled(e, at))
 }
 
-fn is_bulk(c: &CommitMeta, max: u32) -> bool {
-    c.changes_len > max || c.flags.contains(CommitFlags::BULK)
-}
-
-fn counts(c: &CommitMeta, max: u32) -> bool {
-    !c.is_merge() && !is_bulk(c, max)
-}
-
-fn skipped_files(index: &Index) -> Vec<bool> {
-    let mut generated = vec![None::<bool>; index.paths.len()];
-    for h in &index.head {
-        if let Some(slot) = generated.get_mut(h.file.idx()) {
-            *slot = Some(matches!(
-                h.class,
-                FileClass::Generated | FileClass::Vendored
-            ));
-        }
-    }
-    (0..index.paths.len())
-        .map(|i| {
-            let path = index.paths.path(FileId(i as u32));
-            let g = generated
-                .get(i)
-                .copied()
-                .flatten()
-                .unwrap_or_else(|| path.is_some_and(looks_generated));
-            g || path.is_some_and(is_lockfile)
-        })
-        .collect()
+fn settled(e: &Export<'_>, at: usize) -> bool {
+    e.lines
+        .is_some_and(|l| l.settled.get(at).copied().unwrap_or(false))
 }
 
 fn folder_of(path: &[u8]) -> &[u8] {
@@ -302,11 +272,14 @@ fn change_code(kind: ChangeKind) -> u8 {
 fn write_commits(
     dir: &Path,
     index: &Index,
-    fresh: &[&CommitMeta],
+    fresh: &[usize],
     e: &Export<'_>,
 ) -> std::io::Result<()> {
     let mut out = Copy::create(dir, "commits.tsv")?;
-    for c in fresh {
+    for &at in fresh {
+        let Some(c) = index.commits.get(at) else {
+            continue;
+        };
         let changes = index.changes_of(c);
         out.oid(c.id)
             .num(c.time)
@@ -314,51 +287,130 @@ fn write_commits(
             .num(c.author_delta)
             .num(c.signature.0)
             .num(kind_code(c.kind))
-            .num(c.flags.0)
-            .text(index.subject_of(c))
+            .num(c.flags.0 | e.mainline.bits(at));
+        match e.mainline.arrival(at) {
+            Some(t) => out.num(t),
+            None => out.null(),
+        };
+        out.text(index.subject_of(c))
             .array(changes.iter().map(|ch| Some(ch.file.0)))
             .array(changes.iter().map(|ch| Some(change_code(ch.kind))));
-        if e.lines_counted {
-            out.array(changes.iter().map(|ch| ch.lines.map(|l| l.added)))
-                .array(changes.iter().map(|ch| ch.lines.map(|l| l.removed)));
-        } else {
-            out.null().null();
-        }
+        lines_of(&mut out, changes, settled(e, at));
         out.end()?;
     }
     out.finish()
 }
 
-fn touched_files(index: &Index, fresh: &[&CommitMeta], full: bool) -> BTreeSet<FileId> {
+fn lines_of(out: &mut Copy, changes: &[FileChange], settled: bool) {
+    if settled {
+        out.array(changes.iter().map(|ch| ch.lines.map(|l| l.added)))
+            .array(changes.iter().map(|ch| ch.lines.map(|l| l.removed)));
+    } else {
+        out.null().null();
+    }
+}
+
+fn write_mainline(dir: &Path, index: &Index, e: &Export<'_>) -> std::io::Result<()> {
+    let mut out = Copy::create(dir, "mainline.tsv")?;
+    for (at, c) in index.commits.iter().enumerate() {
+        out.oid(c.id).num(c.flags.0 | e.mainline.bits(at));
+        match e.mainline.arrival(at) {
+            Some(t) => out.num(t),
+            None => out.null(),
+        };
+        out.end()?;
+    }
+    out.finish()
+}
+
+fn write_lines(dir: &Path, index: &Index, e: &Export<'_>) -> std::io::Result<()> {
+    let mut out = Copy::create(dir, "lines.tsv")?;
+    if let Some(known) = e.known {
+        for (at, c) in index.commits.iter().enumerate() {
+            if !known.contains(&c.id) || !settled(e, at) {
+                continue;
+            }
+            out.oid(c.id);
+            lines_of(&mut out, index.changes_of(c), true);
+            out.end()?;
+        }
+    }
+    out.finish()
+}
+
+fn touched_files(index: &Index, fresh: &[usize], full: bool) -> BTreeSet<FileId> {
     if full {
         return (0..index.paths.len()).map(|i| FileId(i as u32)).collect();
     }
     fresh
         .iter()
+        .filter_map(|&at| index.commits.get(at))
         .flat_map(|c| index.changes_of(c).iter().map(|ch| ch.file))
         .collect()
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileFacts {
+    pub path: String,
+    pub folder: String,
+    pub born: i64,
+    pub last: i64,
+    pub alive: bool,
+    pub role: u8,
+    pub language: Option<&'static str>,
+    pub generated: bool,
+    pub lockfile: bool,
+}
+
+pub struct Files<'a> {
+    index: &'a Index,
+    alive: HashSet<FileId>,
+}
+
+impl<'a> Files<'a> {
+    /// Ready to tell what the Stored Index keeps of each file of an Index.
+    pub fn of(index: &'a Index) -> Files<'a> {
+        Files {
+            index,
+            alive: index.head.iter().map(|h| h.file).collect(),
+        }
+    }
+
+    /// What the Stored Index keeps of one file: its path and folder now, when it was first and last changed, whether HEAD has it, its role and language, and whether it looks generated or is a lockfile.
+    pub fn facts(&self, file: FileId) -> FileFacts {
+        let path = self.index.paths.path(file).unwrap_or(&[]);
+        let history = self.index.history_of(file).unwrap_or_default();
+        FileFacts {
+            path: String::from_utf8_lossy(path).into_owned(),
+            folder: String::from_utf8_lossy(folder_of(path)).into_owned(),
+            born: history.first_seen,
+            last: history.last_touched,
+            alive: self.alive.contains(&file),
+            role: role_number(role_of(path)),
+            language: language_of(path),
+            generated: looks_generated(path),
+            lockfile: is_lockfile(path),
+        }
+    }
+}
+
 fn write_files(dir: &Path, index: &Index, files: &BTreeSet<FileId>) -> std::io::Result<()> {
-    let alive: HashSet<FileId> = index.head.iter().map(|h| h.file).collect();
+    let facts = Files::of(index);
     let mut out = Copy::create(dir, "files.tsv")?;
     for &file in files {
-        let path = index.paths.path(file).unwrap_or(&[]);
-        let history = index.history_of(file).unwrap_or_default();
+        let f = facts.facts(file);
         out.num(file.0)
-            .bytes_text(path)
-            .bytes_text(folder_of(path))
-            .num(history.first_seen)
-            .num(history.last_touched)
-            .bool(alive.contains(&file))
-            .num(role_number(role_of(path)));
-        match language_of(path) {
+            .text(&f.path)
+            .text(&f.folder)
+            .num(f.born)
+            .num(f.last)
+            .bool(f.alive)
+            .num(f.role);
+        match f.language {
             Some(l) => out.text(l),
             None => out.null(),
         };
-        out.bool(looks_generated(path))
-            .bool(is_lockfile(path))
-            .end()?;
+        out.bool(f.generated).bool(f.lockfile).end()?;
     }
     out.finish()?;
     let mut out = Copy::create(dir, "file_paths.tsv")?;
@@ -428,6 +480,7 @@ struct Snapshot {
     code_age: Vec<api::QuarterLines>,
     suspects: Vec<Vec<u32>>,
     releases: Vec<(String, i64)>,
+    release_shas: BTreeMap<String, String>,
 }
 
 fn write_snapshot(dir: &Path, e: &Export<'_>) -> std::io::Result<()> {
@@ -461,6 +514,11 @@ fn write_snapshot(dir: &Path, e: &Export<'_>) -> std::io::Result<()> {
             .map(|g| g.people.iter().map(|p| p.0).collect())
             .collect(),
         releases: e.releases.to_vec(),
+        release_shas: e
+            .release_commits
+            .iter()
+            .map(|(name, commit)| (name.clone(), commit.to_hex()))
+            .collect(),
     };
     let json = serde_json::to_vec(&snapshot).map_err(std::io::Error::other)?;
     std::fs::write(dir.join("snapshot.json"), json)
@@ -505,141 +563,6 @@ fn write_people(
     out.finish()
 }
 
-fn write_days(
-    dir: &Path,
-    index: &Index,
-    days: &BTreeSet<i64>,
-    folders_full: bool,
-    e: &Export<'_>,
-    skipped: &[bool],
-) -> std::io::Result<()> {
-    let max = e.options.max_changeset_size;
-    let mut repo: BTreeMap<i64, Sums> = BTreeMap::new();
-    let mut by_signature: BTreeMap<(i64, u32), Sums> = BTreeMap::new();
-    let mut by_folder: BTreeMap<(i64, Vec<u8>), Sums> = BTreeMap::new();
-    let mut by_both: BTreeMap<(i64, u32, Vec<u8>), Sums> = BTreeMap::new();
-    let folder_paths: Vec<Vec<Vec<u8>>> = (0..index.paths.len())
-        .map(|i| {
-            let path = index.paths.path(FileId(i as u32)).unwrap_or(&[]);
-            ancestors(folder_of(path))
-                .into_iter()
-                .map(<[u8]>::to_vec)
-                .collect()
-        })
-        .collect();
-
-    for c in &index.commits {
-        let day = landing_day(c);
-        let in_days = days.contains(&day);
-        if !in_days && !folders_full {
-            continue;
-        }
-        let counted = counts(c, max);
-        let lines = counted && !c.flags.contains(CommitFlags::BLAME_IGNORED);
-        let (mut added, mut removed) = (0u64, 0u64);
-        let mut per_folder: HashMap<&[u8], (u32, u64, u64)> = HashMap::new();
-        for ch in index.changes_of(c) {
-            let skip = skipped.get(ch.file.idx()).copied().unwrap_or(true);
-            let (a, r) = match (lines && !skip, ch.lines) {
-                (true, Some(l)) => (u64::from(l.added), u64::from(l.removed)),
-                _ => (0, 0),
-            };
-            added += a;
-            removed += r;
-            if counted {
-                for f in folder_paths.get(ch.file.idx()).into_iter().flatten() {
-                    let s = per_folder.entry(f.as_slice()).or_insert((0, 0, 0));
-                    s.0 += 1;
-                    s.1 += a;
-                    s.2 += r;
-                }
-            }
-        }
-        if in_days {
-            for s in [
-                repo.entry(day).or_insert_with(Sums::new),
-                by_signature
-                    .entry((day, c.signature.0))
-                    .or_insert_with(Sums::new),
-            ] {
-                s.commits += 1;
-                s.merges += u32::from(c.is_merge());
-                s.bulk += u32::from(!c.is_merge() && is_bulk(c, max));
-                s.changes += if counted { c.changes_len } else { 0 };
-                s.added += added;
-                s.removed += removed;
-            }
-        }
-        for (folder, (changes, a, r)) in per_folder {
-            let s = by_folder
-                .entry((day, folder.to_vec()))
-                .or_insert_with(Sums::new);
-            s.commits += 1;
-            s.changes += changes;
-            s.added += a;
-            s.removed += r;
-            if depth(folder) <= FOLDER_DEPTH_BY_PERSON {
-                let s = by_both
-                    .entry((day, c.signature.0, folder.to_vec()))
-                    .or_insert_with(Sums::new);
-                s.commits += 1;
-                s.changes += changes;
-                s.added += a;
-                s.removed += r;
-            }
-        }
-    }
-
-    let mut out = Copy::create(dir, "days.tsv")?;
-    for (day, s) in &repo {
-        out.num(day)
-            .num(s.commits)
-            .num(s.merges)
-            .num(s.bulk)
-            .num(s.changes)
-            .num(s.added)
-            .num(s.removed)
-            .end()?;
-    }
-    out.finish()?;
-    let mut out = Copy::create(dir, "signature_days.tsv")?;
-    for ((day, sig), s) in &by_signature {
-        out.num(day)
-            .num(sig)
-            .num(s.commits)
-            .num(s.merges)
-            .num(s.bulk)
-            .num(s.changes)
-            .num(s.added)
-            .num(s.removed)
-            .end()?;
-    }
-    out.finish()?;
-    let mut out = Copy::create(dir, "folder_days.tsv")?;
-    for ((day, folder), s) in &by_folder {
-        out.num(day)
-            .bytes_text(folder)
-            .num(s.commits)
-            .num(s.changes)
-            .num(s.added)
-            .num(s.removed)
-            .end()?;
-    }
-    out.finish()?;
-    let mut out = Copy::create(dir, "signature_folder_days.tsv")?;
-    for ((day, sig, folder), s) in &by_both {
-        out.num(day)
-            .num(sig)
-            .bytes_text(folder)
-            .num(s.commits)
-            .num(s.changes)
-            .num(s.added)
-            .num(s.removed)
-            .end()?;
-    }
-    out.finish()
-}
-
 fn class_label(class: FileClass) -> &'static str {
     match class {
         FileClass::Source => "source",
@@ -676,6 +599,7 @@ mod tests {
     use commitscape_index::{index_from_scratch, ScriptedRepo};
 
     const DAY0: i64 = 1_704_067_200;
+    const DAY: i64 = 86_400;
 
     fn blob(n: u8) -> Oid {
         let mut b = [0u8; 20];
@@ -724,15 +648,31 @@ mod tests {
         ))
     }
 
-    fn export(index: &Index, known: Option<&HashSet<Oid>>, dir: &Path) -> Manifest {
+    fn export(
+        index: &Index,
+        known: Option<&HashSet<Oid>>,
+        lines: Option<Lines<'_>>,
+        dir: &Path,
+    ) -> Manifest {
+        let bits = [
+            REACHABLE | FIRST_PARENT,
+            REACHABLE,
+            REACHABLE | FIRST_PARENT,
+        ];
+        let arrival = [Some(DAY0), Some(DAY0 + 2 * DAY), Some(DAY0 + 2 * DAY)];
         write(
             &Export {
                 index,
                 accounts: &HashMap::new(),
                 options: Options::default(),
                 anchor: 0,
-                releases: &[],
-                lines_counted: false,
+                releases: &[("v1.0".to_string(), DAY0 + DAY)],
+                release_commits: &[("v1.0".to_string(), index.commits[1].id)],
+                lines,
+                mainline: Mainline {
+                    bits: &bits,
+                    arrival: &arrival,
+                },
                 known,
                 lineage: 7,
                 kept: true,
@@ -742,6 +682,8 @@ mod tests {
         .expect("export")
     }
 
+    const FIRST_PARENT: u8 = 16;
+
     fn lines(dir: &Path, file: &str) -> Vec<String> {
         std::fs::read_to_string(dir.join(file))
             .expect("read")
@@ -750,13 +692,18 @@ mod tests {
             .collect()
     }
 
+    fn sha(index: &Index, at: usize) -> String {
+        format!("\\\\x{}", index.commits[at].id.to_hex())
+    }
+
     #[test]
-    fn a_full_export_writes_every_commit_folder_and_day() {
+    fn a_full_export_writes_every_commit_with_its_mainline_and_every_folder() {
         let index = index_of(&repo());
         let dir = scratch("full");
-        let m = export(&index, None, &dir);
-        assert!(m.full && m.folders_full);
-        assert_eq!((m.commits, m.total, m.days), (3, 3, 3));
+        let m = export(&index, None, None, &dir);
+        assert!(m.full && !m.lines && !m.lines_mainline);
+        assert_eq!((m.commits, m.total, m.lines_counted), (3, 3, 0));
+        assert_eq!(m.lines_left, None);
         assert_eq!(
             lines(&dir, "folders.tsv"),
             vec!["\t\\N\t0", "src\t\t1", "src/deep\tsrc\t2"]
@@ -768,24 +715,136 @@ mod tests {
             .any(|l| l.contains("feat: first\\ttabbed \\\\ line")));
         assert!(commits
             .iter()
-            .all(|l| l.starts_with("\\\\x") && l.split('\t').count() == 12));
+            .all(|l| l.starts_with("\\\\x") && l.split('\t').count() == 13));
+        let columns: Vec<&str> = commits[1].split('\t').collect();
+        assert_eq!(columns[6], "8");
+        assert_eq!(columns[7], (DAY0 + 2 * DAY).to_string());
+        assert_eq!(&columns[11..], ["\\N", "\\N"]);
+        assert_eq!(
+            lines(&dir, "mainline.tsv"),
+            vec![
+                format!("{}\t24\t{DAY0}", sha(&index, 0)),
+                format!("{}\t8\t{}", sha(&index, 1), DAY0 + 2 * DAY),
+                format!("{}\t24\t{}", sha(&index, 2), DAY0 + 2 * DAY),
+            ]
+        );
+        assert!(lines(&dir, "lines.tsv").is_empty());
         assert_eq!(lines(&dir, "files.tsv").len(), 3);
+        for gone in [
+            "days.tsv",
+            "signature_days.tsv",
+            "folder_days.tsv",
+            "signature_folder_days.tsv",
+        ] {
+            assert!(!dir.join(gone).exists(), "{gone}");
+        }
+        let snapshot: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(dir.join("snapshot.json")).expect("read"))
+                .expect("JSON");
+        assert_eq!(
+            snapshot["release_shas"]["v1.0"],
+            index.commits[1].id.to_hex()
+        );
+        let manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(dir.join("manifest.json")).expect("read"))
+                .expect("JSON");
+        assert_eq!(manifest["format"], 3);
         let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
-    fn an_export_after_known_commits_holds_only_what_is_new() {
+    fn an_export_after_known_commits_holds_what_is_new_and_the_lines_settled_since() {
         let repo = repo();
         let index = index_of(&repo);
         let known: HashSet<Oid> = index.commits.iter().take(2).map(|c| c.id).collect();
         let dir = scratch("after");
-        let m = export(&index, Some(&known), &dir);
-        assert!(!m.full && !m.folders_full);
-        assert_eq!((m.commits, m.total, m.days), (1, 3, 1));
+        let settled = [true, false, true];
+        let m = export(
+            &index,
+            Some(&known),
+            Some(Lines {
+                settled: &settled,
+                counted: 2,
+                left: 1,
+            }),
+            &dir,
+        );
+        assert!(!m.full && !m.lines && !m.lines_mainline);
+        assert_eq!((m.commits, m.total, m.lines_counted), (1, 3, 2));
+        assert_eq!(m.lines_left, Some(1));
         let files = lines(&dir, "files.tsv");
         assert_eq!(files.len(), 1);
         assert!(files[0].contains("src/deep/b.rs\tsrc/deep"));
-        assert_eq!(lines(&dir, "days.tsv").len(), 1);
+        assert_eq!(lines(&dir, "commits.tsv").len(), 1);
+        assert_eq!(lines(&dir, "mainline.tsv").len(), 3);
+        assert_eq!(
+            lines(&dir, "lines.tsv"),
+            vec![format!("{}\t{{NULL,NULL}}\t{{NULL,NULL}}", sha(&index, 0))]
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn lines_are_complete_once_nothing_is_left_to_count() {
+        let index = index_of(&repo());
+        let dir = scratch("complete");
+        let settled = [true; 3];
+        let m = export(
+            &index,
+            None,
+            Some(Lines {
+                settled: &settled,
+                counted: 3,
+                left: 0,
+            }),
+            &dir,
+        );
+        assert!(m.lines && m.lines_mainline);
+        assert_eq!((m.lines_counted, m.lines_left), (3, Some(0)));
+        assert!(lines(&dir, "commits.tsv")
+            .iter()
+            .all(|l| !l.ends_with("\\N\t\\N")));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_mainline_is_counted_while_commits_only_other_refs_reach_wait() {
+        let index = index_of(&repo());
+        let dir = scratch("mainline");
+        let bits = [REACHABLE | FIRST_PARENT, 0, REACHABLE | FIRST_PARENT];
+        let arrival = [Some(DAY0), None, Some(DAY0 + 2 * DAY)];
+        let settled = [true, false, true];
+        let m = write(
+            &Export {
+                index: &index,
+                accounts: &HashMap::new(),
+                options: Options::default(),
+                anchor: 0,
+                releases: &[],
+                release_commits: &[],
+                lines: Some(Lines {
+                    settled: &settled,
+                    counted: 2,
+                    left: 1,
+                }),
+                mainline: Mainline {
+                    bits: &bits,
+                    arrival: &arrival,
+                },
+                known: None,
+                lineage: 7,
+                kept: true,
+            },
+            &dir,
+        )
+        .expect("export");
+        assert!(!m.lines && m.lines_mainline);
+        assert_eq!(m.lines_left, Some(1));
+        let manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(dir.join("manifest.json")).expect("read"))
+                .expect("JSON");
+        assert_eq!(manifest["lines_mainline"], true);
+        assert_eq!(manifest["lines_left"], 1);
         let _ = std::fs::remove_dir_all(dir);
     }
 }

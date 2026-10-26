@@ -18,7 +18,14 @@ fn report(path: &Path) -> Result<()> {
         .join("target")
         .join("bench-cache")
         .join("changesets");
-    let loaded = load(&source, &CacheOptions { root: Some(cache) }, &mut |_| {})?;
+    let loaded = load(
+        &source,
+        &CacheOptions {
+            root: Some(cache),
+            key: None,
+        },
+        &mut |_| {},
+    )?;
     let index = &loaded.index;
     let anchor = index.span.newest.unwrap_or(0);
     println!(

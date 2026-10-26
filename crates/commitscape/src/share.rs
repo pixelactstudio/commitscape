@@ -42,7 +42,7 @@ pub struct ShareArgs {
     common: Common,
 }
 
-const DEFAULT_SITE: &str = "https://commitscape.damnlabs.com";
+const DEFAULT_SITE: &str = "https://app.commitscape.com";
 
 pub fn site() -> String {
     std::env::var("COMMITSCAPE_SITE")
@@ -333,6 +333,7 @@ pub fn run(args: ShareArgs) -> anyhow::Result<()> {
         &args.common,
         commitscape_metrics::Span::Quarter,
         true,
+        None,
         false,
         None,
     )?;

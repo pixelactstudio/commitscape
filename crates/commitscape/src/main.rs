@@ -1,4 +1,6 @@
+mod build;
 mod clone;
+mod events;
 mod format;
 mod health;
 mod share;
@@ -9,6 +11,7 @@ use std::collections::HashMap;
 use std::io::{IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::time::Duration;
 
 use clap::{Args, Parser, Subcommand};
 use commitscape_core::Index;
@@ -17,7 +20,7 @@ use commitscape_index::identity::Account;
 use commitscape_index::RepoSource;
 use commitscape_index::{
     default_cache_root, line_pass, load, reresolve_authors, CacheOptions, GixRepo, IdentityRules,
-    IdentityStore, LineStore, Progress,
+    IdentityStore, LinePlan, LineStore, Progress,
 };
 use commitscape_metrics::{Options, Span};
 
@@ -47,7 +50,7 @@ enum Command {
     /// the link works for a few hours. What commitscape does on its own.
     Share(share::ShareArgs),
     /// Write the repository's Report, every screen for every Window, as
-    /// gzipped JSON: what the Site stores and a Shared Report uploads.
+    /// gzipped JSON: what a Shared Report uploads.
     #[command(hide = true)]
     Report(ReportArgs),
     /// Whether a project on GitHub is alive and whether it depends on one
@@ -64,42 +67,15 @@ enum Command {
     #[command(hide = true)]
     Signatures(signatures::SignaturesArgs),
     /// Write the Index as Postgres COPY files for the Site: every commit
-    /// with its Changeset, its people, folders, daily sums and HEAD, or only
+    /// with its Changeset and Mainline, its people, folders and HEAD, or only
     /// what is new since the commits a previous export held.
     #[command(hide = true)]
-    Export(ExportArgs),
-}
-
-#[derive(Args)]
-struct ExportArgs {
-    /// Path to the repository.
-    #[arg(default_value = ".")]
-    repo: PathBuf,
-
-    /// The folder to write the files into.
-    #[arg(long, value_name = "DIR")]
-    out: PathBuf,
-
-    /// A JSON object of email addresses to GitHub logins.
-    #[arg(long, value_name = "FILE")]
-    accounts: Option<PathBuf>,
-
-    /// Leave out the lines each change added and removed.
-    #[arg(long)]
-    no_lines: bool,
-
-    /// A file of commit ids, one per line: the frontier of the previous
-    /// export. Only commits not reachable from them are written.
-    #[arg(long, value_name = "FILE", requires = "lineage")]
-    after: Option<PathBuf>,
-
-    /// The lineage of the cache the previous export came from. When the
-    /// cache has another, everything is written.
-    #[arg(long)]
-    lineage: Option<u64>,
-
-    #[command(flatten)]
-    common: Common,
+    Export(build::ExportArgs),
+    /// Everything a Build stores, from one reading of the history: the
+    /// export, the pack the engine service answers from, and the Report's
+    /// meta, stats and people.
+    #[command(hide = true)]
+    Build(build::ExportArgs),
 }
 
 #[derive(Args)]
@@ -144,7 +120,30 @@ struct ReportArgs {
     no_emails: bool,
 
     #[command(flatten)]
+    run: RunArgs,
+
+    #[command(flatten)]
     common: Common,
+}
+
+/// How long the line pass may take, and where timings go.
+#[derive(Args, Clone)]
+pub(crate) struct RunArgs {
+    /// Stop counting lines after this many seconds. What was counted is
+    /// kept, and the next run carries on from there.
+    #[arg(long, value_name = "SECONDS")]
+    lines_budget: Option<u64>,
+
+    /// Write one JSON line here for each step as it finishes: its name, when
+    /// it started and ended, and what it counted.
+    #[arg(long, value_name = "FILE")]
+    pub(crate) events: Option<PathBuf>,
+}
+
+impl RunArgs {
+    pub(crate) fn budget(&self) -> Option<Duration> {
+        self.lines_budget.map(Duration::from_secs)
+    }
 }
 
 /// Options every way of running it shares.
@@ -165,13 +164,23 @@ pub(crate) struct Common {
     #[arg(long, value_name = "DIR")]
     cache_dir: Option<PathBuf>,
 
+    /// Name the cache by this key instead of the repository's path, so
+    /// every clone of one repository shares one cache.
+    #[arg(long, value_name = "KEY", hide = true)]
+    cache_key: Option<String>,
+
     /// Index from scratch and neither read nor write a cache.
     #[arg(long)]
     no_cache: bool,
 
     /// Never ask GitHub about the repository.
     #[arg(long)]
-    offline: bool,
+    pub(crate) offline: bool,
+
+    /// End every Window at this moment, in unix seconds, instead of now, so
+    /// the output comes out the same every time it is made.
+    #[arg(long, value_name = "SECONDS", hide = true)]
+    anchor: Option<i64>,
 }
 
 impl Common {
@@ -182,7 +191,12 @@ impl Common {
             } else {
                 self.cache_dir.clone().or_else(default_cache_root)
             },
+            key: self.cache_key.clone(),
         }
+    }
+
+    pub(crate) fn anchor(&self) -> i64 {
+        self.anchor.unwrap_or_else(now)
     }
 
     pub(crate) fn metrics(&self) -> Options {
@@ -203,6 +217,9 @@ fn parse_span(s: &str) -> Result<Span, String> {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
+    let _ = rayon::ThreadPoolBuilder::new()
+        .num_threads(commitscape_index::threads(usize::MAX))
+        .build_global();
     match run(cli) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
@@ -219,12 +236,14 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         Some(Command::Health(args)) => health::run(args),
         Some(Command::Surviving(args)) => surviving::run(args),
         Some(Command::Signatures(args)) => signatures::run(args),
-        Some(Command::Export(args)) => export(args),
+        Some(Command::Export(args)) => build::export(args),
+        Some(Command::Build(args)) => build::build(args),
         None => share::run(cli.share),
     }
 }
 
 fn report(args: ReportArgs) -> anyhow::Result<()> {
+    events::record_to(args.run.events.as_deref())?;
     let options = args.common.cache();
     let accounts = args.accounts.as_deref().map(read_accounts).transpose()?;
     let path = repo_source(&args.repo, args.partial, &options)?;
@@ -234,80 +253,35 @@ fn report(args: ReportArgs) -> anyhow::Result<()> {
         &args.common,
         args.window,
         count_lines,
+        args.run.budget(),
         !args.no_emails,
         accounts.as_ref(),
     )?;
     let out = args
         .out
         .unwrap_or_else(|| PathBuf::from(format!("{name}-report.json.gz")));
+    let span = tracing::info_span!("report", bytes = tracing::field::Empty);
+    let entered = span.enter();
     let written = commitscape_report::report::write(report, args.commits_out.is_some());
-    std::fs::write(&out, gzip(written.report.as_bytes())?)?;
-    println!("wrote {}", out.display());
-    if let (Some(path), Some(commits)) = (&args.commits_out, &written.commits) {
-        std::fs::write(path, gzip(commits.as_bytes())?)?;
-        println!("wrote {}", path.display());
-    }
-    Ok(())
-}
-
-fn export(args: ExportArgs) -> anyhow::Result<()> {
-    let options = args.common.cache();
-    let given = args.accounts.as_deref().map(read_accounts).transpose()?;
-    let repo = GixRepo::open(&args.repo)?;
-    let mut meter = ProgressLine::new();
-    let mut loaded = load(&repo, &options, &mut |p| meter.show(p))?;
-    meter.clear();
-    let count_lines = !args.no_lines;
-    if count_lines {
-        let store = LineStore::for_repo(&options, &loaded.index.repo);
-        let mut meter = ProgressLine::new();
-        let pass = line_pass(&repo, &loaded.index, store.as_ref(), &mut |done, total| {
-            meter.lines(done, total)
-        })?;
-        meter.clear();
-        pass.apply(&mut loaded.index);
-    }
-    let accounts = with_accounts(&repo, &options, &mut loaded.index, given.as_ref())?;
-    let known = match (&args.after, args.lineage) {
-        (Some(file), Some(lineage)) if lineage == loaded.lineage => {
-            let text = std::fs::read_to_string(file)?;
-            let frontier: Vec<commitscape_core::Oid> = text
-                .split_whitespace()
-                .map(|t| {
-                    commitscape_core::Oid::from_hex(t)
-                        .ok_or_else(|| anyhow::anyhow!("{t} is not a commit id"))
-                })
-                .collect::<anyhow::Result<_>>()?;
-            repo.ancestors(&frontier)?
+    let gzipped = gzip(written.report.as_bytes())?;
+    std::fs::write(&out, &gzipped)?;
+    let mut bytes = gzipped.len();
+    let commits = match (&args.commits_out, &written.commits) {
+        (Some(path), Some(commits)) => {
+            let gzipped = gzip(commits.as_bytes())?;
+            std::fs::write(path, &gzipped)?;
+            bytes += gzipped.len();
+            Some(path)
         }
         _ => None,
     };
-    let releases = repo.version_tags();
-    let manifest = commitscape_report::export::write(
-        &commitscape_report::export::Export {
-            index: &loaded.index,
-            accounts: &accounts,
-            options: args.common.metrics(),
-            anchor: now(),
-            releases: &releases,
-            lines_counted: count_lines,
-            known: known.as_ref(),
-            lineage: loaded.lineage,
-            kept: loaded.kept,
-        },
-        &args.out,
-    )?;
-    println!(
-        "exported {} of {} commits ({}) to {}",
-        manifest.commits,
-        manifest.total,
-        if manifest.full {
-            "everything"
-        } else {
-            "new since the last export"
-        },
-        args.out.display()
-    );
+    span.record("bytes", bytes);
+    drop(entered);
+    drop(span);
+    println!("wrote {}", out.display());
+    if let Some(path) = commits {
+        println!("wrote {}", path.display());
+    }
     Ok(())
 }
 
@@ -333,6 +307,7 @@ pub(crate) fn make_report(
     common: &Common,
     window: Span,
     count_lines: bool,
+    budget: Option<Duration>,
     emails: bool,
     given: Option<&HashMap<String, String>>,
 ) -> anyhow::Result<(String, commitscape_report::report::Report)> {
@@ -341,22 +316,22 @@ pub(crate) fn make_report(
     let mut meter = ProgressLine::new();
     let mut loaded = load(&repo, &options, &mut |p| meter.show(p))?;
     meter.clear();
-    let identity = loaded.index.repo.clone();
     if count_lines {
-        let store = LineStore::for_repo(&options, &identity);
-        let mut meter = ProgressLine::new();
-        let pass = line_pass(&repo, &loaded.index, store.as_ref(), &mut |done, total| {
-            meter.lines(done, total)
-        })?;
-        meter.clear();
-        pass.apply(&mut loaded.index);
+        count_lines_into(
+            &repo,
+            &options,
+            &mut loaded.index,
+            common.metrics(),
+            budget,
+            None,
+        )?;
     }
     let accounts = with_accounts(&repo, &options, &mut loaded.index, given)?;
     let name = repo_name(&loaded.index);
     let report = commitscape_report::report::Report {
         name: name.clone(),
         index: loaded.index,
-        anchor: now(),
+        anchor: common.anchor(),
         span: window,
         options: common.metrics(),
         releases: repo.version_tags(),
@@ -367,6 +342,48 @@ pub(crate) fn make_report(
         emails,
     };
     Ok((name, report))
+}
+
+pub(crate) struct LineCount {
+    pub(crate) counted: u64,
+    pub(crate) left: u64,
+    pub(crate) settled: Vec<bool>,
+}
+
+/// Counts the Lines Changed the Index lacks, the Mainline first (worked out here unless given), never Bulk Commits, lockfiles or Generated Files, for at most `budget`.
+pub(crate) fn count_lines_into(
+    repo: &GixRepo,
+    options: &CacheOptions,
+    index: &mut Index,
+    metrics: Options,
+    budget: Option<Duration>,
+    mainline: Option<Vec<u8>>,
+) -> anyhow::Result<LineCount> {
+    let plan = LinePlan {
+        skip_commits: index.commits.iter().map(|c| metrics.is_bulk(c)).collect(),
+        skip_files: commitscape_metrics::skipped_files(index),
+        mainline,
+        budget,
+    };
+    let store = LineStore::for_repo(options, &index.repo);
+    let mut meter = ProgressLine::new();
+    let mut pass = line_pass(repo, index, &plan, store.as_ref(), &mut |done, total| {
+        meter.lines(done, total)
+    })?;
+    meter.clear();
+    let count = LineCount {
+        counted: pass.counted,
+        left: pass.left,
+        settled: std::mem::take(&mut pass.settled),
+    };
+    pass.apply(index);
+    if count.left > 0 {
+        eprintln!(
+            "lines not counted yet for {} commits: the next run carries on",
+            grouped(count.left)
+        );
+    }
+    Ok(count)
 }
 
 /// Joins the addresses given one GitHub login into one person, and returns every known address's login.
@@ -472,7 +489,7 @@ pub(crate) fn gzip(bytes: &[u8]) -> std::io::Result<Vec<u8>> {
     out.finish()
 }
 
-fn commit_link(repo: &GixRepo) -> Option<String> {
+pub(crate) fn commit_link(repo: &GixRepo) -> Option<String> {
     let remote = Remote::parse(&repo.remote_url()?)?;
     Some(format!(
         "https://github.com/{}/{}/commit/",

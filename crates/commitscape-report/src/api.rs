@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
-use commitscape_core::{AuthorId, FileClass, Index, PersonTraits};
-use commitscape_metrics::{Analysis, CodeMap, Contribution, Contributor, Moment, Ownership, Work};
+use commitscape_core::{AuthorId, FileClass, FileId, Index, PersonTraits};
+use commitscape_metrics::{
+    Analysis, CodeMap, Contribution, Contributor, Coupling, Moment, Ownership, Work,
+};
 use serde::Serialize;
 
 const DAY: i64 = 86_400;
@@ -761,13 +763,25 @@ impl MapLevel {
     }
 }
 
+fn file_named(index: &Index, path: &str) -> Option<FileId> {
+    (0..index.paths.len())
+        .rev()
+        .map(|i| FileId(i as u32))
+        .find(|&f| {
+            index
+                .paths
+                .path(f)
+                .is_some_and(|p| String::from_utf8_lossy(p) == path)
+        })
+}
+
 impl File {
-    pub fn of(a: &Analysis<'_>, cx: &Context<'_>, path: &str) -> Option<File> {
+    /// The screen of the file whose path is `path` now, or was when it was deleted, with the Window's Change Coupling worked out once by the caller.
+    pub fn of(a: &Analysis<'_>, cx: &Context<'_>, coupling: &Coupling, path: &str) -> Option<File> {
         let index = a.index();
-        let id = index.paths.get(path.as_bytes())?;
+        let id = file_named(index, path)?;
         let head = index.head.iter().find(|h| h.file == id);
         let history = index.history_of(id);
-        let coupling = a.coupling();
         let mut coupled: Vec<Coupled> = coupling
             .pairs
             .iter()
@@ -908,10 +922,12 @@ impl CommitList {
             });
             let changes = index.changes_of(c);
             let (mut added, mut removed) = (0u32, 0u32);
+            let mut counted = changes.is_empty();
             for ch in changes {
                 if let Some(l) = ch.lines {
                     added = added.saturating_add(l.added);
                     removed = removed.saturating_add(l.removed);
+                    counted = true;
                 }
             }
             out.ids.push(c.id.to_string());
@@ -927,8 +943,10 @@ impl CommitList {
             );
             out.merge.push(c.is_merge());
             out.files.push(c.changes_len);
-            out.added.push(cx.lines_counted.then_some(added));
-            out.removed.push(cx.lines_counted.then_some(removed));
+            out.added
+                .push((cx.lines_counted && counted).then_some(added));
+            out.removed
+                .push((cx.lines_counted && counted).then_some(removed));
         }
         out
     }

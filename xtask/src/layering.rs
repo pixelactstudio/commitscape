@@ -26,6 +26,13 @@ const RULES: &[Rule] = &[
         why: "The Report is computed from an Index and is handed everything else by the \
               binary. If it can see git or the network, it can go around both.",
     },
+    Rule {
+        package: "commitscape-engine",
+        forbidden: &["gix", "commitscape-index", "commitscape-forge"],
+        why: "The engine service answers from packs alone: a Build reads the history and \
+              GitHub, the engine only what the Build wrote. If it can see git or GitHub, \
+              it can go around the pack.",
+    },
 ];
 
 pub fn check() -> Result<()> {
