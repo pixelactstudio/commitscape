@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import type { Db } from "./db/client";
-import { indexCommits, indexFiles, indexFolders, indexHeadFiles, indexPeople, indexPersons, repositories, storedIndexes } from "./db/schema";
+import { indexCommitLines, indexCommits, indexFiles, indexFolders, indexHeadFiles, indexPeople, indexPersons, repositories, storedIndexes } from "./db/schema";
 import { now } from "./time";
 
 export type SeedCommit = { sha: string; at: number; person: number | null; subject?: string; files: number[]; merge?: boolean; kind?: number; offset?: number; added?: number[] | null; removed?: number[] | null };
@@ -82,9 +82,12 @@ export async function seedIndex(db: Db, repoId: string, seed: SeedIndex): Promis
         subject: c.subject ?? "",
         files: c.files,
         changes: c.files.map(() => 1),
-        added: seed.lines === false ? null : (c.added ?? c.files.map(() => 1)),
-        removed: seed.lines === false ? null : (c.removed ?? c.files.map(() => 0)),
       })),
+    );
+  const total = (list: number[]) => list.reduce((a, b) => a + b, 0);
+  if (seed.commits.length && seed.lines !== false)
+    await db.insert(indexCommitLines).values(
+      seed.commits.map((c) => ({ si, sha: Buffer.from(c.sha, "hex"), added: total(c.added ?? c.files.map(() => 1)), removed: total(c.removed ?? []) })),
     );
   await db.update(repositories).set({ indexId: si }).where(eq(repositories.id, repoId));
   return si;

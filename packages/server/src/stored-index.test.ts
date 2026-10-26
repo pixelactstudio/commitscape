@@ -9,7 +9,7 @@ import { migrate } from "drizzle-orm/pglite/migrator";
 import { afterAll, describe, expect, test } from "vitest";
 import { createDb, runMigrations, type Db } from "./db/client";
 import * as schema from "./db/schema";
-import { indexCommits, indexFiles, indexFolders, indexPeople, repositories, storedIndexes } from "./db/schema";
+import { indexCommitLines, indexCommits, indexFiles, indexFolders, indexPeople, repositories, storedIndexes } from "./db/schema";
 import { appendable, EXPORT_FORMAT, listenForLoads, liveIndex, loadExport, type ExportManifest } from "./stored-index";
 
 const url = process.env.TEST_DATABASE_URL;
@@ -81,9 +81,11 @@ test("deleting a Stored Index deletes its rows, with no foreign key checked on e
   const [row] = await db.insert(storedIndexes).values({ repoId: "acme/rocket", lineage: "1", kept: true, state: "live", lines: true, builtAt: 1 }).returning({ id: storedIndexes.id });
   const si = row?.id ?? 0;
   await db.insert(indexCommits).values({ si, sha: Buffer.from(hex(1), "hex"), at: 1, offset: 0, authorDelta: 0, signature: 0, kind: 10, flags: 0, subject: "", files: [], changes: [] });
+  await db.insert(indexCommitLines).values({ si, sha: Buffer.from(hex(1), "hex"), added: 3, removed: 1 });
   await db.insert(indexFiles).values({ si, file: 0, path: "a", folder: 0, born: 1, last: 1, alive: true });
   await db.delete(repositories).where(eq(repositories.id, "acme/rocket"));
   expect(await db.select().from(indexCommits)).toEqual([]);
+  expect(await db.select().from(indexCommitLines)).toEqual([]);
   expect(await db.select().from(indexFiles)).toEqual([]);
 });
 
@@ -101,8 +103,9 @@ describe.skipIf(!url)("loading an export into Postgres", async () => {
 
   const commitRows = (si: number) =>
     db
-      .select({ sha: sql<string>`encode(${indexCommits.sha}, 'hex')`, flags: indexCommits.flags, arrival: indexCommits.arrival, added: indexCommits.added })
+      .select({ sha: sql<string>`encode(${indexCommits.sha}, 'hex')`, flags: indexCommits.flags, arrival: indexCommits.arrival, added: indexCommitLines.added, removed: indexCommitLines.removed })
       .from(indexCommits)
+      .leftJoin(indexCommitLines, and(eq(indexCommitLines.si, indexCommits.si), eq(indexCommitLines.sha, indexCommits.sha)))
       .where(eq(indexCommits.si, si))
       .orderBy(asc(indexCommits.at));
 
@@ -114,9 +117,9 @@ describe.skipIf(!url)("loading an export into Postgres", async () => {
     const live = await liveIndex(db, repo);
     expect(live).toMatchObject({ id: loaded.si, lineage: "7", lines: true, kept: true });
     expect(await db.select({ person: indexPeople.person, login: indexPeople.login }).from(indexPeople).where(eq(indexPeople.si, loaded.si))).toHaveLength(2);
-    expect((await commitRows(loaded.si)).map((r) => [r.flags, r.arrival])).toEqual([
-      [24, 86_400],
-      [8, 3 * 86_400],
+    expect((await commitRows(loaded.si)).map((r) => [r.flags, r.arrival, r.added, r.removed])).toEqual([
+      [24, 86_400, 7, 0],
+      [8, 3 * 86_400, 5, 0],
     ]);
     const [index] = await db.select({ snapshot: storedIndexes.snapshot }).from(storedIndexes).where(eq(storedIndexes.id, loaded.si));
     expect(index?.snapshot?.release_shas).toEqual({ "v1.0": hex(2) });
@@ -159,7 +162,7 @@ describe.skipIf(!url)("loading an export into Postgres", async () => {
     const filled = await loadExport(pool, repo, writeExport({ full: false, lines: true, total: 2 }, [], { lines: [{ n: 1, added: [9] }, { n: 2, added: [1, 1] }] }));
     expect(filled).toMatchObject({ si: quick.si, commits: 0, lines: 1 });
     expect(await liveIndex(db, repo)).toMatchObject({ id: quick.si, lines: true, linesLeft: 0 });
-    expect((await commitRows(quick.si)).map((r) => r.added)).toEqual([[9], [7, 8]]);
+    expect((await commitRows(quick.si)).map((r) => r.added)).toEqual([9, 15]);
     expect(await db.select().from(storedIndexes).where(eq(storedIndexes.repoId, repo))).toHaveLength(1);
   });
 
@@ -169,6 +172,7 @@ describe.skipIf(!url)("loading an export into Postgres", async () => {
     expect(loaded.si).not.toBe(before?.id);
     expect(await db.select().from(storedIndexes).where(eq(storedIndexes.repoId, repo))).toHaveLength(1);
     expect(await db.select().from(indexCommits).where(and(eq(indexCommits.si, before?.id ?? -1)))).toHaveLength(0);
+    expect(await db.select().from(indexCommitLines).where(eq(indexCommitLines.si, before?.id ?? -1))).toHaveLength(0);
   });
 
   test("an export of what is new from another lineage is refused and changes nothing", async () => {

@@ -5,7 +5,7 @@ import { SiteError } from "./http";
 import { isHidden } from "./people";
 import type { Deps } from "./repos";
 
-const { indexCommits, indexPeople, repoPeople, repositories } = schema;
+const { indexCommitLines, indexCommits, indexPeople, repoPeople, repositories } = schema;
 
 export const DAY_COMMITS_SHOWN = 200;
 
@@ -55,13 +55,14 @@ async function indexedOnDay(deps: Pick<Deps, "db">, login: string, day: number):
         at: sql<number>`${time}::bigint`.mapWith(Number),
         offset: indexCommits.offset,
         merge: sql<boolean>`(${indexCommits.flags} & 1) = 1`,
-        added: sql<number | null>`(SELECT sum(x) FROM unnest(${indexCommits.added}) AS x)`.mapWith((v) => (v === null ? null : Number(v))),
-        removed: sql<number | null>`(SELECT sum(x) FROM unnest(${indexCommits.removed}) AS x)`.mapWith((v) => (v === null ? null : Number(v))),
+        added: sql<number | null>`CASE WHEN cardinality(${indexCommits.files}) > 0 THEN ${indexCommitLines.added} END`,
+        removed: sql<number | null>`CASE WHEN cardinality(${indexCommits.files}) > 0 THEN ${indexCommitLines.removed} END`,
       })
       .from(repoPeople)
       .innerJoin(repositories, and(eq(repositories.id, repoPeople.repoId), eq(repositories.reportKey, repoPeople.reportKey)))
       .innerJoin(indexPeople, and(eq(indexPeople.si, repositories.indexId), eq(indexPeople.person, repoPeople.personId)))
-      .innerJoin(indexCommits, and(eq(indexCommits.si, indexPeople.si), eq(indexCommits.signature, indexPeople.signature)));
+      .innerJoin(indexCommits, and(eq(indexCommits.si, indexPeople.si), eq(indexCommits.signature, indexPeople.signature)))
+      .leftJoin(indexCommitLines, and(eq(indexCommitLines.si, indexCommits.si), eq(indexCommitLines.sha, indexCommits.sha)));
   const [rows, [total]] = await Promise.all([
     base().where(theirs).orderBy(desc(indexCommits.at)).limit(DAY_COMMITS_SHOWN),
     deps.db

@@ -2,7 +2,7 @@ import { createReadStream, existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
-import { count, eq, sql } from "drizzle-orm";
+import { count, eq, sql, type SQL } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import { from as copyFrom } from "pg-copy-streams";
@@ -148,10 +148,17 @@ function rowCount(result: unknown): number {
 
 async function merge(db: Db, si: number, manifest: ExportManifest): Promise<{ mainline: number; lines: number }> {
   await db.execute(sql`
-    INSERT INTO index_commits (si, sha, at, "offset", author_delta, signature, kind, flags, arrival, subject, files, changes, added, removed)
-    SELECT ${si}, sha, at, "offset", author_delta, signature, kind, flags, arrival, subject, files, changes, added, removed FROM s_commits
-    ON CONFLICT (si, sha) DO UPDATE SET added = excluded.added, removed = excluded.removed
-    WHERE index_commits.added IS NULL AND excluded.added IS NOT NULL`);
+    INSERT INTO index_commits (si, sha, at, "offset", author_delta, signature, kind, flags, arrival, subject, files, changes)
+    SELECT ${si}, sha, at, "offset", author_delta, signature, kind, flags, arrival, subject, files, changes FROM s_commits
+    ON CONFLICT (si, sha) DO NOTHING`);
+  const lines = (from: SQL) =>
+    db.execute(sql`
+      INSERT INTO index_commit_lines (si, sha, added, removed)
+      SELECT ${si}, l.sha, coalesce((SELECT sum(x) FROM unnest(l.added) AS x), 0), coalesce((SELECT sum(x) FROM unnest(l.removed) AS x), 0)
+      FROM ${from} l JOIN index_commits c ON c.si = ${si} AND c.sha = l.sha
+      WHERE l.added IS NOT NULL
+      ON CONFLICT (si, sha) DO NOTHING`);
+  await lines(sql`s_commits`);
   const changed = { mainline: 0, lines: 0 };
   if (!manifest.full) {
     changed.mainline = rowCount(
@@ -159,11 +166,7 @@ async function merge(db: Db, si: number, manifest: ExportManifest): Promise<{ ma
         UPDATE index_commits c SET flags = m.flags, arrival = m.arrival FROM s_mainline m
         WHERE c.si = ${si} AND c.sha = m.sha AND (c.flags <> m.flags OR c.arrival IS DISTINCT FROM m.arrival)`),
     );
-    changed.lines = rowCount(
-      await db.execute(sql`
-        UPDATE index_commits c SET added = l.added, removed = l.removed FROM s_lines l
-        WHERE c.si = ${si} AND c.sha = l.sha AND c.added IS NULL`),
-    );
+    changed.lines = rowCount(await lines(sql`s_lines`));
   }
   await db.execute(sql`
     WITH existing AS (SELECT id, path FROM index_folders WHERE si = ${si}),

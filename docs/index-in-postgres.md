@@ -69,10 +69,15 @@ counted), `lines_left` (commits the line pass has not reached yet), `pack`
 - `index_commits`: `si`, `sha` bytea, `at`, `offset`, `author_delta`,
   `signature`, `kind`, `flags` (merge, bulk, ignored by blame, reachable
   from HEAD, first-parent), `arrival` (Main Arrival), `subject`,
-  `files int4[]`, `changes int2[]` (added, modified, deleted, renamed),
-  `added int4[]`, `removed int4[]` (null until counted). Keys: `(si, sha)`;
-  `(si, at)`; `(si, signature, at)`; GIN `(si, files)` with `btree_gin`
-  (GIN on `files` alone where the extension is missing, as in PGlite).
+  `files int4[]`, `changes int2[]` (added, modified, deleted, renamed).
+  Keys: `(si, sha)`; `(si, at)`; `(si, signature, at)`; GIN `(si, files)`
+  with `btree_gin` (GIN on `files` alone where the extension is missing, as
+  in PGlite). `added int4[]` and `removed int4[]` are no longer written and
+  go with the per-file arrays.
+- `index_commit_lines`: `si`, `sha`, `added`, `removed`: each commit's Lines
+  Changed, summed, once counted. A narrow row of its own, so counting the
+  lines of a commit already loaded inserts a row instead of writing the
+  whole commit row again. Key: `(si, sha)`.
 - `index_files`: `si`, `file` (File Identity), `path` (where it is now, or
   was last, with a hash index), `folder` (id), `born`, `last`, `alive`.
   `index_file_paths`: `si`, `file`, `path` for every earlier path, so

@@ -520,6 +520,17 @@ export const indexCommits = pgTable(
   (t) => [primaryKey({ columns: [t.si, t.sha] }), index("index_commits_at").on(t.si, t.at), index("index_commits_signature").on(t.si, t.signature, t.at)],
 );
 
+export const indexCommitLines = pgTable(
+  "index_commit_lines",
+  {
+    si: si(),
+    sha: bytea("sha").notNull(),
+    added: integer("added").notNull(),
+    removed: integer("removed").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.si, t.sha] })],
+);
+
 export const indexFiles = pgTable(
   "index_files",
   {
