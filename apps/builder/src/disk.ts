@@ -93,8 +93,8 @@ export async function inUse(db: Db, cfg: Config, where: (cfg: Config, owner: str
   return repos.map((r) => where(cfg, r.owner, r.name));
 }
 
-/** Deletes the least recently used repository folders (clones, or with `folder` caches) until they fit the budget, leaving the ones in `keep`. A folder is measured again only when it was used since it was last measured. */
-export async function prune(work: string, budget: number, keep: Iterable<string> = [], folder: Kept = "repos"): Promise<string[]> {
+/** Deletes the least recently used repository folders (clones, or with `folder` caches) until they fit the budget, and with `maxAgeMs` every one unused for longer, leaving the ones in `keep`. A folder is measured again only when it was used since it was last measured. */
+export async function prune(work: string, budget: number, keep: Iterable<string> = [], folder: Kept = "repos", maxAgeMs?: number): Promise<string[]> {
   const left = new Set(keep);
   const known = await readSizes(work);
   const found = await Promise.all(
@@ -106,8 +106,9 @@ export async function prune(work: string, budget: number, keep: Iterable<string>
   );
   let total = found.reduce((n, c) => n + c.bytes, 0);
   const deleted: string[] = [];
+  const oldest = maxAgeMs === undefined ? -Infinity : Date.now() - maxAgeMs;
   for (const c of found.sort((a, b) => a.at - b.at)) {
-    if (total <= budget) break;
+    if (total <= budget && c.at >= oldest) break;
     if (left.has(c.path)) continue;
     await rm(c.path, { recursive: true, force: true });
     total -= c.bytes;

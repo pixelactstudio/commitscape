@@ -31,6 +31,7 @@ import { buildGitData } from "./gitdata";
 import { pullsToken } from "./pulls";
 import { build, BUILD_ATTEMPTS, timeLimitOf, type Deps, type Made, type Outcome } from "./run";
 import { Phases, type Telemetry } from "./telemetry";
+import { restoreState, saveState, stateKeys } from "./state";
 import { storeAtlas } from "./universe";
 
 const { builds, repoPeople, repositories, storedIndexes, surviving } = schema;
@@ -145,6 +146,7 @@ async function claimedJob(buildId: string, ctx: JobContext, attempt: number, ask
     return true;
   };
 
+  const stateTier = ctx.cfg.state ? { storage: ctx.storage, keys: stateKeys(ctx.cfg.state.secret), db, log } : null;
   const currentId = async () => (await db.select({ id: builds.repoId }).from(builds).where(eq(builds.id, buildId)))[0]?.id ?? repo.id;
   const gitCfg = ctx.cfg.git;
   const outcome = load
@@ -179,6 +181,7 @@ async function claimedJob(buildId: string, ctx: JobContext, attempt: number, ask
             return got.accounts;
           },
           publish,
+          ...(stateTier ? { state: { restore: (root: string) => restoreState(stateTier, repo.id, root), save: (root: string) => saveState(stateTier, repo.id, root) } } : {}),
           index: {
             live: async () => liveIndex(db, await currentId()),
             load: async (dir: string) => {

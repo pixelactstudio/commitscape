@@ -147,8 +147,11 @@ export function run(cmd: string, args: string[], env: NodeJS.ProcessEnv, timeout
 
 export type IndexStore = { live: () => Promise<LiveIndex | null>; load: (dir: string) => Promise<Loaded> };
 
+export type StateStore = { restore: (root: string) => Promise<{ restored: boolean; bytes: number }>; save: (root: string) => Promise<{ uploaded: number; sent: number; bytes: number }> };
+
 export type Deps = {
   run: typeof run;
+  state?: StateStore;
   progress: (step: BuildStep) => Promise<void>;
   accounts: (signatures: Signature[]) => Promise<Record<string, string>>;
   index: IndexStore;
@@ -185,7 +188,10 @@ export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<
   const env = gitEnv(req.token);
   const engineEnv: NodeJS.ProcessEnv = { ...env, ...(cfg.threads ? { COMMITSCAPE_THREADS: String(cfg.threads) } : {}) };
   const url = cloneUrl(cfg, req.owner, req.name);
-  const cache = ["--cache-dir", await cacheFor(cfg, { isPrivate: !!req.private, owner: req.owner, name: req.name, home }), "--cache-key", req.repo];
+  const cacheRoot = await cacheFor(cfg, { isPrivate: !!req.private, owner: req.owner, name: req.name, home });
+  const cache = ["--cache-dir", cacheRoot, "--cache-key", req.repo];
+  const state = req.private ? undefined : deps.state;
+  let restoring: Promise<unknown> = Promise.resolve();
   const warm = existsSync(join(full, ".git"));
   phases.kind = warm ? "warm" : "cold";
   const seconds = () => Math.round((Date.now() - started) / 100) / 10;
@@ -195,6 +201,7 @@ export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<
   let fullCloned = false;
 
   const engine = async (phase: Phase, dir: string, accounts: string | null): Promise<Engined> => {
+    await restoring;
     const out = join(scratch, `${phase}.out`);
     const events = join(scratch, `${phase}.events`);
     await rm(out, { recursive: true, force: true });
@@ -230,6 +237,7 @@ export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<
   };
 
   const accountsFrom = async (dir: string): Promise<string | null> => {
+    await restoring;
     const events = join(scratch, "signatures.events");
     const signatures = await phases.time("signatures", "engine", async () => {
       const found = await readSignatures(deps.run, { bin: cfg.bin, dir, scratch, cache, env: engineEnv, timeoutMs: binLimit * 1000, nice: cfg.nice, events, ...(deps.log ? { log: deps.log } : {}) });
@@ -261,6 +269,12 @@ export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<
     await mkdir(scratch, { recursive: true });
     await mkdir(home, { recursive: true });
     await utimes(home, new Date(), new Date());
+    if (state) {
+      restoring = phases
+        .time("restore state", "state", () => state.restore(cacheRoot))
+        .then((r) => r.restored && deps.log?.(`state of ${req.owner}/${req.name}: restored ${Math.round(r.bytes / 1e6)} MB from R2`))
+        .catch((e: unknown) => deps.log?.(`state of ${req.owner}/${req.name} not restored: ${(e as Error).message}`));
+    }
     const live = await deps.index.live();
     const quickWanted = attempt === 1 && !warm && !req.hasLines && !live?.lines;
     await deps.progress("cloning");
@@ -322,6 +336,12 @@ export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<
 
     const [, f] = await Promise.all([quickPhase, fullPhase]);
     const made = fullMade ?? quickMade;
+    if (state && made) {
+      await phases
+        .time("save state", "state", () => state.save(cacheRoot))
+        .then((s) => deps.log?.(`state of ${req.owner}/${req.name}: ${s.uploaded} new chunks, ${Math.round(s.sent / 1e6)} MB sent, ${Math.round(s.bytes / 1e6)} MB kept`))
+        .catch((e: unknown) => deps.log?.(`state of ${req.owner}/${req.name} not saved: ${(e as Error).message}`));
+    }
     const published: Phase | null = fullMade ? "full" : quickMade ? "quick" : null;
     if (f.ok) return { published, seconds: seconds(), resumable: false, kind: phases.kind, made };
     resumable = f.reason === "timed_out" && attempt < BUILD_ATTEMPTS;

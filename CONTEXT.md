@@ -192,6 +192,10 @@ _Avoid_: dashboard, cloud, platform, web app.
 The public page that says what commitscape is and leads to signing in: a static page apart from the Site, holding no data. Its Cards are the Site's.
 _Avoid_: home page, marketing site.
 
+**Repo State**:
+What the Builder keeps of a repository between its Builds so the next one reads only what is new: the engine cache, which holds its Index, the Lines Changed already counted and its HEAD's files. It lives on the Builder's disk for days and, sealed with a key only the Builder has, in R2 for months; a Build whose disk lost it brings it back from R2, and only one without either reads the whole history again.
+_Avoid_: cache (the folder it lives in), snapshot, checkpoint.
+
 **Builder**:
 What reads a repository's history for the Site: it clones the repository, runs the same engine the CLI runs, loads the Stored Index into Postgres and stores the Pack in R2. The Site never runs git.
 _Avoid_: worker, backend, crawler.

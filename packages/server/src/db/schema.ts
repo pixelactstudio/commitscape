@@ -473,6 +473,17 @@ export type IndexSnapshot = {
   release_shas?: Record<string, string>;
 };
 
+export const repoStates = pgTable(
+  "repo_states",
+  {
+    repoId: text("repo_id").primaryKey(),
+    savedAt: seconds("saved_at").notNull(),
+    usedAt: seconds("used_at").notNull(),
+    bytes: bigint("bytes", { mode: "number" }).notNull(),
+  },
+  (t) => [index("repo_states_used").on(t.usedAt)],
+);
+
 export const storedIndexes = pgTable(
   "stored_indexes",
   {

@@ -32,6 +32,9 @@ export function loadEnv(runtimeEnv: Record<string, string | undefined> = process
       CACHE_BUDGET_GB: positive(5),
       ENGINE_SLOTS: z.coerce.number().int().positive().default(1),
       ATLAS_QUALITY: z.coerce.number().int().min(1).max(11).default(5),
+      STATE_KEY: z.string().min(32).optional(),
+      STATE_DISK_DAYS: positive(7),
+      STATE_KEEP_DAYS: positive(180),
       SURVIVING_BUDGET_SECONDS: positive(60),
       PULLS_TIME_LIMIT_SECONDS: positive(1800),
       GIT_DATA: z.stringbool().default(true),
@@ -107,7 +110,10 @@ export type Config = {
   gitBase: string | undefined;
   git?: GitSettings | undefined;
   atlas?: AtlasSettings | undefined;
+  state?: StateSettings | undefined;
 };
+
+export type StateSettings = { secret: string; diskDays: number; keepDays: number };
 
 export type AtlasSettings = { command: string; args: string[]; quality: number };
 
@@ -130,6 +136,7 @@ export function configOf(env: Env): Config {
     engineSlots: env.ENGINE_SLOTS,
     moreLinesBudget: env.MORE_LINES_BUDGET_SECONDS,
     gitBase: env.GIT_BASE,
+    state: env.STATE_KEY ? { secret: env.STATE_KEY, diskDays: env.STATE_DISK_DAYS, keepDays: env.STATE_KEEP_DAYS } : undefined,
     git: env.GIT_DATA
       ? {
           seconds: env.GIT_TIME_LIMIT_SECONDS,

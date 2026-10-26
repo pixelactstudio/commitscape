@@ -95,6 +95,35 @@ const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const commands = (calls: Call[]) => calls.map((c) => (c.cmd === "git" ? `git ${c.args[0]}${c.args.includes("--filter=blob:none") ? " blobless" : ""}` : c.args[0]));
 const builds = (calls: Call[]) => calls.filter((c) => c.args[0] === "build");
 
+test("a Build brings its State back before the engine first runs and keeps it after it published; a private repository's is never kept", async () => {
+  for (const isPrivate of [false, true]) {
+    const work = await mkdtemp(join(tmpdir(), "builder-"));
+    const order: string[] = [];
+    const f = fake((c) => {
+      if (c.cmd === "commitscape") order.push(c.args[0] ?? "");
+      return ok;
+    });
+    f.deps.state = {
+      restore: async (root) => {
+        await pause(50);
+        order.push(`restore ${root === cacheDir(cfg(work), "acme", "rocket") ? "cache" : root}`);
+        return { restored: true, bytes: 1 };
+      },
+      save: async (root) => {
+        order.push(`save ${root === cacheDir(cfg(work), "acme", "rocket") ? "cache" : root}`);
+        return { uploaded: 1, sent: 1, bytes: 1 };
+      },
+    };
+    const publish = f.deps.publish;
+    f.deps.publish = async (made) => {
+      order.push(`publish ${made.phase}`);
+      return publish(made);
+    };
+    await build(req({ private: isPrivate, token: isPrivate ? "t" : null }), cfg(work), f.deps);
+    expect(order).toEqual(isPrivate ? ["signatures", "build", "publish quick", "build", "publish full"] : ["restore cache", "signatures", "build", "publish quick", "build", "publish full", "save cache"]);
+  }
+});
+
 test("git's failures in the Site's words", () => {
   expect(failure("remote: Repository not found.\nfatal: repository 'https://github.com/a/b.git/' not found")).toBe("not_found");
   expect(failure("fatal: could not read Username for 'https://github.com': terminal prompts disabled")).toBe("private");
@@ -437,6 +466,20 @@ test("the least recently used repository folders go first when the disk budget i
   expect(await prune(work, 2500)).toEqual([join(work, "repos", "acme", "old")]);
   expect(await prune(work, 5000)).toEqual([]);
   expect(await prune(work, 1500, [join(work, "repos", "acme", "mid")])).toEqual([join(work, "repos", "acme", "new")]);
+});
+
+test("a cache unused for longer than the days a State is kept on disk goes even within the budget, unless a Build still needs it", async () => {
+  const work = await mkdtemp(join(tmpdir(), "builder-"));
+  const day = 86_400;
+  const at = Date.now() / 1000;
+  for (const [name, age] of [["stale", 8], ["kept", 8], ["fresh", 1]] as const) {
+    const dir = join(work, "caches", "acme", name);
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "index.current"), "x");
+    await utimes(dir, at - age * day, at - age * day);
+  }
+  expect(await prune(work, 1e12, [join(work, "caches", "acme", "kept")], "caches", 7 * day * 1000)).toEqual([join(work, "caches", "acme", "stale")]);
+  expect(await prune(work, 1e12, [], "caches")).toEqual([]);
 });
 
 test("a kept folder is measured again only once it was used after it was last measured", async () => {

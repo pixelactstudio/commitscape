@@ -77,7 +77,19 @@ to a repository the App is installed on, the nightly seeds and
    the text of files at HEAD in R2 (each blob once, recorded in
    `repo_blobs`), and pull request diffs. The Build ends `done` at this
    publish.
-6. **Carries on.** If the budget left commits uncounted, a quiet Build is
+6. **Keeps the Repo State.** With `STATE_KEY` set, a public repository's
+   engine cache is kept in R2 as well as on disk: before its first run of
+   the engine a Build whose disk has no cache brings it back from
+   `state/<repo>/` (chunks checked against their names, moved into place
+   only when whole), and after a publish it uploads the 8 MB chunks R2
+   does not hold yet, sealed with AES-256-GCM, then the manifest naming
+   them, and deletes the chunks nothing names. `repo_states` records when
+   each was used; tidy drops a State from the disk after `STATE_DISK_DAYS`
+   and from R2 after `STATE_KEEP_DAYS` unused. linux: the first upload is
+   128 MB for a 217 MB State, a Build with 337 new commits sends 15 MB,
+   and a restore takes seconds where reading the history again takes
+   minutes.
+7. **Carries on.** If the budget left commits uncounted, a quiet Build is
    queued a minute later, below people's and seeds' Builds, three at most; each counts
    on from where the last stopped. Seeds' top people get their Surviving
    Lines counted, reusing the full clone and the same accounts, so person

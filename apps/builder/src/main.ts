@@ -31,6 +31,7 @@ import { jobLimitOf, run, sharingEngine } from "./run";
 import { pullsToken, readPulls } from "./pulls";
 import { budgetOf, runSurvival } from "./survival";
 import { queueRebuilds } from "./rebuild";
+import { forgetStates } from "./state";
 import { writeAtlas } from "./universe";
 import { headsOf, queueSeeds, seedConfig, seedList } from "./seeds";
 
@@ -102,12 +103,19 @@ async function work() {
     const lane = await laneOf(db, cfg, job.buildId);
     await sendBuild(lane?.queue ?? BUILD_QUEUE, { queuedAt: Date.now(), ...job }, priority, startAfter);
   };
+  let forgotAt = 0;
   const tidy = async () => {
     for (const p of await sweep(db, cfg).catch(() => [])) log(`swept ${p}`);
     const keep = await inUse(db, cfg).catch(() => null);
     if (keep) for (const p of await prune(cfg.work, cfg.diskGb * 1024 ** 3, keep)) log(`pruned ${p}`);
     const caches = await inUse(db, cfg, cacheDir).catch(() => null);
-    if (caches) for (const p of await prune(cfg.work, cfg.cacheGb * 1024 ** 3, caches, "caches")) log(`pruned ${p}`);
+    const days = cfg.state ? cfg.state.diskDays * 86_400_000 : undefined;
+    if (caches) for (const p of await prune(cfg.work, cfg.cacheGb * 1024 ** 3, caches, "caches", days)) log(`pruned ${p}`);
+    if (cfg.state && Date.now() - forgotAt > 86_400_000) {
+      forgotAt = Date.now();
+      const gone = await forgetStates({ storage, db }, cfg.state.keepDays).catch((e: unknown) => (log(`states not forgotten: ${(e as Error).message}`), []));
+      if (gone.length > 0) log(`forgot the States of ${gone.length} repositories unused for ${cfg.state.keepDays} days`);
+    }
   };
   const reap = async () => {
     const reaped = await reapBuilds(db, (id) => buildJobStates(boss, id), bossQueue(boss));
