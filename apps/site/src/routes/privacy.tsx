@@ -1,7 +1,9 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { PRODUCT } from "@commitscape/data";
 import { Eyebrow, Page } from "@commitscape/ui";
+import { AnalyticsChoice } from "#/components/Consent";
+import { FEATURES, featuresAt, REGIONS, SIGNALLED, type FeatureId, type Region } from "#/lib/analytics-config";
 
 export const Route = createFileRoute("/privacy")({
   head: () => ({ meta: [{ title: `What ${PRODUCT} keeps` }] }),
@@ -15,6 +17,8 @@ const PARTS = [
   ["repositories", "Repositories you look up"],
   ["shared", "Shared Reports"],
   ["signing-in", "Signing in with GitHub"],
+  ["analytics", "Making the Site better"],
+  ["command", "The command"],
   ["everyone", "Everyone"],
 ] as const;
 
@@ -27,7 +31,7 @@ function Privacy() {
             <Eyebrow className="text-brand">What we keep</Eyebrow>
             <h1 className="m-0 type-page text-balance">What {PRODUCT} keeps, and who can read it</h1>
             <p className="m-0 type-lead">
-              The {PRODUCT} command reads repositories on your own machine and sends nothing anywhere unless you ask it to. This page is about the Site: what it shows about people, what it stores, and how to stay out.
+              The {PRODUCT} command reads repositories on your own machine and sends a repository nowhere unless you share it. This page is about what the Site shows about people, what it stores, what we learn from how it is used, and how to choose.
             </p>
           </header>
 
@@ -70,7 +74,7 @@ function Privacy() {
             <Item label="How long">
               4 hours unless you chose otherwise, 12 at most; then it answers “gone” and is removed. The page’s Delete button, or <Code>{`${PRODUCT} share --delete`}</Code>, removes it at once.
             </Item>
-            <Item label="Who can read it">Whoever has the link. We cannot: we never have the key.</Item>
+            <Item label="Who can read it">Whoever has the link. We cannot: we never have the key. A Shared Report’s page is never recorded, and its key is never sent to PostHog.</Item>
           </Part>
 
           <Part id="signing-in" title="Signing in with GitHub">
@@ -84,11 +88,48 @@ function Privacy() {
             <Item label="Who can read it">A private repository’s Report is shown only to people GitHub says can see the repository, checked again on every view.</Item>
           </Part>
 
+          <Part id="analytics" title="Making the Site better">
+            <Item>We learn from how the Site is used, so we can fix what is slow or confusing and build what people come back for. We do it with PostHog, through our own server, and only for that: nothing is sold, and nothing is used for advertising.</Item>
+            {GROUPS.map((g) => (
+              <Fragment key={g.regions.map((r) => r.id).join()}>
+                <Item label={GROUPS.length > 1 ? `For everyone in ${g.regions.map((r) => r.name).join(" and ")}, without cookies` : "For everyone, without cookies"}>
+                  <Features ids={g.basic} />
+                </Item>
+                <Item label="When you allow all">
+                  <Features ids={g.more} />
+                </Item>
+              </Fragment>
+            ))}
+            <Item label="Where you are">
+              {REGIONS.map((r) => `${r.name.charAt(0).toUpperCase()}${r.name.slice(1)}: ${r.before === "full" ? "all of it runs until you choose otherwise" : "only the basic counts run until you choose"}.`).join(" ")} A browser that sends Do Not Track or Global Privacy Control starts at {SIGNALLED === "basic" ? "basic" : "all"}. We tell where you are from your country, as Cloudflare reports it.
+            </Item>
+            <Item label="Your choice">
+              The box in the corner the first time you visit, Usage data in <Inline to="/me">Settings</Inline>, or here, at any time:
+              <div className="mt-3 surface px-panel py-3">
+                <AnalyticsChoice />
+              </div>
+            </Item>
+            <Item label="Never">What you type into a field, the source code and diffs on screen, the contents of any request, cookies, sign-in tokens or the key of a Shared Report.</Item>
+            <Item label="Our server too">It counts moments it sees, at the same level: Builds and how long they took, Profiles and repository pages served, Cards served, Shared Reports made, opened and deleted, GitHub App installs, and runs of the command.</Item>
+            <Item label="Where and how long">
+              PostHog’s servers in the United States. Recordings are deleted after 30 days. If you allowed all and signed in, “Delete my data” in <Inline to="/me">Settings</Inline> also has PostHog delete everything tied to your account, recordings included.
+            </Item>
+          </Part>
+
+          <Part id="command" title="The command">
+            <Item>
+              Each time you run <Code>{`${PRODUCT} share`}</Code>, <Code>health</Code>, <Code>surviving</Code> or <Code>report</Code>, it sends us one count: which command, how long it took, whether it worked, its version, your operating system and processor, whether it ran in CI, and a random id kept in its cache folder. Never a path, a repository, a name or an email address.
+            </Item>
+            <Item label="Turning it off">
+              Set <Code>COMMITSCAPE_TELEMETRY=0</Code>, or <Code>DO_NOT_TRACK=1</Code>. The command says so the first time it runs.
+            </Item>
+            <Item label="Where">The count goes to the Site, which passes it to PostHog like a visit from where you are.</Item>
+          </Part>
+
           <Part id="everyone" title="Everyone">
             <Item>To stop abuse, the Site counts how many lookups, Builds and Shared Reports each address starts in an hour (an IPv6 address counts with its neighbours in the same /64). It keeps a hash of the address, never the address, and deletes the count when the hour ends.</Item>
             <Item>Our server keeps logs of requests, as any host does.</Item>
             <Item>Errors in the Site are reported to Sentry, without the request’s body, headers or cookies.</Item>
-            <Item>Pages viewed, and a few moments such as signing in, asking for a Build or opening a Profile, are counted with PostHog, through our own server. It honours your browser’s Do Not Track setting and is never told who you are: someone signed in is counted under a code made from their account with a key only our server holds, never their account or login. No advertising.</Item>
           </Part>
 
           <p className="mt-12 mb-0 surface px-panel py-4 type-description">
@@ -103,6 +144,29 @@ function Privacy() {
         <Contents />
       </div>
     </Page>
+  );
+}
+
+type Group = { regions: Region[]; basic: FeatureId[]; more: FeatureId[] };
+
+const GROUPS: Group[] = REGIONS.reduce<Group[]>((groups, r) => {
+  const basic = [...featuresAt(r, "basic")];
+  const more = [...featuresAt(r, "full")].filter((f) => !basic.includes(f));
+  const same = groups.find((g) => g.basic.join() === basic.join() && g.more.join() === more.join());
+  if (same) same.regions.push(r);
+  else groups.push({ regions: [r], basic, more });
+  return groups;
+}, []);
+
+function Features({ ids }: { ids: readonly FeatureId[] }) {
+  return (
+    <ul className="m-0 mt-2 flex list-none flex-col gap-1.5 p-0">
+      {ids.map((id) => (
+        <li key={id} className="type-description">
+          <span className="font-medium text-primary">{FEATURES[id].label}.</span> {FEATURES[id].says}
+        </li>
+      ))}
+    </ul>
   );
 }
 

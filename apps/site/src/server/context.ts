@@ -62,7 +62,7 @@ export function siteGitHub(): { api: string; token?: string } {
 export function siteAnalytics(): Analytics {
   if (!counting) {
     const counter = env.PUBLIC_POSTHOG_KEY ? new PostHog(env.PUBLIC_POSTHOG_KEY, { host: env.PUBLIC_POSTHOG_HOST, flushAt: 20, flushInterval: 10_000 }) : null;
-    counting = analytics({ counter, secret: env.TOKEN_SECRET });
+    counting = analytics({ counter, secret: env.TOKEN_SECRET, countryHeader: env.COUNTRY_HEADER, addressHeader: env.CLIENT_IP_HEADER });
     if (counter) stopOnExit(counting);
   }
   return counting;

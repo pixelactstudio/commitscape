@@ -9,6 +9,7 @@ import { Logo, Page } from "@commitscape/ui";
 import { ICON } from "@commitscape/ui/design";
 import { HOME, returnTo } from "#/lib/access";
 import { signIn } from "#/lib/auth-client";
+import { track } from "#/lib/analytics";
 
 type Search = { next?: string; error?: string };
 
@@ -51,8 +52,10 @@ function SignIn() {
   const start = async () => {
     setStarting(true);
     setFailed(null);
+    track("sign in started", { next });
     const code = await signIn(next);
     if (code) {
+      track("sign in failed", { code });
       setFailed(code);
       setStarting(false);
     }

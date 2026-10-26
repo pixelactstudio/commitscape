@@ -1,22 +1,43 @@
 import { PostHogProvider } from "@posthog/react";
 import posthog from "posthog-js";
-import type { ReactNode } from "react";
-import { publicEnv } from "#/lib/env";
-import { INGEST, uiHostOf } from "#/lib/posthog-hosts";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useRouterState } from "@tanstack/react-router";
+import { applyLevel, recording, startAnalytics, track, UNRECORDED, type Person } from "#/lib/analytics";
+import { CONSENT_COOKIE, levelOf, regionById, type Choice, type Level, type Region } from "#/lib/analytics-config";
 
-if (typeof window !== "undefined" && publicEnv.PUBLIC_POSTHOG_KEY) {
-  posthog.init(publicEnv.PUBLIC_POSTHOG_KEY, {
-    api_host: INGEST,
-    ui_host: uiHostOf(publicEnv.PUBLIC_POSTHOG_HOST),
-    defaults: "2025-11-30",
-    capture_pageview: "history_change",
-    person_profiles: "identified_only",
-    respect_dnt: true,
-    autocapture: false,
-  });
+export type AnalyticsState = { on: boolean; region: Region; choice: Choice | null; level: Level; choose: (c: Choice) => void };
+
+const AnalyticsContext = createContext<AnalyticsState | null>(null);
+
+/** The visitor's analytics region, choice and level, and a way to change their choice. */
+export function useAnalytics(): AnalyticsState | null {
+  return useContext(AnalyticsContext);
 }
 
-export function Analytics({ children }: { children: ReactNode }) {
-  if (!publicEnv.PUBLIC_POSTHOG_KEY) return <>{children}</>;
-  return <PostHogProvider client={posthog}>{children}</PostHogProvider>;
+/** Runs PostHog for the visitor at the level their region and choice allow, and gives the page their choice. */
+export function Analytics({ children, on, region: regionId, choice: chosen, level: first, person }: { children: ReactNode; on: boolean; region: string | undefined; choice: Choice | null | undefined; level: Level | undefined; person: Person | null }) {
+  const region = regionById(regionId);
+  const [choice, setChoice] = useState<Choice | null>(chosen ?? null);
+  const level = choice ? levelOf(region, choice, false) : (first ?? region.before);
+  const path = useRouterState({ select: (s) => s.location.pathname });
+  useEffect(() => {
+    startAnalytics(region, level, person !== null);
+    applyLevel(level, person);
+  }, [region, level, person]);
+  useEffect(() => {
+    if (!recording(level)) return;
+    if (UNRECORDED.test(path)) posthog.stopSessionRecording();
+    else if (!posthog.sessionRecordingStarted()) posthog.startSessionRecording();
+  }, [path, level]);
+  const choose = useCallback(
+    (c: Choice) => {
+      document.cookie = `${CONSENT_COOKIE}=${c}; path=/; max-age=31536000; samesite=lax${window.location.protocol === "https:" ? "; secure" : ""}`;
+      applyLevel(levelOf(region, c, false), person);
+      track("analytics choice made", { choice: c, region: region.id });
+      setChoice(c);
+    },
+    [region, person, setChoice],
+  );
+  const state = useMemo(() => ({ on, region, choice, level, choose }), [on, region, choice, level, choose]);
+  return <AnalyticsContext value={state}>{on ? <PostHogProvider client={posthog}>{children}</PostHogProvider> : children}</AnalyticsContext>;
 }

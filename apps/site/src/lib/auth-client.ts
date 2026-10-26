@@ -1,4 +1,5 @@
 import { createAuthClient } from "better-auth/react";
+import { forgetPerson } from "#/lib/analytics";
 import { returnTo, SIGN_IN } from "#/lib/access";
 import { forgetViewer } from "#/lib/viewer";
 
@@ -11,8 +12,9 @@ export async function signIn(next?: string): Promise<string | null> {
   return answer === null ? "unreachable" : answer.error ? (answer.error.code ?? "unknown") : null;
 }
 
-/** Signs out and forgets the cached viewer. */
+/** Signs out and forgets the cached viewer and, in analytics, the person. */
 export async function signOut() {
   await authClient.signOut();
   forgetViewer();
+  forgetPerson();
 }

@@ -4,28 +4,43 @@ import { analytics, type Counter } from "./analytics";
 
 const SECRET = "x".repeat(32);
 
+type Sent = Parameters<Counter["capture"]>[0];
+
 function counting() {
-  const sent: { distinctId: string; event: string; properties: Record<string, unknown> }[] = [];
+  const sent: Sent[] = [];
   const counter: Counter = { capture: (e) => void sent.push(e), shutdown: async () => {} };
   return { sent, counter };
 }
 
 describe("the Site's PostHog moments", () => {
-  test("know a person only by a keyed hash of their account id, with no person profile", () => {
+  test("know a person by a keyed hash of their account id, never the id, and make no person profile before they allow everything", () => {
     const { sent, counter } = counting();
-    analytics({ counter, secret: SECRET }).capture("signed in", { userId: "user-9", headers: new Headers() }, { first: true });
-    expect(sent).toEqual([{ distinctId: analyticsId("user-9", SECRET), event: "signed in", properties: { first: true, $process_person_profile: false } }]);
+    analytics({ counter, secret: SECRET }).capture("signed in", { userId: "user-9", headers: new Headers({ "cf-ipcountry": "DE" }) }, { first: true });
+    expect(sent).toEqual([{ distinctId: analyticsId("user-9", SECRET), event: "signed in", properties: { first: true, app: "site", region: "ask", consent: "basic", $process_person_profile: false }, disableGeoip: true }]);
     expect(JSON.stringify(sent)).not.toContain("user-9");
   });
 
-  test("are never sent for a request that asks not to be tracked, or when PostHog is not set up", () => {
+  test("with everything allowed, join the browser's PostHog session and send the whole address for the city", () => {
+    const { sent, counter } = counting();
+    const headers = new Headers({ "cf-ipcountry": "US", "cf-connecting-ip": "203.0.113.9", "x-posthog-distinct-id": "browser-1", "x-posthog-session-id": "session-1" });
+    const a = analytics({ counter, secret: SECRET });
+    a.capture("profile served", { userId: "user-9", headers });
+    a.capture("profile served", { userId: null, headers });
+    expect(sent[0]).toMatchObject({ distinctId: analyticsId("user-9", SECRET), properties: { consent: "full", $process_person_profile: true, $session_id: "session-1", $ip: "203.0.113.9" }, disableGeoip: false });
+    expect(sent[1]).toMatchObject({ distinctId: "browser-1", properties: { $process_person_profile: false, $session_id: "session-1" } });
+  });
+
+  test("still count, at basic and with part of the address, a browser that signals not to track or a visitor who chose basic", () => {
     const { sent, counter } = counting();
     const a = analytics({ counter, secret: SECRET });
-    a.capture("profile served", { userId: "u", headers: new Headers({ dnt: "1" }) });
-    a.capture("profile served", { userId: "u", headers: new Headers({ "sec-gpc": "1" }) });
-    expect(sent).toHaveLength(0);
+    a.capture("profile served", { userId: "u", headers: new Headers({ "cf-ipcountry": "US", "cf-connecting-ip": "203.0.113.9", dnt: "1", "x-posthog-session-id": "s" }) });
+    a.capture("profile served", { userId: "u", headers: new Headers({ "cf-ipcountry": "US", "cf-connecting-ip": "203.0.113.9", cookie: "commitscape.analytics=basic" }) });
+    for (const e of sent) {
+      expect(e.properties).toMatchObject({ consent: "basic", $ip: "203.0.113.0", $process_person_profile: false });
+      expect(e.properties).not.toHaveProperty("$session_id");
+    }
     analytics({ counter: null, secret: SECRET }).capture("profile served", { userId: "u" });
-    expect(sent).toHaveLength(0);
+    expect(sent).toHaveLength(2);
   });
 
   test("without the Site's secret, use a fresh id each time rather than the account id", () => {

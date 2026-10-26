@@ -9,6 +9,7 @@ import { deleteToken, readReport, reportSource, unlock, type DataSource } from "
 import { App, Pill, queryOf, SCREEN_SKELETONS, ScreenColumn, ScreenHeader, screensOf, searcher, SourceContext, TITLES, toRoute, toSearch, Workspace, type Route as Where, type WorkspaceSlots } from "@commitscape/ui";
 import { Notice } from "#/components/Notice";
 import { shareKey } from "#/share-key";
+import { track } from "#/lib/analytics";
 
 export const Route = createFileRoute("/s/$id")({
   staticData: { frame: "workspace" },
@@ -106,8 +107,10 @@ function SharedReport() {
       try {
         plain = await unlock(key, new Uint8Array(await answer.arrayBuffer()));
       } catch {
+        track("shared report unlocked", { ok: false });
         return set({ kind: "error", words: "This Shared Report could not be unlocked: the link’s key is not its key, or what is stored was changed." });
       }
+      track("shared report unlocked", { ok: true, bytes: plain.byteLength });
       set({ kind: "open", source: reportSource(await readReport(plain), `share:${id}`, searcher), expiresAt });
     })().catch((e: Error) => set({ kind: "error", words: e.message }));
     const timer = setInterval(() => tick((n) => n + 1), 30_000);

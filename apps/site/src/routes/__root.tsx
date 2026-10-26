@@ -16,6 +16,8 @@ import type { getViewer } from "#/functions/account";
 import { isOpenPage, returnTo } from "#/lib/access";
 import { rememberViewer, viewer } from "#/lib/viewer";
 import { Analytics } from "#/integrations/posthog";
+import type { Person } from "#/lib/analytics";
+import { ConsentBanner } from "#/components/Consent";
 import { PUBLIC_GLOBAL } from "#/lib/env";
 import { Frame } from "#/components/Frame";
 import { RouterLink } from "#/components/RouterLink";
@@ -80,7 +82,7 @@ function Root() {
   const context = useRouteContext({ from: "__root__" });
   const first = context.mode;
   useState(() => {
-    if (context.origin !== undefined && context.public && context.user !== undefined && context.mode) rememberViewer({ origin: context.origin, public: context.public, user: context.user, mode: context.mode } as Viewer);
+    if (context.origin !== undefined && context.public && context.user !== undefined && context.mode && context.analytics) rememberViewer({ origin: context.origin, public: context.public, user: context.user, mode: context.mode, analytics: context.analytics } as Viewer);
     return null;
   });
   const [mode, setMode] = useState<Mode>(first ?? "system");
@@ -95,16 +97,20 @@ function Root() {
     return () => scheme.removeEventListener("change", quiet);
   }, []);
   const value = useMemo(() => [mode, choose] as [Mode, (m: Mode) => void], [mode, choose]);
+  const id = context.analytics?.id ?? null;
+  const { login = null, name = null, image = null } = context.user ?? {};
+  const person = useMemo<Person | null>(() => (id ? { id, login, name, image } : null), [id, login, name, image]);
   return (
     <ModeContext value={value}>
       <Theme theme={commitscapeTheme} mode={mode}>
         <LinkProvider component={RouterLink}>
           <ToastViewport>
-            <Analytics>
+            <Analytics on={!!context.public?.PUBLIC_POSTHOG_KEY} region={context.analytics?.region} choice={context.analytics?.choice} level={context.analytics?.level} person={person}>
               <MotionProvider>
                 <Frame>
                   <Outlet />
                 </Frame>
+                <ConsentBanner />
               </MotionProvider>
             </Analytics>
           </ToastViewport>

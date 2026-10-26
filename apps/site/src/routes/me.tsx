@@ -12,7 +12,9 @@ import { Briefcase, FolderGit2, Image as ImageIcon, Lock, LogOut, Plus, Trash2, 
 import { PRODUCT } from "@commitscape/data";
 import { Face, Page, PageHead, Panel } from "@commitscape/ui";
 import { ICON } from "@commitscape/ui/design";
+import { AnalyticsChoice } from "#/components/Consent";
 import { deleteMe } from "#/functions/account";
+import { forgetPerson } from "#/lib/analytics";
 import { saveMyChoices } from "#/functions/standings";
 import { signOut as endSession } from "#/lib/auth-client";
 import { forgetViewer } from "#/lib/viewer";
@@ -28,6 +30,7 @@ export const Route = createFileRoute("/me")({
 const SECTIONS = [
   ["profile", "Profile"],
   ["privacy", "Privacy"],
+  ["usage", "Usage data"],
   ["repositories", "Connected repositories"],
   ["danger", "Delete my data"],
 ] as const;
@@ -84,6 +87,9 @@ function Me() {
               </div>
             </Panel>
             <Choices />
+            <Panel id="usage" title="Usage data" description="What we learn from how you use the Site, to make it better. It takes effect at once.">
+              <AnalyticsChoice />
+            </Panel>
             <Repositories installations={mine.installations} install={mine.install} tokenLost={mine.tokenLost} />
             <Danger onDone={() => void after("Your data is deleted. Everything listed is gone, and you are signed out.")} />
           </div>
@@ -187,6 +193,7 @@ function Danger({ onDone }: { onDone: () => void }) {
   const remove = useMutation({
     mutationFn: () => deleteMe(),
     onSuccess: () => {
+      forgetPerson();
       setAsking(false);
       onDone();
     },

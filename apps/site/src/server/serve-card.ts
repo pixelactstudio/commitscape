@@ -2,6 +2,7 @@ import "@tanstack/react-start/server-only";
 import type { CardKind } from "@commitscape/data";
 import { parseStyle } from "@commitscape/ui";
 import { cardImage, type Subject } from "./cards";
+import { siteAnalytics } from "./context";
 import { env } from "./env";
 import { answer, says } from "./http";
 import { deps } from "./viewer";
@@ -18,6 +19,7 @@ export function serveCard(request: Request, file: string, allowed: readonly Card
     const query = new URL(request.url).searchParams;
     const theme = query.get("theme") === "dark" ? "dark" : "light";
     const card = await cardImage({ ...deps(), site: new URL(env.BETTER_AUTH_URL).host }, kind, achievement ? { ...subject, achievement } : subject, theme, m[2] as "svg" | "png", parseStyle(query));
+    siteAnalytics().capture("card served", { userId: null, headers: request.headers }, { kind, format: m[2] ?? null, theme, achievement: achievement ?? null, styled: query.size > 1 || (query.size === 1 && !query.has("theme")) });
     return new Response(card.body as BodyInit, {
       headers: {
         "content-type": card.type,

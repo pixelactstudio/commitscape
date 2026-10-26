@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { analyticsId, doNotTrack } from "./analytics";
+import { analyticsId } from "./analytics";
 
 const SECRET = "s".repeat(32);
 
@@ -11,14 +11,5 @@ describe("analyticsId", () => {
     expect(analyticsId("user-124", SECRET)).not.toBe(id);
     expect(analyticsId("user-123", "t".repeat(32))).not.toBe(id);
     expect(id).not.toContain("user-123");
-  });
-});
-
-describe("doNotTrack", () => {
-  test("hears Do Not Track and Global Privacy Control", () => {
-    expect(doNotTrack(new Headers({ dnt: "1" }))).toBe(true);
-    expect(doNotTrack(new Headers({ "sec-gpc": "1" }))).toBe(true);
-    expect(doNotTrack(new Headers({ dnt: "0" }))).toBe(false);
-    expect(doNotTrack(null)).toBe(false);
   });
 });

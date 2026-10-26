@@ -19,7 +19,7 @@ export function distinctIdOf(who: Who, secret: string | undefined): string {
   return who.userId && secret ? analyticsId(who.userId, secret) : `repo:${who.repo}`;
 }
 
-/** Starts Sentry (errors, traces, logs and metrics) and one PostHog client when their keys are set; without them every call does nothing. PostHog keeps no person profiles. */
+/** Starts Sentry (errors, traces, logs and metrics) and one PostHog client when their keys are set; without them every call does nothing. The Builder makes no person profiles: its events join the one the Site made for a person who allowed everything. */
 export function startTelemetry(cfg: TelemetryConfig): Telemetry {
   if (cfg.sentryDsn) {
     Sentry.init({
@@ -32,7 +32,7 @@ export function startTelemetry(cfg: TelemetryConfig): Telemetry {
   const posthog = cfg.posthogKey ? new PostHog(cfg.posthogKey, { host: cfg.posthogHost }) : null;
   return {
     capture(event, who, properties) {
-      posthog?.capture({ distinctId: distinctIdOf(who, cfg.analyticsSecret), event, properties: { ...properties, $process_person_profile: false } });
+      posthog?.capture({ distinctId: distinctIdOf(who, cfg.analyticsSecret), event, properties: { ...properties, app: "builder", $process_person_profile: false } });
     },
     async stop() {
       await posthog?.shutdown().catch(() => undefined);

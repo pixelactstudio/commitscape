@@ -31,9 +31,14 @@ export async function answer(run: () => Promise<Response>): Promise<Response> {
   }
 }
 
+/** The visitor's whole address from the proxy's header, or null when no proxy said. */
+export function visitorAddress(headers: Headers, header: string): string | null {
+  return headers.get("cf-connecting-ip")?.trim() || headers.get(header)?.split(",")[0]?.trim() || null;
+}
+
 /** The visitor's address from the proxy's header; an IPv6 address counts as its /64. */
 export function clientAddress(request: Request, header: string): string {
-  const raw = request.headers.get("cf-connecting-ip") ?? request.headers.get(header)?.split(",")[0]?.trim() ?? "local";
+  const raw = visitorAddress(request.headers, header) ?? "local";
   if (!raw.includes(":")) return raw;
   const [head = "", tail = ""] = raw.toLowerCase().split("::");
   const left = head ? head.split(":") : [];

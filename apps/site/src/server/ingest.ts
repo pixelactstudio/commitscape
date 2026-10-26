@@ -1,5 +1,7 @@
 import "@tanstack/react-start/server-only";
+import { addressFor, visitorOf } from "#/lib/analytics-config";
 import { assetsHostOf, INGEST } from "#/lib/posthog-hosts";
+import { visitorAddress } from "./http";
 
 const BODY_MAX = 2 * 1024 * 1024;
 const TIMEOUT = 10_000;
@@ -17,8 +19,10 @@ export function ingestTarget(url: URL, apiHost: string): string | null {
   return `${host}${rest}${url.search}`;
 }
 
-/** Passes a request from the Site's pages to PostHog and its answer back, without the visitor's cookies, sign-in or address, so blockers that drop requests to PostHog's own hosts leave the Site's counts alone. */
-export async function ingest(request: Request, apiHost: string, fetcher: typeof fetch = fetch): Promise<Response> {
+export type IngestOptions = { apiHost: string; countryHeader: string; addressHeader: string };
+
+/** Passes a request from the Site's pages to PostHog and its answer back, without the visitor's cookies or sign-in, and with only as much of their address as their choice allows, so blockers that drop requests to PostHog's own hosts leave the Site's counts alone. */
+export async function ingest(request: Request, { apiHost, countryHeader, addressHeader }: IngestOptions, fetcher: typeof fetch = fetch): Promise<Response> {
   const target = ingestTarget(new URL(request.url), apiHost);
   if (!target) return new Response(null, { status: 404 });
   if (!["GET", "HEAD", "POST", "OPTIONS"].includes(request.method)) return new Response(null, { status: 405 });
@@ -26,6 +30,8 @@ export async function ingest(request: Request, apiHost: string, fetcher: typeof 
   request.headers.forEach((value, name) => {
     if (!dropped(name, DROPPED_REQUEST)) headers.set(name, value);
   });
+  const address = addressFor(visitorAddress(request.headers, addressHeader), visitorOf(request.headers, countryHeader).features);
+  if (address) headers.set("x-forwarded-for", address);
   let body: ArrayBuffer | undefined;
   if (request.method === "POST") {
     if (Number(request.headers.get("content-length") ?? 0) > BODY_MAX) return new Response(null, { status: 413 });

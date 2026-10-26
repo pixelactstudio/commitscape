@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import { ingest, ingestTarget } from "./ingest";
 
 const HOST = "https://us.i.posthog.com";
+const OPTIONS = { apiHost: HOST, countryHeader: "cf-ipcountry", addressHeader: "x-forwarded-for" };
 
 describe("the PostHog proxy", () => {
   test("sends scripts and remote settings to PostHog's assets host and the rest to its API host, query and all", () => {
@@ -14,7 +15,7 @@ describe("the PostHog proxy", () => {
     expect(at("/ingestion")).toBeNull();
   });
 
-  test("passes the body and the answer through, without the visitor's cookies, sign-in or address", async () => {
+  test("passes the body and the answer through, without the visitor's cookies or sign-in, and only the first three parts of an address PostHog has no choice for", async () => {
     const seen: { url: string; init: RequestInit }[] = [];
     const fetcher = (async (url: string, init: RequestInit) => {
       seen.push({ url, init });
@@ -25,7 +26,7 @@ describe("the PostHog proxy", () => {
       body: "events",
       headers: { cookie: "commitscape.session_token=secret", authorization: "Bearer t", "x-forwarded-for": "203.0.113.9", "cf-connecting-ip": "203.0.113.9", "user-agent": "Firefox", "content-type": "text/plain" },
     });
-    const answered = await ingest(request, HOST, fetcher);
+    const answered = await ingest(request, OPTIONS, fetcher);
     expect(answered.status).toBe(200);
     expect(await answered.text()).toBe("ok");
     expect(answered.headers.get("set-cookie")).toBeNull();
@@ -35,15 +36,32 @@ describe("the PostHog proxy", () => {
     const headers = asked?.init.headers as Headers;
     expect(headers.get("cookie")).toBeNull();
     expect(headers.get("authorization")).toBeNull();
-    expect(headers.get("x-forwarded-for")).toBeNull();
+    expect(headers.get("x-forwarded-for")).toBe("203.0.113.0");
     expect(headers.get("cf-connecting-ip")).toBeNull();
     expect(headers.get("user-agent")).toBe("Firefox");
   });
 
+  test("sends the whole address only to visitors who allow it or whose region starts with everything, and part of it to those who signal not to track", async () => {
+    const sent = async (headers: Record<string, string>) => {
+      let forwarded: string | null = null;
+      const fetcher = (async (_url: string, init: RequestInit) => {
+        forwarded = (init.headers as Headers).get("x-forwarded-for");
+        return new Response("ok");
+      }) as unknown as typeof fetch;
+      await ingest(new Request("https://site.test/ingest/e/", { method: "POST", body: "e", headers: { "cf-connecting-ip": "2001:db8:85a3::8a2e:370:7334", ...headers } }), OPTIONS, fetcher);
+      return forwarded;
+    };
+    expect(await sent({ "cf-ipcountry": "US" })).toBe("2001:db8:85a3::8a2e:370:7334");
+    expect(await sent({ "cf-ipcountry": "DE" })).toBe("2001:db8:85a3::");
+    expect(await sent({ "cf-ipcountry": "DE", cookie: "commitscape.analytics=all" })).toBe("2001:db8:85a3::8a2e:370:7334");
+    expect(await sent({ "cf-ipcountry": "US", cookie: "commitscape.analytics=basic" })).toBe("2001:db8:85a3::");
+    expect(await sent({ "cf-ipcountry": "US", "sec-gpc": "1" })).toBe("2001:db8:85a3::");
+  });
+
   test("refuses large bodies and other methods, and answers 502 when PostHog cannot be reached", async () => {
     const never = (async () => Promise.reject(new TypeError("fetch failed"))) as unknown as typeof fetch;
-    expect((await ingest(new Request("https://site.test/ingest/e/", { method: "POST", body: "x".repeat(3 * 1024 * 1024) }), HOST, never)).status).toBe(413);
-    expect((await ingest(new Request("https://site.test/ingest/e/", { method: "DELETE" }), HOST, never)).status).toBe(405);
-    expect((await ingest(new Request("https://site.test/ingest/e/", { method: "POST", body: "x" }), HOST, never)).status).toBe(502);
+    expect((await ingest(new Request("https://site.test/ingest/e/", { method: "POST", body: "x".repeat(3 * 1024 * 1024) }), OPTIONS, never)).status).toBe(413);
+    expect((await ingest(new Request("https://site.test/ingest/e/", { method: "DELETE" }), OPTIONS, never)).status).toBe(405);
+    expect((await ingest(new Request("https://site.test/ingest/e/", { method: "POST", body: "x" }), OPTIONS, never)).status).toBe(502);
   });
 });
