@@ -1,3 +1,5 @@
+use commitscape_core::{FileClass, FileId, Index};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Role {
     Code,
@@ -142,4 +144,28 @@ pub fn looks_generated(path: &[u8]) -> bool {
         || name.contains(".gen.")
         || name.ends_with(".snap")
         || name.ends_with(".pb.go")
+}
+
+/// Which files' Lines Changed are left out, by FileId: lockfiles, and Generated Files by their class at HEAD or, for files gone from HEAD, by their path.
+pub fn skipped_files(index: &Index) -> Vec<bool> {
+    let mut generated = vec![None::<bool>; index.paths.len()];
+    for h in &index.head {
+        if let Some(slot) = generated.get_mut(h.file.idx()) {
+            *slot = Some(matches!(
+                h.class,
+                FileClass::Generated | FileClass::Vendored
+            ));
+        }
+    }
+    (0..index.paths.len())
+        .map(|i| {
+            let path = index.paths.path(FileId(i as u32));
+            let g = generated
+                .get(i)
+                .copied()
+                .flatten()
+                .unwrap_or_else(|| path.is_some_and(looks_generated));
+            g || path.is_some_and(is_lockfile)
+        })
+        .collect()
 }

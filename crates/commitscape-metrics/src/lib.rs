@@ -8,6 +8,7 @@ mod languages;
 mod people;
 mod pulse;
 mod roles;
+mod text;
 mod timeline;
 mod window;
 
@@ -20,6 +21,7 @@ pub use health::{Answers, Health, Maintainer, Releases, Trend};
 pub use languages::{language_of, Language, Languages};
 pub use people::{Contributor, DirectoryOwnership, Owner, Ownership, SuspectedDuplicate};
 pub use pulse::{CommitsByPerson, KindCount, Pulse, Streak, Work, WorkCount};
-pub use roles::{is_lockfile, looks_generated, role_of, Role};
+pub use roles::{is_lockfile, looks_generated, role_of, skipped_files, Role};
+pub use text::compare_text;
 pub use timeline::Moment;
 pub use window::{Span, Window};
