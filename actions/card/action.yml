@@ -16,7 +16,7 @@ inputs:
       u/${{ github.repository_owner }}/totals .github/commitscape-card.svg
   site:
     description: The Site to fetch Cards from.
-    default: https://commitscape.damnlabs.com
+    default: https://app.commitscape.com
   message:
     description: The commit message when a Card changed.
     default: "chore: update commitscape cards"
