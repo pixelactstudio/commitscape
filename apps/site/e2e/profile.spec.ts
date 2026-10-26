@@ -70,20 +70,21 @@ test("an unknown name, an organization, and a name that cannot be a login each s
   await expect(page.getByText("That is not a GitHub username.")).toBeVisible();
 });
 
-test("the landing page's box takes a person or a repository", async ({ page }) => {
+test("the Site's front door opens the dashboard, whose box takes a person or a repository", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("What you’ve built, in numbers worth sharing.");
+  await expect(page).toHaveURL(/\/dashboard$/);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("dana");
   const box = page.getByRole("combobox", { name: "A GitHub username or repository" }).first();
   await box.fill("@alice");
-  await page.getByRole("button", { name: "Show me", exact: true }).click();
+  await page.getByRole("button", { name: "Read", exact: true }).click();
   await expect(page).toHaveURL(/\/u\/alice$/);
-  await page.goto("/");
+  await page.goto("/dashboard");
   await box.fill("https://github.com/acme/ownership");
-  await page.getByRole("button", { name: "Show me", exact: true }).click();
+  await page.getByRole("button", { name: "Read", exact: true }).click();
   await expect(page).toHaveURL(/\/gh\/acme\/ownership$/);
-  await page.goto("/");
+  await page.goto("/dashboard");
   await box.fill("not a thing at all");
-  await page.getByRole("button", { name: "Show me", exact: true }).click();
+  await page.getByRole("button", { name: "Read", exact: true }).click();
   await expect(page.getByText("Type a GitHub username, like gaearon").first()).toBeVisible();
 });
 

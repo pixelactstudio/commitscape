@@ -30,6 +30,84 @@ pub struct Written {
     pub commits: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct Summary {
+    pub meta: api::Meta,
+    pub stats: api::Stats,
+    pub people: Vec<SummaryPerson>,
+    pub head: Option<String>,
+    pub lines_counted: bool,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct SummaryPerson {
+    pub person_id: u32,
+    pub name: String,
+    pub login: Option<String>,
+    pub commits: u32,
+    pub lines_added: Option<u64>,
+    pub lines_removed: Option<u64>,
+    pub first: i64,
+    pub last: i64,
+}
+
+impl Report {
+    /// The Report's meta: its name, Windows, anchor and whether lines were counted.
+    pub fn meta(&self) -> api::Meta {
+        api::Meta {
+            name: self.name.clone(),
+            windows: Span::EVERY.iter().map(|w| w.label().to_string()).collect(),
+            window: self.span.label().to_string(),
+            anchor: self.anchor,
+            history: "complete".to_string(),
+            lines: if self.lines_counted { "counted" } else { "off" }.to_string(),
+            avatars: self.avatars,
+        }
+    }
+}
+
+/// The Report's meta, stats and all-history people, worked out by the same code that writes the Report.
+pub fn summary(r: &Report) -> Summary {
+    let colours = api::colours(&r.index);
+    let logins = api::logins(&r.index, &r.accounts);
+    let login_of = api::login_of(&logins);
+    let cx = api::Context {
+        window: Span::All.label(),
+        colours: &colours,
+        releases: &r.releases,
+        lines_counted: r.lines_counted,
+        login_of: &login_of,
+        emails: false,
+    };
+    let (people, stats) = rayon::join(
+        || {
+            let a = Analysis::new(&r.index, Span::All.window(r.anchor), r.options);
+            api::People::of(&a, &cx, &api::Shared::of(&a))
+        },
+        || api::Stats::of(&r.index, r.anchor, r.options, &r.releases),
+    );
+    Summary {
+        meta: r.meta(),
+        stats,
+        people: people
+            .people
+            .into_iter()
+            .map(|row| SummaryPerson {
+                person_id: row.person.id,
+                name: row.person.name,
+                login: row.person.login,
+                commits: row.commits,
+                lines_added: row.lines_added,
+                lines_removed: row.lines_removed,
+                first: row.first,
+                last: row.last,
+            })
+            .collect(),
+        head: r.index.head_commit.map(|h| h.to_hex()),
+        lines_counted: r.lines_counted,
+    }
+}
+
 #[derive(Serialize)]
 struct Inlined {
     meta: api::Meta,
@@ -189,15 +267,7 @@ pub fn write(r: Report, commits_apart: bool) -> Written {
         data.insert(COMMITS.to_string(), commits);
         None
     };
-    let meta = api::Meta {
-        name: r.name,
-        windows: Span::EVERY.iter().map(|w| w.label().to_string()).collect(),
-        window: r.span.label().to_string(),
-        anchor: r.anchor,
-        history: "complete".to_string(),
-        lines: if r.lines_counted { "counted" } else { "off" }.to_string(),
-        avatars: r.avatars,
-    };
+    let meta = r.meta();
     let inlined = Inlined { meta, data, stats };
     Written {
         report: serde_json::to_string(&inlined).unwrap_or_default(),

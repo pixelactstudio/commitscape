@@ -4,7 +4,7 @@ import { DropdownMenu } from "@astryxdesign/core/DropdownMenu";
 import { Icon } from "@astryxdesign/core/Icon";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
-import { createFileRoute, useRouteContext, useRouter } from "@tanstack/react-router";
+import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { Briefcase, ExternalLink, Link2, MoreHorizontal, Share2, Sparkles } from "lucide-react";
 import { isLogin, PRODUCT, type Identity } from "@commitscape/data";
 import {
@@ -33,14 +33,11 @@ import {
 import { Reveal } from "@commitscape/ui/motion";
 import { engineQuery, fullProfileQuery, liveEngineQuery, traitsQuery, profileLookupQuery, profileQuery } from "#/lib/queries";
 import { startBuild } from "#/functions/repos";
-import { LockedView, Section } from "#/components/Boundary";
-import { LockedPage } from "#/components/Locked";
-import { isLocked } from "#/lib/gates";
+import { Section } from "#/components/Boundary";
 import { Compare } from "#/components/Compare";
 import { Lookup } from "#/components/Lookup";
 import { DayCommits } from "#/components/DayCommits";
 import { Missing } from "#/components/Missing";
-import { RivalActions, RivalGaps } from "#/components/Rivals";
 import { useHydrated } from "#/lib/hydrated";
 import { useRemember } from "#/lib/recent";
 import { useToast } from "#/lib/toast";
@@ -99,7 +96,6 @@ function ProfilePage() {
   useRemember(lookup.status === "ok" ? { kind: "person", id: lookup.identity.login } : null);
   if (lookup.status === "not_found" && !isLogin(login)) return <Missing title="That is not a GitHub username." words="GitHub usernames are letters, digits and single hyphens, up to 39 characters. Check the address, or search for them." />;
   if (lookup.status === "not_found") return <Missing title={`No one called @${login}`} words="GitHub has no person by that name. Check its spelling, or search for them." />;
-  if (lookup.status === "locked") return <LockedPage gate="visitor" />;
   if (lookup.status === "hidden") return <Missing title="This Profile is hidden" words="This person has chosen to stay out of comparisons, so their Profile shows nothing." />;
   if (lookup.status === "organization" && lookup.identity) return <Organization identity={lookup.identity} />;
   if (lookup.status !== "ok") return null;
@@ -121,11 +117,6 @@ function ProfilePage() {
       <ProfileNav parts={PARTS} />
       <Page className="flex flex-col gap-gutter pt-6 pb-section">
         {lookup.self && lookup.hidden && <Banner status="info" title="Your Profile is hidden. Everyone else sees only that it is hidden, and you are in no one’s comparisons. Change it in Settings." />}
-        {lookup.self && (
-          <Section quiet fallback={null}>
-            <RivalGaps />
-          </Section>
-        )}
         <Anchor id="numbers">
           <Section fallback={<NumbersSkeleton />}>
             <Numbers login={id.login} />
@@ -181,14 +172,10 @@ function Actions({ identity, self }: { identity: Identity; self: boolean }) {
   const router = useRouter();
   const toast = useToast();
   const { origin } = Route.useLoaderData();
-  const { user } = useRouteContext({ from: "__root__" });
   const go = (to: string) => void router.navigate({ to: to as "/" });
   return (
     <>
       <Button label={self ? "Share my Cards" : "Cards"} variant="primary" icon={<Icon icon={Share2} size="sm" />} href={`/u/${identity.login}/cards`} />
-      <Section quiet fallback={user && !self ? <Skeleton width={148} height={32} radius={2} /> : null}>
-        <RivalActions login={identity.login} />
-      </Section>
       <Compare login={identity.login} />
       <DropdownMenu
         button={{ label: "More", isIconOnly: true, icon: <Icon icon={MoreHorizontal} size="sm" />, variant: "secondary", size: "md" }}
@@ -261,8 +248,6 @@ function SmallSkeleton({ i }: { i: number }) {
   );
 }
 
-const SLOW = { compact: "Lines merged, and how fast their pull requests merge." };
-
 function useProfile(login: string) {
   return useSuspenseQuery(profileQuery(login)).data;
 }
@@ -298,7 +283,6 @@ function useRead(login: string) {
 
 function Numbers({ login }: { login: string }) {
   const profile = useProfile(login);
-  if (isLocked(profile)) return <LockedView gate={profile.locked} />;
   return (
     <HeadlineNumbers
       profile={profile}
@@ -318,7 +302,6 @@ function Numbers({ login }: { login: string }) {
 
 function SlowNumbers({ login }: { login: string }) {
   const profile = useFullProfile(login);
-  if (isLocked(profile)) return <LockedView gate={profile.locked} as={SLOW} />;
   return <PullRequestNumbers profile={profile} />;
 }
 
@@ -328,7 +311,6 @@ function Surviving({ login, suggest }: { login: string; suggest?: { owner: strin
 
 function Archetype({ login }: { login: string }) {
   const data = useSuspenseQuery(traitsQuery(login)).data;
-  if (isLocked(data)) return null;
   const main = data.archetypes[0];
   return main ? <ArchetypePill archetype={main} also={data.archetypes.slice(1).map((a) => a.title)} /> : null;
 }
@@ -338,7 +320,6 @@ function Year({ login }: { login: string }) {
   const { day } = Route.useSearch();
   const navigate = Route.useNavigate();
   const picked = day ? Math.floor(Date.parse(`${day}T00:00:00Z`) / 86_400_000) : null;
-  if (isLocked(profile)) return <LockedView gate={profile.locked} />;
   const { firstDay, days } = profile.calendar;
   const contributions = picked !== null && picked >= firstDay && picked < firstDay + days.length ? (days[picked - firstDay] ?? null) : null;
   return (
@@ -362,8 +343,7 @@ function Timeline({ login }: { login: string }) {
   const profile = useProfile(login);
   const mounted = useHydrated();
   const full = useQuery({ ...fullProfileQuery(login), enabled: mounted });
-  if (isLocked(profile)) return <LockedView gate={profile.locked} />;
-  const years = <OverTheYears profile={profile} full={mounted && full.data && !isLocked(full.data) ? full.data : null} />;
+  const years = <OverTheYears profile={profile} full={mounted && full.data ? full.data : null} />;
   if (profile.totals.contributions === 0 || !profile.years.some((y) => y.languages.length > 0)) return years;
   return (
     <div className="grid items-stretch gap-gutter lg:grid-cols-[1.4fr_1fr]">
@@ -380,14 +360,12 @@ function Survival({ login }: { login: string }) {
 function Work({ login }: { login: string }) {
   const profile = useFullProfile(login);
   const engine = useEngine(login);
-  if (isLocked(profile)) return <LockedView gate={profile.locked} as={{ title: "Where their work is", height: 360 }} />;
   return <RepositoryTable profile={profile} engine={engine} />;
 }
 
 function Traits({ login }: { login: string }) {
   const router = useRouter();
   const data = useSuspenseQuery(traitsQuery(login)).data;
-  if (isLocked(data)) return <LockedView gate={data.locked} as={{ title: "Archetype and achievements", height: 360 }} />;
   return <TraitsPanel archetypes={data.archetypes} achievements={data.achievements} complete={data.complete} checks={data.checks} onCard={(id) => void router.navigate({ to: "/u/$login/cards", params: { login }, search: { card: `achievement-${id}` } as never })} />;
 }
 
@@ -402,7 +380,6 @@ function TogetherSkeleton() {
 
 function Together({ login }: { login: string }) {
   const profile = useFullProfile(login);
-  if (isLocked(profile)) return <LockedView gate={profile.locked} as={{ title: "The people they work with, and when they commit", height: 260 }} />;
   const people = profile.partners.length > 0;
   const clock = clockState(profile) !== "none";
   const versus = (other: string) => `/vs/${login}/${other}`;
@@ -420,7 +397,6 @@ function Together({ login }: { login: string }) {
 
 function Read({ login }: { login: string }) {
   const p = useFullProfile(login);
-  if (isLocked(p)) return null;
   const when = new Date(p.fetchedAt * 1000).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
   return (
     <p className="m-0 pt-2 type-micro">

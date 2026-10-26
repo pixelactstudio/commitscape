@@ -1,11 +1,11 @@
 import "@tanstack/react-start/server-only";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { key, PRODUCT } from "@commitscape/data";
 import { z } from "zod";
-import { leaderboards } from "./boards";
 import { SiteError } from "./http";
 import { readProfile } from "./profiles";
-import { lookup, reportEntry, reportHead, requestBuild, type Deps, type Viewer } from "./repos";
+import { lookup, reportEntry, reportHead, type Deps, type Viewer } from "./repos";
 import { standingsOf } from "./standings";
 
 const SCREENS = { overview: "/api/overview", activity: "/api/activity", people: "/api/people", map: "/api/map" } as const;
@@ -15,6 +15,14 @@ const REPO = { owner: z.string().describe("The GitHub owner, like facebook."), r
 const text = (value: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(value) }] });
 const failed = (e: unknown) => ({ isError: true, content: [{ type: "text" as const, text: e instanceof SiteError ? e.message : "The Site could not answer." }] });
 
+const digest = (text: string) => createHash("sha256").update(text).digest();
+
+/** Whether a request carries the MCP token as a bearer token; never when the Site has none. */
+export function mcpAllowed(request: Request, token: string | undefined): boolean {
+  const sent = /^Bearer (.+)$/.exec(request.headers.get("authorization") ?? "")?.[1];
+  return !!token && !!sent && timingSafeEqual(digest(sent), digest(token));
+}
+
 async function answer(run: () => Promise<unknown>) {
   try {
     return text(await run());
@@ -23,7 +31,7 @@ async function answer(run: () => Promise<unknown>) {
   }
 }
 
-/** The MCP server: public repositories' Reports, Profiles and Standings, for any MCP client. */
+/** The MCP server: public repositories' Reports, Profiles and Standings as the Site keeps them, for an MCP client the Site gave its token; it never starts a Build or reads a Profile from GitHub. */
 export function mcpServer(deps: Deps, viewer: Viewer): McpServer {
   const server = new McpServer({ name: PRODUCT, version: "1.0.0" });
 
@@ -42,7 +50,7 @@ export function mcpServer(deps: Deps, viewer: Viewer): McpServer {
     {
       title: "Read a repository's Report",
       description:
-        "One screen of a repository's Report: overview (its size, age, languages and who built it), activity (commits over time, rhythm), people (who worked on it) or map (the code by folder). Build the Report first with request_build if lookup_repository says it has none.",
+        "One screen of a repository's Report: overview (its size, age, languages and who built it), activity (commits over time, rhythm), people (who worked on it) or map (the code by folder). Only repositories someone has read on the Site have a Report.",
       inputSchema: {
         ...REPO,
         screen: z.enum(["overview", "activity", "people", "map"]),
@@ -78,7 +86,7 @@ export function mcpServer(deps: Deps, viewer: Viewer): McpServer {
     "report_summary",
     {
       title: "A Report's headline numbers",
-      description: "When a repository's Report was built, its Windows, and its numbers for the Leaderboards: commits, people, Bus Factor, maintainers, lines of code.",
+      description: "When a repository's Report was built, its Windows, and its headline numbers: commits, people, Bus Factor, maintainers, lines of code.",
       inputSchema: REPO,
     },
     ({ owner, repo }) =>
@@ -88,26 +96,6 @@ export function mcpServer(deps: Deps, viewer: Viewer): McpServer {
       }),
   );
 
-  server.registerTool(
-    "request_build",
-    {
-      title: "Build a repository's Report",
-      description: "Asks commitscape to read a public repository's history. Most take seconds, large ones a few minutes; poll lookup_repository until its build is done.",
-      inputSchema: REPO,
-    },
-    ({ owner, repo }) => answer(() => requestBuild(deps, viewer, owner, repo)),
-  );
-
-  server.registerTool(
-    "leaderboards",
-    {
-      title: "Leaderboards",
-      description: "Popular repositories ranked by what commitscape measures: resting on one person, most maintainers, most active, fastest to answer issues, oldest code.",
-      inputSchema: {},
-    },
-    () => answer(() => leaderboards(deps.db, 600)),
-  );
-
   const person = { ...viewer, login: async () => null };
 
   server.registerTool(
@@ -115,7 +103,7 @@ export function mcpServer(deps: Deps, viewer: Viewer): McpServer {
     {
       title: "Read a person's Profile",
       description:
-        "A GitHub user's Profile: pull requests opened and merged, reviews given, commits, lines in merged pull requests, active days, streaks, the repositories their work is in, languages by year, and who they review with. Public work only; a person who chose to stay out of comparisons is refused.",
+        "A GitHub user's Profile as commitscape last read it: pull requests opened and merged, reviews given, commits, lines in merged pull requests, active days, streaks, the repositories their work is in, languages by year, and who they review with. Public work only; a person commitscape has not read, or who chose to stay out of comparisons, is refused.",
       inputSchema: { login: z.string().describe("The GitHub login, like gaearon.") },
     },
     ({ login }) =>

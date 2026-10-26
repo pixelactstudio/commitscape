@@ -6,8 +6,7 @@ const shots = resolve(import.meta.dirname, "../../../target/preview/site");
 mkdirSync(shots, { recursive: true });
 
 const PAGES: [string, string][] = [
-  ["landing", "/"],
-  ["leaderboards", "/leaderboards"],
+  ["dashboard", "/dashboard"],
   ["privacy", "/privacy"],
   ["settings", "/me"],
   ["profile", "/u/alice"],

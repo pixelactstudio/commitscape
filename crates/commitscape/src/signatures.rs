@@ -23,9 +23,19 @@ pub struct SignaturesArgs {
     #[arg(long, value_name = "DIR")]
     cache_dir: Option<PathBuf>,
 
+    /// Name the cache by this key instead of the repository's path, so
+    /// every clone of one repository shares one cache.
+    #[arg(long, value_name = "KEY")]
+    cache_key: Option<String>,
+
     /// Index from scratch and neither read nor write a cache.
     #[arg(long)]
     no_cache: bool,
+
+    /// Write one JSON line here for each step as it finishes: its name, when
+    /// it started and ended, and what it counted.
+    #[arg(long, value_name = "FILE")]
+    events: Option<PathBuf>,
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -87,19 +97,26 @@ pub fn addresses(index: &Index, mailmap: &Mailmap) -> Vec<Address> {
 
 /// `commitscape signatures`: writes every author address in the history as JSON.
 pub fn run(args: SignaturesArgs) -> anyhow::Result<()> {
+    crate::events::record_to(args.events.as_deref())?;
     let options = CacheOptions {
         root: if args.no_cache {
             None
         } else {
             args.cache_dir.clone().or_else(default_cache_root)
         },
+        key: args.cache_key.clone(),
     };
     let repo = GixRepo::open(&args.repo)?;
     let mut meter = ProgressLine::new();
     let loaded = load(&repo, &options, &mut |p| meter.show(p))?;
     meter.clear();
+    let span = tracing::info_span!("signatures", addresses = tracing::field::Empty);
+    let entered = span.enter();
     let list = addresses(&loaded.index, &repo.mailmap()?);
     std::fs::write(&args.out, serde_json::to_vec(&list)?)?;
+    span.record("addresses", list.len());
+    drop(entered);
+    drop(span);
     println!("wrote {}", args.out.display());
     Ok(())
 }

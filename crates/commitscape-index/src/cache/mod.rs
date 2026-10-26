@@ -18,16 +18,34 @@ use format::{BlockEntry, Head, Previous, SortedIds, Unusable};
 
 pub use blame_store::{BlameStore, Known, Moved};
 pub use identity_store::IdentityStore;
+pub(crate) use line_store::Counted;
 pub use line_store::LineStore;
 pub use location::default_cache_root;
 
+const LOAD_LOCK: &str = "index.load";
+
+/// The folder a repository's cache lives in: named by the cache key when one is given, so every clone of one repository shares it, or else by the clone's path.
 pub fn repo_dir(options: &CacheOptions, repo: &RepoIdentity) -> Option<PathBuf> {
-    Some(options.root.as_deref()?.join(repo.cache_key()))
+    let root = options.root.as_deref()?;
+    Some(match options.key.as_deref() {
+        Some(key) => root.join(keyed(key)),
+        None => root.join(repo.cache_key()),
+    })
+}
+
+fn keyed(key: &str) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in key.bytes() {
+        hash ^= u64::from(b);
+        hash = hash.wrapping_mul(0x0100_0000_01b3);
+    }
+    format!("key-{hash:016x}")
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct CacheOptions {
     pub root: Option<PathBuf>,
+    pub key: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,20 +83,36 @@ pub fn load<S: RepoSource>(
     options: &CacheOptions,
     progress: &mut dyn FnMut(Progress),
 ) -> Result<Loaded, S::Error> {
-    let identity = source.identity()?;
-    let Some(root) = options.root.as_deref() else {
-        let rules = IdentityRules::from_mailmap(source.mailmap()?);
-        let (index, _) = build(source, identity, rules, progress)?;
-        return Ok(Loaded {
-            index,
-            freshness: Freshness::Built {
-                reason: RebuildReason::Disabled,
-            },
-            lineage: format::new_generation(),
-            kept: false,
-        });
+    let span = tracing::info_span!(
+        "load",
+        commits = tracing::field::Empty,
+        added = tracing::field::Empty,
+        freshness = tracing::field::Empty
+    );
+    let _entered = span.enter();
+    let loaded = load_index(source, options, progress)?;
+    span.record("commits", loaded.index.commits.len());
+    let (freshness, added) = match loaded.freshness {
+        Freshness::Warm => ("warm", 0),
+        Freshness::Updated { added } => ("updated", added),
+        Freshness::Built { .. } => ("built", loaded.index.commits.len() as u64),
     };
-    let dir = root.join(identity.cache_key());
+    span.record("freshness", freshness);
+    span.record("added", added);
+    Ok(loaded)
+}
+
+fn load_index<S: RepoSource>(
+    source: &S,
+    options: &CacheOptions,
+    progress: &mut dyn FnMut(Progress),
+) -> Result<Loaded, S::Error> {
+    let identity = source.identity()?;
+    let Some(dir) = repo_dir(options, &identity) else {
+        return uncached(source, identity, progress);
+    };
+    let _loading = lock_loading(&dir);
+    let keyed = options.key.is_some();
     let fingerprint = source.refs_fingerprint()?;
     let store = IdentityStore::in_dir(&dir);
     let stored = store.rules(crate::mailmap::Mailmap::default());
@@ -97,7 +131,7 @@ pub fn load<S: RepoSource>(
     };
 
     let head = match format::read_head(&dir) {
-        Ok(head) if head.repo == ctx.identity => head,
+        Ok(head) if keyed || head.repo == ctx.identity => head,
         Ok(_) | Err(Unusable::Damaged) => {
             return rebuild(source, ctx, RebuildReason::Unreadable, progress)
         }
@@ -121,6 +155,43 @@ pub fn load<S: RepoSource>(
         };
     }
     resume(source, ctx, head, reclassify, progress)
+}
+
+fn uncached<S: RepoSource>(
+    source: &S,
+    identity: RepoIdentity,
+    progress: &mut dyn FnMut(Progress),
+) -> Result<Loaded, S::Error> {
+    let rules = IdentityRules::from_mailmap(source.mailmap()?);
+    let (index, _) = build(source, identity, rules, progress)?;
+    Ok(Loaded {
+        index,
+        freshness: Freshness::Built {
+            reason: RebuildReason::Disabled,
+        },
+        lineage: format::new_generation(),
+        kept: false,
+    })
+}
+
+struct LoadLock(std::fs::File);
+
+impl Drop for LoadLock {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
+}
+
+fn lock_loading(dir: &Path) -> Option<LoadLock> {
+    std::fs::create_dir_all(dir).ok()?;
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(dir.join(LOAD_LOCK))
+        .ok()?;
+    file.lock().ok()?;
+    Some(LoadLock(file))
 }
 
 struct Context<'a> {
@@ -228,6 +299,7 @@ fn warm(
     let lineage = head.lineage;
 
     let mut index = index_from(head, decoded);
+    index.repo = ctx.identity.clone();
     if let (Some(rules), Some(previous)) = (changed_rules, previous) {
         reresolve_authors(&mut index, rules);
         if let Ok(ids) = previous.ids {
@@ -396,6 +468,7 @@ mod tests {
     fn load_in(repo: &ScriptedRepo, root: &Path) -> Loaded {
         let options = CacheOptions {
             root: Some(root.to_path_buf()),
+            key: None,
         };
         match load(repo, &options, &mut |_| {}) {
             Ok(l) => l,

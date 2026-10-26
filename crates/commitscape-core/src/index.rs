@@ -327,6 +327,41 @@ impl AuthorTable {
         self.traits.get(id.idx()).is_some_and(|t| t.is_bot())
     }
 
+    /// Replaces every Signature's and every person's email address with a number, one per address whatever its case, keeping names, people, counts and how many addresses each person has: an Index that can leave the machine (ADR-0019).
+    pub fn blank_emails(&mut self) {
+        let mut numbers: std::collections::HashMap<Vec<u8>, usize> =
+            std::collections::HashMap::new();
+        let mut blank = |emails: &Packed| {
+            let mut out = Packed::default();
+            for email in emails.iter() {
+                let next = numbers.len();
+                let n = *numbers.entry(email.to_ascii_lowercase()).or_insert(next);
+                out.push(n.to_string().as_bytes());
+            }
+            out
+        };
+        self.signature_emails = blank(&self.signature_emails);
+        self.author_emails = blank(&self.author_emails);
+    }
+
+    fn heap_bytes(&self) -> usize {
+        self.signature_names.heap_bytes()
+            + self.signature_emails.heap_bytes()
+            + self.author_names.heap_bytes()
+            + self.author_emails.heap_bytes()
+            + bytes_of(&self.used)
+            + bytes_of(&self.person_of)
+            + bytes_of(&self.members)
+            + bytes_of(&self.member_ends)
+            + bytes_of(&self.traits)
+            + bytes_of(&self.suspected_duplicates)
+            + self
+                .suspected_duplicates
+                .iter()
+                .map(bytes_of)
+                .sum::<usize>()
+    }
+
     pub fn used(&self) -> &[u32] {
         &self.used
     }
@@ -397,7 +432,15 @@ struct Packed {
     ends: Vec<u32>,
 }
 
+fn bytes_of<T>(v: &Vec<T>) -> usize {
+    v.capacity() * std::mem::size_of::<T>()
+}
+
 impl Packed {
+    fn heap_bytes(&self) -> usize {
+        bytes_of(&self.bytes) + bytes_of(&self.ends)
+    }
+
     fn push(&mut self, s: &[u8]) -> usize {
         self.bytes.extend_from_slice(s);
         self.ends.push(self.bytes.len() as u32);
@@ -439,6 +482,13 @@ pub struct PathTable {
 }
 
 impl PathTable {
+    fn heap_bytes(&self) -> usize {
+        self.names.heap_bytes()
+            + bytes_of(&self.live)
+            + bytes_of(&self.current)
+            + bytes_of(&self.departures)
+    }
+
     pub fn push_path(&mut self, path: &[u8]) -> PathId {
         let id = PathId(self.names.push(path) as u32);
         self.live.push(None);
@@ -561,6 +611,9 @@ impl RepoIdentity {
 pub struct LinePass {
     pub lines: Vec<Option<LineDelta>>,
     pub ignored: Vec<Oid>,
+    pub counted: u64,
+    pub left: u64,
+    pub settled: Vec<bool>,
 }
 
 impl LinePass {
@@ -667,6 +720,19 @@ impl Index {
         self.file_history.get(file.idx()).copied()
     }
 
+    /// About how many bytes the Index holds on the heap: every table's allocated capacity.
+    pub fn heap_bytes(&self) -> usize {
+        self.repo.git_dir.capacity()
+            + bytes_of(&self.frontier)
+            + bytes_of(&self.commits)
+            + bytes_of(&self.changes)
+            + bytes_of(&self.subjects)
+            + self.paths.heap_bytes()
+            + self.authors.heap_bytes()
+            + bytes_of(&self.head)
+            + bytes_of(&self.file_history)
+    }
+
     pub fn is_time_ordered(&self) -> bool {
         self.commits.windows(2).all(|w| match w {
             [a, b] => a.time <= b.time,
@@ -684,6 +750,60 @@ mod tests {
         let f = CommitFlags::EMPTY.with(CommitFlags::MERGE);
         assert!(f.contains(CommitFlags::MERGE));
         assert!(!CommitFlags::EMPTY.contains(CommitFlags::MERGE));
+    }
+
+    #[test]
+    fn blanking_emails_keeps_names_people_counts_and_addresses_apart() {
+        let mut t = AuthorTable::new(
+            vec![
+                Signature {
+                    name: "Ada".into(),
+                    email: "ada@example.com".into(),
+                },
+                Signature {
+                    name: "Ada L".into(),
+                    email: "ADA@example.com".into(),
+                },
+                Signature {
+                    name: "Ada".into(),
+                    email: "ada@home.example".into(),
+                },
+            ],
+            vec![3, 2, 1],
+            vec![AuthorId(0), AuthorId(0), AuthorId(0)],
+            vec![Author {
+                name: "Ada".into(),
+                email: "ada@example.com".into(),
+                signatures: vec![SignatureId(0), SignatureId(1), SignatureId(2)],
+                traits: PersonTraits::SAME_NAME,
+            }],
+            Vec::new(),
+        );
+        let before = t.addresses_of(AuthorId(0)).len();
+        t.blank_emails();
+        assert_eq!(t.signature_count(), 3);
+        assert_eq!(
+            t.signature(SignatureId(1)),
+            Some(SignatureRef {
+                name: "Ada L",
+                email: "0"
+            })
+        );
+        assert_eq!(t.signature(SignatureId(2)).map(|s| s.email), Some("1"));
+        let ada = t
+            .get(AuthorId(0))
+            .map(|a| (a.name, a.email, a.signatures.len()));
+        assert_eq!(ada, Some(("Ada", "0", 3)));
+        assert_eq!(t.used(), &[3, 2, 1]);
+        assert_eq!(before, 2);
+        assert_eq!(
+            t.addresses_of(AuthorId(0)),
+            vec![("0".to_string(), 5), ("1".to_string(), 1)]
+        );
+        let bytes =
+            bincode::serde::encode_to_vec(&t, bincode::config::standard()).unwrap_or_default();
+        assert!(!bytes.contains(&b'@'));
+        assert!(!bytes.windows(7).any(|w| w == b"example"));
     }
 
     #[test]

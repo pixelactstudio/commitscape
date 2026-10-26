@@ -177,7 +177,7 @@ impl Analysis<'_> {
             a.bus_factor
                 .cmp(&b.bus_factor)
                 .then(b.commits.cmp(&a.commits))
-                .then_with(|| a.dir.cmp(&b.dir))
+                .then_with(|| crate::text::compare_text(&a.dir, &b.dir))
         });
         Ownership {
             directory_count,

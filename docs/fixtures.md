@@ -237,9 +237,14 @@ in `.git-blame-ignore-revs` and Bulk Commits:
   Bulk Commit).
 - **Bob: +13 −2.** Day 1's +5 −2, day 3's +6 and a move of 0, day 5's +2.
 
-Every change the line pass counts, merges aside: 10 + 100 + 5 + 20 + 6 + 11
-+ 2 + 60 = 214 added and 2 + 2 + 20 + 11 = 35 removed, with `logo.png` the
-one change not counted.
+With nothing left out, the line pass counts every change but merges: 10 +
+100 + 5 + 20 + 6 + 11 + 2 + 60 = 214 added and 2 + 2 + 20 + 11 = 35 removed,
+with `logo.png` the one change not counted, over 7 commits.
+
+As the CLI runs it, at a bulk threshold of 50 files, it never counts Bulk
+Commits, lockfiles or Generated Files: 10 + 5 + 6 + 0 + 11 + 2 = 34 added and
+2 + 2 + 11 = 15 removed over 6 commits. Not counted: `logo.png`, both
+`Cargo.lock` changes and the sixty files of day 6, 63 changes.
 
 ## `survival`: Surviving Lines, and what blame passes through
 
@@ -319,6 +324,26 @@ line it touched: Bob holds `src/core.rs` but the tab comment (8 of 9),
 16, to **29**. The oldest surviving lines become Alice's `u5`, day 9
 (**1704844800**), Bob's day 5 reformat (**1704499200**) and Carol's tab
 comment, day 6 (**1704585600**).
+
+## `tags` and `crafted`: what the engine service's goldens are read from
+
+The engine service's golden answers (`apps/engine/tests/golden/`) were
+written from the Site's TypeScript before it was deleted, for every fixture
+above and these two; the engine's tests build each one's pack and compare
+every answer. They are not worked by hand.
+
+- `tags`: a clone of `merges` with its remote removed and three tags:
+  `v1.0.0` on `HEAD~2`, `v1.1.0` annotated on `HEAD` (tagged day 30), and
+  `tools-0.1.0` on `HEAD~1`, a family of its own.
+- `crafted`: 67 commits from 2022-04-15 by five people (Ada under two
+  addresses, a noreply login, a Bot, Cara), with pull request numbers in
+  every form a subject carries one (`(#n)`, `Merge pull request #n`, seven
+  and eight digits, two in one subject), names that sort differently by
+  UTF-16 code unit (`é`, `𝒜`, `｡`), a binary, a symlink, a 30,000-line file,
+  a lockfile, generated and vendored files, a Bulk Commit of 60 files, a
+  merge of a branch, renames, a file moved away with a new one at its old
+  path, a file deleted and added again, an empty commit, two commits in one
+  second, and time zones from −11:00 to +14:00.
 
 ## Edge-case repositories
 

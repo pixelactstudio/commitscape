@@ -56,6 +56,12 @@ export function readIndex(storage: Storage, prefix: string): Promise<ReportIndex
   return readJson<ReportIndex>(storage, `${prefix}/index.json`);
 }
 
+/** A repository's Report meta, stats and the answers stored for it: from its row, where Builds write them, else from the `index.json` that Builds before them stored in R2. */
+export async function reportIndexOf(storage: Storage, row: { reportKey: string | null; reportMeta: Meta | null; reportStats: BuildStats | null }): Promise<ReportIndex | null> {
+  if (row.reportMeta) return { meta: row.reportMeta, stats: row.reportStats, keys: [] };
+  return row.reportKey ? readIndex(storage, row.reportKey) : null;
+}
+
 /** One answer of a stored Report, or null when it was written without it. */
 export function readEntry<T = unknown>(storage: Storage, prefix: string, key: string): Promise<T | null> {
   return readJson<T>(storage, entryKey(prefix, key));

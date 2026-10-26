@@ -12,11 +12,15 @@ export type AuthConfig = {
   secret: string;
   github: { clientId: string; clientSecret: string } | null;
   plugins?: BetterAuthPlugin[];
-  onSignIn: (userId: string) => Promise<void>;
+  onSignIn: (userId: string, about: SignedIn) => Promise<void>;
 };
+
+/** What the Site knows of one sign-in: whether it made the person's account, and the request's headers when there was one. */
+export type SignedIn = { first: boolean; headers: Headers | null };
 
 /** Better Auth, signing in with GitHub only. It drops the `login` GitHub sends (the field takes no outside input), so `onSignIn` runs after every sign-in to keep it. */
 export function createAuth(config: AuthConfig) {
+  const made = new Set<string>();
   return betterAuth({
     baseURL: config.baseURL,
     secret: config.secret,
@@ -39,10 +43,18 @@ export function createAuth(config: AuthConfig) {
     session: { expiresIn: 30 * 24 * 3600, updateAge: 24 * 3600, cookieCache: { enabled: true, maxAge: 300 } },
     advanced: { cookiePrefix: "commitscape" },
     databaseHooks: {
+      user: {
+        create: {
+          after: async (user) => {
+            made.add(user.id);
+          },
+        },
+      },
       session: {
         create: {
-          after: async (session) => {
-            await config.onSignIn(session.userId).catch(() => undefined);
+          after: async (session, context) => {
+            const first = made.delete(session.userId);
+            await config.onSignIn(session.userId, { first, headers: context?.headers ?? context?.request?.headers ?? null }).catch(() => undefined);
           },
         },
       },

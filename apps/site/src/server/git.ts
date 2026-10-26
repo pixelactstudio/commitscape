@@ -1,11 +1,9 @@
 import "@tanstack/react-start/server-only";
 import { eq, sql } from "drizzle-orm";
-import { rawBase, type FolderLast, type GitBranchInsight, type GitStatus, type PathCommit, type PathHistory } from "@commitscape/data";
-import { gitCoupling, gitLog, gitTree, lastInFolder, monthsOf, personRef, type IndexView } from "@commitscape/data/answers";
-import { gitFileKey, gitPullKey, readBlobs, readBranchDetail, readBranchInsight, readBranches, readGitObject, readOpenBranches, schema, sha256, subjectsOf, type StoredObject } from "@commitscape/server";
-import { indexFile, inTurn, keptFile, stampOf, underOf, viewOf } from "./answers";
+import { rawBase, type FolderLast, type GitBranchInsight, type GitStatus, type PathHistory } from "@commitscape/data";
+import { gitFileKey, gitPullKey, readBlobs, readBranchDetail, readBranchInsight, readBranches, readGitObject, readOpenBranches, schema, sha256, type StoredObject } from "@commitscape/server";
+import { keptFile, keptText, withPack } from "./answers";
 import { SiteError } from "./http";
-import { mainlineWritten } from "./universe";
 import type { Packed } from "./packed";
 import { readable, type Deps, type Row, type Viewer } from "./repos";
 
@@ -46,31 +44,34 @@ export type Served = { packed?: Packed | null; object: StoredObject | null; etag
 
 const matches = (seen: string | null | undefined, etag: string) => !!seen && seen.split(",").some((t) => t.trim().replace(/^W\//, "") === etag);
 
-async function fromIndex(deps: Deps, row: GitRepo["row"], git: GitRepo["git"], file: "tree" | "coupling"): Promise<Packed> {
+async function fromEngine(deps: Deps, row: GitRepo["row"], git: GitRepo["git"], file: "tree" | "coupling", seen: string | null | undefined, cacheControl: string): Promise<Served> {
   const indexId = row.indexId;
-  if (indexId === null) throw new SiteError(404, NO_GIT);
-  const made = await indexFile(deps.db, indexId, `${file}:${git.builtAt}`, async (view) => {
-    if (file === "coupling") return inTurn(() => gitCoupling(view));
-    const [blobs, [si]] = await Promise.all([readBlobs(deps.db, row.id), deps.db.select({ head: storedIndexes.head }).from(storedIndexes).where(eq(storedIndexes.id, indexId))]);
-    const head = si?.head ?? git.head;
-    return inTurn(() => gitTree(view, blobs, { builtAt: git.builtAt, head, branch: git.branch, raw: row.isPrivate ? null : rawBase(row.owner, row.name, head) }));
-  });
-  if (!made) throw new SiteError(404, NO_GIT);
-  return made.packed;
+  const made = await withPack(deps.db, indexId, async (pack) => {
+    const etag = `"${git.builtAt}-${sha256(pack).slice(0, 16)}-${file}"`;
+    if (matches(seen, etag)) return { packed: null, etag };
+    const packed = await keptText(`${pack}#${file}:${git.builtAt}`, async () => {
+      if (file === "coupling") return deps.engine.couplingText(pack);
+      const [blobs, [si]] = await Promise.all([readBlobs(deps.db, row.id), deps.db.select({ head: storedIndexes.head }).from(storedIndexes).where(eq(storedIndexes.id, indexId ?? 0))]);
+      const head = si?.head ?? git.head;
+      return deps.engine.treeText(pack, Object.fromEntries(blobs), { builtAt: git.builtAt, head, branch: git.branch, raw: row.isPrivate ? null : rawBase(row.owner, row.name, head) });
+    });
+    return { packed, etag };
+  }, row.reportAt);
+  if (!made || (made.value.packed === null && !matches(seen, made.value.etag))) throw new SiteError(404, NO_GIT);
+  return { packed: made.value.packed, object: null, etag: made.value.etag, cacheControl };
 }
 
-/** One JSON file of a repository's git data: the tree and Change Coupling worked out from its Stored Index, its branches from their rows, each packed once per build; its pull requests as stored. Kept for a year when the address names the build it is of. */
+/** One JSON file of a repository's git data: the tree and Change Coupling from the engine service, its branches from their rows, each packed once per pack and build; its pull requests as stored. Kept for a year when the address names the build it is of. */
 export async function gitFile(deps: Deps, viewer: Viewer, owner: string, name: string, file: string, version: number | null, seen?: string | null): Promise<Served> {
   if (!FILES.test(file)) throw new SiteError(404, "No such file.");
   if (file === "log.json") return commitLog(deps, viewer, owner, name, version, seen);
   const { row, git } = await gitOf(deps, viewer, owner, name);
-  const stamp = `${git.builtAt}-${row.indexId ?? 0}`;
-  const etag = `"${stamp}-${file}"`;
   const pinned = version !== null && version === git.builtAt;
   const cacheControl = row.isPrivate ? "private, max-age=300" : pinned ? `public, max-age=${YEAR}, immutable` : "public, max-age=60";
+  if (file === "tree.json" || file === "coupling.json") return fromEngine(deps, row, git, file === "tree.json" ? "tree" : "coupling", seen, cacheControl);
+  const etag = `"${git.builtAt}-${row.indexId ?? 0}-${file}"`;
   const sent = (packed: Packed): Served => ({ packed, object: null, etag, cacheControl });
   if (matches(seen, etag)) return { packed: null, object: null, etag, cacheControl };
-  if (file === "tree.json" || file === "coupling.json") return sent(await fromIndex(deps, row, git, file === "tree.json" ? "tree" : "coupling"));
   if (file === "branches.json") {
     const branches = await keptFile(`git:${row.id}@${git.builtAt}#branches`, () => readBranches(deps.db, row.id));
     if (!branches) throw new SiteError(404, NO_GIT);
@@ -91,64 +92,38 @@ export async function gitFile(deps: Deps, viewer: Viewer, owner: string, name: s
 
 async function commitLog(deps: Deps, viewer: Viewer, owner: string, name: string, version: number | null, seen?: string | null): Promise<Served> {
   const row = await readable(deps, viewer, owner, name);
-  if (row.indexId === null) throw new SiteError(404, NO_HISTORY);
   const pinned = version !== null && version === row.reportAt;
-  const settled = pinned && !row.isPrivate && (await mainlineWritten(deps.db, row.indexId));
-  const cacheControl = row.isPrivate ? "private, max-age=300" : settled ? `public, max-age=${YEAR}, immutable` : "public, max-age=300";
-  const tagOf = (stamp: string) => `"${row.indexId}-${sha256(stamp).slice(0, 16)}-log"`;
-  const stamp = await stampOf(deps.db, row.indexId, pinned ? (row.reportAt ?? undefined) : undefined);
-  if (stamp === null) throw new SiteError(404, NO_HISTORY);
-  if (matches(seen, tagOf(stamp))) return { packed: null, object: null, etag: tagOf(stamp), cacheControl };
-  const made = await indexFile(deps.db, row.indexId, "log", (view) => inTurn(() => gitLog(view)));
+  const cacheControl = row.isPrivate ? "private, max-age=300" : pinned ? `public, max-age=${YEAR}, immutable` : "public, max-age=300";
+  const made = await withPack(deps.db, row.indexId, async (pack) => {
+    const etag = `"${sha256(pack).slice(0, 16)}-log"`;
+    if (matches(seen, etag)) return { packed: null, etag };
+    return { packed: await keptText(`${pack}#log`, () => deps.engine.logText(pack)), etag };
+  }, row.reportAt);
   if (!made) throw new SiteError(404, NO_HISTORY);
-  return { packed: made.packed, object: null, etag: tagOf(made.stamp), cacheControl };
+  if (made.value.packed === null && !matches(seen, made.value.etag)) throw new SiteError(404, NO_HISTORY);
+  return { packed: made.value.packed, object: null, etag: made.value.etag, cacheControl };
 }
 
-const RECENT = 12;
-const FOLDER_MAX = 1000;
-
-async function under(deps: Deps, row: GitRepo["row"], path: string): Promise<{ view: IndexView; commits: number[] }> {
-  if (row.indexId === null) throw new SiteError(404, NO_GIT);
-  const view = await viewOf(deps.db, row.indexId);
-  if (!view) throw new SiteError(404, NO_GIT);
-  return { view, commits: underOf(view, path) };
-}
-
-/** How often and how recently a file or folder changed, as commits by month, and its newest commits with who made them, from the Stored Index. */
-export async function pathHistory(deps: Deps, viewer: Viewer, owner: string, name: string, path: string): Promise<PathHistory> {
+const checkedPath = (path: string) => {
   if (path.length > 1000 || path.includes("\0")) throw new SiteError(400, "That is not a path.");
+};
+
+/** How often and how recently a file or folder changed, as commits by month, and its newest commits with who made them, from the engine service. */
+export async function pathHistory(deps: Deps, viewer: Viewer, owner: string, name: string, path: string): Promise<PathHistory> {
+  checkedPath(path);
   const { row } = await gitOf(deps, viewer, owner, name);
-  const { view, commits } = await under(deps, row, path);
-  const recent = commits.slice(0, RECENT);
-  const subjects = await subjectsOf(deps.db, row.indexId ?? 0, recent.map((c) => view.ids[c] ?? ""));
-  const list: PathCommit[] = recent.map((c) => {
-    const sha = view.ids[c] ?? "";
-    const who = view.person[c] ?? -1;
-    return { sha, at: view.time[c] ?? 0, offset: view.offset[c] ?? 0, subject: subjects.get(sha) ?? "", merge: false, person: who >= 0 ? personRef(view, who) : null };
-  });
-  let logged = 0;
-  for (let c = 0; c < view.time.length; c++) if (((view.flags[c] ?? 0) & 1) === 0) logged++;
-  const until = Math.max(view.anchor, view.time[view.time.length - 1] ?? 0);
-  return { path, total: commits.length, commits: list, logged, complete: true, months: monthsOf(view, commits, until) };
+  const made = await withPack(deps.db, row.indexId, (pack) => deps.engine.pathHistory(pack, path), row.reportAt);
+  if (!made) throw new SiteError(404, NO_GIT);
+  return made.value;
 }
 
 /** For each file and folder right inside a folder, the newest commit that touched it, with its subject and who made it. */
 export async function folderLast(deps: Deps, viewer: Viewer, owner: string, name: string, path: string): Promise<FolderLast> {
   if (path.length > 1000 || path.includes("\0") || (path !== "" && !path.endsWith("/"))) throw new SiteError(400, "That is not a folder.");
   const { row } = await gitOf(deps, viewer, owner, name);
-  if (row.indexId === null) throw new SiteError(404, NO_GIT);
-  const view = await viewOf(deps.db, row.indexId);
-  if (!view) throw new SiteError(404, NO_GIT);
-  const found = [...lastInFolder(view, path)].slice(0, FOLDER_MAX);
-  const subjects = await subjectsOf(deps.db, row.indexId, found.map(([, c]) => view.ids[c] ?? ""));
-  return {
-    path,
-    entries: found.map(([entry, c]) => {
-      const sha = view.ids[c] ?? "";
-      const who = view.person[c] ?? -1;
-      return { name: entry.replace(/\/$/, ""), dir: entry.endsWith("/"), sha, subject: subjects.get(sha) ?? "", at: view.time[c] ?? 0, person: who >= 0 ? personRef(view, who) : null };
-    }),
-  };
+  const made = await withPack(deps.db, row.indexId, (pack) => deps.engine.folderLast(pack, path), row.reportAt);
+  if (!made) throw new SiteError(404, NO_GIT);
+  return made.value;
 }
 
 const insights = new Map<string, GitBranchInsight | null>();

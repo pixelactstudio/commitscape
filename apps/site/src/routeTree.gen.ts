@@ -13,17 +13,15 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as SplatRouteImport } from './routes/$'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as DesignRouteImport } from './routes/design'
-import { Route as LeaderboardsRouteImport } from './routes/leaderboards'
 import { Route as McpRouteImport } from './routes/mcp'
 import { Route as MeRouteImport } from './routes/me'
 import { Route as PrivacyRouteImport } from './routes/privacy'
+import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as YouRouteImport } from './routes/you'
 import { Route as ApiSplatRouteImport } from './routes/api/$'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
-import { Route as CrewsIndexRouteImport } from './routes/crews.index'
-import { Route as CrewsIdRouteImport } from './routes/crews.$id'
-import { Route as RacesIndexRouteImport } from './routes/races.index'
-import { Route as RacesIdRouteImport } from './routes/races.$id'
+import { Route as ApiTelemetryRouteImport } from './routes/api/telemetry'
+import { Route as IngestSplatRouteImport } from './routes/ingest.$'
 import { Route as SIdRouteImport } from './routes/s.$id'
 import { Route as ULoginRouteImport } from './routes/u.$login'
 import { Route as VsIndexRouteImport } from './routes/vs.index'
@@ -39,8 +37,6 @@ import { Route as ApiCardsSiteFileRouteImport } from './routes/api/cards/site/$f
 import { Route as ULoginOwnerRepoRouteImport } from './routes/u.$login_.$owner.$repo'
 import { Route as ULoginWorkIdRouteImport } from './routes/u.$login_.work_.$id'
 import { Route as ULoginWrappedYearRouteImport } from './routes/u.$login_.wrapped.$year'
-import { Route as ApiCardsCrewsIdFileRouteImport } from './routes/api/cards/crews/$id/$file'
-import { Route as ApiCardsRacesIdFileRouteImport } from './routes/api/cards/races/$id/$file'
 import { Route as ApiCardsULoginFileRouteImport } from './routes/api/cards/u/$login/$file'
 import { Route as ApiReportsOwnerRepoAnswerRouteImport } from './routes/api/reports/$owner/$repo/answer'
 import { Route as ApiReportsOwnerRepoAtlasRouteImport } from './routes/api/reports/$owner/$repo/atlas'
@@ -74,11 +70,6 @@ const DesignRoute = DesignRouteImport.update({
   path: '/design',
   getParentRoute: () => rootRouteImport,
 } as any)
-const LeaderboardsRoute = LeaderboardsRouteImport.update({
-  id: '/leaderboards',
-  path: '/leaderboards',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const McpRoute = McpRouteImport.update({
   id: '/mcp',
   path: '/mcp',
@@ -92,6 +83,11 @@ const MeRoute = MeRouteImport.update({
 const PrivacyRoute = PrivacyRouteImport.update({
   id: '/privacy',
   path: '/privacy',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SignInRoute = SignInRouteImport.update({
+  id: '/sign-in',
+  path: '/sign-in',
   getParentRoute: () => rootRouteImport,
 } as any)
 const YouRoute = YouRouteImport.update({
@@ -109,24 +105,14 @@ const ApiHealthRoute = ApiHealthRouteImport.update({
   path: '/api/health',
   getParentRoute: () => rootRouteImport,
 } as any)
-const CrewsIndexRoute = CrewsIndexRouteImport.update({
-  id: '/crews/',
-  path: '/crews/',
+const ApiTelemetryRoute = ApiTelemetryRouteImport.update({
+  id: '/api/telemetry',
+  path: '/api/telemetry',
   getParentRoute: () => rootRouteImport,
 } as any)
-const CrewsIdRoute = CrewsIdRouteImport.update({
-  id: '/crews/$id',
-  path: '/crews/$id',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const RacesIndexRoute = RacesIndexRouteImport.update({
-  id: '/races/',
-  path: '/races/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const RacesIdRoute = RacesIdRouteImport.update({
-  id: '/races/$id',
-  path: '/races/$id',
+const IngestSplatRoute = IngestSplatRouteImport.update({
+  id: '/ingest/$',
+  path: '/ingest/$',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SIdRoute = SIdRouteImport.update({
@@ -204,16 +190,6 @@ const ULoginWrappedYearRoute = ULoginWrappedYearRouteImport.update({
   path: '/u/$login/wrapped/$year',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiCardsCrewsIdFileRoute = ApiCardsCrewsIdFileRouteImport.update({
-  id: '/api/cards/crews/$id/$file',
-  path: '/api/cards/crews/$id/$file',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiCardsRacesIdFileRoute = ApiCardsRacesIdFileRouteImport.update({
-  id: '/api/cards/races/$id/$file',
-  path: '/api/cards/races/$id/$file',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ApiCardsULoginFileRoute = ApiCardsULoginFileRouteImport.update({
   id: '/api/cards/u/$login/$file',
   path: '/api/cards/u/$login/$file',
@@ -287,19 +263,17 @@ export interface FileRoutesByFullPath {
   '/$': typeof SplatRoute
   '/dashboard': typeof DashboardRoute
   '/design': typeof DesignRoute
-  '/leaderboards': typeof LeaderboardsRoute
   '/mcp': typeof McpRoute
   '/me': typeof MeRoute
   '/privacy': typeof PrivacyRoute
+  '/sign-in': typeof SignInRoute
   '/you': typeof YouRoute
   '/api/$': typeof ApiSplatRoute
   '/api/health': typeof ApiHealthRoute
-  '/crews/$id': typeof CrewsIdRoute
-  '/races/$id': typeof RacesIdRoute
+  '/api/telemetry': typeof ApiTelemetryRoute
+  '/ingest/$': typeof IngestSplatRoute
   '/s/$id': typeof SIdRoute
   '/u/$login': typeof ULoginRoute
-  '/crews/': typeof CrewsIndexRoute
-  '/races/': typeof RacesIndexRoute
   '/vs/': typeof VsIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/github/webhooks': typeof ApiGithubWebhooksRoute
@@ -313,8 +287,6 @@ export interface FileRoutesByFullPath {
   '/u/$login/$owner/$repo': typeof ULoginOwnerRepoRoute
   '/u/$login/work/$id': typeof ULoginWorkIdRoute
   '/u/$login/wrapped/$year': typeof ULoginWrappedYearRoute
-  '/api/cards/crews/$id/$file': typeof ApiCardsCrewsIdFileRoute
-  '/api/cards/races/$id/$file': typeof ApiCardsRacesIdFileRoute
   '/api/cards/u/$login/$file': typeof ApiCardsULoginFileRoute
   '/api/reports/$owner/$repo/answer': typeof ApiReportsOwnerRepoAnswerRoute
   '/api/reports/$owner/$repo/atlas': typeof ApiReportsOwnerRepoAtlasRoute
@@ -333,19 +305,17 @@ export interface FileRoutesByTo {
   '/$': typeof SplatRoute
   '/dashboard': typeof DashboardRoute
   '/design': typeof DesignRoute
-  '/leaderboards': typeof LeaderboardsRoute
   '/mcp': typeof McpRoute
   '/me': typeof MeRoute
   '/privacy': typeof PrivacyRoute
+  '/sign-in': typeof SignInRoute
   '/you': typeof YouRoute
   '/api/$': typeof ApiSplatRoute
   '/api/health': typeof ApiHealthRoute
-  '/crews/$id': typeof CrewsIdRoute
-  '/races/$id': typeof RacesIdRoute
+  '/api/telemetry': typeof ApiTelemetryRoute
+  '/ingest/$': typeof IngestSplatRoute
   '/s/$id': typeof SIdRoute
   '/u/$login': typeof ULoginRoute
-  '/crews': typeof CrewsIndexRoute
-  '/races': typeof RacesIndexRoute
   '/vs': typeof VsIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/github/webhooks': typeof ApiGithubWebhooksRoute
@@ -359,8 +329,6 @@ export interface FileRoutesByTo {
   '/u/$login/$owner/$repo': typeof ULoginOwnerRepoRoute
   '/u/$login/work/$id': typeof ULoginWorkIdRoute
   '/u/$login/wrapped/$year': typeof ULoginWrappedYearRoute
-  '/api/cards/crews/$id/$file': typeof ApiCardsCrewsIdFileRoute
-  '/api/cards/races/$id/$file': typeof ApiCardsRacesIdFileRoute
   '/api/cards/u/$login/$file': typeof ApiCardsULoginFileRoute
   '/api/reports/$owner/$repo/answer': typeof ApiReportsOwnerRepoAnswerRoute
   '/api/reports/$owner/$repo/atlas': typeof ApiReportsOwnerRepoAtlasRoute
@@ -380,19 +348,17 @@ export interface FileRoutesById {
   '/$': typeof SplatRoute
   '/dashboard': typeof DashboardRoute
   '/design': typeof DesignRoute
-  '/leaderboards': typeof LeaderboardsRoute
   '/mcp': typeof McpRoute
   '/me': typeof MeRoute
   '/privacy': typeof PrivacyRoute
+  '/sign-in': typeof SignInRoute
   '/you': typeof YouRoute
   '/api/$': typeof ApiSplatRoute
   '/api/health': typeof ApiHealthRoute
-  '/crews/$id': typeof CrewsIdRoute
-  '/races/$id': typeof RacesIdRoute
+  '/api/telemetry': typeof ApiTelemetryRoute
+  '/ingest/$': typeof IngestSplatRoute
   '/s/$id': typeof SIdRoute
   '/u/$login': typeof ULoginRoute
-  '/crews/': typeof CrewsIndexRoute
-  '/races/': typeof RacesIndexRoute
   '/vs/': typeof VsIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/github/webhooks': typeof ApiGithubWebhooksRoute
@@ -406,8 +372,6 @@ export interface FileRoutesById {
   '/u/$login_/$owner/$repo': typeof ULoginOwnerRepoRoute
   '/u/$login_/work_/$id': typeof ULoginWorkIdRoute
   '/u/$login_/wrapped/$year': typeof ULoginWrappedYearRoute
-  '/api/cards/crews/$id/$file': typeof ApiCardsCrewsIdFileRoute
-  '/api/cards/races/$id/$file': typeof ApiCardsRacesIdFileRoute
   '/api/cards/u/$login/$file': typeof ApiCardsULoginFileRoute
   '/api/reports/$owner/$repo/answer': typeof ApiReportsOwnerRepoAnswerRoute
   '/api/reports/$owner/$repo/atlas': typeof ApiReportsOwnerRepoAtlasRoute
@@ -428,19 +392,17 @@ export interface FileRouteTypes {
     | '/$'
     | '/dashboard'
     | '/design'
-    | '/leaderboards'
     | '/mcp'
     | '/me'
     | '/privacy'
+    | '/sign-in'
     | '/you'
     | '/api/$'
     | '/api/health'
-    | '/crews/$id'
-    | '/races/$id'
+    | '/api/telemetry'
+    | '/ingest/$'
     | '/s/$id'
     | '/u/$login'
-    | '/crews/'
-    | '/races/'
     | '/vs/'
     | '/api/auth/$'
     | '/api/github/webhooks'
@@ -454,8 +416,6 @@ export interface FileRouteTypes {
     | '/u/$login/$owner/$repo'
     | '/u/$login/work/$id'
     | '/u/$login/wrapped/$year'
-    | '/api/cards/crews/$id/$file'
-    | '/api/cards/races/$id/$file'
     | '/api/cards/u/$login/$file'
     | '/api/reports/$owner/$repo/answer'
     | '/api/reports/$owner/$repo/atlas'
@@ -474,19 +434,17 @@ export interface FileRouteTypes {
     | '/$'
     | '/dashboard'
     | '/design'
-    | '/leaderboards'
     | '/mcp'
     | '/me'
     | '/privacy'
+    | '/sign-in'
     | '/you'
     | '/api/$'
     | '/api/health'
-    | '/crews/$id'
-    | '/races/$id'
+    | '/api/telemetry'
+    | '/ingest/$'
     | '/s/$id'
     | '/u/$login'
-    | '/crews'
-    | '/races'
     | '/vs'
     | '/api/auth/$'
     | '/api/github/webhooks'
@@ -500,8 +458,6 @@ export interface FileRouteTypes {
     | '/u/$login/$owner/$repo'
     | '/u/$login/work/$id'
     | '/u/$login/wrapped/$year'
-    | '/api/cards/crews/$id/$file'
-    | '/api/cards/races/$id/$file'
     | '/api/cards/u/$login/$file'
     | '/api/reports/$owner/$repo/answer'
     | '/api/reports/$owner/$repo/atlas'
@@ -520,19 +476,17 @@ export interface FileRouteTypes {
     | '/$'
     | '/dashboard'
     | '/design'
-    | '/leaderboards'
     | '/mcp'
     | '/me'
     | '/privacy'
+    | '/sign-in'
     | '/you'
     | '/api/$'
     | '/api/health'
-    | '/crews/$id'
-    | '/races/$id'
+    | '/api/telemetry'
+    | '/ingest/$'
     | '/s/$id'
     | '/u/$login'
-    | '/crews/'
-    | '/races/'
     | '/vs/'
     | '/api/auth/$'
     | '/api/github/webhooks'
@@ -546,8 +500,6 @@ export interface FileRouteTypes {
     | '/u/$login_/$owner/$repo'
     | '/u/$login_/work_/$id'
     | '/u/$login_/wrapped/$year'
-    | '/api/cards/crews/$id/$file'
-    | '/api/cards/races/$id/$file'
     | '/api/cards/u/$login/$file'
     | '/api/reports/$owner/$repo/answer'
     | '/api/reports/$owner/$repo/atlas'
@@ -567,19 +519,17 @@ export interface RootRouteChildren {
   SplatRoute: typeof SplatRoute
   DashboardRoute: typeof DashboardRoute
   DesignRoute: typeof DesignRoute
-  LeaderboardsRoute: typeof LeaderboardsRoute
   McpRoute: typeof McpRoute
   MeRoute: typeof MeRoute
   PrivacyRoute: typeof PrivacyRoute
+  SignInRoute: typeof SignInRoute
   YouRoute: typeof YouRoute
   ApiSplatRoute: typeof ApiSplatRoute
   ApiHealthRoute: typeof ApiHealthRoute
-  CrewsIdRoute: typeof CrewsIdRoute
-  RacesIdRoute: typeof RacesIdRoute
+  ApiTelemetryRoute: typeof ApiTelemetryRoute
+  IngestSplatRoute: typeof IngestSplatRoute
   SIdRoute: typeof SIdRoute
   ULoginRoute: typeof ULoginRoute
-  CrewsIndexRoute: typeof CrewsIndexRoute
-  RacesIndexRoute: typeof RacesIndexRoute
   VsIndexRoute: typeof VsIndexRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiGithubWebhooksRoute: typeof ApiGithubWebhooksRoute
@@ -593,8 +543,6 @@ export interface RootRouteChildren {
   ULoginOwnerRepoRoute: typeof ULoginOwnerRepoRoute
   ULoginWorkIdRoute: typeof ULoginWorkIdRoute
   ULoginWrappedYearRoute: typeof ULoginWrappedYearRoute
-  ApiCardsCrewsIdFileRoute: typeof ApiCardsCrewsIdFileRoute
-  ApiCardsRacesIdFileRoute: typeof ApiCardsRacesIdFileRoute
   ApiCardsULoginFileRoute: typeof ApiCardsULoginFileRoute
   ApiReportsOwnerRepoAnswerRoute: typeof ApiReportsOwnerRepoAnswerRoute
   ApiReportsOwnerRepoAtlasRoute: typeof ApiReportsOwnerRepoAtlasRoute
@@ -639,13 +587,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DesignRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/leaderboards': {
-      id: '/leaderboards'
-      path: '/leaderboards'
-      fullPath: '/leaderboards'
-      preLoaderRoute: typeof LeaderboardsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/mcp': {
       id: '/mcp'
       path: '/mcp'
@@ -665,6 +606,13 @@ declare module '@tanstack/react-router' {
       path: '/privacy'
       fullPath: '/privacy'
       preLoaderRoute: typeof PrivacyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sign-in': {
+      id: '/sign-in'
+      path: '/sign-in'
+      fullPath: '/sign-in'
+      preLoaderRoute: typeof SignInRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/you': {
@@ -688,32 +636,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiHealthRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/crews/': {
-      id: '/crews/'
-      path: '/crews'
-      fullPath: '/crews/'
-      preLoaderRoute: typeof CrewsIndexRouteImport
+    '/api/telemetry': {
+      id: '/api/telemetry'
+      path: '/api/telemetry'
+      fullPath: '/api/telemetry'
+      preLoaderRoute: typeof ApiTelemetryRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/crews/$id': {
-      id: '/crews/$id'
-      path: '/crews/$id'
-      fullPath: '/crews/$id'
-      preLoaderRoute: typeof CrewsIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/races/': {
-      id: '/races/'
-      path: '/races'
-      fullPath: '/races/'
-      preLoaderRoute: typeof RacesIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/races/$id': {
-      id: '/races/$id'
-      path: '/races/$id'
-      fullPath: '/races/$id'
-      preLoaderRoute: typeof RacesIdRouteImport
+    '/ingest/$': {
+      id: '/ingest/$'
+      path: '/ingest/$'
+      fullPath: '/ingest/$'
+      preLoaderRoute: typeof IngestSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/s/$id': {
@@ -821,20 +755,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ULoginWrappedYearRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/cards/crews/$id/$file': {
-      id: '/api/cards/crews/$id/$file'
-      path: '/api/cards/crews/$id/$file'
-      fullPath: '/api/cards/crews/$id/$file'
-      preLoaderRoute: typeof ApiCardsCrewsIdFileRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/cards/races/$id/$file': {
-      id: '/api/cards/races/$id/$file'
-      path: '/api/cards/races/$id/$file'
-      fullPath: '/api/cards/races/$id/$file'
-      preLoaderRoute: typeof ApiCardsRacesIdFileRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/api/cards/u/$login/$file': {
       id: '/api/cards/u/$login/$file'
       path: '/api/cards/u/$login/$file'
@@ -927,19 +847,17 @@ const rootRouteChildren: RootRouteChildren = {
   SplatRoute: SplatRoute,
   DashboardRoute: DashboardRoute,
   DesignRoute: DesignRoute,
-  LeaderboardsRoute: LeaderboardsRoute,
   McpRoute: McpRoute,
   MeRoute: MeRoute,
   PrivacyRoute: PrivacyRoute,
+  SignInRoute: SignInRoute,
   YouRoute: YouRoute,
   ApiSplatRoute: ApiSplatRoute,
   ApiHealthRoute: ApiHealthRoute,
-  CrewsIdRoute: CrewsIdRoute,
-  RacesIdRoute: RacesIdRoute,
+  ApiTelemetryRoute: ApiTelemetryRoute,
+  IngestSplatRoute: IngestSplatRoute,
   SIdRoute: SIdRoute,
   ULoginRoute: ULoginRoute,
-  CrewsIndexRoute: CrewsIndexRoute,
-  RacesIndexRoute: RacesIndexRoute,
   VsIndexRoute: VsIndexRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiGithubWebhooksRoute: ApiGithubWebhooksRoute,
@@ -953,8 +871,6 @@ const rootRouteChildren: RootRouteChildren = {
   ULoginOwnerRepoRoute: ULoginOwnerRepoRoute,
   ULoginWorkIdRoute: ULoginWorkIdRoute,
   ULoginWrappedYearRoute: ULoginWrappedYearRoute,
-  ApiCardsCrewsIdFileRoute: ApiCardsCrewsIdFileRoute,
-  ApiCardsRacesIdFileRoute: ApiCardsRacesIdFileRoute,
   ApiCardsULoginFileRoute: ApiCardsULoginFileRoute,
   ApiReportsOwnerRepoAnswerRoute: ApiReportsOwnerRepoAnswerRoute,
   ApiReportsOwnerRepoAtlasRoute: ApiReportsOwnerRepoAtlasRoute,

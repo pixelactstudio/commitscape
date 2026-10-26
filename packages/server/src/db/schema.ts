@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import { bigint, boolean, customType, index, integer, jsonb, pgTable, primaryKey, real, serial, smallint, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import type { BuildStats, Meta } from "@commitscape/data";
 
 const seconds = (name: string) => bigint(name, { mode: "number" });
 
@@ -103,17 +104,15 @@ export const repositories = pgTable(
     busFactor: integer("bus_factor"),
     maintainers: integer("maintainers"),
     commits30d: integer("commits_30d"),
-    people30d: integer("people_30d"),
     codeLines: integer("code_lines"),
-    untouched5y: integer("untouched_5y"),
-    answered: integer("answered"),
-    answerHours: real("answer_hours"),
     pullsAt: text("pulls_at"),
     pullsReadAt: seconds("pulls_read_at"),
     pullsCursor: text("pulls_cursor"),
     pullsMark: text("pulls_mark"),
     pullsVersion: integer("pulls_version").notNull().default(0),
     indexId: integer("index_id"),
+    reportMeta: jsonb("report_meta").$type<Meta>(),
+    reportStats: jsonb("report_stats").$type<BuildStats>(),
   },
   (t) => [index("repositories_installation").on(t.installationId), index("repositories_seed").on(t.seed, t.reportAt), index("repositories_github_id").on(t.githubId)],
 );
@@ -328,84 +327,6 @@ export const proofs = pgTable(
   (t) => [index("proofs_login").on(t.login)],
 );
 
-export const rivals = pgTable(
-  "rivals",
-  {
-    userId: text("user_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
-    rival: text("rival").notNull(),
-    createdAt: seconds("created_at").notNull(),
-  },
-  (t) => [primaryKey({ columns: [t.userId, t.rival] })],
-);
-
-const membership = {
-  login: text("login").notNull(),
-  userId: text("user_id").references(() => user.id, { onDelete: "set null" }),
-  state: text("state").notNull(),
-  invitedBy: text("invited_by").notNull(),
-  invitedAt: seconds("invited_at").notNull(),
-  answeredAt: seconds("answered_at"),
-};
-
-export const races = pgTable("races", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  createdBy: text("created_by")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
-  from: text("from").notNull(),
-  to: text("to").notNull(),
-  createdAt: seconds("created_at").notNull(),
-  standings: text("standings"),
-  standingsAt: seconds("standings_at"),
-});
-
-export const raceMembers = pgTable(
-  "race_members",
-  {
-    raceId: text("race_id")
-      .notNull()
-      .references(() => races.id, { onDelete: "cascade" }),
-    ...membership,
-  },
-  (t) => [primaryKey({ columns: [t.raceId, t.login] }), index("race_members_login").on(t.login)],
-);
-
-export const crews = pgTable("crews", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  createdBy: text("created_by")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
-  createdAt: seconds("created_at").notNull(),
-});
-
-export const crewMembers = pgTable(
-  "crew_members",
-  {
-    crewId: text("crew_id")
-      .notNull()
-      .references(() => crews.id, { onDelete: "cascade" }),
-    ...membership,
-  },
-  (t) => [primaryKey({ columns: [t.crewId, t.login] }), index("crew_members_login").on(t.login)],
-);
-
-export const seasonStandings = pgTable(
-  "season_standings",
-  {
-    crewId: text("crew_id")
-      .notNull()
-      .references(() => crews.id, { onDelete: "cascade" }),
-    season: text("season").notNull(),
-    data: text("data").notNull(),
-    at: seconds("at").notNull(),
-  },
-  (t) => [primaryKey({ columns: [t.crewId, t.season] })],
-);
-
 export const lentTokens = pgTable("lent_tokens", {
   repoId: text("repo_id")
     .primaryKey()
@@ -564,12 +485,14 @@ export const storedIndexes = pgTable(
     head: text("head"),
     frontier: text("frontier").array().notNull().default([]),
     lines: boolean("lines").notNull(),
+    linesLeft: integer("lines_left"),
     commits: integer("commits").notNull().default(0),
     builtAt: seconds("built_at").notNull(),
     loadedAt: seconds("loaded_at"),
     anchor: seconds("anchor").notNull().default(0),
     options: jsonb("options").$type<IndexOptions>().notNull().default({ max_changeset_size: 50, coupling_support: 5, ownership_min_commits: 10 }),
     snapshot: jsonb("snapshot").$type<IndexSnapshot>(),
+    pack: text("pack"),
   },
   (t) => [index("stored_indexes_repo").on(t.repoId)],
 );
@@ -662,66 +585,6 @@ export const indexPeople = pgTable(
     bot: boolean("bot").notNull(),
   },
   (t) => [primaryKey({ columns: [t.si, t.signature] }), index("index_people_person").on(t.si, t.person)],
-);
-
-const sums = () => ({
-  commits: integer("commits").notNull(),
-  merges: integer("merges").notNull(),
-  bulk: integer("bulk").notNull(),
-  changes: integer("changes").notNull(),
-  added: bigint("added", { mode: "number" }).notNull(),
-  removed: bigint("removed", { mode: "number" }).notNull(),
-});
-
-const folderSums = () => ({
-  commits: integer("commits").notNull(),
-  changes: integer("changes").notNull(),
-  added: bigint("added", { mode: "number" }).notNull(),
-  removed: bigint("removed", { mode: "number" }).notNull(),
-});
-
-export const indexDays = pgTable(
-  "index_days",
-  {
-    si: si(),
-    day: integer("day").notNull(),
-    ...sums(),
-  },
-  (t) => [primaryKey({ columns: [t.si, t.day] })],
-);
-
-export const indexSignatureDays = pgTable(
-  "index_signature_days",
-  {
-    si: si(),
-    day: integer("day").notNull(),
-    signature: integer("signature").notNull(),
-    ...sums(),
-  },
-  (t) => [primaryKey({ columns: [t.si, t.day, t.signature] }), index("index_signature_days_signature").on(t.si, t.signature, t.day)],
-);
-
-export const indexFolderDays = pgTable(
-  "index_folder_days",
-  {
-    si: si(),
-    day: integer("day").notNull(),
-    folder: integer("folder").notNull(),
-    ...folderSums(),
-  },
-  (t) => [primaryKey({ columns: [t.si, t.folder, t.day] }), index("index_folder_days_day").on(t.si, t.day)],
-);
-
-export const indexSignatureFolderDays = pgTable(
-  "index_signature_folder_days",
-  {
-    si: si(),
-    day: integer("day").notNull(),
-    signature: integer("signature").notNull(),
-    folder: integer("folder").notNull(),
-    ...folderSums(),
-  },
-  (t) => [primaryKey({ columns: [t.si, t.folder, t.day, t.signature] }), index("index_signature_folder_days_day").on(t.si, t.day)],
 );
 
 export const indexHeadFiles = pgTable(

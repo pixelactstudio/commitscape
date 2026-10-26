@@ -4,8 +4,10 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use commitscape_core::Index;
-use commitscape_index::{index_from_scratch, reresolve_authors, GixRepo, IdentityRules};
-use commitscape_metrics::{Analysis, Options, Window};
+use commitscape_index::{
+    index_from_scratch, line_pass, reresolve_authors, GixRepo, IdentityRules, LinePlan,
+};
+use commitscape_metrics::{skipped_files, Analysis, Options, Window};
 
 const EPOCH: i64 = 1_704_067_200;
 const DAY: i64 = 86_400;
@@ -306,16 +308,38 @@ fn coupling_with_a_support_of_four_keeps_both_pairs() {
     );
 }
 
+fn sums(pass: &commitscape_core::LinePass) -> (u32, u32, usize) {
+    let counted: Vec<_> = pass.lines.iter().flatten().collect();
+    (
+        counted.iter().map(|d| d.added).sum(),
+        counted.iter().map(|d| d.removed).sum(),
+        pass.lines.iter().filter(|d| d.is_none()).count(),
+    )
+}
+
+#[test]
+fn with_nothing_left_out_the_line_pass_counts_every_text_change() {
+    let repo = GixRepo::open(&fixture("lines")).expect("opening fixture");
+    let idx = index_from_scratch(&repo).expect("indexing fixture");
+    let pass =
+        line_pass(&repo, &idx, &LinePlan::default(), None, &mut |_, _| {}).expect("counting");
+    assert_eq!(sums(&pass), (214, 35, 1));
+    assert_eq!((pass.counted, pass.left), (7, 0));
+}
+
 #[test]
 fn lines_each_person_wrote_leave_out_lockfiles_ignored_revs_and_bulk_commits() {
     let repo = GixRepo::open(&fixture("lines")).expect("opening fixture");
     let mut idx = index_from_scratch(&repo).expect("indexing fixture");
-    let pass = commitscape_index::line_pass(&repo, &idx, None, &mut |_, _| {}).expect("counting");
+    let plan = LinePlan {
+        skip_commits: idx.commits.iter().map(|c| options().is_bulk(c)).collect(),
+        skip_files: skipped_files(&idx),
+        ..LinePlan::default()
+    };
+    let pass = line_pass(&repo, &idx, &plan, None, &mut |_, _| {}).expect("counting");
 
-    let counted: Vec<_> = pass.lines.iter().flatten().collect();
-    assert_eq!(counted.iter().map(|d| d.added).sum::<u32>(), 214);
-    assert_eq!(counted.iter().map(|d| d.removed).sum::<u32>(), 35);
-    assert_eq!(pass.lines.iter().filter(|d| d.is_none()).count(), 1);
+    assert_eq!(sums(&pass), (34, 15, 63));
+    assert_eq!((pass.counted, pass.left), (6, 0));
     assert_eq!(pass.ignored.len(), 1, "the reformat");
 
     pass.apply(&mut idx);

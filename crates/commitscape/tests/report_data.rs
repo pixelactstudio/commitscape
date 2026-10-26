@@ -29,6 +29,7 @@ fn report_data(args: &[&str]) -> serde_json::Value {
     let dir = tempfile::tempdir().expect("a temporary directory");
     let out = dir.path().join("ownership.json.gz");
     let run = Command::new(env!("CARGO_BIN_EXE_commitscape"))
+        .env("COMMITSCAPE_TELEMETRY", "0")
         .args(["report", "--no-cache", "--offline", "--window", "all"])
         .args(args)
         .arg("--out")
@@ -122,4 +123,46 @@ fn addresses_given_one_login_are_one_person_shown_with_it() {
     assert_eq!(joined.len(), 2);
     assert!(joined.contains(&("Bob Example".to_string(), Some("carol".to_string()), 11)));
     assert!(!after.to_string().contains("@example.com"));
+}
+
+#[test]
+fn the_commit_list_says_a_commit_with_no_counted_change_was_not_counted() {
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let out = dir.path().join("lines.json.gz");
+    let run = Command::new(env!("CARGO_BIN_EXE_commitscape"))
+        .env("COMMITSCAPE_TELEMETRY", "0")
+        .args([
+            "report",
+            "--no-cache",
+            "--offline",
+            "--window",
+            "all",
+            "--out",
+        ])
+        .arg(&out)
+        .arg(fixture("lines"))
+        .output()
+        .expect("running commitscape");
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    let report = gunzip(&out);
+    let list = &report["data"]["/api/commits?"];
+    let row = |subject: &str| {
+        let at = list["subjects"]
+            .as_array()
+            .expect("subjects")
+            .iter()
+            .position(|s| s == subject)
+            .expect("the commit is listed");
+        (list["added"][at].clone(), list["removed"][at].clone())
+    };
+    assert_eq!(row("add the app"), (10.into(), 0.into()));
+    assert_eq!(row("trim and bump"), (0.into(), 2.into()));
+    assert_eq!(
+        row("add sixty files"),
+        (serde_json::Value::Null, serde_json::Value::Null)
+    );
 }

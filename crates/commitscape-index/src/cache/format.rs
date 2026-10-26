@@ -153,12 +153,20 @@ fn decode_head(payload: &[u8]) -> Result<Head, Unusable> {
         return Err(Unusable::OtherSchema);
     }
     let meta: HeadMeta = decode(meta)?;
-    let (paths, authors, files) = std::thread::scope(|s| {
-        let paths = s.spawn(|| decode::<PathTable>(paths));
-        let authors = s.spawn(|| decode::<AuthorTable>(authors));
-        let files = decode::<(Vec<HeadFile>, Vec<FileHistory>)>(files);
-        (joined(paths.join()), joined(authors.join()), files)
-    });
+    let (paths, authors, files) = if crate::threads::threads(3) > 1 {
+        std::thread::scope(|s| {
+            let paths = s.spawn(|| decode::<PathTable>(paths));
+            let authors = s.spawn(|| decode::<AuthorTable>(authors));
+            let files = decode::<(Vec<HeadFile>, Vec<FileHistory>)>(files);
+            (joined(paths.join()), joined(authors.join()), files)
+        })
+    } else {
+        (
+            decode::<PathTable>(paths),
+            decode::<AuthorTable>(authors),
+            decode::<(Vec<HeadFile>, Vec<FileHistory>)>(files),
+        )
+    };
     Ok(Head {
         schema_version: meta.schema_version,
         generation: meta.generation,

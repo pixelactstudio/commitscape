@@ -172,6 +172,8 @@ pub fn build(force: bool) -> Result<()> {
     detached(&dir)?;
     bare(&dir)?;
     shallow(&dir)?;
+    tags(&dir)?;
+    crafted(&dir)?;
 
     println!("fixtures built at {}", dir.display());
     println!("expected values are recorded in docs/fixtures.md");
@@ -704,4 +706,429 @@ fn shallow(dir: &Path) -> Result<()> {
         );
     }
     Ok(())
+}
+
+fn tags(dir: &Path) -> Result<()> {
+    let src = dir.join("merges");
+    let dst = dir.join("tags");
+    if dst.exists() {
+        std::fs::remove_dir_all(&dst)?;
+    }
+    let out = Command::new("git")
+        .args(["clone", "-q"])
+        .arg(&src)
+        .arg(&dst)
+        .output()
+        .context("cloning the tags fixture")?;
+    if !out.status.success() {
+        bail!(
+            "tags clone failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
+    }
+    let fx = Fx { root: dst, day: 0 };
+    fx.git(&["remote", "remove", "origin"])?;
+    fx.git(&["tag", "v1.0.0", "HEAD~2"])?;
+    fx.git_env(
+        &["tag", "-a", "v1.1.0", "-m", "v1.1.0", "HEAD"],
+        &[
+            ("GIT_COMMITTER_NAME", ALICE.name.to_string()),
+            ("GIT_COMMITTER_EMAIL", ALICE.email.to_string()),
+            ("GIT_COMMITTER_DATE", format!("{} +0000", EPOCH + 30 * DAY)),
+        ],
+    )?;
+    fx.git(&["tag", "tools-0.1.0", "HEAD~1"])?;
+    Ok(())
+}
+
+struct Crafted {
+    fx: Fx,
+    at: i64,
+}
+
+const CRAFTED_PEOPLE: &[(&str, &str, &str)] = &[
+    ("ada", "Ada Lovelace", "ada@example.com"),
+    ("ada2", "Ada Lovelace", "ada@work.example"),
+    ("bob", "Bob", "12+bob@users.noreply.github.com"),
+    (
+        "bot",
+        "dependabot[bot]",
+        "49699333+dependabot[bot]@users.noreply.github.com",
+    ),
+    ("cara", "Cara", "cara@example.com"),
+];
+
+enum Content {
+    Text(String),
+    Bytes(&'static [u8]),
+    Gone,
+}
+
+fn numbered(n: usize, word: &str) -> String {
+    (0..n).map(|i| format!("{word} {i}\n")).collect()
+}
+
+impl Crafted {
+    fn env(by: &str, at: i64, zone: &str) -> Result<Vec<(&'static str, String)>> {
+        let Some((_, name, email)) = CRAFTED_PEOPLE.iter().find(|(k, _, _)| *k == by) else {
+            bail!("no one called {by}");
+        };
+        let stamp = format!("{at} {zone}");
+        Ok(vec![
+            ("GIT_AUTHOR_NAME", name.to_string()),
+            ("GIT_AUTHOR_EMAIL", email.to_string()),
+            ("GIT_AUTHOR_DATE", stamp.clone()),
+            ("GIT_COMMITTER_NAME", name.to_string()),
+            ("GIT_COMMITTER_EMAIL", email.to_string()),
+            ("GIT_COMMITTER_DATE", stamp),
+        ])
+    }
+
+    fn commit(
+        &mut self,
+        by: &str,
+        subject: &str,
+        files: Vec<(String, Content)>,
+        step: i64,
+        zone: &str,
+    ) -> Result<()> {
+        for (path, content) in files {
+            let at = self.fx.root.join(&path);
+            match content {
+                Content::Gone => {
+                    if at.exists() {
+                        std::fs::remove_file(&at)?;
+                    }
+                }
+                Content::Text(text) => self.fx.write(&path, &text)?,
+                Content::Bytes(bytes) => {
+                    if let Some(parent) = at.parent() {
+                        std::fs::create_dir_all(parent)?;
+                    }
+                    std::fs::write(&at, bytes)?;
+                }
+            }
+        }
+        self.at += step;
+        self.fx.git(&["add", "-A"])?;
+        self.fx.git_env(
+            &["commit", "-q", "--allow-empty", "-m", subject],
+            &Self::env(by, self.at, zone)?,
+        )?;
+        Ok(())
+    }
+}
+
+fn text(path: &str, body: String) -> (String, Content) {
+    (path.to_string(), Content::Text(body))
+}
+
+fn gone(path: &str) -> (String, Content) {
+    (path.to_string(), Content::Gone)
+}
+
+fn crafted(dir: &Path) -> Result<()> {
+    const HOUR: i64 = 3600;
+    let fx = Fx::init(dir.join("crafted"))?;
+    let mut c = Crafted {
+        fx,
+        at: 1_650_000_000,
+    };
+    c.commit(
+        "ada",
+        "feat: start (#1)",
+        vec![
+            text("src/app.ts", numbered(20, "app")),
+            text("src/util.ts", numbered(12, "util")),
+            text("docs/README.md", numbered(5, "read")),
+            text("package-lock.json", "{}\n".into()),
+            (
+                "logo.png".into(),
+                Content::Bytes(&[137, 80, 78, 71, 0, 0, 1, 2]),
+            ),
+            text("constructor.js", numbered(3, "c")),
+        ],
+        0,
+        "+0000",
+    )?;
+    c.commit(
+        "cara",
+        "docs: an old note",
+        vec![text("docs/old.md", numbered(2, "old"))],
+        200 * DAY,
+        "+0000",
+    )?;
+    c.commit(
+        "bob",
+        "fix: bug in app (#12)",
+        vec![
+            text("src/app.ts", numbered(22, "app")),
+            text("src/util.ts", numbered(13, "util")),
+        ],
+        150 * DAY,
+        "+0000",
+    )?;
+    c.commit(
+        "ada",
+        "feat: names from far away",
+        vec![
+            text("src/é.ts", numbered(4, "e")),
+            text("src/𝒜.ts", numbered(4, "a")),
+            text("src/｡.ts", numbered(4, "dot")),
+            text("src/Z.ts", numbered(1, "z")),
+        ],
+        HOUR,
+        "+0000",
+    )?;
+    c.commit(
+        "cara",
+        "docs: words",
+        vec![text("docs/README.md", numbered(9, "read"))],
+        HOUR,
+        "+0530",
+    )?;
+    c.commit(
+        "bot",
+        "chore(deps): bump the lock (#14)",
+        vec![text("package-lock.json", "{\"a\":1}\n".into())],
+        HOUR,
+        "+0000",
+    )?;
+    c.commit(
+        "ada",
+        "refactor: move util (#7) and (#8)",
+        vec![
+            gone("src/util.ts"),
+            text("lib/util.ts", numbered(13, "util")),
+            text("src/app.ts", numbered(23, "app")),
+        ],
+        HOUR,
+        "+0000",
+    )?;
+    for i in 0..7usize {
+        let by = ["ada", "bob", "cara"].get(i % 3).copied().unwrap_or("ada");
+        let mut files = vec![
+            text("src/app.ts", numbered(24 + i, "app")),
+            text("lib/util.ts", numbered(14 + i, "util")),
+        ];
+        if i % 2 == 0 {
+            files.push(text("src/é.ts", numbered(5 + i, "e")));
+        }
+        if i % 3 == 0 {
+            files.push(text("docs/README.md", numbered(10 + i, "read")));
+        }
+        let subject = if i == 4 {
+            "feat: pair with a pull (#21) at the end  ".to_string()
+        } else {
+            format!("feat: pair {i}")
+        };
+        let zone = if i % 2 == 1 { "-0800" } else { "+0100" };
+        c.commit(by, &subject, files, 1800 + i as i64 * 600, zone)?;
+    }
+    c.commit(
+        "ada",
+        "feat: a big file",
+        vec![
+            text("big.txt", numbered(30_000, "big")),
+            text("dist/bundle.min.js", numbered(2, "min")),
+        ],
+        HOUR,
+        "+0000",
+    )?;
+    c.commit(
+        "bob",
+        "fix: same second a",
+        vec![text("src/Z.ts", numbered(2, "z"))],
+        HOUR,
+        "+0000",
+    )?;
+    c.commit(
+        "cara",
+        "fix: same second b",
+        vec![text("docs/README.md", numbered(20, "read"))],
+        0,
+        "+0000",
+    )?;
+    c.commit(
+        "ada",
+        "chore: vendor drop",
+        (0..60)
+            .map(|i| text(&format!("vendor/x/f{i}.js"), numbered(2, &format!("v{i}"))))
+            .collect(),
+        HOUR,
+        "+0000",
+    )?;
+    c.commit(
+        "cara",
+        "feat: a thing",
+        vec![text("old/thing.js", numbered(3, "thing"))],
+        HOUR,
+        "+0000",
+    )?;
+    c.commit(
+        "ada",
+        "revert: remove the thing",
+        vec![gone("old/thing.js")],
+        HOUR,
+        "+0000",
+    )?;
+    c.commit(
+        "bob",
+        "feat: deep",
+        vec![text("a/b/c/deep.rs", numbered(3, "deep"))],
+        HOUR,
+        "+0000",
+    )?;
+    c.commit(
+        "cara",
+        "perf: deeper",
+        vec![
+            text("a/b/c/deep.rs", numbered(4, "deep")),
+            text("a/b/top.rs", numbered(1, "top")),
+        ],
+        HOUR,
+        "+0000",
+    )?;
+    c.fx.git(&["checkout", "-q", "-b", "topic"])?;
+    c.commit(
+        "bob",
+        "feat: on a branch",
+        vec![text("src/app.ts", numbered(40, "app"))],
+        HOUR,
+        "+0000",
+    )?;
+    c.commit(
+        "bob",
+        "docs: on a branch",
+        vec![text("docs/README.md", numbered(21, "read"))],
+        HOUR,
+        "+0000",
+    )?;
+    c.fx.git(&["checkout", "-q", "main"])?;
+    c.commit(
+        "ada",
+        "test: on main meanwhile",
+        vec![text("src/app.test.ts", numbered(3, "test"))],
+        HOUR,
+        "+0000",
+    )?;
+    c.at += HOUR;
+    c.fx.git_env(
+        &[
+            "merge",
+            "--no-ff",
+            "-q",
+            "topic",
+            "-m",
+            "Merge pull request #13 from acme/topic",
+        ],
+        &Crafted::env("ada", c.at, "+0000")?,
+    )?;
+    c.commit(
+        "ada2",
+        "feat: from another address",
+        vec![text("src/app.ts", numbered(41, "app"))],
+        HOUR,
+        "+0000",
+    )?;
+    c.commit(
+        "cara",
+        "style: late at night",
+        vec![text("src/app.ts", numbered(42, "app"))],
+        HOUR,
+        "-0800",
+    )?;
+    link(&c.fx)?;
+    c.commit("bob", "build: a link", vec![], HOUR, "+0000")?;
+    c.commit("ada", "chore: empty", vec![], HOUR, "+0000")?;
+    c.commit(
+        "cara",
+        "feat: again",
+        vec![text("src/again.ts", numbered(2, "again"))],
+        HOUR,
+        "+0000",
+    )?;
+    c.commit(
+        "bob",
+        "fix: again gone",
+        vec![gone("src/again.ts")],
+        HOUR,
+        "+0000",
+    )?;
+    c.commit(
+        "cara",
+        "feat: again back (#30)",
+        vec![text("src/again.ts", numbered(3, "again"))],
+        HOUR,
+        "+0000",
+    )?;
+    c.commit(
+        "ada",
+        "feat: x old",
+        vec![text("x/old.ts", numbered(5, "xold"))],
+        HOUR,
+        "+0000",
+    )?;
+    c.commit(
+        "ada",
+        "refactor: x to y",
+        vec![gone("x/old.ts"), text("y/old.ts", numbered(5, "xold"))],
+        HOUR,
+        "+0000",
+    )?;
+    c.commit(
+        "bob",
+        "feat: a new x old",
+        vec![text("x/old.ts", numbered(2, "new"))],
+        HOUR,
+        "+0000",
+    )?;
+    for i in 0..30usize {
+        let by = ["bob", "cara", "ada", "bot"]
+            .get(i % 4)
+            .copied()
+            .unwrap_or("bob");
+        let subject = match i % 5 {
+            0 => format!("feat: step {i} (#{})", 1_234_560 + i),
+            1 => format!("fix: step {i} (#{})", 12_345_670 + i),
+            2 => format!("Merge pull request #{}x from a/b", 900 + i),
+            3 => format!("chore: step {i}"),
+            _ => format!("docs: (#{}) step {i}", 40 + i),
+        };
+        let mut files = vec![text(
+            &format!("src/steps/s{}.ts", i % 5),
+            numbered(i + 1, "step"),
+        )];
+        if i % 2 == 0 {
+            files.push(text("src/app.ts", numbered(44 + i, "app")));
+        }
+        if i % 3 == 0 {
+            files.push(text("lib/util.ts", numbered(30 + i, "util")));
+        }
+        let zone = if i % 5 == 0 { "+1400" } else { "-1100" };
+        c.commit(by, &subject, files, 900 + (i % 4) as i64 * 1800, zone)?;
+    }
+    c.commit(
+        "ada",
+        "fix: last (#31)",
+        vec![
+            text("src/app.ts", numbered(80, "app")),
+            text("y/old.ts", numbered(6, "xold")),
+        ],
+        HOUR,
+        "+0000",
+    )?;
+    Ok(())
+}
+
+#[cfg(unix)]
+fn link(fx: &Fx) -> Result<()> {
+    std::os::unix::fs::symlink("src/app.ts", fx.root.join("link")).context("making the link")
+}
+
+#[cfg(windows)]
+fn link(fx: &Fx) -> Result<()> {
+    fx.git(&["config", "core.symlinks", "true"])?;
+    std::os::windows::fs::symlink_file("src/app.ts", fx.root.join("link"))
+        .context("making the link (needs Developer Mode or an administrator)")
 }

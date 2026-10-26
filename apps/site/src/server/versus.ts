@@ -1,38 +1,25 @@
 import "@tanstack/react-start/server-only";
-import { and, eq } from "drizzle-orm";
-import { achievementsOf, archetypesOf, betweenOf, gapsTo, isLogin, sharedRepositories, versusRows, type Gap, type Profile, type VersusFull, type VersusPerson, type VersusRow, type VersusSide } from "@commitscape/data";
-import { now, schema, type Db } from "@commitscape/server";
+import { achievementsOf, archetypesOf, betweenOf, isLogin, sharedRepositories, versusRows, type Profile, type VersusFull, type VersusPerson, type VersusRow, type VersusSide } from "@commitscape/data";
 import { survivingTotal } from "./engine";
 import { SiteError } from "./http";
 import { isHidden } from "./people";
-import { readProfile, type ProfileDeps } from "./profiles";
+import { readProfile, STORED_ONLY, type ProfileDeps, type ProfileViewer } from "./profiles";
 
-const { rivals } = schema;
-
-export const RIVALS_MAX = 5;
-const asked = (member: boolean) => ({ login: async () => null, token: async () => null, member: async () => member });
-
-/** A month's merged pull requests and contributions in a Profile, the current month on UTC's calendar by default. */
-export function monthOf(p: Profile, month = new Date().toISOString().slice(0, 7)): VersusSide["thisMonth"] {
-  const m = p.months.find((x) => x.month === month);
-  return { prsMerged: m?.prsMerged ?? 0, contributions: m?.contributions ?? 0 };
-}
-
-async function read(deps: ProfileDeps, login: string, member = false) {
+async function read(deps: ProfileDeps, login: string, reader: ProfileViewer) {
   if (!isLogin(login)) throw new SiteError(404, "That is not a GitHub username.");
   if (await isHidden(deps, login)) throw new SiteError(404, `@${login} has chosen to stay out of comparisons.`);
-  const p = await readProfile(deps, asked(member), login, true);
+  const p = await readProfile(deps, reader, login, true);
   const engine = await survivingTotal(deps.db, login);
   return { p, engine };
 }
 
 function side(p: Profile, surviving: number | null): VersusSide {
-  return { identity: { login: p.identity.login, name: p.identity.name }, totals: p.totals, surviving, thisMonth: monthOf(p) };
+  return { identity: { login: p.identity.login, name: p.identity.name }, totals: p.totals, surviving };
 }
 
-/** One side of a comparison: a person's public Profile and their counted Surviving Lines; a hidden person is refused. */
-export async function sideOf(deps: ProfileDeps, login: string, member = false): Promise<VersusSide> {
-  const { p, engine } = await read(deps, login, member);
+/** One side of a comparison from what is stored: a person's public Profile and their counted Surviving Lines; a hidden person is refused. */
+export async function sideOf(deps: ProfileDeps, login: string): Promise<VersusSide> {
+  const { p, engine } = await read(deps, login, STORED_ONLY);
   return side(p, engine?.surviving ?? null);
 }
 
@@ -58,55 +45,19 @@ export function personOf(p: Profile, engine: Awaited<ReturnType<typeof surviving
   };
 }
 
-/** Two people side by side in full: each view's winner, then their years, languages, hours, traits and the repositories they share. */
-export async function versusFullOf(deps: ProfileDeps, a: string, b: string, member = false): Promise<VersusFull> {
+/** Two people side by side in full: each view's winner, then their years, languages, hours, traits and the repositories they share; read from GitHub by `reader` when not stored. */
+export async function versusFullOf(deps: ProfileDeps, a: string, b: string, reader: ProfileViewer = STORED_ONLY): Promise<VersusFull> {
   if (a.toLowerCase() === b.toLowerCase()) throw new SiteError(400, "A Versus needs two different people.");
-  const [x, y] = await Promise.all([read(deps, a, member), read(deps, b, member)]);
+  const [x, y] = await Promise.all([read(deps, a, reader), read(deps, b, reader)]);
   const [sa, sb] = [side(x.p, x.engine?.surviving ?? null), side(y.p, y.engine?.surviving ?? null)];
   return { a: sa, b: sb, rows: versusRows(sa, sb), people: { a: personOf(x.p, x.engine), b: personOf(y.p, y.engine) }, shared: sharedRepositories(x.p.repositories, y.p.repositories), between: betweenOf(x.p, y.p) };
 }
 
 export type Versus = { a: VersusSide; b: VersusSide; rows: VersusRow[] };
 
-/** Two people side by side, with a winner for each view and none overall. */
+/** Two people side by side from what is stored, with a winner for each view and none overall. */
 export async function versusOf(deps: ProfileDeps, a: string, b: string): Promise<Versus> {
   if (a.toLowerCase() === b.toLowerCase()) throw new SiteError(400, "A Versus needs two different people.");
   const [x, y] = await Promise.all([sideOf(deps, a), sideOf(deps, b)]);
   return { a: x, b: y, rows: versusRows(x, y) };
-}
-
-/** Adds a Rival for a signed-in person, up to five. */
-export async function addRival(db: Db, userId: string, mine: string, rival: string): Promise<void> {
-  if (!isLogin(rival)) throw new SiteError(400, "That is not a GitHub username.");
-  if (rival.toLowerCase() === mine.toLowerCase()) throw new SiteError(400, "You cannot be your own Rival.");
-  const kept = await db.select().from(rivals).where(eq(rivals.userId, userId));
-  if (kept.length >= RIVALS_MAX && !kept.some((r) => r.rival === rival.toLowerCase())) throw new SiteError(400, `Five Rivals at most; remove one first.`);
-  await db.insert(rivals).values({ userId, rival: rival.toLowerCase(), createdAt: now() }).onConflictDoNothing();
-}
-
-/** Removes a Rival. */
-export async function removeRival(db: Db, userId: string, rival: string): Promise<void> {
-  await db.delete(rivals).where(and(eq(rivals.userId, userId), eq(rivals.rival, rival.toLowerCase())));
-}
-
-export type RivalGap = { login: string; name: string | null; gaps: Gap[] } | { login: string; hidden: true };
-
-/** A signed-in person's Rivals, and how far they are from each; a Rival who has hidden says only that. */
-export async function rivalsOf(deps: ProfileDeps, userId: string, mine: string): Promise<RivalGap[]> {
-  const list = await deps.db.select().from(rivals).where(eq(rivals.userId, userId)).orderBy(rivals.createdAt);
-  if (list.length === 0) return [];
-  const me = await sideOf(deps, mine, true).catch(() => null);
-  return Promise.all(
-    list.map(async (r): Promise<RivalGap> => {
-      if (await isHidden(deps, r.rival)) return { login: r.rival, hidden: true };
-      const them = await sideOf(deps, r.rival, true).catch(() => null);
-      if (!them || !me) return { login: r.rival, hidden: true };
-      return { login: them.identity.login, name: them.identity.name, gaps: gapsTo(me, them) };
-    }),
-  );
-}
-
-/** The logins a signed-in person has as Rivals. */
-export async function rivalLogins(db: Db, userId: string): Promise<string[]> {
-  return (await db.select({ rival: rivals.rival }).from(rivals).where(eq(rivals.userId, userId))).map((r) => r.rival);
 }

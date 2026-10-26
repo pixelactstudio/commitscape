@@ -65,7 +65,15 @@ pub struct HeadChange {
 
 pub type BlobSink<'a> = &'a (dyn Fn(usize, &[u8]) + Sync);
 
-pub type LineSink<'a> = &'a (dyn Fn(Oid, &[RawChange<'_>], &[Option<LineDelta>]) + Sync);
+pub type LineSink<'a> = &'a mut dyn FnMut(Oid, &[RawChange<'_>], &[Option<LineDelta>]);
+
+#[derive(Debug, Clone, Copy)]
+pub struct LineWork<'a> {
+    pub id: Oid,
+    pub time: i64,
+    pub mainline: bool,
+    pub skip: &'a [bool],
+}
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct WalkStats {
@@ -106,7 +114,17 @@ pub trait RepoSource {
 
     fn read_blobs(&self, blobs: &[Oid], sink: BlobSink<'_>) -> Result<(), Self::Error>;
 
-    fn count_lines(&self, commits: &[Oid], sink: LineSink<'_>) -> Result<(), Self::Error>;
+    fn count_lines(
+        &self,
+        work: &[LineWork<'_>],
+        until: Option<std::time::Instant>,
+        sink: LineSink<'_>,
+    ) -> Result<(), Self::Error>;
+
+    fn head_history(
+        &self,
+        visit: &mut dyn FnMut(Oid, i64, &[Oid]),
+    ) -> Result<Option<Oid>, Self::Error>;
 
     fn blame_ignore_revs(&self) -> Result<Vec<Oid>, Self::Error>;
 }

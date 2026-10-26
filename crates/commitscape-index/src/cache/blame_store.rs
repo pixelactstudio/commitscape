@@ -175,6 +175,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let options = CacheOptions {
             root: Some(dir.path().to_path_buf()),
+            key: None,
         };
         let repo = RepoIdentity {
             git_dir: "/r/.git".to_string(),

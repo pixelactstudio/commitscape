@@ -1,4 +1,6 @@
-use std::collections::HashMap;
+use std::collections::hash_map::Entry;
+
+use foldhash::HashMap;
 
 #[derive(Default)]
 pub(crate) struct HashIndex {
@@ -21,10 +23,10 @@ impl HashIndex {
 
     pub(crate) fn insert(&mut self, hash: u64, id: u32) {
         match self.by_hash.entry(hash) {
-            std::collections::hash_map::Entry::Vacant(v) => {
+            Entry::Vacant(v) => {
                 v.insert(id);
             }
-            std::collections::hash_map::Entry::Occupied(_) => self.collisions.push((hash, id)),
+            Entry::Occupied(_) => self.collisions.push((hash, id)),
         }
     }
 }

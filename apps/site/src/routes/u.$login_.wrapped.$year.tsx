@@ -4,9 +4,7 @@ import { Icon } from "@astryxdesign/core/Icon";
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { createFileRoute, Link, useRouteContext } from "@tanstack/react-router";
-import { LockedPage } from "#/components/Locked";
-import { GATES } from "#/lib/gates";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { ChevronLeft, ChevronRight, GitMerge, Lock } from "lucide-react";
 import { PRODUCT, type Wrapped } from "@commitscape/data";
 import { AreaTrend, compact, Donut, Face, grouped, many, Outcomes, Page, Panel, RepoTiles, StackedColumns, Stat, TipLayer, WeekBars, WRAPPED_CALENDAR_CARD_SIZE, WRAPPED_CARD_SIZE, YearGrid, type Slice } from "@commitscape/ui";
@@ -37,10 +35,8 @@ export const Route = createFileRoute("/u/$login_/wrapped/$year")({
 function WrappedPage() {
   const { year } = Route.useParams();
   const { lookup, origin } = Route.useLoaderData();
-  const { user } = useRouteContext({ from: "__root__" });
   const y = Number(year);
   if (!Number.isInteger(y) || y < 2008 || y > THIS_YEAR) return <Missing title="No such year" words={`Wrapped covers the years from 2008 to ${THIS_YEAR}.`} />;
-  if (!user && GATES.wrapped.on) return <LockedPage gate="wrapped" />;
   if (lookup.status === "hidden") return <Missing title="This Wrapped is hidden" words="This person has chosen to stay out, so their Wrapped is hidden." />;
   if (lookup.status !== "ok") return <Missing title="No one by that name" words="GitHub has no person by that name." />;
   const id = lookup.identity;

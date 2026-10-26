@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use commitscape_core::Index;
 use commitscape_index::{
-    index_from_scratch, line_pass, CacheOptions, GixRepo, RepoSource, Survival, Survived,
+    index_from_scratch, line_pass, CacheOptions, GixRepo, LinePlan, RepoSource, Survival, Survived,
 };
 use commitscape_metrics::{Analysis, Options, Window};
 use serde_json::Value;
@@ -73,7 +73,7 @@ fn surviving(max_changeset_size: u32) -> Vec<(u64, Option<i64>)> {
 fn added(max_changeset_size: u32) -> Vec<u64> {
     let repo = GixRepo::open(&fixture()).expect("opening fixture");
     let mut index = index_from_scratch(&repo).expect("indexing fixture");
-    line_pass(&repo, &index, None, &mut |_, _| {})
+    line_pass(&repo, &index, &LinePlan::default(), None, &mut |_, _| {})
         .expect("counting lines")
         .apply(&mut index);
     let anchor = index.span.newest.expect("commits");
@@ -111,6 +111,7 @@ fn without_a_bulk_commit_the_reformat_keeps_every_line_it_touched() {
 
 fn run(args: &[&str]) -> Vec<u8> {
     let out = Command::new(env!("CARGO_BIN_EXE_commitscape"))
+        .env("COMMITSCAPE_TELEMETRY", "0")
         .args(args)
         .output()
         .expect("running commitscape");

@@ -1,5 +1,15 @@
 import { expect, test } from "@playwright/test";
-import { signInAs, sql } from "./accounts";
+import { SIGNED_IN, signInAs, sql } from "./accounts";
+
+test("every test browses signed in, as dana unless it signs in someone else", async ({ browser }) => {
+  const context = await browser.newContext({ storageState: { cookies: [], origins: [] } });
+  await signInAs(context, "dana");
+  const page = await context.newPage();
+  await page.goto("/dashboard");
+  await expect(page).toHaveURL(/\/dashboard$/);
+  await context.storageState({ path: SIGNED_IN });
+  await context.close();
+});
 
 test("the fixture repository and its owner are read for someone signed in", async ({ browser }) => {
   test.setTimeout(180_000);

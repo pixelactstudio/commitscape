@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::ops::Range;
 
 use commitscape_core::{AuthorId, CommitFlags, CommitMeta, FileId, HeadFile, Index};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::window::Window;
 
@@ -14,11 +14,18 @@ pub const DEFAULT_OWNERSHIP_MIN_COMMITS: u32 = 10;
 
 pub const RANKING_LIMIT: usize = 1000;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Options {
     pub max_changeset_size: u32,
     pub coupling_support: u32,
     pub ownership_min_commits: u32,
+}
+
+impl Options {
+    /// Whether a commit is a Bulk Commit: it touched more files than `max_changeset_size`, or was flagged as one.
+    pub fn is_bulk(&self, commit: &CommitMeta) -> bool {
+        commit.changes_len > self.max_changeset_size || commit.flags.contains(CommitFlags::BULK)
+    }
 }
 
 impl Default for Options {
@@ -229,7 +236,10 @@ impl<'i> Analysis<'i> {
     }
 
     pub(crate) fn by_path(&self, a: FileId, b: FileId) -> Ordering {
-        self.index.paths.path(a).cmp(&self.index.paths.path(b))
+        match (self.index.paths.path(a), self.index.paths.path(b)) {
+            (Some(a), Some(b)) => crate::text::compare_text(a, b),
+            (a, b) => a.cmp(&b),
+        }
     }
 }
 
@@ -253,9 +263,7 @@ pub(crate) fn counts(commit: &CommitMeta, options: &Options) -> bool {
 fn exclusion(commit: &CommitMeta, options: &Options) -> Option<Excluded> {
     if commit.is_merge() {
         Some(Excluded::Merge)
-    } else if commit.changes_len > options.max_changeset_size
-        || commit.flags.contains(CommitFlags::BULK)
-    {
+    } else if options.is_bulk(commit) {
         Some(Excluded::Bulk)
     } else {
         None

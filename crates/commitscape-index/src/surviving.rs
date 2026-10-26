@@ -535,6 +535,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let options = CacheOptions {
             root: Some(dir.path().to_path_buf()),
+            key: None,
         };
         let alice = person(&index, "Alice Example");
         let carol = person(&index, "Carol Example");

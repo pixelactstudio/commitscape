@@ -4,6 +4,7 @@ import { CodeBlock } from "@astryxdesign/core/CodeBlock";
 import { Icon } from "@astryxdesign/core/Icon";
 import { ChevronRight, Copy, Download, Link2 } from "lucide-react";
 import { ICON } from "@commitscape/ui/design";
+import { track } from "#/lib/analytics";
 import { cardSrc, markdownOf } from "#/lib/markdown";
 import { useToast } from "#/lib/toast";
 import type { CardChoice } from "./types";
@@ -20,7 +21,11 @@ function useAddresses(choice: CardChoice, query: string, origin: string) {
     png: (theme: "light" | "dark") => cardSrc(choice.url, "png", theme, query),
     x: `https://x.com/intent/post?text=${encodeURIComponent(choice.share)}&url=${encodeURIComponent(link)}`,
     linkedin: `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(link)}`,
-    copy: (text: string, words: string) => void navigator.clipboard?.writeText(text).then(() => toast(words)),
+    copy: (text: string, words: string) =>
+      void navigator.clipboard?.writeText(text).then(() => {
+        track("card copied", { card: choice.id, what: words });
+        toast(words);
+      }),
     toast,
   };
 }

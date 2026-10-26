@@ -349,9 +349,8 @@ pub fn blame_in_threads<T: BlameThreads>(
     deadline: Option<Instant>,
     finished: &mut dyn FnMut(usize, Blamed),
 ) -> Result<Walked, <T::Local as BlameSource>::Error> {
-    let count = std::thread::available_parallelism()
-        .map_or(1, |n| n.get())
-        .clamp(1, MAX_THREADS)
+    let count = crate::threads::threads(files.len())
+        .min(MAX_THREADS)
         .min(files.len());
     if count <= 1 {
         return blame(

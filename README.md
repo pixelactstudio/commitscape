@@ -1,7 +1,9 @@
+**English** · [简体中文](./docs/readme/README.zh-CN.md) · [日本語](./docs/readme/README.ja.md) · [한국어](./docs/readme/README.ko.md) · [Español](./docs/readme/README.es.md) · [Português](./docs/readme/README.pt-BR.md) · [Deutsch](./docs/readme/README.de.md) · [Français](./docs/readme/README.fr.md) · [हिन्दी](./docs/readme/README.hi.md)
+
 <div align="center">
   <img src="./.github/logo.svg" alt="commitscape" width="64" height="64" />
   <h1>commitscape</h1>
-  <p>What you have built, how you stand next to the people you work with, and cards to share it.</p>
+  <p>What you have built, how you stand next to the people you work with, and Cards to share it.</p>
 </div>
 
 <p align="center">
@@ -20,8 +22,8 @@ commitscape shows a developer what they have built: pull requests merged,
 reviews given, and the lines of theirs that still run, counted from each
 repository's own history with blame. It shows how they stand next to the
 people they work with, view by view and never by one score, and turns it
-into Cards for a README, a self-review or a post. On your machine it reads
-the whole history of a large repository in seconds, from git's own data.
+into Cards for a README, a self-review or a post. It reads the whole
+history of a large repository in seconds, from git's own data.
 
 ![commitscape's own story, drawn by commitscape](.github/commitscape-card.svg)
 
@@ -29,15 +31,15 @@ There are two ways to use it:
 
 1. **From your terminal.** Run `npx commitscape` in any git repository. It
    says what it will upload and asks first (Enter means yes), reads the
-   history on your machine, uploads the Report encrypted and opens its link
-   in your browser. The link works for 4 hours, and the Site cannot read
-   what it stores.
-2. **On the Site.** Type any GitHub username for their Profile: totals,
-   Surviving Lines, Archetype and Achievements, where their work is, Cards
-   to embed, Proof of Work for a period, Versus, Rivals, Races, Crews and
-   Wrapped. Paste a repository link for its Report and Standings, sign in
-   with GitHub to see your own private work, or browse the Leaderboards.
-   Anyone can stay out of comparisons.
+   history on your machine, uploads the Report locked with a key only the
+   link holds, and opens the link in your browser. The link works for 4
+   hours, and the Site cannot read what it stores.
+2. **On the Site.** Sign in with GitHub, then type any GitHub username for
+   their Profile: totals, Surviving Lines, Archetype and Achievements, where
+   their work is, Cards to embed, Proof of Work for a period, Versus and
+   Wrapped. Paste a repository link for its Report and Standings, or choose
+   your own repositories, private ones included. Anyone can stay out of
+   comparisons.
 
 The project is in early development. The CLI and the Site work end to end.
 
@@ -48,12 +50,12 @@ npx commitscape
 ```
 
 ```text
-This uploads my-project's Report to https://commitscape.damnlabs.com.
+This uploads my-project's Report to https://app.commitscape.com.
   It holds file paths, people's names and GitHub logins, and commit subjects. No email addresses.
   It is locked with a key only the link holds, so the Site cannot read it.
   The link works for 4 hours.
 Upload it? [Y/n]
-https://commitscape.damnlabs.com/s/k3f9q2x7#0dbf…
+https://app.commitscape.com/s/k3f9q2x7#0dbf…
 ```
 
 `--no-open` prints the link without opening a browser, `--yes` uploads
@@ -85,8 +87,8 @@ once it runs.
 
 | Command | What it does |
 |---|---|
-| `commitscape [path]` | The same as `commitscape share`: asks, uploads the encrypted Report and opens its link |
-| `commitscape share [path]` | An encrypted link to this repository's Report, for any browser; `--list` and `--delete <link>` manage them |
+| `commitscape [path]` | The same as `commitscape share`: asks, uploads the locked Report and opens its link |
+| `commitscape share [path]` | A locked link to this repository's Report, for any browser; `--list` and `--delete <link>` manage them |
 | `commitscape surviving [path] --person <id>` | A person's Surviving Lines: the lines at the head that blame gives them, reformats passed through |
 | `commitscape health <owner/name>` | Whether a GitHub project is alive and whether it depends on one person |
 
@@ -105,43 +107,109 @@ repository, up to date on a schedule:
 ```
 
 Or embed a Card's address from the Site directly; its Cards studio at
-`/u/<login>/cards` gives the address for each.
+`/u/<login>/cards` gives the address for each. Cards open without signing
+in, so READMEs can show them.
 
 ## On the Site
 
 - **Any public GitHub repository.** Go to `/gh/<owner>/<name>`. GitHub's
   facts show at once, and the Report follows when its history is read:
-  seconds for most repositories.
-- **Your own repositories.** Sign in with GitHub and choose repositories
-  through commitscape's GitHub App, which can only read. A private
-  repository's Report is shown only to people GitHub says can see it.
-- **Leaderboards.** Popular repositories ranked by what commitscape
-  measures: resting on one person, most maintainers, most active, fastest
-  to answer issues, and oldest code still running. Repositories only,
-  never people.
-- **For AI agents.** An MCP server at `/mcp` lets an agent look up a
-  repository and read its Report.
+  seconds for most repositories. Lines Changed follow, the default branch's
+  first.
+- **Your own repositories.** Choose repositories through commitscape's
+  GitHub App, which can only read. A private repository's Report is shown
+  only to people GitHub says can see it.
+- **Open to anyone.** Cards, Shared Reports and shared Proof of Work. Every
+  other page asks you to sign in with GitHub, so what you open is read with
+  your own GitHub allowance.
+- **For MCP clients.** When the Site sets a token, `/mcp` looks up a
+  repository and reads its Report, Profiles and Standings.
 
 `/privacy` on the Site says what it keeps, where, for how long, and who can
 read it.
 
 ## Privacy
 
-On your machine, commitscape sends nothing anywhere until you say yes:
+On your machine, commitscape sends a repository nowhere until you say yes:
 
-- `share` (and a bare `commitscape`) uploads the Report encrypted with AES-256-GCM. The key is only in
-  the link, after the `#`, which browsers never send, so the Site stores
-  what it cannot read. No email address is ever included.
-- `report` and `surviving` never use the network. `health` asks GitHub,
-  through the [GitHub CLI](https://cli.github.com), about the project it is
-  given.
-- No analytics, no update checks, and nothing runs at install time.
+- `share` (and a bare `commitscape`) uploads the Report encrypted with
+  AES-256-GCM. The key is only in the link, after the `#`, which browsers
+  never send, so the Site stores what it cannot read. No email address is
+  ever included.
+- `surviving` reads the repository on your machine (given a GitHub address
+  instead, it clones it). `health` asks GitHub, through the
+  [GitHub CLI](https://cli.github.com), about the project it is given.
+- Each run of `share`, `health`, `surviving` or `report` sends one
+  anonymous usage count to the Site: the command, how long it took, how it
+  ended, the version and your platform, under a random id. Never a path or
+  anything from a repository. `COMMITSCAPE_TELEMETRY=0` or `DO_NOT_TRACK=1`
+  turns it off.
+- No update checks, and nothing runs at install time.
+
+On the Site, no email address leaves the Builder: the packs the engine
+service answers from hold none.
+
+## How it is built
+
+One Rust engine reads git history, in the CLI on your machine and in the
+Builder for the Site. The Site never runs git.
+
+![Who talks to whom: the Site, the engine service, the Builder, Postgres, R2 and GitHub](./docs/diagrams/system.svg)
+
+- **The Site** (TanStack Start on Node) draws every page on the server, for
+  people signed in. It keeps rows and the Build queue in Postgres and files
+  in R2, and asks the engine service for anything that needs a pass over a
+  repository's history.
+- **The engine service** (Rust, `apps/engine`) answers from packs: each is a
+  repository's Index at one head, written by a Build and never changed. It
+  fetches a pack from R2 once and keeps it on disk and in memory, so any
+  Window of any repository takes milliseconds.
+- **The Builder** takes Builds from the queue, clones the repository and
+  runs `commitscape build`.
+- **The landing page** is static, on Cloudflare Pages, apart from the Site.
+
+![A Build: the first Report, then Lines Changed, the Mainline first](./docs/diagrams/build.svg)
+
+A cold Build runs two phases at once. A clone without old file contents
+gives the first Report in seconds; a full clone, sharing the same engine
+cache, counts Lines Changed: the Mainline first, newest first, within a
+time budget, with quiet Builds after it for what is left. Each phase copies
+its rows into the Stored Index in Postgres and uploads a new pack, and the
+engine service fetches that pack at the first question about it.
+
+![A page view: where the answers come from, and what is kept](./docs/diagrams/read.svg)
+
+A page's loader reads the pack's key from Postgres, asks the engine service
+with it, and reads rows (Commits pages, branches, pull requests) from
+Postgres and stored files (file text, the Universe's Atlas, Cards) from R2.
+Answers are kept in the engine service and, packed, in the Site; a public
+repository's addresses pinned to a Build are cached for a year.
+
+| Folder | What |
+|---|---|
+| `crates/` | Rust: the engine that reads git, the metrics, the Report and the CLI |
+| `apps/site/` | The Site: TanStack Start on Node, server-rendered, with Better Auth |
+| `apps/engine/` | The engine service: answers the Site's questions from packs (axum, tokio) |
+| `apps/builder/` | The Builder: takes Builds from a Postgres queue, clones the repository, runs `commitscape build`, loads the Stored Index into Postgres and uploads the pack to R2 |
+| `apps/landing/` | The landing page: static HTML drawn at build time, for Cloudflare Pages |
+| `packages/server/` | The database schema and migrations, R2 storage, the queue and the Stored Index loader |
+| `packages/ui/` | Every screen and chart the Site shows |
+| `packages/data/` | The Report's types, generated from Rust, and the Data Sources |
+
+- [Domain language](./CONTEXT.md)
+- [Architecture decisions](./docs/adr), the latest [ADR-0028](./docs/adr/0028-the-engine-service-answers-from-immutable-packs.md)
+- [How the pieces work together](./docs/working.md)
+- [The Stored Index in Postgres](./docs/index-in-postgres.md)
+- [GitHub's API limits](./docs/github-api.md)
+- [Deploying](./DEPLOY.md)
+- [Releasing](./RELEASING.md)
 
 ## Self-hosting
 
-The Site is a TanStack Start app and the Builder a small Node worker, both
-published as Docker images on every merge. [DEPLOY.md](./DEPLOY.md) runs
-them in Dokploy with Postgres and a Cloudflare R2 bucket.
+The Site, the engine service and the Builder are published as Docker images
+on every merge and every release. [DEPLOY.md](./DEPLOY.md) runs them in
+Dokploy, on one server or two, with Postgres, a Cloudflare R2 bucket and
+the landing page on Cloudflare Pages.
 
 ## Development
 
@@ -153,50 +221,35 @@ cd commitscape
 pnpm install
 pnpm services
 cargo xtask fixtures --force
+cargo build --release -p commitscape
 cp apps/site/.env.example apps/site/.env
 cp apps/builder/.env.example apps/builder/.env
+cp apps/engine/.env.example apps/engine/.env
+pnpm dev:engine
 pnpm dev:builder
 pnpm dev:site
 ```
 
 `pnpm services` starts Postgres and an S3 stand-in in Docker. Set
 `BETTER_AUTH_SECRET` in `apps/site/.env` (`openssl rand -hex 32`). The Site
-runs at [http://localhost:3100](http://localhost:3100). GitHub sign-in,
-Sentry and PostHog stay off while their keys are empty.
+runs at [http://localhost:3100](http://localhost:3100), the engine service
+on port 4100, and `pnpm dev:landing` draws the landing page at
+[http://localhost:3200](http://localhost:3200). GitHub sign-in, Sentry and
+PostHog stay off while their keys are empty.
 
 | Command | Purpose |
 |---|---|
-| `cargo run -p commitscape -- report <path>` | Write a repository's Report with the CLI |
-| `cargo test --workspace` | Every Rust test |
+| `cargo test --workspace` | Every Rust test, the engine service's golden answers included |
 | `cargo clippy --workspace --all-targets -- -D warnings` | Rust lints |
 | `cargo xtask check-layering` | Check that the crates depend on each other only as designed |
 | `pnpm check` | Typecheck, lint, test and build every TypeScript package |
-| `pnpm e2e` | The Site and the Builder end to end in Chromium, with accessibility checks |
+| `pnpm e2e` | The Site, the engine service and the Builder end to end in Chromium, with accessibility checks |
 | `pnpm db:generate` | Write the migration for a schema change |
 | `cargo xtask bench` | Timings on large repositories |
 
-## Architecture
-
-| Folder | What |
-|---|---|
-| `crates/` | Rust: the engine that reads git, the metrics, the Report and the CLI |
-| `apps/site/` | The Site: TanStack Start on Node, server-rendered, with Better Auth |
-| `apps/builder/` | The Builder: takes Builds from a Postgres queue, clones the repository, exports its Index into Postgres (`commitscape export`), and keeps file text in R2 |
-| `packages/server/` | The database schema and migrations, R2 storage, the queue and stored Reports |
-| `packages/ui/` | Every screen and chart the Site shows |
-| `packages/data/` | The Report's types, generated from Rust |
-
-- [Domain language](./CONTEXT.md)
-- [Architecture decisions](./docs/adr)
-- [Deploying](./DEPLOY.md)
-- [How the pieces work together](./docs/working.md)
-- [GitHub's API limits](./docs/github-api.md)
-- [Releasing](./RELEASING.md)
-- [Agent guide](./CLAUDE.md)
-
 ## Stack
 
-- Rust, gix and imara-diff
+- Rust, gix and imara-diff; axum and tokio for the engine service
 - TanStack Start, React 19, TypeScript and Vite
 - Astryx and Tailwind CSS
 - PostgreSQL, Drizzle ORM, pg-boss and Cloudflare R2
@@ -220,6 +273,6 @@ chore: update dependencies
 
 commitscape is open-source software, licensed under either the
 [MIT License](./LICENSE-MIT) or the [Apache License 2.0](./LICENSE-APACHE),
-at your option.
+at your option. Copyright 2026 Dev Talan.
 
 An open-source project by [Pixelact Studio](https://pixelactstudio.com).

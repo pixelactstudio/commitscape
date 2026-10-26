@@ -4,7 +4,7 @@ The Builder clones and fetches repositories itself and resolves GitHub logins it
 
 ## Status
 
-accepted (2026-10-09, architecture review). Amends ADR-0015.
+accepted (2026-10-09, architecture review). Amends ADR-0015. Amended by ADR-0028 (2026-10-26): each phase runs one `commitscape build`, which writes the rows, a pack and `meta.json` instead of a Report, and both clones share one engine cache, so the history is walked once; seeds no longer read issue answers.
 
 ## Context
 

@@ -1,25 +1,10 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { PRODUCT } from "@commitscape/data";
-import { Closing } from "#/home/Closing";
-import { Features } from "#/home/Features";
-import { Hero } from "#/home/Hero";
-import { Install } from "#/home/Install";
-import { Reports } from "#/home/Reports";
-import { Rails } from "#/home/layout";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/")({
-  head: () => ({ meta: [{ title: `${PRODUCT}: what you have built, in numbers worth sharing` }] }),
-  component: Landing,
+  beforeLoad: ({ context }) => {
+    if (context.user) throw redirect({ to: "/dashboard" });
+    const landing = context.public?.PUBLIC_LANDING_URL;
+    if (landing) throw redirect({ href: landing, reloadDocument: true });
+    throw redirect({ to: "/sign-in" });
+  },
 });
-
-function Landing() {
-  return (
-    <Rails>
-      <Hero />
-      <Features />
-      <Reports />
-      <Install />
-      <Closing />
-    </Rails>
-  );
-}

@@ -74,12 +74,14 @@ export async function runSurvival(job: SurvivalJob, ctx: JobContext & { budget: 
     await mkdir(scratch, { recursive: true });
     const gh = { ...ctx.github, token: token ?? ctx.github.token };
     const scope = repo.isPrivate ? repo.id : "public";
-    const accounts = await writeAccounts(ctx.run, { bin: cfg.bin, dir: full, scratch, env, timeoutMs: cfg.timeLimit * 1000, log: ctx.log }, async (signatures) => (await accountsFor(db, gh, { owner: repo.owner, name: repo.name, scope }, signatures, cfg.logins)).accounts);
-    const args = ["surviving", "--budget-seconds", String(budget), "--cache-dir", join(home, "cache"), "--offline"];
+    const cache = ["--cache-dir", join(home, "cache"), "--cache-key", repo.id];
+    const engineEnv = { ...env, ...(cfg.threads ? { COMMITSCAPE_THREADS: String(cfg.threads) } : {}) };
+    const accounts = await writeAccounts(ctx.run, { bin: cfg.bin, dir: full, scratch, cache, env: engineEnv, timeoutMs: cfg.timeLimit * 1000, nice: cfg.nice, log: ctx.log }, async (signatures) => (await accountsFor(db, gh, { owner: repo.owner, name: repo.name, scope }, signatures, cfg.logins)).accounts);
+    const args = ["surviving", "--budget-seconds", String(budget), ...cache, "--offline"];
     if (accounts) args.push("--accounts", accounts);
     for (const id of job.personIds) args.push("--person", String(id));
     args.push("--", full);
-    ran = await ctx.run(cfg.bin, args, env, (budget * job.personIds.length + cfg.timeLimit) * 1000);
+    ran = await ctx.run(cfg.bin, args, engineEnv, (budget * job.personIds.length + cfg.timeLimit) * 1000, { nice: cfg.nice });
   } finally {
     await rm(scratch, { recursive: true, force: true });
     if (repo.isPrivate) await rm(home, { recursive: true, force: true });

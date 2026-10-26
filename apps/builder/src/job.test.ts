@@ -2,20 +2,21 @@ import { mkdir, mkdtemp, readdir, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { gzipSync } from "node:zlib";
 import { PGlite } from "@electric-sql/pglite";
-import { eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { expect, test } from "vitest";
-import { lendToken, memoryStorage, now, readEntry, readIndex, schema, settleRepository, type BuildJob, type Db, type Queue, type SurvivalJob } from "@commitscape/server";
+import { lendToken, memoryStorage, now, PRIORITY, readManifest, schema, settleRepository, type BuildJob, type Db, type Loaded, type Queue, type SurvivalJob } from "@commitscape/server";
 import type { Config } from "./config";
 import { inUse, sweep } from "./disk";
-import { runJob, type JobContext } from "./job";
+import { fakePerson, flagOf, writeBuilt, type FakeBuild } from "./fake";
+import { MORE_LINES_AFTER, MORE_LINES_MAX, runJob, type JobContext } from "./job";
 import { BUILD_ATTEMPTS, type Ran } from "./run";
 import { queueSeeds } from "./seeds";
+import type { Telemetry, Who } from "./telemetry";
 
-const { builds, repositories, surviving } = schema;
+const { builds, repoPeople, repositories, storedIndexes, surviving } = schema;
 const migrations = fileURLToPath(new URL("../../../packages/server/drizzle", import.meta.url));
 
 async function database(): Promise<Db> {
@@ -24,118 +25,193 @@ async function database(): Promise<Db> {
   return db as unknown as Db;
 }
 
-const report = {
-  meta: { name: "rocket", windows: ["all"], window: "all", anchor: 1, history: "complete", lines: "counted", github: "ready", github_history: "off", avatars: true },
-  data: { "/api/overview?window=all": { window: "all" } },
-  cards: { all: "<svg/>" },
-  stats: { commits: 3, people: 2, bus_factor: 1, maintainers: 1, commits_30d: 3, people_30d: 2, code_lines: 40, untouched_5y: 0 },
-};
+const ok: Ran = { code: 0, stderr: "", timedOut: false };
 
-const commitList = (n: number) => ({
-  link: null,
-  lines: true,
-  kinds: ["other"],
-  people: [{ person: { id: 1, name: "Ada", login: "ada" }, emails: [] }],
-  ids: Array.from({ length: n }, (_, i) => String(i).padStart(40, "0")),
-  times: Array.from({ length: n }, () => 1),
-  offsets: Array.from({ length: n }, () => 0),
-  person: Array.from({ length: n }, () => 0),
-  subjects: Array.from({ length: n }, (_, i) => `commit ${i}`),
-  kind: Array.from({ length: n }, () => 0),
-  merge: Array.from({ length: n }, () => false),
-  files: Array.from({ length: n }, () => 1),
-  added: Array.from({ length: n }, () => 1),
-  removed: Array.from({ length: n }, () => 0),
-});
-
-const person = (id: number, login: string | null, commits: number) => ({ person: { id, name: `P${id}`, login }, commits, lines_added: 1, lines_removed: 0, first: 1, last: 2 });
-
-const flag = (args: string[], name: string) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined);
-
-/** A stand-in for git and commitscape: clones make a folder, signatures name nobody, and reports write `written`, the quick one with fewer commits. */
-function tools(written: object, then: (cmd: string, args: string[]) => Ran | Promise<Ran> = () => ({ code: 0, stderr: "", timedOut: false })) {
+function tools(built: FakeBuild | ((args: string[]) => FakeBuild) = {}, then: (cmd: string, args: string[]) => Ran | Promise<Ran> = () => ok) {
   return async (cmd: string, args: string[]): Promise<Ran> => {
     const ran = await then(cmd, args);
     if (ran.code !== 0) return ran;
     if (cmd === "git" && args[0] === "clone") await mkdir(join(args.at(-1) ?? "", ".git"), { recursive: true });
-    if (args[0] === "signatures") await writeFile(flag(args, "--out") ?? "", "[]");
-    if (args[0] === "report") {
-      await writeFile(flag(args, "--out") ?? "", gzipSync(JSON.stringify(written)));
-      await writeFile(flag(args, "--commits-out") ?? "", gzipSync(JSON.stringify(commitList(args.includes("--no-lines") ? 2 : 3))));
-    }
+    if (args[0] === "signatures") await writeFile(flagOf(args, "--out") ?? "", "[]");
+    if (args[0] === "build") await writeBuilt(args, typeof built === "function" ? built(args) : built);
     return ran;
   };
 }
 
-async function context(db: Db, over: Partial<JobContext> = {}, written: object = report): Promise<JobContext & { storage: ReturnType<typeof memoryStorage> }> {
-  const work = await mkdtemp(join(tmpdir(), "builder-"));
-  const cfg: Config = { bin: "commitscape", work, concurrency: 1, maxMb: undefined, timeLimit: 60, cloneLimit: 120, largeMb: 1500, largeConcurrency: 1, logins: 300, diskGb: 20, gitBase: undefined };
-  return { db, storage: memoryStorage(), cfg, app: null, run: tools(written), github: { api: "http://github.test", token: null, fetcher: (async () => new Response("", { status: 404 })) as unknown as typeof fetch }, log: () => {}, ...over } as JobContext & {
-    storage: ReturnType<typeof memoryStorage>;
+function loader(db: Db) {
+  return async (repoId: string, dir: string): Promise<Loaded> => {
+    const m = await readManifest(dir);
+    const fields = { lineage: m.lineage, kept: m.kept, head: m.head, frontier: m.frontier, lines: m.lines_mainline, linesLeft: m.lines_left, commits: m.total, state: "live", loadedAt: now() };
+    let si: number;
+    if (m.full) {
+      const [row] = await db
+        .insert(storedIndexes)
+        .values({ repoId, builtAt: now(), ...fields })
+        .returning({ id: storedIndexes.id });
+      si = row?.id ?? 0;
+      await db.delete(storedIndexes).where(and(eq(storedIndexes.repoId, repoId), ne(storedIndexes.id, si)));
+      await db.update(repositories).set({ indexId: si }).where(eq(repositories.id, repoId));
+    } else {
+      const [repo] = await db.select({ indexId: repositories.indexId }).from(repositories).where(eq(repositories.id, repoId));
+      si = repo?.indexId ?? 0;
+      await db.update(storedIndexes).set(fields).where(eq(storedIndexes.id, si));
+    }
+    return { si, full: m.full, commits: m.commits, total: m.total, mainline: 0, lines: 0, seconds: 0 };
   };
 }
 
-test("a Build stores its Report an answer at a time and replaces the one before", async () => {
+type Captured = [string, Who, Record<string, unknown>];
+
+async function context(db: Db, over: Partial<JobContext> = {}, built: FakeBuild | ((args: string[]) => FakeBuild) = {}): Promise<JobContext & { storage: ReturnType<typeof memoryStorage>; captured: Captured[] }> {
+  const work = await mkdtemp(join(tmpdir(), "builder-"));
+  const cfg: Config = { bin: "commitscape", threads: undefined, linesBudget: 120, nice: 10, work, concurrency: 1, maxMb: undefined, timeLimit: 60, cloneLimit: 120, largeMb: 1500, largeConcurrency: 1, logins: 300, diskGb: 20, gitBase: undefined };
+  const captured: Captured[] = [];
+  const telemetry: Telemetry = { capture: (event, who, properties) => void captured.push([event, who, properties]), stop: async () => {} };
+  return {
+    db,
+    storage: memoryStorage(),
+    cfg,
+    app: null,
+    run: tools(built),
+    loadIndex: loader(db),
+    telemetry,
+    captured,
+    github: { api: "http://github.test", token: null, fetcher: (async () => new Response("", { status: 404 })) as unknown as typeof fetch },
+    log: () => {},
+    ...over,
+  } as JobContext & { storage: ReturnType<typeof memoryStorage>; captured: Captured[] };
+}
+
+const repoRow = async (db: Db, id = "acme/rocket") => (await db.select().from(repositories).where(eq(repositories.id, id)))[0];
+const packs = (ctx: { storage: ReturnType<typeof memoryStorage> }) => [...ctx.storage.objects.keys()].filter((k) => k.startsWith("packs/")).sort();
+
+test("a Build publishes its Stored Index: the pack in R2 and on the Stored Index, the Report's meta and stats on the repository, its people, and the old Report's objects deleted", async () => {
   const db = await database();
-  const ctx = await context(db);
+  const ctx = await context(db, {}, { people: [fakePerson(1, "ada", 5), fakePerson(2, null, 3)] });
   await ctx.storage.put("reports/gh/acme/rocket/old/index.json", "{}", { type: "application/json" });
-  await db.insert(repositories).values({ id: "acme/rocket", owner: "acme", name: "rocket", sizeKb: 10, reportKey: "reports/gh/acme/rocket/old" });
+  await db.insert(repositories).values({ id: "acme/rocket", owner: "acme", name: "rocket", sizeKb: 10, reportKey: "reports/gh/acme/rocket/old", reportLines: true });
   await db.insert(builds).values({ id: "b1", repoId: "acme/rocket", state: "queued", requestedAt: 1 });
   await runJob("b1", ctx);
 
-  const [repo] = await db.select().from(repositories).where(eq(repositories.id, "acme/rocket"));
-  expect(repo).toMatchObject({ reportKey: "reports/gh/acme/rocket/b1", reportLines: true, busFactor: 1, codeLines: 40 });
-  const [build] = await db.select().from(builds).where(eq(builds.id, "b1"));
-  expect(build).toMatchObject({ state: "done", step: null, partial: false });
-  expect((await readIndex(ctx.storage, "reports/gh/acme/rocket/b1"))?.keys).toEqual(["/api/overview?window=all"]);
-  expect(await readEntry(ctx.storage, "reports/gh/acme/rocket/b1", "/api/overview?window=all")).toEqual({ window: "all" });
-  expect(ctx.storage.objects.has("reports/gh/acme/rocket/old/index.json")).toBe(false);
-
-  expect([...ctx.storage.objects.keys()].some((k) => k.includes("b1-quick"))).toBe(false);
-
-  await runJob("b1", ctx);
-  expect([...ctx.storage.objects.keys()].filter((k) => k.endsWith("index.json"))).toHaveLength(1);
+  const repo = await repoRow(db);
+  expect(repo).toMatchObject({ reportKey: "reports/gh/acme/rocket/b1", reportLines: true, busFactor: 1, codeLines: 40, maintainers: 1, commits30d: 3 });
+  expect(repo?.reportMeta).toEqual({ name: "rocket", windows: ["all"], window: "all", anchor: 1, history: "complete", lines: "counted", avatars: false });
+  expect(repo?.reportStats).toMatchObject({ commits: 3, people: 2, bus_factor: 1 });
+  const [si] = await db.select().from(storedIndexes).where(eq(storedIndexes.repoId, "acme/rocket"));
+  expect(repo?.indexId).toBe(si?.id);
+  expect(si?.pack).toBe(`packs/acme/rocket/${si?.id}/${"a".repeat(40)}-b1-lines.pack`);
+  expect(packs(ctx)).toEqual([si?.pack]);
+  expect(repo?.reportBytes).toBe(ctx.storage.objects.get(si?.pack ?? "")?.body.length);
+  expect((await db.select().from(repoPeople)).map((p) => [p.personId, p.login, p.commits, p.linesAdded, p.reportKey])).toEqual([
+    [1, "ada", 5, 10, "reports/gh/acme/rocket/b1"],
+    [2, null, 3, 20, "reports/gh/acme/rocket/b1"],
+  ]);
+  expect(await db.select().from(builds)).toMatchObject([{ state: "done", step: null, partial: false }]);
+  expect([...ctx.storage.objects.keys()].filter((k) => k.startsWith("reports/"))).toEqual([]);
+  expect(ctx.captured.map((c) => c[0])).toEqual(["build started", "build done"]);
+  expect(ctx.captured.at(-1)?.[1]).toEqual({ userId: undefined, repo: "acme/rocket" });
+  expect(ctx.captured.at(-1)?.[2]).toMatchObject({ kind: "cold", commits: 3, lines_left: 0 });
+  expect(Object.keys(ctx.captured.at(-1)?.[2] ?? {})).toEqual(expect.arrayContaining(["seconds_clone_full", "seconds_build_full", "seconds_load_full", "seconds_upload_full", "seconds_publish_full"]));
 });
 
-test("a repository with no Report gets the quick one without lines while its lines are counted, then the full one in its place", async () => {
+test("a repository with no Report gets the quick Stored Index without lines while its lines are counted, then the same one with them", async () => {
   const db = await database();
   const seen: unknown[] = [];
   const ctx = await context(db);
-  ctx.run = tools(report, async (cmd, args) => {
-    if (cmd === "git" && !args.includes("--filter=blob:none")) {
-      for (let i = 0; i < 100 && !(await db.select().from(repositories))[0]?.reportKey; i++) await new Promise((r) => setTimeout(r, 50));
+  ctx.run = tools({}, async (cmd, args) => {
+    if (cmd === "git" && args[0] === "clone" && !args.includes("--filter=blob:none")) {
+      for (let i = 0; i < 100 && !(await repoRow(db))?.reportKey; i++) await new Promise((r) => setTimeout(r, 50));
     }
-    if (args[0] === "report" && !args.includes("--no-lines")) {
-      const [repo] = await db.select().from(repositories);
+    if (args[0] === "build" && !args.includes("--no-lines")) {
+      const repo = await repoRow(db);
       const [build] = await db.select().from(builds);
-      seen.push([repo?.reportKey, repo?.reportLines, build?.state, build?.partial]);
+      const [si] = await db.select().from(storedIndexes);
+      seen.push([repo?.reportKey, repo?.reportLines, repo?.reportMeta?.lines, build?.state, build?.partial, si?.pack?.endsWith("-quick.pack"), packs(ctx).length]);
     }
-    return { code: 0, stderr: "", timedOut: false };
+    return ok;
   });
   await db.insert(repositories).values({ id: "acme/rocket", owner: "acme", name: "rocket", sizeKb: 10 });
   await db.insert(builds).values({ id: "b1", repoId: "acme/rocket", state: "queued", requestedAt: 1 });
-  await runJob("b1", ctx);
-  expect(seen).toEqual([["reports/gh/acme/rocket/b1-quick", false, "running", true]]);
-  const [repo] = await db.select().from(repositories);
+  await runJob("b1", ctx, 1, { userId: "u1" });
+  expect(seen).toEqual([["reports/gh/acme/rocket/b1-quick", false, "counting", "running", true, true, 1]]);
+  const repo = await repoRow(db);
   expect(repo).toMatchObject({ reportKey: "reports/gh/acme/rocket/b1", reportLines: true });
+  expect(await db.select().from(storedIndexes)).toHaveLength(1);
+  const [si] = await db.select().from(storedIndexes);
+  expect(packs(ctx)).toEqual([`packs/acme/rocket/${si?.id}/${"a".repeat(40)}-b1-lines.pack`]);
   expect(await db.select().from(builds)).toMatchObject([{ state: "done", partial: false, reason: null }]);
-  expect([...ctx.storage.objects.keys()].some((k) => k.includes("b1-quick"))).toBe(false);
+  expect(ctx.captured.map((c) => c[0])).toEqual(["build started", "build quick published", "build done"]);
+  expect(ctx.captured.every((c) => c[1].userId === "u1")).toBe(true);
 });
 
-test("a full Report that fails leaves the quick one published and says why", async () => {
+test("a full build that fails leaves the quick Stored Index published, says why, and stops saying lines are being counted", async () => {
   const db = await database();
   const ctx = await context(db);
-  ctx.run = tools(report, (_cmd, args) => (args[0] === "report" && !args.includes("--no-lines") ? { code: 101, stderr: "thread panicked\nout of memory", timedOut: false } : { code: 0, stderr: "", timedOut: false }));
+  ctx.run = tools({}, (_cmd, args) => (args[0] === "build" && !args.includes("--no-lines") ? { code: 101, stderr: "thread panicked\nout of memory", timedOut: false } : ok));
   await db.insert(repositories).values({ id: "acme/rocket", owner: "acme", name: "rocket", sizeKb: 10 });
   await db.insert(builds).values({ id: "b1", repoId: "acme/rocket", state: "queued", requestedAt: 1 });
   await runJob("b1", ctx);
   expect(await db.select().from(builds)).toMatchObject([{ state: "done", partial: true, reason: "error", detail: "out of memory" }]);
-  expect(await db.select().from(repositories)).toMatchObject([{ reportKey: "reports/gh/acme/rocket/b1-quick", reportLines: false }]);
+  const repo = await repoRow(db);
+  expect(repo).toMatchObject({ reportKey: "reports/gh/acme/rocket/b1-quick", reportLines: false });
+  expect(repo?.reportMeta?.lines).toBe("off");
+  expect(ctx.captured.map((c) => c[0])).toEqual(["build started", "build quick published", "build failed"]);
+});
+
+test("lines show once the Mainline's are counted; commits still left are counted by quiet Builds queued a few times, which keep the Report's version while its head stays", async () => {
+  const db = await database();
+  const queued: [BuildJob & { attempt: number }, number, number | undefined][] = [];
+  const counts: SurvivalJob[] = [];
+  let left = 40;
+  const ctx = await context(db, { queueBuild: async (job, priority, startAfter) => void queued.push([job, priority, startAfter]), queueCounts: async (job) => void counts.push(job) }, () => ({ left, people: [fakePerson(1, "ada", 5)] }));
+  await db.insert(repositories).values({ id: "acme/rocket", owner: "acme", name: "rocket", sizeKb: 10, seed: true });
+  await db.insert(builds).values({ id: "b1", repoId: "acme/rocket", state: "queued", requestedAt: 1 });
+  await runJob("b1", ctx);
+  let repo = await repoRow(db);
+  expect(repo).toMatchObject({ reportKey: "reports/gh/acme/rocket/b1", reportLines: true });
+  expect(repo?.reportMeta?.lines).toBe("counted");
+  expect(await db.select({ lines: storedIndexes.lines, left: storedIndexes.linesLeft }).from(storedIndexes)).toEqual([{ lines: true, left: 40 }]);
+  expect((await db.select().from(repoPeople))[0]?.linesAdded).toBe(10);
+  expect(queued).toHaveLength(1);
+  const [job, priority, after] = queued[0] ?? [];
+  expect(job).toMatchObject({ repoId: "acme/rocket", attempt: 1, more: 1 });
+  expect([priority, after]).toEqual([PRIORITY.lines, MORE_LINES_AFTER]);
+  expect(await db.select({ state: builds.state }).from(builds).where(eq(builds.id, job?.buildId ?? ""))).toEqual([{ state: "queued" }]);
+  expect(counts).toHaveLength(1);
+
+  left = 10;
+  for (let more = 1; more <= MORE_LINES_MAX; more++) {
+    const next = queued.at(-1)?.[0];
+    await runJob(next?.buildId ?? "", ctx, 1, { more });
+  }
+  repo = await repoRow(db);
+  expect(repo?.reportKey).toBe("reports/gh/acme/rocket/b1");
+  const [si] = await db.select().from(storedIndexes);
+  expect(packs(ctx)).toEqual([si?.pack]);
+  expect(si?.pack).toContain(queued.at(-1)?.[0].buildId);
+  expect(queued.map((q) => q[0].more)).toEqual([1, 2, 3]);
+  expect(counts).toHaveLength(1);
+  expect(repo?.reportMeta?.lines).toBe("counted");
+  const last = await db.select({ state: builds.state }).from(builds).where(eq(builds.id, queued.at(-1)?.[0].buildId ?? ""));
+  expect(last).toEqual([{ state: "done" }]);
+});
+
+test("a Build whose budget ran out before the Mainline's lines were counted shows no lines yet and says they are being counted", async () => {
+  const db = await database();
+  const ctx = await context(db, { queueBuild: async () => {} }, { left: 900, mainline: false });
+  await db.insert(repositories).values({ id: "acme/rocket", owner: "acme", name: "rocket", sizeKb: 10 });
+  await db.insert(builds).values({ id: "b1", repoId: "acme/rocket", state: "queued", requestedAt: 1 });
+  await runJob("b1", ctx);
+  const repo = await repoRow(db);
+  expect(repo).toMatchObject({ reportLines: false });
+  expect(repo?.reportMeta?.lines).toBe("counting");
+  expect((await db.select().from(repoPeople))[0]?.linesAdded).toBeNull();
+  expect(await db.select({ lines: storedIndexes.lines }).from(storedIndexes)).toEqual([{ lines: false }]);
 });
 
 test("a Build that throws after commitscape has run still ends, and one claimed twice runs once", async () => {
   const db = await database();
-  let reports = 0;
+  let built = 0;
   const ctx = await context(db, {
     log: (line) => {
       if (/: (full|quick|nothing) published/.test(line)) throw new Error("log down");
@@ -143,30 +219,30 @@ test("a Build that throws after commitscape has run still ends, and one claimed 
   });
   const run = ctx.run;
   ctx.run = async (cmd, args, env, t) => {
-    if (args[0] === "report") reports++;
+    if (args[0] === "build") built++;
     return run(cmd, args, env, t);
   };
-  await db.insert(repositories).values({ id: "acme/rocket", owner: "acme", name: "rocket", sizeKb: 10, reportKey: "r/old" });
+  await db.insert(repositories).values({ id: "acme/rocket", owner: "acme", name: "rocket", sizeKb: 10, reportKey: "r/old", reportLines: true });
   await db.insert(builds).values({ id: "b1", repoId: "acme/rocket", state: "queued", requestedAt: 1 });
   await Promise.all([runJob("b1", ctx), runJob("b1", ctx)]);
-  expect(await db.select().from(builds)).toMatchObject([{ state: "failed", reason: "error" }]);
-  expect(reports).toBe(2);
+  expect(await db.select().from(builds)).toMatchObject([{ state: "done" }]);
+  expect(built).toBe(1);
 });
 
 test("a Build of a repository found renamed while it ran stores its Report and people under the current name", async () => {
   const db = await database();
-  const ctx = await context(db, {}, { ...report, data: { ...report.data, "/api/people?window=all": { people: [person(1, "dan", 5)] } } });
+  const ctx = await context(db, {}, { people: [fakePerson(1, "dan", 5)] });
   await db.insert(repositories).values({ id: "facebook/react", owner: "facebook", name: "react", githubId: 10, sizeKb: 10 });
   await db.insert(builds).values({ id: "b9", repoId: "facebook/react", state: "queued", requestedAt: 1 });
   const run = ctx.run;
   ctx.run = async (cmd, args, env, t) => {
-    await settleRepository(db, ctx.storage, { githubId: 10, owner: "react", name: "react" });
+    if (args[0] === "build" && !args.includes("--no-lines")) await settleRepository(db, ctx.storage, { githubId: 10, owner: "react", name: "react" });
     return run(cmd, args, env, t);
   };
   await runJob("b9", ctx);
   const rows = await db.select().from(repositories);
   expect(rows.map((r) => [r.id, r.reportKey])).toEqual([["react/react", "reports/gh/react/react/b9"]]);
-  expect((await db.select().from(schema.repoPeople)).map((p) => [p.repoId, p.login])).toEqual([["react/react", "dan"]]);
+  expect((await db.select().from(repoPeople)).map((p) => [p.repoId, p.login])).toEqual([["react/react", "dan"]]);
   expect((await db.select().from(builds)).map((b) => [b.repoId, b.state])).toEqual([["react/react", "done"]]);
 });
 
@@ -191,7 +267,7 @@ test("a private repository with no installation token fails as private and reads
   const ctx = await context(db, {
     run: async () => {
       ran++;
-      return { code: 0, stderr: "", timedOut: false };
+      return ok;
     },
   });
   await db.insert(repositories).values({ id: "acme/secret", owner: "acme", name: "secret", isPrivate: true, installationId: 7 });
@@ -200,12 +276,13 @@ test("a private repository with no installation token fails as private and reads
   const [build] = await db.select().from(builds).where(eq(builds.id, "b2"));
   expect(build).toMatchObject({ state: "failed", reason: "private" });
   expect(ran).toBe(0);
+  expect(ctx.captured.at(-1)?.[1].repo).toMatch(/^private:[0-9a-f]{16}$/);
 });
 
 test("a public repository is cloned without the token lent for its Build, so a repository gone private since cannot be read with someone's own access", async () => {
   const db = await database();
   const envs: NodeJS.ProcessEnv[] = [];
-  const base = tools(report);
+  const base = tools();
   const ctx = await context(db, {
     tokenSecret: "s".repeat(32),
     run: async (cmd, args, env) => {
@@ -224,9 +301,9 @@ test("a public repository is cloned without the token lent for its Build, so a r
 
 test("a seed repository's Build asks for the Surviving Lines of its people with most commits, bots and people with no login left out", async () => {
   const db = await database();
-  const people = [person(1, "bot[bot]", 900), person(2, null, 800), ...Array.from({ length: 34 }, (_, i) => person(10 + i, `p${i}`, 100 - i))];
+  const people = [fakePerson(1, "bot[bot]", 900), fakePerson(2, null, 800), ...Array.from({ length: 34 }, (_, i) => fakePerson(10 + i, `p${i}`, 100 - i))];
   const asked: SurvivalJob[] = [];
-  const ctx = await context(db, { queueCounts: async (job) => void asked.push(job) }, { ...report, data: { ...report.data, "/api/people?window=all": { people } } });
+  const ctx = await context(db, { queueCounts: async (job) => void asked.push(job) }, { people });
   await db.insert(repositories).values({ id: "acme/seed", owner: "acme", name: "seed", sizeKb: 10, seed: true });
   await db.insert(builds).values({ id: "b3", repoId: "acme/seed", state: "queued", requestedAt: 1 });
   await runJob("b3", ctx);
@@ -249,9 +326,9 @@ test("a Build past its time limit is queued again to go on from the lines it cou
     run: async (cmd, args, _env, t) => {
       if (cmd === "git") {
         if (args[0] === "clone") await mkdir(join(args.at(-1) ?? "", ".git"), { recursive: true });
-        return { code: 0, stderr: "", timedOut: false };
+        return ok;
       }
-      if (args[0] === "report") limits.push(t);
+      if (args[0] === "build") limits.push(t);
       return { code: null, stderr: "", timedOut: true };
     },
     queueBuild: async (job, priority) => void again.push([job, priority]),
@@ -264,8 +341,8 @@ test("a Build past its time limit is queued again to go on from the lines it cou
   expect(queued).toMatchObject({ state: "queued", step: null, reason: null });
   expect(queued?.requestedAt).toBeGreaterThan(1);
 
-  await runJob("b5", ctx, 2);
-  expect(again.at(-1)).toEqual([{ buildId: "b5", repoId: "acme/huge", attempt: 3 }, 10]);
+  await runJob("b5", ctx, 2, { userId: "u1" });
+  expect(again.at(-1)).toEqual([{ buildId: "b5", repoId: "acme/huge", attempt: 3, userId: "u1" }, 10]);
   expect(limits[0]).toBe(60_000);
   expect(limits.at(-1)).toBe(120_000);
 

@@ -1,4 +1,4 @@
-import type { AchievementCardData, ArchetypeCardData, WindowCardData, WrappedCardData, HallOfFameData, ProfileCardData, StandingCardData, VersusCardData } from "@commitscape/data";
+import type { AchievementCardData, ArchetypeCardData, WrappedCardData, HallOfFameData, ProfileCardData, StandingCardData, VersusCardData } from "@commitscape/data";
 
 const days = Array.from({ length: 400 }, (_, i) => ((i * 7) % 11 === 0 ? 0 : (i * 13) % 9));
 
@@ -74,16 +74,6 @@ export const ARCHETYPE: ArchetypeCardData = {
 export const ACHIEVEMENT: AchievementCardData = {
   identity: { login: "alice", name: "Alice Example" },
   achievement: { id: "star-10k", title: "Merged into a 10k-star repository", rule: "A pull request of theirs merged into a repository with 10,000 stars or more, as it has now.", earned: true, at: "2024-03-02", detail: "facebook/react#28411" },
-};
-
-export const WINDOW: WindowCardData = {
-  title: "The October sprint",
-  subtitle: "A Race from 2026-10-01 to 2026-10-31, finished",
-  rows: [
-    { login: "alice", name: "Alice Example", prsMerged: 12, reviews: 30, commits: 140, contributions: 190 },
-    { login: "bob", name: "Bob Example", prsMerged: 12, reviews: 8, commits: 210, contributions: 230 },
-    { login: "carol", name: null, prsMerged: 3, reviews: 41, commits: 20, contributions: 70 },
-  ],
 };
 
 export const WRAPPED: WrappedCardData = {

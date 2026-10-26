@@ -63,6 +63,12 @@ async function textOf(p: Packed): Promise<string | Uint8Array> {
   throw new Error("nothing packed");
 }
 
+/** The value of a packed JSON body. */
+export async function jsonOf(p: Packed): Promise<unknown> {
+  const text = await textOf(p);
+  return JSON.parse(typeof text === "string" ? text : new TextDecoder().decode(text)) as unknown;
+}
+
 /** The body to send for an encoding, made and kept the first time it is asked for. */
 export async function bodyOf(p: Packed, encoding: Encoding): Promise<{ body: Uint8Array | string; encoding: Encoding }> {
   if (encoding === "br" && p.br) return { body: await p.br, encoding };

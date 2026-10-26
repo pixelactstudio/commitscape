@@ -9,6 +9,7 @@ const site = resolve(import.meta.dirname, "..");
 const root = resolve(site, "../..");
 const port = Number(process.env.SITE_PORT ?? 8790);
 const githubPort = port + 1;
+const enginePort = port + 2;
 const work = join(root, "target", "site-e2e-work");
 const remotes = join(root, "target", "site-e2e-git");
 const admin = process.env.E2E_DATABASE_URL ?? "postgres://commitscape:commitscape@localhost:5434/commitscape";
@@ -16,6 +17,10 @@ const bin = [process.env.COMMITSCAPE_BIN, join(root, "target/release/commitscape
   .filter((p): p is string => !!p)
   .find((p) => existsSync(p));
 if (!bin) throw new Error("build commitscape first: cargo build --release");
+const engineBin = [process.env.COMMITSCAPE_ENGINE_BIN, join(root, "target/release/commitscape-engine"), join(root, "target/debug/commitscape-engine")]
+  .filter((p): p is string => !!p)
+  .find((p) => existsSync(p));
+if (!engineBin) throw new Error("build the engine first: cargo build --release -p commitscape-engine");
 const builderScript = join(root, "apps/builder/dist/builder.mjs");
 if (!existsSync(builderScript)) throw new Error("build the Builder first: pnpm --filter @commitscape/builder build");
 
@@ -59,6 +64,15 @@ writeFileSync(join(root, "target", "site-e2e-env.json"), JSON.stringify({ builde
 
 const children: ChildProcess[] = [];
 const github = await fakeGitHub(githubPort, appPublic);
+const engineToken = "e2e-engine-token";
+const engine = spawn(engineBin, [], { stdio: ["ignore", "inherit", "inherit"], env: { PATH: process.env.PATH ?? "", ...shared, PORT: String(enginePort), ENGINE_TOKEN: engineToken, PACK_DIR: join(work, "packs"), COMMITSCAPE_THREADS: "2", RUST_LOG: "warn" } });
+children.push(engine);
+for (let i = 0; ; i++) {
+  if (engine.exitCode !== null) throw new Error(`the engine exited with ${engine.exitCode}`);
+  if (await fetch(`http://127.0.0.1:${enginePort}/healthz`).then((r) => r.ok, () => false)) break;
+  if (i > 200) throw new Error("the engine did not start");
+  await new Promise((done) => setTimeout(done, 50));
+}
 const builder = spawn(process.execPath, [builderScript, "work"], { stdio: ["ignore", "pipe", "inherit"], env: { ...process.env, ...builderEnv } });
 children.push(builder);
 await new Promise<void>((ready, fail) => {
@@ -78,7 +92,9 @@ children.push(
       HOST: "127.0.0.1",
       BETTER_AUTH_URL: `http://127.0.0.1:${port}`,
       BETTER_AUTH_SECRET: "e2e-secret-e2e-secret-e2e-secret-e2e",
-      BOARDS_CACHE_SECONDS: "0",
+      MCP_TOKEN: "e2e-mcp-token-e2e-mcp-token-e2e-mcp-token",
+      ENGINE_URL: `http://127.0.0.1:${enginePort}`,
+      ENGINE_TOKEN: engineToken,
       GITHUB_TOKEN: "ghs_site",
       GITHUB_APP_CLIENT_ID: "Iv1.test",
       GITHUB_APP_CLIENT_SECRET: "test-client-secret",

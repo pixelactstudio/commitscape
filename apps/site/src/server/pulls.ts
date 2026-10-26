@@ -1,7 +1,6 @@
 import "@tanstack/react-start/server-only";
 import { and, count, desc, eq, ilike, inArray, or, sql, type SQL } from "drizzle-orm";
-import { PULL_SIZES, PULL_STALE_DAYS, type GitPullIndex, type PullAsk, type PullAuthor, type PullConversation, type PullDecision, type PullHeader, type PullLabel, type PullList, type PullReview, type PullReviewState, type PullRow, type PullSize, type PullSort, type PullSpan, type PullState } from "@commitscape/data";
-import { SPANS } from "@commitscape/data/answers";
+import { PULL_SIZES, PULL_STALE_DAYS, SPANS, type GitPullIndex, type PullAsk, type PullAuthor, type PullConversation, type PullDecision, type PullHeader, type PullLabel, type PullList, type PullReview, type PullReviewState, type PullRow, type PullSize, type PullSort, type PullSpan, type PullState } from "@commitscape/data";
 import { cachedGet, gitFileKey, now, readGitJson, schema } from "@commitscape/server";
 import { apiOf, GITHUB_TTL } from "./github";
 import { SiteError } from "./http";
@@ -211,7 +210,8 @@ export async function pullConversation(deps: Deps, viewer: Viewer, owner: string
   const row = await readable(deps, viewer, owner, name);
   const s = await viewer.session();
   const token = s ? await viewer.token() : null;
-  if (!s || !token) throw new SiteError(401, "Sign in to read the conversation.", { gate: "pr" });
+  if (!s) throw new SiteError(401, "Sign in with GitHub to read the conversation.");
+  if (!token) throw new SiteError(401, "GitHub no longer accepts your sign-in for reading. Sign out and sign in again to read the conversation.");
   const base = `${apiOf(deps.github)}/repos/${row.owner}/${row.name}`;
   const get = <T>(path: string) => cachedGet<T>(deps.db, { url: `${base}${path}`, token, scope: `user:${s.userId}`, ttl: GITHUB_TTL.pull, fetcher: deps.github.fetcher });
   const [pull, comments, reviews] = await Promise.all([get<Gh>(`/pulls/${number}`), get<Gh[]>(`/issues/${number}/comments?per_page=50`), get<Gh[]>(`/pulls/${number}/reviews?per_page=50`)]);

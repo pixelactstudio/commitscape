@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::sync_channel;
 
@@ -8,12 +8,11 @@ use gix::ObjectId;
 
 use super::tree_diff::{Changed, TreeDiffer};
 use super::{GixError, GixRepo};
+use crate::hash_index::HashIndex;
 use crate::message;
 use crate::source::{CommitSink, Indexed, RawChange, RawCommit, WalkStats};
 
 const BATCH: usize = 64;
-
-const MAX_THREADS: usize = 16;
 
 const THREAD_OBJECT_CACHE_BYTES: usize = 16 * 1024 * 1024;
 
@@ -57,7 +56,7 @@ pub(super) fn walk(
         "starting the history walk"
     )?;
     let mut signatures: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
-    let mut signature_ids: HashMap<(Vec<u8>, Vec<u8>), usize> = HashMap::new();
+    let mut signature_ids = HashIndex::default();
     let mut walked: Vec<Walked> = Vec::new();
     let mut buf = Vec::new();
     for info in walk {
@@ -74,12 +73,18 @@ pub(super) fn walk(
         });
         let kind = message::kind_of(commit.message);
         let subject = message::subject_of(commit.message).into_boxed_str();
-        let key = (author.name.to_vec(), author.email.to_vec());
-        let signature = match signature_ids.get(&key) {
-            Some(&i) => i,
+        let (name, email): (&[u8], &[u8]) = (author.name, author.email);
+        let hash = signature_hash(name, email);
+        let found = signature_ids.get(hash, |i| {
+            signatures
+                .get(i as usize)
+                .is_some_and(|(n, e)| n.as_slice() == name && e.as_slice() == email)
+        });
+        let signature = match found {
+            Some(i) => i as usize,
             None => {
-                signatures.push(key.clone());
-                signature_ids.insert(key, signatures.len() - 1);
+                signatures.push((name.to_vec(), email.to_vec()));
+                signature_ids.insert(hash, (signatures.len() - 1) as u32);
                 signatures.len() - 1
             }
         };
@@ -96,14 +101,10 @@ pub(super) fn walk(
         });
     }
 
-    let tree_of: HashMap<ObjectId, ObjectId> = walked.iter().map(|w| (w.id, w.tree)).collect();
+    let tree_of: gix::hashtable::HashMap<ObjectId, ObjectId> =
+        walked.iter().map(|w| (w.id, w.tree)).collect();
     let total = walked.len() as u64;
-    let batches = walked.len().div_ceil(BATCH);
-    let threads = std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(1)
-        .clamp(1, MAX_THREADS)
-        .min(batches.max(1));
+    let threads = crate::threads::threads(walked.len().div_ceil(BATCH));
 
     let next_batch = AtomicUsize::new(0);
     let delivered = AtomicUsize::new(0);
@@ -232,7 +233,7 @@ pub(super) fn walk(
 fn diff_one(
     repo: &gix::Repository,
     differ: &mut TreeDiffer,
-    tree_of: &HashMap<ObjectId, ObjectId>,
+    tree_of: &gix::hashtable::HashMap<ObjectId, ObjectId>,
     w: &Walked,
 ) -> Result<Vec<Changed>, GixError> {
     let mut parent_trees = Vec::with_capacity(w.parents.len());
@@ -251,6 +252,14 @@ fn diff_one(
             source,
         })?;
     Ok(out)
+}
+
+fn signature_hash(name: &[u8], email: &[u8]) -> u64 {
+    let mut h = xxhash_rust::xxh3::Xxh3::new();
+    h.update(&(name.len() as u64).to_le_bytes());
+    h.update(name);
+    h.update(email);
+    h.digest()
 }
 
 pub(super) fn tree_of_commit(

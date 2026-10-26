@@ -43,7 +43,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        app: [site, builder]
+        app: [site, builder, engine]
     env:
       IMAGE: ghcr.io/${{ github.repository_owner }}/${{ vars.IMAGE_PREFIX || 'commitscape' }}-${{ matrix.app }}
       PUBLISH: ${{ github.event_name != 'pull_request' }}
@@ -141,8 +141,9 @@ jobs:
       - env:
           BUILDER: ${{ secrets.DOKPLOY_BUILDER_WEBHOOK }}
           SITE: ${{ secrets.DOKPLOY_SITE_WEBHOOK }}
+          ENGINE: ${{ secrets.DOKPLOY_ENGINE_WEBHOOK }}
         run: |
-          for app in BUILDER SITE; do
+          for app in BUILDER ENGINE SITE; do
             hook="${!app}"
             if [ -z "$hook" ]; then
               echo "::notice::DOKPLOY_${app}_WEBHOOK is not set: not deployed."

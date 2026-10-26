@@ -2,7 +2,6 @@ import { eq } from "drizzle-orm";
 import { describe, expect, test } from "vitest";
 import { GIT_FORMAT } from "@commitscape/data";
 import { gitFileKey, now, putGitJson, schema } from "@commitscape/server";
-import { lockedFor } from "./gates";
 import { SiteError } from "./http";
 import { gitStatus } from "./git";
 import { listPulls, pullAuthors, pullConversation, pullHeader, pullLabels, spanOf } from "./pulls";
@@ -209,12 +208,11 @@ describe("a pull request's conversation", () => {
     expect(github.asked).toHaveLength(3);
   });
 
-  test("is not sent to someone signed out, and spends no request", async () => {
+  test("is not sent to someone signed out, nor read without the person's token, and spends no request", async () => {
     const { deps, github } = await signed();
-    expect(await failure(pullConversation(deps, viewer(), "acme", "rocket", 2))).toEqual([401, "Sign in to read the conversation.", { gate: "pr" }]);
+    expect(await failure(pullConversation(deps, viewer(), "acme", "rocket", 2))).toEqual([401, "Sign in with GitHub to read the conversation.", {}]);
+    expect((await failure(pullConversation(deps, signedIn(), "acme", "rocket", 2)))?.[0]).toBe(401);
     expect(github.asked).toEqual([]);
-    expect(await lockedFor("pr", viewer())).toEqual({ locked: "pr" });
-    expect(await lockedFor("pr", signedIn({ token: async () => "t" }))).toBeNull();
   });
 
   test("says so when GitHub will not show the signed-in person the pull request", async () => {

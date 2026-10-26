@@ -5,5 +5,6 @@ if (publicEnv.PUBLIC_SENTRY_DSN) {
   Sentry.init({
     dsn: publicEnv.PUBLIC_SENTRY_DSN,
     tracesSampleRate: 0.1,
+    dataCollection: { userInfo: false, cookies: false, httpHeaders: false, httpBodies: [], urlQueryParams: false },
   });
 }

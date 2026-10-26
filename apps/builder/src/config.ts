@@ -16,6 +16,9 @@ export function loadEnv(runtimeEnv: Record<string, string | undefined> = process
       S3_FORCE_PATH_STYLE: z.stringbool().default(false),
       MIGRATIONS_DIR: z.string().default("drizzle"),
       COMMITSCAPE_BIN: z.string().default("commitscape"),
+      COMMITSCAPE_THREADS: z.coerce.number().int().positive().optional(),
+      LINES_BUDGET_SECONDS: positive(120),
+      ENGINE_NICE: z.coerce.number().int().min(0).max(19).default(10),
       WORK_DIR: z.string().default(`${runtimeEnv.HOME ?? "."}/builder-work`),
       CONCURRENCY: positive(1),
       MAX_REPOSITORY_MB: z.coerce.number().positive().optional(),
@@ -49,6 +52,11 @@ export function loadEnv(runtimeEnv: Record<string, string | undefined> = process
       SEED_LANGUAGES: z.string().default("JavaScript,TypeScript,Python,Go,Rust,Java,C,C++,Ruby"),
       SEED_PER_LANGUAGE: positive(10),
       SEED_BUDGET: positive(50),
+      SENTRY_DSN: z.string().optional(),
+      SENTRY_ENVIRONMENT: z.string().default("production"),
+      SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(1),
+      POSTHOG_KEY: z.string().optional(),
+      POSTHOG_HOST: z.url().default("https://us.i.posthog.com"),
     },
     runtimeEnv,
     emptyStringAsUndefined: true,
@@ -77,6 +85,9 @@ export type GitSettings = {
 
 export type Config = {
   bin: string;
+  threads: number | undefined;
+  linesBudget: number;
+  nice: number;
   work: string;
   concurrency: number;
   maxMb: number | undefined;
@@ -93,6 +104,9 @@ export type Config = {
 export function configOf(env: Env): Config {
   return {
     bin: env.COMMITSCAPE_BIN,
+    threads: env.COMMITSCAPE_THREADS,
+    linesBudget: env.LINES_BUDGET_SECONDS,
+    nice: env.ENGINE_NICE,
     work: env.WORK_DIR,
     concurrency: env.CONCURRENCY,
     maxMb: env.MAX_REPOSITORY_MB,

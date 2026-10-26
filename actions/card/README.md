@@ -1,6 +1,6 @@
 # commitscape cards, kept up to date in your repository
 
-Fetches Cards from the [commitscape Site](https://commitscape.damnlabs.com)
+Fetches Cards from the [commitscape Site](https://app.commitscape.com)
 and commits them to your repository when they changed, so a README can show
 them from a file in the repository. It runs no code of yours and needs no
 secret: a public Profile's Cards are public.
@@ -33,7 +33,7 @@ With no inputs it keeps the repository owner's `totals` Card in
 | Input | Default | What it is |
 |---|---|---|
 | `cards` | `u/<repository owner>/totals .github/commitscape-card.svg` | The Cards to keep, one per line: `<card> <path in repository>` |
-| `site` | `https://commitscape.damnlabs.com` | The Site to fetch from, for a Site you run yourself |
+| `site` | `https://app.commitscape.com` | The Site to fetch from, for a Site you run yourself |
 | `message` | `chore: update commitscape cards` | The commit message when a Card changed |
 
 `<card>` is the Card's address after `/api/cards/`, without its extension,
@@ -69,7 +69,7 @@ and the step summary lists what it kept. The commit is made by
 ## The Cards
 
 Each Card is `<kind>.svg` or `<kind>.png` under its subject's address. The
-Site's Cards studio, at `https://commitscape.damnlabs.com/u/<login>/cards`,
+Site's Cards studio, at `https://app.commitscape.com/u/<login>/cards`,
 shows every Card of a person, lets you dress one, and gives the address.
 
 | Subject | Address | Kinds |
@@ -98,7 +98,7 @@ The Site serves every Card at a public address with cache headers, so a
 README can show one without keeping a file:
 
 ```markdown
-![My work, drawn by commitscape](https://commitscape.damnlabs.com/api/cards/u/octocat/totals.svg?theme=dark)
+![My work, drawn by commitscape](https://app.commitscape.com/api/cards/u/octocat/totals.svg?theme=dark)
 ```
 
 GitHub's image proxy caches it for a while, so it follows the Profile

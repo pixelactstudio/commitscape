@@ -12,11 +12,7 @@ const BATCH: usize = 256;
 const THREAD_DELTA_CACHE_BYTES: usize = 32 * 1024 * 1024;
 
 pub(super) fn read(source: &GixRepo, blobs: &[Oid], sink: BlobSink<'_>) -> Result<(), GixError> {
-    let threads = std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(1)
-        .clamp(1, 16)
-        .min(blobs.len().div_ceil(BATCH).max(1));
+    let threads = crate::threads::threads(blobs.len().div_ceil(BATCH));
     let next = AtomicUsize::new(0);
     let failed = AtomicBool::new(false);
     let first_error: Mutex<Option<GixError>> = Mutex::new(None);

@@ -1,17 +1,16 @@
 import "@tanstack/react-start/server-only";
 import { Resvg } from "@resvg/resvg-js";
 import { and, eq } from "drizzle-orm";
-import { monthName, type AchievementCardData, type ArchetypeCardData, type CardImages, type WindowCardData, type WrappedCardData, type CardKind, type Facts, type HallOfFameData, type Profile, type ProfileCardData, type StandingCardData, type VersusCardData } from "@commitscape/data";
+import { type AchievementCardData, type ArchetypeCardData, type CardImages, type WrappedCardData, type CardKind, type Facts, type HallOfFameData, type Profile, type ProfileCardData, type StandingCardData, type VersusCardData } from "@commitscape/data";
 import { now, repoId, schema } from "@commitscape/server";
 import { CARD_DESIGN, CARDS, FACES_SHOWN, HALL_SHOWN, DEFAULT_STYLE, isOffered, placesFor, styleKey, topLine, type CardSpec, type CardStyle, type CardTheme } from "@commitscape/ui";
 import { renderCard, renderPending } from "@commitscape/ui/cards/render";
 import { SiteError } from "./http";
 import { survivingTotal } from "./engine";
 import { isHidden } from "./people";
-import { readProfile } from "./profiles";
+import { NotRead, STORED_ONLY } from "./profiles";
 import type { Deps } from "./repos";
 import { standingsOf } from "./standings";
-import { crewOf, raceOf } from "./races";
 import { traitsOf } from "./traits";
 import { wrappedFor } from "./wrapped";
 import { versusOf } from "./versus";
@@ -22,11 +21,11 @@ export const CARD_FOR = 6 * 3600;
 const PENDING_FOR = 60;
 
 export type CardDeps = Deps & { site: string; avatar?: (login: string) => Promise<string | null> };
-export type Subject = { login?: string; owner?: string; repo?: string; versus?: string; achievement?: string; race?: string; crew?: string; year?: number };
+export type Subject = { login?: string; owner?: string; repo?: string; versus?: string; achievement?: string; year?: number };
 export type Format = "svg" | "png";
 export type Served = { body: Uint8Array; type: string; maxAge: number; ms: number | null };
 
-const anonymous = { address: "cards", sameOrigin: true, session: async () => null, token: async () => null, login: async () => null };
+const anonymous = { ...STORED_ONLY, address: "cards", sameOrigin: true, session: async () => null };
 
 const faces = new Map<string, Promise<string | null>>();
 
@@ -55,15 +54,15 @@ async function images(deps: CardDeps, logins: (string | null)[]): Promise<CardIm
   return out;
 }
 
-/** A person's Card numbers from their stored public Profile and the engine's counts, never from GitHub; null until a Profile is stored, when one is read in the background. */
-export async function profileCardData(deps: CardDeps, login: string): Promise<ProfileCardData | null> {
+/** A person's Card numbers from their stored public Profile and the engine's counts, never from GitHub; null until a Profile is stored, when `read` (given only for someone signed in) reads one in the background. */
+export async function profileCardData(deps: CardDeps, login: string, read?: () => Promise<unknown>): Promise<ProfileCardData | null> {
   if (await isHidden(deps, login)) throw new SiteError(404, "This person has chosen to stay out, so they have no Cards.");
   const [row] = await deps.db
     .select({ data: profiles.data })
     .from(profiles)
     .where(and(eq(profiles.login, login.toLowerCase()), eq(profiles.scope, "public")));
   if (!row?.data) {
-    void readProfile(deps, anonymous, login, true).catch(() => null);
+    if (read) void read().catch(() => null);
     return null;
   }
   const p = JSON.parse(row.data) as Profile;
@@ -141,8 +140,6 @@ function keyOf(kind: CardKind, subject: Subject, theme: CardTheme, format: Forma
 }
 
 function baseKey(kind: CardKind, subject: Subject, theme: CardTheme, format: Format): string {
-  if (subject.race) return `cards/races/${subject.race}/${kind}-${theme}-d${CARD_DESIGN}.${format}`;
-  if (subject.crew) return `cards/crews/${subject.crew}/${kind}-${theme}-d${CARD_DESIGN}.${format}`;
   if (subject.versus) return `cards/vs/${subject.login?.toLowerCase()}/${subject.versus.toLowerCase()}/${kind}-${theme}-d${CARD_DESIGN}.${format}`;
   const repo = `gh/${subject.owner?.toLowerCase()}/${subject.repo?.toLowerCase()}`;
   const who = subject.login ? (subject.owner ? `${repo}/u/${subject.login.toLowerCase()}` : `u/${subject.login.toLowerCase()}`) : repo;
@@ -150,24 +147,13 @@ function baseKey(kind: CardKind, subject: Subject, theme: CardTheme, format: For
 }
 
 async function draw(deps: CardDeps, kind: CardKind, subject: Subject, theme: CardTheme, style: CardStyle): Promise<{ svg: string; png: Uint8Array; ms: number } | null> {
-  let data: ProfileCardData | StandingCardData | HallOfFameData | VersusCardData | ArchetypeCardData | AchievementCardData | WindowCardData | WrappedCardData | null;
+  let data: ProfileCardData | StandingCardData | HallOfFameData | VersusCardData | ArchetypeCardData | AchievementCardData | WrappedCardData | null;
   let logins: (string | null)[];
   if (kind === "wrapped" || kind === "wrapped-calendar") {
     if (!(await profileCardData(deps, subject.login ?? ""))) return null;
     const w = await wrappedFor(deps, anonymous, subject.login ?? "", subject.year ?? 0);
     data = w;
     logins = [w.login];
-  } else if (kind === "race") {
-    const r = await raceOf(deps, null, subject.race ?? "");
-    if (!r.standings) throw new SiteError(404, "This Race has not started.");
-    data = { title: r.name, subtitle: `A Race from ${r.from} to ${r.to}, ${r.state === "finished" ? "finished" : "running"}`, rows: r.standings.rows };
-    logins = r.standings.rows.map((x) => x.login);
-  } else if (kind === "season") {
-    const c = await crewOf(deps, null, subject.crew ?? "");
-    const s = c.last && c.last.rows.length > 0 ? c.last : c.standings;
-    if (!s) throw new SiteError(404, "This Crew has no Season yet.");
-    data = { title: c.name, subtitle: `The Crew's Season of ${monthName(s.from.slice(0, 7))}${s === c.standings ? ", so far" : ""}`, rows: s.rows };
-    logins = s.rows.map((x) => x.login);
   } else if (kind === "archetype" || kind === "achievement") {
     const login = subject.login ?? "";
     const card = await profileCardData(deps, login);
@@ -182,7 +168,11 @@ async function draw(deps: CardDeps, kind: CardKind, subject: Subject, theme: Car
     }
     logins = [identity.login];
   } else if (kind === "versus") {
-    const v = await versusOf(deps, subject.login ?? "", subject.versus ?? "");
+    const v = await versusOf(deps, subject.login ?? "", subject.versus ?? "").catch((e: unknown) => {
+      if (e instanceof NotRead) return null;
+      throw e;
+    });
+    if (!v) return null;
     data = { a: { identity: v.a.identity }, b: { identity: v.b.identity }, rows: v.rows };
     logins = [v.a.identity.login, v.b.identity.login];
   } else if (kind === "hall-of-fame" || kind === "repo-compact" || kind === "repo-stats" || kind === "repo-faces") {

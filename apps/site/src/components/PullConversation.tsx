@@ -5,9 +5,7 @@ import { useSuspenseQuery } from "@tanstack/react-query";
 import { Check, ExternalLink, MessageSquare, X } from "lucide-react";
 import type { PullConversation as Thread } from "@commitscape/data";
 import { date, Face, ICON, many, Pill, plainMarkdown, type PillTone } from "@commitscape/ui";
-import { Locked } from "#/components/Locked";
 import { Section } from "#/components/Boundary";
-import { isLocked } from "#/lib/gates";
 import { pullConversationQuery } from "#/lib/queries";
 
 type Entry = { key: string; login: string | null; at: string | null; note: string; badge?: { tone: PillTone; word: string; icon: ReactNode }; body: string; url: string | null };
@@ -83,7 +81,6 @@ function Card({ login, at, note, badge, url, children }: { login: string | null;
 
 function Read({ owner, repo, number }: { owner: string; repo: string; number: number }) {
   const { data: c } = useSuspenseQuery(pullConversationQuery(owner, repo, number));
-  if (isLocked(c)) return <Locked gate={c.locked} height={320} />;
   const entries = entriesOf(c);
   return (
     <section aria-label="Conversation" className="flex min-w-0 flex-col gap-3">

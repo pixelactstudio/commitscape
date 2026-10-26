@@ -4,7 +4,7 @@ The Site's centre moves from a repository's Report to a person's Profile. People
 
 ## Status
 
-accepted (2026-10-04, Build Run 5 plan). Reverses Build Run 4's "No scores for people. Leaderboards rank repositories." Extends ADR-0017.
+accepted (2026-10-04, Build Run 5 plan). Reverses Build Run 4's "No scores for people. Leaderboards rank repositories." Extends ADR-0017. Narrowed on 2026-10-26: Races, Crews, Seasons, Rivals and the Leaderboards are removed (they need a crowd the Site does not have yet), and the Site is for people signed in, so nobody signed out makes it read GitHub; Cards, Shared Reports and shared Proof of Work stay open. Standings, Versus and hiding stay.
 
 ## Context
 

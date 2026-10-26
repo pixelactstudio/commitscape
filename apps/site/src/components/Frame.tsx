@@ -5,19 +5,18 @@ import { Kbd } from "@astryxdesign/core/Kbd";
 import { TopNav, TopNavItem } from "@astryxdesign/core/TopNav";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useMatches, useRouteContext, useRouter, useRouterState } from "@tanstack/react-router";
-import { Briefcase, Flag, Image as ImageIcon, LayoutDashboard, LogOut, Menu, Monitor, Moon, Search, Settings, Sparkles, Sun, Swords, Trophy, User, Users } from "lucide-react";
+import { Briefcase, Image as ImageIcon, LayoutDashboard, LogOut, Menu, Monitor, Moon, Search, Settings, Sparkles, Sun, Swords, User } from "lucide-react";
 import { PRODUCT } from "@commitscape/data";
 import { Face, Logo, useMode, type Mode } from "@commitscape/ui";
 import { ICON } from "@commitscape/ui/design";
+import { SIGN_IN } from "#/lib/access";
 import { signIn, signOut } from "#/lib/auth-client";
 import { Footer } from "#/components/Footer";
 import { SearchPalette } from "#/components/SearchPalette";
 
 const NAV = [
-  { to: "/leaderboards", label: "Leaderboards", icon: Trophy },
+  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/vs", label: "Versus", icon: Swords },
-  { to: "/races", label: "Races", icon: Flag },
-  { to: "/crews", label: "Crews", icon: Users },
 ] as const;
 
 const YEAR = new Date().getUTCFullYear();
@@ -40,6 +39,8 @@ export function Frame({ children }: { children: ReactNode }) {
   const path = useRouterState({ select: (s) => s.location.pathname });
   const open = useCallback((o: boolean) => setSearching(o), []);
   const kind = useFrameKind();
+  const { user } = useRouteContext({ from: "__root__" });
+  const signedIn = !!user;
   return (
     <div data-frame={kind} className="contents">
       <a href="#main" className="skip-link">
@@ -49,26 +50,30 @@ export function Frame({ children }: { children: ReactNode }) {
         <TopNav
           label={PRODUCT}
           heading={
-            <Link to="/" className="flex items-center gap-2 rounded-lg pe-2 text-lg font-semibold tracking-tight text-primary no-underline" aria-label={`${PRODUCT}, home`}>
+            <Link to={signedIn ? "/dashboard" : "/"} className="flex items-center gap-2 rounded-lg pe-2 text-lg font-semibold tracking-tight text-primary no-underline" aria-label={`${PRODUCT}, home`}>
               <Logo size={26} />
               <span className="hidden sm:inline">{PRODUCT}</span>
             </Link>
           }
           startContent={
-            <span className="hidden items-center gap-0.5 lg:flex">
-              {NAV.map((n) => (
-                <TopNavItem key={n.to} label={n.label} href={n.to} isSelected={path === n.to || path.startsWith(`${n.to}/`)} />
-              ))}
-            </span>
+            signedIn ? (
+              <span className="hidden items-center gap-0.5 lg:flex">
+                {NAV.map((n) => (
+                  <TopNavItem key={n.to} label={n.label} href={n.to} isSelected={path === n.to || path.startsWith(`${n.to}/`)} />
+                ))}
+              </span>
+            ) : undefined
           }
           endContent={
             <div className="flex items-center gap-1.5">
-              <SearchButton onOpen={() => setSearching(true)} />
+              {signedIn && <SearchButton onOpen={() => setSearching(true)} />}
               <ThemeMenu />
               <Account />
-              <span className="lg:hidden">
-                <MobileMenu />
-              </span>
+              {signedIn && (
+                <span className="lg:hidden">
+                  <MobileMenu />
+                </span>
+              )}
             </div>
           }
         />
@@ -78,7 +83,7 @@ export function Frame({ children }: { children: ReactNode }) {
         {children}
       </main>
       <Footer compact={kind === "workspace"} />
-      <SearchPalette isOpen={searching} onOpenChange={open} />
+      {signedIn && <SearchPalette isOpen={searching} onOpenChange={open} />}
     </div>
   );
 }
@@ -132,7 +137,7 @@ function Account() {
   const path = useRouterState({ select: (s) => s.location.pathname });
   const router = useRouter();
   const queryClient = useQueryClient();
-  if (!user) return <Button label="Sign in" variant="secondary" size="sm" onClick={() => signIn(path === "/" ? "/dashboard" : path)} />;
+  if (!user) return path === SIGN_IN ? null : <Button label="Sign in" variant="secondary" size="sm" onClick={() => void signIn(path)} />;
   const go = (to: string) => void router.navigate({ to: to as "/" });
   const shown = user.login ?? user.name;
   return (

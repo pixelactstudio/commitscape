@@ -6,7 +6,7 @@ use gix::objs::TreeRefIter;
 use crate::mailmap::Mailmap;
 use crate::source::{
     BlameCommit, BlameSource, BlameThreads, BlobSink, CommitSink, HeadChange, HeadEntry, InParent,
-    Indexed, LineSink, Moves, RepoSource, WalkStats,
+    Indexed, LineSink, LineWork, Moves, RepoSource, WalkStats,
 };
 
 macro_rules! git_ctx {
@@ -119,6 +119,14 @@ impl GixRepo {
     }
 
     pub fn version_tags(&self) -> Vec<(String, i64)> {
+        self.release_tags()
+            .into_iter()
+            .map(|(name, time, _)| (name, time))
+            .collect()
+    }
+
+    /// The tags named by a version, each with its commit's time and the commit it points at, peeled through annotated tags, oldest first.
+    pub fn release_tags(&self) -> Vec<(String, i64, Oid)> {
         let Ok(platform) = self.repo.references() else {
             return Vec::new();
         };
@@ -137,9 +145,10 @@ impl GixRepo {
             let Ok(commit) = self.repo.find_commit(id.detach()) else {
                 continue;
             };
-            if let Ok(time) = commit.time() {
-                out.push((name, time.seconds));
-            }
+            let (Ok(time), Ok(oid)) = (commit.time(), Self::to_oid(commit.id.as_ref())) else {
+                continue;
+            };
+            out.push((name, time.seconds, oid));
         }
         out.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
         out
@@ -284,7 +293,7 @@ impl RepoSource for GixRepo {
     }
 
     fn all_reachable(&self, commits: &[Oid], from: &[Oid]) -> Result<bool, Self::Error> {
-        let mut missing: std::collections::HashSet<gix::ObjectId> = commits
+        let mut missing: gix::hashtable::HashSet = commits
             .iter()
             .filter(|c| !from.contains(c))
             .filter_map(|c| Self::to_gix(*c))
@@ -436,8 +445,49 @@ impl RepoSource for GixRepo {
         blobs::read(self, blobs, sink)
     }
 
-    fn count_lines(&self, commits: &[Oid], sink: LineSink<'_>) -> Result<(), Self::Error> {
-        lines::count(self, commits, sink)
+    fn count_lines(
+        &self,
+        work: &[LineWork<'_>],
+        until: Option<std::time::Instant>,
+        sink: LineSink<'_>,
+    ) -> Result<(), Self::Error> {
+        lines::count(self, work, until, sink)
+    }
+
+    fn head_history(
+        &self,
+        visit: &mut dyn FnMut(Oid, i64, &[Oid]),
+    ) -> Result<Option<Oid>, Self::Error> {
+        let Ok(head) = self.repo.head_id() else {
+            return Ok(None);
+        };
+        let head = head.detach();
+        let walk = git_ctx!(
+            self.repo
+                .rev_walk([head])
+                .sorting(gix::revision::walk::Sorting::ByCommitTime(
+                    Default::default()
+                ))
+                .all(),
+            "walking the history HEAD reaches"
+        )?;
+        let mut parents = Vec::new();
+        for info in walk {
+            let info = git_ctx!(info, "walking the history HEAD reaches")?;
+            parents.clear();
+            for p in &info.parent_ids {
+                parents.push(Self::to_oid(p.as_ref())?);
+            }
+            let time = match info.commit_time {
+                Some(t) => t,
+                None => {
+                    let commit = git_ctx!(self.repo.find_commit(info.id), "reading a commit")?;
+                    git_ctx!(commit.time(), "reading a commit time")?.seconds
+                }
+            };
+            visit(Self::to_oid(info.id.as_ref())?, time, &parents);
+        }
+        Ok(Some(Self::to_oid(head.as_ref())?))
     }
 
     fn blame_ignore_revs(&self) -> Result<Vec<Oid>, Self::Error> {

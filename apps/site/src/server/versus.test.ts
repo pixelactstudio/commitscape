@@ -3,7 +3,7 @@ import type { Profile } from "@commitscape/data";
 import { now, schema } from "@commitscape/server";
 import { testDb } from "#/test/deps";
 import { saveChoices } from "./people";
-import { addRival, monthOf, removeRival, rivalLogins, rivalsOf, versusFullOf, versusOf } from "./versus";
+import { versusFullOf, versusOf } from "./versus";
 
 const totals = (over: Partial<Profile["totals"]>): Profile["totals"] => ({ prsOpened: 0, prsMerged: 0, prsClosed: 0, prsOpen: 0, reviews: 0, commits: 0, issues: 0, hidden: 0, linesAdded: 0, linesRemoved: 0, hoursToMerge: null, activeDays: 0, longestStreak: 0, currentStreak: 0, contributions: 0, ...over });
 
@@ -96,27 +96,5 @@ describe("Versus", () => {
     await expect(versusOf(deps, "ada", "bo")).rejects.toThrow("@bo has chosen to stay out of comparisons");
     await expect(versusOf(deps, "bo", "ada")).rejects.toThrow("stay out");
     await expect(versusOf(deps, "ada", "ADA")).rejects.toThrow("two different people");
-  });
-
-  test("a month's numbers come from the Profile's months", () => {
-    expect(monthOf(profile("x", {}, [{ month: "2026-09", contributions: 5, prsMerged: 2 }]), "2026-09")).toEqual({ prsMerged: 2, contributions: 5 });
-    expect(monthOf(profile("x", {}), "2026-09")).toEqual({ prsMerged: 0, contributions: 0 });
-  });
-});
-
-describe("Rivals", () => {
-  test("added and removed, never oneself, five at most, and a Rival who hides says only that", async () => {
-    const deps = await seeded();
-    await addRival(deps.db, "u-ada", "ada", "Bo");
-    await addRival(deps.db, "u-ada", "ada", "bo");
-    expect(await rivalLogins(deps.db, "u-ada")).toEqual(["bo"]);
-    await expect(addRival(deps.db, "u-ada", "ada", "ADA")).rejects.toThrow("your own Rival");
-    for (const l of ["r1", "r2", "r3", "r4"]) await addRival(deps.db, "u-ada", "ada", l);
-    await expect(addRival(deps.db, "u-ada", "ada", "r5")).rejects.toThrow("Five Rivals at most");
-    for (const l of ["r1", "r2", "r3", "r4"]) await removeRival(deps.db, "u-ada", l);
-    const gaps = await rivalsOf(deps, "u-ada", "ada");
-    expect(gaps).toEqual([{ login: "bo", name: "BO", gaps: [{ label: "pull requests merged this month", mine: 4, theirs: 7, unit: ["pull request merged", "pull requests merged"] }, { label: "contributions this month", mine: 61, theirs: 40, unit: ["contribution", "contributions"] }] }]);
-    await saveChoices(deps, "u-bo", "bo", { hidden: true });
-    expect(await rivalsOf(deps, "u-ada", "ada")).toEqual([{ login: "bo", hidden: true }]);
   });
 });

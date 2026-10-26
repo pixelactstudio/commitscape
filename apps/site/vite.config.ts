@@ -4,10 +4,15 @@ import { devtools } from "@tanstack/devtools-vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import react from "@vitejs/plugin-react";
 import { nitro } from "nitro/vite";
+import { readFileSync } from "node:fs";
 import { defineConfig } from "vite";
+
+const tree = readFileSync(new URL("./src/routeTree.gen.ts", import.meta.url), "utf8");
+const routes = [...(/fullPaths:([\s\S]*?)\n\s+fileRoutesByTo/.exec(tree)?.[1] ?? "").matchAll(/'([^']+)'/g)].map((m) => m[1]);
 
 export default defineConfig({
   resolve: { tsconfigPaths: true },
+  define: { __ROUTES__: JSON.stringify(routes) },
   ssr: { external: ["satori", "@resvg/resvg-js", "pdfkit"], optimizeDeps: { exclude: ["satori", "@resvg/resvg-js", "pdfkit"] } },
   optimizeDeps: { exclude: ["satori", "@resvg/resvg-js"] },
   worker: { format: "es" },

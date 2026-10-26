@@ -7,13 +7,15 @@ use std::time::{Duration, Instant};
 use clap::Args;
 use commitscape_core::{AuthorId, Index, Oid};
 use commitscape_index::{
-    line_pass, load, BlameCommit, BlameSource, BlameThreads, GixError, GixRepo, GixThreads,
-    InParent, LineStore, Moves, RepoSource, Survival, Survived,
+    load, BlameCommit, BlameSource, BlameThreads, GixError, GixRepo, GixThreads, InParent, Moves,
+    RepoSource, Survival, Survived,
 };
 use commitscape_metrics::{Analysis, Window};
 use commitscape_report::api::{Surviving, SurvivingPerson, SurvivingStatus};
 
-use crate::{now, read_accounts, repo_source, with_accounts, Common, ProgressLine};
+use crate::{
+    count_lines_into, now, read_accounts, repo_source, with_accounts, Common, ProgressLine,
+};
 
 #[derive(Args)]
 pub struct SurvivingArgs {
@@ -65,13 +67,11 @@ pub fn run(args: SurvivingArgs) -> anyhow::Result<()> {
         with_accounts(&repo, &options, &mut loaded.index, given.as_ref())?;
     }
     let count_lines = !args.partial;
+    let metrics = args.common.metrics();
     if count_lines {
-        let store = LineStore::for_repo(&options, &loaded.index.repo);
-        let pass = line_pass(&repo, &loaded.index, store.as_ref(), &mut |_, _| {})?;
-        pass.apply(&mut loaded.index);
+        count_lines_into(&repo, &options, &mut loaded.index, metrics, None, None)?;
     }
     let index = &loaded.index;
-    let metrics = args.common.metrics();
     let added = if count_lines {
         Some(added_by_person(index, metrics)?)
     } else {

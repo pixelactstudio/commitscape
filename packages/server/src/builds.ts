@@ -1,7 +1,7 @@
 import { and, count, eq, gt, inArray } from "drizzle-orm";
 import type { Db } from "./db/client";
 import { builds, repositories } from "./db/schema";
-import { LONGEST_JOB_SECONDS, PRIORITY, type Queue } from "./queue";
+import { LONGEST_JOB_SECONDS, PRIORITY, type BuildJob, type Queue } from "./queue";
 import { randomId } from "./random";
 import { now } from "./time";
 
@@ -32,12 +32,12 @@ export async function waitingBuilds(db: Db): Promise<number> {
   return row?.n ?? 0;
 }
 
-/** Records a queued Build and sends it to the queue; a failed send marks it paused. */
-export async function queueBuild(db: Db, queue: Queue, repoId: string, priority: number): Promise<string> {
+/** Records a queued Build and sends it to the queue, with who asked for it when known; a failed send marks it paused. */
+export async function queueBuild(db: Db, queue: Queue, repoId: string, priority: number, extra: Pick<BuildJob, "userId"> = {}): Promise<string> {
   const id = randomId();
   await db.insert(builds).values({ id, repoId, state: "queued", requestedAt: now() });
   try {
-    await queue.send({ buildId: id, repoId }, priority);
+    await queue.send({ buildId: id, repoId, ...extra }, priority);
   } catch (e) {
     await db.update(builds).set({ state: "failed", reason: "paused", detail: String(e), finishedAt: now() }).where(eq(builds.id, id));
   }

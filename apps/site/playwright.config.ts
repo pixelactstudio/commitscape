@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { defineConfig } from "@playwright/test";
 
 const system = "/run/current-system/sw/bin/chromium";
@@ -18,7 +19,7 @@ export default defineConfig({
   },
   projects: [
     { name: "setup", testMatch: /build\.setup\.ts$/ },
-    { name: "site", dependencies: ["setup"], testMatch: /\.spec\.ts$/ },
+    { name: "site", dependencies: ["setup"], testMatch: /\.spec\.ts$/, use: { storageState: resolve(import.meta.dirname, "../../target/site-e2e-signed-in.json") } },
   ],
   webServer: {
     command: "node e2e/start.ts",

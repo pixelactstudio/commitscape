@@ -85,6 +85,19 @@ export const pageLimit = (limit: number | undefined): number =>
 
 export const cursorOf = (seq: number): string => base64url(new TextEncoder().encode(String(seq)));
 
+const KEYSET = /^(-?[0-9a-z]{1,12})\.([0-9a-f]{40,64})$/;
+
+/** The cursor of the page after a commit: its time and sha, so the next page starts below it however many commits came before. */
+export const afterCommit = (at: number, sha: string): string => `${at.toString(36)}.${sha}`;
+
+/** The commit a cursor from `afterCommit` names, or null when it is not one. */
+export function afterOf(cursor: string | null | undefined): { at: number; sha: string } | null {
+  const m = cursor ? KEYSET.exec(cursor) : null;
+  if (!m) return null;
+  const at = Number.parseInt(m[1] ?? "", 36);
+  return Number.isSafeInteger(at) && (m[2] ?? "").length % 2 === 0 ? { at, sha: m[2] ?? "" } : null;
+}
+
 /** The position a cursor stands for, or null when there is none or it is not one. */
 export function seqOf(cursor: string | null | undefined): number | null {
   if (!cursor) return null;

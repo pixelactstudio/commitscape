@@ -4,15 +4,17 @@ import { replaceIndex } from "./atlas";
 
 const put = (storage: ReturnType<typeof memoryStorage>, key: string) => storage.put(key, "x", { type: "application/octet-stream" });
 
-test("loading a new Stored Index deletes the Atlas payloads of the one it replaces and keeps every other", async () => {
+test("loading a new Stored Index deletes the Atlas payloads and the pack of the one it replaces and keeps every other", async () => {
   const storage = memoryStorage();
   await put(storage, "atlas/7/aaaa/map.bin.br");
   await put(storage, "atlas/7/bbbb/names.bin.br");
   await put(storage, "atlas/70/cccc/map.bin.br");
   await put(storage, "atlas/8/dddd/map.bin.br");
-  const loaded = await replaceIndex(storage, { id: 7 }, async () => ({ si: 9 }));
+  await put(storage, "packs/acme/rocket/7/abc-lines.pack");
+  await put(storage, "packs/acme/rocket/8/def-lines.pack");
+  const loaded = await replaceIndex(storage, { id: 7, pack: "packs/acme/rocket/7/abc-lines.pack" }, async () => ({ si: 9 }));
   expect(loaded.si).toBe(9);
-  expect([...storage.objects.keys()].sort()).toEqual(["atlas/70/cccc/map.bin.br", "atlas/8/dddd/map.bin.br"]);
+  expect([...storage.objects.keys()].sort()).toEqual(["atlas/70/cccc/map.bin.br", "atlas/8/dddd/map.bin.br", "packs/acme/rocket/8/def-lines.pack"]);
 });
 
 test("loading into the same Stored Index, or the first one, deletes nothing", async () => {

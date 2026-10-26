@@ -16,6 +16,7 @@ export const publicEnv = createEnv({
     PUBLIC_SENTRY_DSN: z.string().optional(),
     PUBLIC_POSTHOG_KEY: z.string().optional(),
     PUBLIC_POSTHOG_HOST: z.url().default("https://us.i.posthog.com"),
+    PUBLIC_LANDING_URL: z.url().optional(),
   },
   runtimeEnv: typeof window === "undefined" ? {} : (window[PUBLIC_GLOBAL] ?? {}),
   isServer: false,

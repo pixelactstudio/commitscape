@@ -29,12 +29,12 @@ async function signIn(auth: ReturnType<typeof createAuth>) {
   const start = await auth.handler(new Request(`${SITE}/api/auth/sign-in/social`, { method: "POST", headers: { "content-type": "application/json", origin: SITE }, body: JSON.stringify({ provider: "github", callbackURL: "/me" }) }));
   const { url } = (await start.json()) as { url: string };
   const cookie = start.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ");
-  const back = await auth.handler(new Request(`${SITE}/api/auth/callback/github?code=c&state=${new URL(url).searchParams.get("state")}`, { headers: { cookie } }));
+  const back = await auth.handler(new Request(`${SITE}/api/auth/callback/github?code=c&state=${new URL(url).searchParams.get("state")}`, { headers: { cookie, dnt: "1" } }));
   expect(back.status).toBe(302);
   expect(back.headers.get("location")).toBe("/me");
 }
 
-function setup(db: Db, person: () => Person, token: { value: string | null } = { value: null }) {
+function setup(db: Db, person: () => Person, token: { value: string | null } = { value: null }, signedIn: { first: boolean; dnt: string | null }[] = []) {
   const gh = github(person);
   vi.stubGlobal("fetch", gh.fetcher);
   const deps = { db, github: { api: "http://github.test", fetcher: gh.fetcher } };
@@ -43,7 +43,8 @@ function setup(db: Db, person: () => Person, token: { value: string | null } = {
     baseURL: SITE,
     secret: "s".repeat(40),
     github: { clientId: "id", clientSecret: "secret" },
-    onSignIn: async (userId) => {
+    onSignIn: async (userId, about) => {
+      signedIn.push({ first: about.first, dnt: about.headers?.get("dnt") ?? null });
       token.value = await userTokenOf(auth, db, userId);
       await syncLogin(deps, userId, token.value);
     },
@@ -67,7 +68,8 @@ describe("signing in with GitHub", () => {
   test("a person whose login was never kept gets it at their next sign-in, and a renamed one gets the new name", async () => {
     const db = await testDb();
     let person: Person = { id: 7, login: "old-name", name: "Same Person" };
-    const { auth } = setup(db, () => person);
+    const signedIn: { first: boolean; dnt: string | null }[] = [];
+    const { auth } = setup(db, () => person, { value: null }, signedIn);
     await signIn(auth);
     await db.update(schema.user).set({ login: null });
     person = { id: 7, login: "old-name", name: "Same Person" };
@@ -78,6 +80,11 @@ describe("signing in with GitHub", () => {
     expect(await db.select({ login: schema.user.login }).from(schema.user)).toEqual([{ login: "new-name" }]);
     expect(await db.select().from(schema.user)).toHaveLength(1);
     expect(await db.select().from(schema.session)).toHaveLength(3);
+    expect(signedIn).toEqual([
+      { first: true, dnt: "1" },
+      { first: false, dnt: "1" },
+      { first: false, dnt: "1" },
+    ]);
   });
 
   test("a sign-in still works when GitHub cannot say who the person is", async () => {

@@ -2,8 +2,7 @@ import { sql } from "drizzle-orm";
 import { describe, expect, test } from "vitest";
 import { GIT_FORMAT, type GitPull } from "@commitscape/data";
 import { gitPullKey, now, putGitJson, schema, seedIndex, type SeedIndex } from "@commitscape/server";
-import { testDeps, viewer } from "#/test/deps";
-import { forgetStamp } from "./answers";
+import { fakeEngine, packed, testDeps, viewer, type Asked } from "#/test/deps";
 import { SiteError } from "./http";
 import { pullInsight } from "./pull-insight";
 
@@ -44,12 +43,15 @@ const seed: SeedIndex = {
 
 let made = 0;
 
+const insightOf = ({ endpoint, body }: Asked): unknown => (endpoint === "/v1/pulls/insight" ? { number: body.number, source: body.paths.length > 0 ? "kept" : "commit", touched: 0, known: 0, together: 0, holders: [], partners: [], landed: [], files: [], filesTotal: 0 } : undefined);
+
 async function stored(kept: boolean, head = sha("a")) {
   const prefix = `git/gh/acme/rocket${made++}`;
-  const deps = await testDeps();
+  const engine = fakeEngine(insightOf);
+  const deps = await testDeps({ engine });
   await deps.db.insert(repositories).values({ id: "acme/rocket", owner: "acme", name: "rocket", githubId: 1, status: "ok", isPrivate: false, factsAt: now(), reportKey: "reports/gh/acme/rocket/b1", reportAt: 500 });
   await deps.db.insert(repoGit).values({ repoId: "acme/rocket", prefix, buildId: "b1", builtAt: ANCHOR, head: sha("b"), branch: "main", branches: 1, tags: 0, files: 4, stored: 0, pulls: 1, bytes: 10, logged: 8, complete: true });
-  forgetStamp(await seedIndex(deps.db, "acme/rocket", { ...seed, head }));
+  await packed(deps.db, await seedIndex(deps.db, "acme/rocket", { ...seed, head }), "packs/acme/rocket/1/pack.pack");
   const base = { repoId: "acme/rocket", state: "MERGED", title: "x", createdAt: 1, mergedAt: 2, updatedAt: 3, additions: 1, deletions: 1 };
   await deps.db.insert(pullRequests).values([
     { ...base, number: 7, author: "alice", mergeCommit: commit(6) },
@@ -72,44 +74,38 @@ async function stored(kept: boolean, head = sha("a")) {
     };
     await putGitJson(deps.storage, gitPullKey(prefix, 7), pull);
   }
-  return deps;
+  return Object.assign(deps, { engine });
 }
 
+const named = (k: number, at: number, subject: string) => ({ sha: commit(k), at, subject });
+
 describe("a pull request against the Stored Index", () => {
-  test("tells who holds its files other than its author, bots never, and the files that usually change with them", async () => {
-    const insight = await pullInsight(await stored(true), viewer(), "acme", "rocket", 7);
-    expect(insight).toMatchObject({ number: 7, source: "kept", touched: 2, known: 2 });
-    expect(insight.holders.map((h) => [h.person.login, h.files, h.commits])).toEqual([["bob", 2, 2], ["cy", 0, 1]]);
-    expect(insight.holders.some((h) => h.person.login === "dependabot" || h.person.login === "alice")).toBe(false);
-    expect(insight.partners).toEqual([{ path: "src/c.ts", together: 5, commits: 6 }]);
+  test("asks the engine with the files git kept, its author, and the commits that name it", async () => {
+    const deps = await stored(true);
+    const insight = await pullInsight(deps, viewer(), "acme", "rocket", 7);
+    expect(insight).toMatchObject({ number: 7, source: "kept" });
+    expect(deps.engine.asked).toEqual([{ endpoint: "/v1/pulls/insight", body: { pack: "packs/acme/rocket/1/pack.pack", number: 7, paths: ["src/a.ts", "src/b.ts"], author: "alice", named: [named(6, ANCHOR - 5 * DAY, "feat: the thing (#7)")] } }]);
   });
 
-  test("names the commits on the default branch that mention it, with the lines they changed", async () => {
-    const insight = await pullInsight(await stored(true), viewer(), "acme", "rocket", 7);
-    expect(insight.landed).toEqual([{ sha: commit(6), at: ANCHOR - 5 * DAY, subject: "feat: the thing (#7)", person: expect.objectContaining({ login: "alice" }), added: 15, removed: 3, files: 2 }]);
-  });
-
-  test("takes the files of the commit that squashed it when git kept none", async () => {
-    const insight = await pullInsight(await stored(false), viewer(), "acme", "rocket", 7);
-    expect(insight.source).toBe("commit");
-    expect(insight.touched).toBe(2);
-    expect(insight.holders.length).toBeGreaterThan(0);
-    expect(insight.filesTotal).toBe(2);
-    expect(insight.files.map((f) => f.path).sort()).toEqual(["src/a.ts", "src/b.ts"]);
-    expect(insight.files.reduce((n, f) => n + (f.added ?? 0), 0)).toBe(15);
-    expect(insight.files.reduce((n, f) => n + (f.removed ?? 0), 0)).toBe(3);
-  });
-
-  test("says what it can when nothing names its files", async () => {
-    const insight = await pullInsight(await stored(false), viewer(), "acme", "rocket", 9);
-    expect(insight).toEqual({ number: 9, source: "none", touched: 0, known: 0, together: 0, holders: [], partners: [], landed: [], files: [], filesTotal: 0 });
+  test("names the commit that merged it, and no files when git kept none", async () => {
+    const deps = await stored(false);
+    await deps.db.update(pullRequests).set({ mergeCommit: commit(2) }).where(sql`number = 8`);
+    await pullInsight(deps, viewer(), "acme", "rocket", 8);
+    expect(deps.engine.asked[0]?.body).toMatchObject({ number: 8, paths: [], author: "bob", named: [named(7, ANCHOR - 4 * DAY, "fix: later (#8)"), named(2, ANCHOR - 40 * DAY, "docs")] });
   });
 
   test("leaves out commits other branches hold once the index knows the Mainline", async () => {
     const deps = await stored(true, sha("e"));
-    await deps.db.execute(sql`update index_commits set flags = 8 where encode(sha, 'hex') <> ${commit(0)}`);
-    const insight = await pullInsight(deps, viewer(), "acme", "rocket", 7);
-    expect(insight.partners).toEqual([{ path: "src/c.ts", together: 4, commits: 5 }]);
+    await deps.db.execute(sql`update index_commits set flags = 8 where encode(sha, 'hex') <> ${commit(6)}`);
+    await pullInsight(deps, viewer(), "acme", "rocket", 7);
+    expect(deps.engine.asked[0]?.body.named).toEqual([]);
+  });
+
+  test("says what it can without a Stored Index or its pack", async () => {
+    const deps = await stored(false);
+    await deps.db.update(schema.storedIndexes).set({ pack: null });
+    expect(await pullInsight(deps, viewer(), "acme", "rocket", 9)).toEqual({ number: 9, source: "none", touched: 0, known: 0, together: 0, holders: [], partners: [], landed: [], files: [], filesTotal: 0 });
+    expect(deps.engine.asked).toEqual([]);
   });
 
   test("refuses a number that is not one and a pull request that is not there", async () => {

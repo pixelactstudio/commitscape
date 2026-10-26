@@ -3,11 +3,9 @@ import { Link } from "@tanstack/react-router";
 import { Page } from "@commitscape/ui";
 
 const WAYS = [
-  { to: "/", label: "Home" },
-  { to: "/leaderboards", label: "Leaderboards" },
+  { to: "/dashboard", label: "Dashboard" },
   { to: "/vs", label: "Versus" },
-  { to: "/races", label: "Races" },
-  { to: "/crews", label: "Crews" },
+  { to: "/me", label: "Settings" },
 ] as const;
 
 /** A page that says one thing: what it is, why, and the next step. On the page frame, with a real h1 and, when there is one, something beside it. */

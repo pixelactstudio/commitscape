@@ -2,16 +2,18 @@
 
 A Rust CLI that reads a git repository's history, and a website that shows
 any GitHub repository's Report. `CONTEXT.md` defines the words this code
-uses (Report, Build, Window, Hotspot); use them.
+uses (Report, Build, Window, Pack); use them.
 
 ## Layout
 
 | Folder | What |
 |---|---|
-| `crates/` | Rust: the engine, the terminal interface, the Report, the CLI |
-| `apps/site/` | The Site: TanStack Start on Node (Nitro), Postgres, R2 |
-| `apps/builder/` | The Builder: takes Builds from the pg-boss queue and runs `commitscape report` |
-| `packages/server/` | Drizzle schema and migrations, R2, the queue, stored Reports. Used by the Site and the Builder |
+| `crates/` | Rust: the engine, the metrics, the Report, the CLI |
+| `apps/site/` | The Site: TanStack Start on Node (Nitro), Postgres, R2, the engine service |
+| `apps/engine/` | The engine service (Rust, axum): answers the Site's questions from packs in R2 |
+| `apps/builder/` | The Builder: takes Builds from the pg-boss queue and runs `commitscape build` |
+| `apps/landing/` | The landing page: static HTML drawn at build time, for Cloudflare Pages |
+| `packages/server/` | Drizzle schema and migrations, R2, the queue, the Stored Index loader. Used by the Site and the Builder |
 | `packages/ui/` | Every screen and chart the Site shows a Report with |
 | `packages/data/` | The Report's types (`types.ts` is generated from Rust) and the Data Sources |
 
@@ -20,9 +22,11 @@ uses (Report, Build, Window, Hotspot); use them.
 ```sh
 pnpm services                  # Postgres and an S3 stand-in (s3mock) in Docker
 pnpm dev:site                  # the Site on :3100, from apps/site/.env
+pnpm dev:engine                # the engine service on :4100, from apps/engine/.env
 pnpm dev:builder               # the Builder, from apps/builder/.env
+pnpm dev:landing               # the landing page on :3200
 pnpm check                     # typecheck, lint, test and build every package
-pnpm e2e                       # the Site end to end (needs the release binary and fixtures)
+pnpm e2e                       # the Site end to end (needs both release binaries and fixtures)
 cargo test --workspace         # every Rust test (needs `cargo xtask fixtures --force` once)
 cargo clippy --workspace --all-targets -- -D warnings
 ```

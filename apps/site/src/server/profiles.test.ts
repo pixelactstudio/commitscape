@@ -3,7 +3,7 @@ import { describe, expect, test } from "vitest";
 import { now, schema } from "@commitscape/server";
 import { testDb } from "#/test/deps";
 import type { Profile } from "@commitscape/data";
-import { assemble, CLOCK_RETRY, localSlot, upgraded, lookupProfile, PROFILE_FOR, readProfile, searchPrs, type ProfileViewer } from "./profiles";
+import { assemble, CLOCK_RETRY, localSlot, upgraded, lookupProfile, NotRead, PROFILE_FOR, readProfile, searchPrs, STORED_ONLY, type ProfileViewer } from "./profiles";
 
 const repo = (nameWithOwner: string, isPrivate = false, language = "Rust") => ({ nameWithOwner, isPrivate, stargazerCount: 10, primaryLanguage: { name: language, color: "#dea584" } });
 const who = (login: string, type = "User") => ({ __typename: type, login, avatarUrl: `https://a/${login}` });
@@ -187,18 +187,21 @@ describe("a Profile from GitHub", () => {
     expect(gh.asked.length).toBe(before + 7);
   });
 
-  test("someone signed out gets the stored copy however old and never pull requests, and reading someone new stops at the hourly budget", async () => {
+  test("nobody signed in never reaches GitHub: the stored copy however old and never pull requests, and someone new is not read", async () => {
     const gh = fakeGitHub();
     const db = await testDb();
-    const deps = { db, github: { api: "http://github.test", token: "site", fetcher: gh.fetcher }, visitorReads: 1 };
-    const first = await readProfile(deps, visitor, "alice", true);
-    expect(first.read.complete).toBe(false);
-    expect(gh.asked).toEqual(["owner", "years:y2026,y2025"]);
-    await db.update(schema.profiles).set({ fetchedAt: now() - PROFILE_FOR - 1 });
-    await readProfile(deps, visitor, "alice", true);
-    expect(gh.asked).toHaveLength(2);
-    await expect(readProfile(deps, visitor, "bob")).rejects.toThrow("Sign in with GitHub");
-    expect(gh.asked).toHaveLength(2);
+    const deps = { db, github: { api: "http://github.test", token: "site", fetcher: gh.fetcher } };
+    await expect(readProfile(deps, visitor, "alice", true)).rejects.toThrow(NotRead);
+    await expect(lookupProfile(deps, STORED_ONLY, "alice")).rejects.toThrow("has not read this person yet");
+    expect(gh.asked).toEqual([]);
+    await readProfile(deps, member, "alice");
+    const asked = gh.asked.length;
+    await db.update(schema.profiles).set({ fetchedAt: now() - PROFILE_FOR - 1, identityAt: now() - PROFILE_FOR - 1 });
+    const kept = await readProfile(deps, visitor, "alice", true);
+    expect(kept.read.complete).toBe(false);
+    expect(kept.read.requests).toBe(0);
+    expect(await lookupProfile(deps, STORED_ONLY, "alice")).toMatchObject({ status: "ok", requests: 0 });
+    expect(gh.asked).toHaveLength(asked);
   });
 
   test("the Site's token reads a person once for the lookup and the Profile together, and a visitor's own token is spent apart", async () => {

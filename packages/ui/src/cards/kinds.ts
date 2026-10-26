@@ -1,10 +1,10 @@
 import type { ComponentType } from "react";
-import type { AchievementCardData, ArchetypeCardData, CardKind, HallOfFameData, ProfileCardData, StandingCardData, VersusCardData, WindowCardData, WrappedCardData } from "@commitscape/data";
+import type { AchievementCardData, ArchetypeCardData, CardKind, HallOfFameData, ProfileCardData, StandingCardData, VersusCardData, WrappedCardData } from "@commitscape/data";
 
 export type { CardKind };
-import { AchievementCard, ArchetypeCard, CalendarCard, WindowCard, WrappedCalendarCard, WrappedCard, LanguagesCard, PreviewCard, RepositoriesCard, StandingCard, SurvivalCard, TotalsCard, VersusCard, type CardProps } from "./Cards";
+import { AchievementCard, ArchetypeCard, CalendarCard, WrappedCalendarCard, WrappedCard, LanguagesCard, PreviewCard, RepositoriesCard, StandingCard, SurvivalCard, TotalsCard, VersusCard, type CardProps } from "./Cards";
 import { HallOfFameCard, RepoCompactCard, RepoFacesCard, RepoStatsCard } from "./repo";
-import { calendarSize, hallOfFameSize, REPO_COMPACT_SIZE, REPO_STATS_SIZE, repoFacesSize, languagesSize, PREVIEW_SIZE, repositoriesSize, STANDING_SIZE, SURVIVAL_SIZE, TOTALS_SIZE, versusSize, ARCHETYPE_SIZE, ACHIEVEMENT_SIZE, windowSize, WRAPPED_SIZE, WRAPPED_CALENDAR_SIZE } from "./sizes";
+import { calendarSize, hallOfFameSize, REPO_COMPACT_SIZE, REPO_STATS_SIZE, repoFacesSize, languagesSize, PREVIEW_SIZE, repositoriesSize, STANDING_SIZE, SURVIVAL_SIZE, TOTALS_SIZE, versusSize, ARCHETYPE_SIZE, ACHIEVEMENT_SIZE, WRAPPED_SIZE, WRAPPED_CALENDAR_SIZE } from "./sizes";
 
 type Size = { width: number; height: number };
 
@@ -30,8 +30,6 @@ export const CARDS = {
   versus: person<VersusCardData>({ kind: "versus", title: "Versus", about: "Two people side by side, a winner for each view.", subject: "person", size: versusSize, Card: VersusCard }),
   archetype: person<ArchetypeCardData>({ kind: "archetype", title: "Archetype", about: "How you work, by a written rule.", subject: "person", size: () => ARCHETYPE_SIZE, Card: ArchetypeCard }),
   achievement: person<AchievementCardData>({ kind: "achievement", title: "Achievement", about: "A milestone you reached.", subject: "person", size: () => ACHIEVEMENT_SIZE, Card: AchievementCard }),
-  race: person<WindowCardData>({ kind: "race", title: "Race", about: "A Race's people, view by view.", subject: "person", size: windowSize, Card: WindowCard }),
-  season: person<WindowCardData>({ kind: "season", title: "Season recap", about: "A Crew's Season, view by view.", subject: "person", size: windowSize, Card: WindowCard }),
   wrapped: person<WrappedCardData>({ kind: "wrapped", title: "Wrapped", about: "Your year on GitHub, for posting.", subject: "person", size: () => WRAPPED_SIZE, Card: WrappedCard }),
   "wrapped-calendar": person<WrappedCardData>({ kind: "wrapped-calendar", title: "Wrapped calendar", about: "Your year, a square a day.", subject: "person", size: () => WRAPPED_CALENDAR_SIZE, Card: WrappedCalendarCard }),
   "hall-of-fame": person<HallOfFameData>({ kind: "hall-of-fame", title: "Hall of fame", about: "What it is, and the people who built it: three on a podium, the rest beneath.", subject: "repository", size: hallOfFameSize, Card: HallOfFameCard }),

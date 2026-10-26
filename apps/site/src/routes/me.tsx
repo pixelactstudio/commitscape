@@ -5,21 +5,20 @@ import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { Icon } from "@astryxdesign/core/Icon";
-import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { Switch } from "@astryxdesign/core/Switch";
 import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
-import { Briefcase, EyeOff, Flag, FolderGit2, Image as ImageIcon, Lock, LogIn, LogOut, Plus, Swords, Trash2, User, Users, X } from "lucide-react";
+import { Briefcase, FolderGit2, Image as ImageIcon, Lock, LogOut, Plus, Trash2, User } from "lucide-react";
 import { PRODUCT } from "@commitscape/data";
 import { Face, Page, PageHead, Panel } from "@commitscape/ui";
 import { ICON } from "@commitscape/ui/design";
-import { Section } from "#/components/Boundary";
+import { AnalyticsChoice } from "#/components/Consent";
 import { deleteMe } from "#/functions/account";
+import { forgetPerson } from "#/lib/analytics";
 import { saveMyChoices } from "#/functions/standings";
-import { setMyRival } from "#/functions/versus";
-import { signIn, signOut as endSession } from "#/lib/auth-client";
+import { signOut as endSession } from "#/lib/auth-client";
 import { forgetViewer } from "#/lib/viewer";
-import { choicesQuery, meQuery, myRacesQuery, rivalGapsQuery, rivalsQuery } from "#/lib/queries";
+import { choicesQuery, meQuery } from "#/lib/queries";
 import { useToast } from "#/lib/toast";
 
 export const Route = createFileRoute("/me")({
@@ -31,8 +30,7 @@ export const Route = createFileRoute("/me")({
 const SECTIONS = [
   ["profile", "Profile"],
   ["privacy", "Privacy"],
-  ["rivals", "Rivals"],
-  ["competing", "Races and Crews"],
+  ["usage", "Usage data"],
   ["repositories", "Connected repositories"],
   ["danger", "Delete my data"],
 ] as const;
@@ -51,15 +49,13 @@ function Me() {
   const signOut = useMutation({ mutationFn: () => endSession(), onSuccess: () => after("Signed out.") });
   return (
     <Page className="pb-16">
-      <PageHead title="Settings" description={mine ? (mine.user.login ? `Signed in with GitHub as @${mine.user.login}. Every choice here takes effect at once.` : "Signed in with GitHub. Every choice here takes effect at once.") : "What others see of you, who you measure yourself against, and the repositories you let us read."} />
+      <PageHead title="Settings" description={mine ? (mine.user.login ? `Signed in with GitHub as @${mine.user.login}. Every choice here takes effect at once.` : "Signed in with GitHub. Every choice here takes effect at once.") : "What others see of you, and the repositories you let us read."} />
       {done && (
         <div className="pb-4">
           <Banner status="success" title={done} />
         </div>
       )}
-      {!mine ? (
-        <SignedOut />
-      ) : (
+      {!mine ? null : (
         <div className="grid items-start gap-8 lg:grid-cols-[13rem_minmax(0,1fr)]">
           <nav aria-label="Settings sections" className="hidden lg:sticky lg:top-[calc(var(--chrome-top)+1.5rem)] lg:flex lg:flex-col lg:gap-0.5">
             {SECTIONS.map(([id, label]) => (
@@ -91,68 +87,15 @@ function Me() {
               </div>
             </Panel>
             <Choices />
-            <Section fallback={<PanelSkeletonOf id="rivals" title="Rivals" />}>
-              <RivalList />
-            </Section>
-            <Section fallback={<PanelSkeletonOf id="competing" title="Races and Crews" />}>
-              <Competing />
-            </Section>
+            <Panel id="usage" title="Usage data" description="What we learn from how you use the Site, to make it better. It takes effect at once.">
+              <AnalyticsChoice />
+            </Panel>
             <Repositories installations={mine.installations} install={mine.install} tokenLost={mine.tokenLost} />
             <Danger onDone={() => void after("Your data is deleted. Everything listed is gone, and you are signed out.")} />
           </div>
         </div>
       )}
     </Page>
-  );
-}
-
-function SignedOut() {
-  const perks: [typeof User, string, string][] = [
-    [Lock, "Your private work, counted", "Your own Profile read with your sign-in, so private contributions count. Named to you alone."],
-    [EyeOff, "Choose what others see", "Stay out of every comparison, or name your private repositories, with one switch."],
-    [Swords, "Rivals, Races and Crews", "Keep the people you measure yourself against, and compete with friends view by view."],
-    [FolderGit2, "Connect private repositories", "Let the GitHub App read them, and see their Reports. Only people GitHub lets see them can."],
-  ];
-  return (
-    <div className="flex flex-col gap-gutter">
-      <div className="grid gap-gutter sm:grid-cols-2">
-        {perks.map(([Glyph, title, words]) => (
-          <div key={title} className="flex gap-3 surface p-panel">
-            <span className="grid size-8 flex-none place-items-center rounded-md bg-brand-soft text-brand">
-              <Glyph size={ICON.md} aria-hidden />
-            </span>
-            <span className="flex flex-col gap-1">
-              <span className="type-label">{title}</span>
-              <span className="type-description">{words}</span>
-            </span>
-          </div>
-        ))}
-      </div>
-      <div className="cta-backdrop surface flex flex-col items-start gap-4 p-panel sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-col gap-1">
-          <span className="type-panel">Sign in with GitHub to see your settings</span>
-          <span className="type-description">
-            Read-only. What is kept, and for how long, is on{" "}
-            <Link to="/privacy" className="text-primary">
-              What we keep
-            </Link>
-            .
-          </span>
-        </div>
-        <Button label="Sign in with GitHub" variant="primary" icon={<Icon icon={LogIn} size="sm" />} onClick={() => signIn("/me")} />
-      </div>
-    </div>
-  );
-}
-
-function PanelSkeletonOf({ id, title }: { id: string; title: string }) {
-  return (
-    <Panel id={id} title={title} description={<Skeleton height={13} width={260} radius={1} />}>
-      <div className="flex flex-col gap-3">
-        <Skeleton height={32} radius={2} />
-        <Skeleton height={32} radius={2} index={1} />
-      </div>
-    </Panel>
   );
 }
 
@@ -175,7 +118,7 @@ function Choices() {
         <div className="pb-4">
           <Switch
             label="Stay out of comparisons"
-            description="You appear in no one else’s Standings, Versus, Leaderboards, Races or Crews, and your Profile says only that it is hidden. You still see your own."
+            description="You appear in no one else’s Standings or Versus, and your Profile says only that it is hidden. You still see your own."
             value={choices?.hidden ?? false}
             isDisabled={choose.isPending}
             onChange={(hidden) => choose.mutate({ hidden })}
@@ -196,66 +139,6 @@ function Choices() {
             width="100%"
           />
         </div>
-      </div>
-    </Panel>
-  );
-}
-
-function RivalList() {
-  const queryClient = useQueryClient();
-  const toast = useToast();
-  const { data: mine } = useSuspenseQuery(rivalsQuery());
-  const remove = useMutation({
-    mutationFn: (login: string) => setMyRival({ data: { login, on: false } }),
-    onSuccess: (next, login) => {
-      queryClient.setQueryData(rivalsQuery().queryKey, (old) => (old ? { ...old, logins: next.logins } : old));
-      void queryClient.invalidateQueries({ queryKey: rivalGapsQuery().queryKey });
-      toast(`@${login} is no longer your Rival`);
-    },
-  });
-  if (!mine) return null;
-  return (
-    <Panel id="rivals" title="Rivals" description={`The people your Profile measures you against: ${mine.logins.length} of 5. They are not told.`}>
-      {mine.logins.length === 0 ? (
-        <NoneYet icon={Swords} words="None yet. Open someone’s Profile and choose “Make my Rival”." />
-      ) : (
-        <List>
-          {mine.logins.map((l) => (
-            <li key={l} className="flex items-center gap-3 border-t border-line py-2.5 first:border-t-0 first:pt-0">
-              <Face login={l} name={l} size={32} />
-              <Link to="/u/$login" params={{ login: l }} className="min-w-0 flex-1 truncate type-label no-underline hover:underline">
-                @{l}
-              </Link>
-              <Button label="Versus" variant="ghost" size="sm" icon={<Icon icon={Swords} size="sm" />} href={`/vs/${mine.login}/${l}`} />
-              <Button label={`Remove @${l}`} isIconOnly variant="ghost" size="sm" icon={<Icon icon={X} size="sm" />} tooltip="Remove" isDisabled={remove.isPending} onClick={() => remove.mutate(l)} />
-            </li>
-          ))}
-        </List>
-      )}
-    </Panel>
-  );
-}
-
-function Competing() {
-  const { data: mine } = useSuspenseQuery(myRacesQuery());
-  if (!mine) return null;
-  const links: [typeof Flag, string, string, number, number][] = [
-    [Flag, "/races", "Races", mine.races.length, mine.invitations.filter((i) => i.kind === "race").length],
-    [Users, "/crews", "Crews", mine.crews.length, mine.invitations.filter((i) => i.kind === "crew").length],
-  ];
-  return (
-    <Panel id="competing" title="Races and Crews" description="Where you compare yourself with friends. You join only by accepting, and leave at any time.">
-      <div className="grid gap-gutter sm:grid-cols-2">
-        {links.map(([Glyph, to, label, n, waiting]) => (
-          <Link key={to} to={to as "/races"} className="surface row-hover flex items-center gap-3 p-4 text-primary no-underline">
-            <Glyph size={ICON.md} className="text-brand" aria-hidden />
-            <span className="flex flex-1 flex-col">
-              <span className="type-label">{label}</span>
-              <span className="type-caption tnum">{n === 0 ? "none yet" : `in ${n}`}</span>
-            </span>
-            {waiting > 0 && <Badge label={waiting === 1 ? "1 invitation" : `${waiting} invitations`} variant="success" />}
-          </Link>
-        ))}
       </div>
     </Panel>
   );
@@ -310,6 +193,7 @@ function Danger({ onDone }: { onDone: () => void }) {
   const remove = useMutation({
     mutationFn: () => deleteMe(),
     onSuccess: () => {
+      forgetPerson();
       setAsking(false);
       onDone();
     },
@@ -345,7 +229,7 @@ function List({ children }: { children: ReactNode }) {
   return <ul className="m-0 flex list-none flex-col p-0">{children}</ul>;
 }
 
-function NoneYet({ icon: Glyph, words }: { icon: typeof Flag; words: string }) {
+function NoneYet({ icon: Glyph, words }: { icon: typeof FolderGit2; words: string }) {
   return (
     <p className="m-0 flex items-center gap-2.5 rounded-md border border-dashed border-strong px-4 py-3 type-description">
       <Glyph size={ICON.md} aria-hidden className="flex-none" />

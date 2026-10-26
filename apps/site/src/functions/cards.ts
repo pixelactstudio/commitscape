@@ -3,18 +3,21 @@ import { getRequest } from "@tanstack/react-start/server";
 import { z } from "zod";
 import { profileCardData } from "#/server/cards";
 import { engineOf } from "#/server/engine";
+import { readProfile } from "#/server/profiles";
 import { traitsOf } from "#/server/traits";
 import { env } from "#/server/env";
-import { deps, profileViewer } from "#/server/viewer";
+import { deps, profileDeps, profileViewer, publicReader } from "#/server/viewer";
 
-/** What a person's Card gallery needs: their Card numbers, and the repositories they have a Standing in. */
+/** What a person's Card gallery needs: their Card numbers, and the repositories they have a Standing in; their public Profile is read with the viewer's own token when none is stored. */
 export const getCardGallery = createServerFn({ method: "GET" })
   .validator(z.object({ login: z.string().min(1).max(39) }))
   .handler(async ({ data }) => {
+    const request = getRequest();
+    const reader = publicReader(request);
     const site = new URL(env.BETTER_AUTH_URL).host;
-    const card = await profileCardData({ ...deps(), site }, data.login);
-    const engine = await engineOf(deps(), { ...profileViewer(getRequest()), login: async () => null }, data.login);
-    const traits = card ? await traitsOf(deps(), { login: async () => null, token: async () => null }, data.login).catch(() => null) : null;
+    const card = await profileCardData({ ...deps(), site }, data.login, () => readProfile(profileDeps(), reader, data.login, true));
+    const engine = await engineOf(deps(), { ...profileViewer(request), login: async () => null }, data.login);
+    const traits = card ? await traitsOf(profileDeps(), reader, data.login).catch(() => null) : null;
     return {
       card,
       standings: engine.repos.filter((r) => !r.private).slice(0, 4).map((r) => ({ owner: r.owner, name: r.name })),

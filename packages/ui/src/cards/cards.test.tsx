@@ -1,9 +1,9 @@
 import { describe, expect, test } from "vitest";
 import { CARDS } from "./kinds";
-import { ACHIEVEMENT, ARCHETYPE, HALL, PROFILE, STANDING, VERSUS, WINDOW, WRAPPED } from "./fixture";
+import { ACHIEVEMENT, ARCHETYPE, HALL, PROFILE, STANDING, VERSUS, WRAPPED } from "./fixture";
 import { renderCard } from "./render";
 
-const DATA = { totals: PROFILE, survival: PROFILE, repositories: PROFILE, calendar: PROFILE, languages: PROFILE, preview: PROFILE, standing: STANDING, "hall-of-fame": HALL, "repo-compact": HALL, "repo-stats": HALL, "repo-faces": HALL, versus: VERSUS, archetype: ARCHETYPE, achievement: ACHIEVEMENT, race: WINDOW, season: WINDOW, wrapped: WRAPPED, "wrapped-calendar": WRAPPED } as const;
+const DATA = { totals: PROFILE, survival: PROFILE, repositories: PROFILE, calendar: PROFILE, languages: PROFILE, preview: PROFILE, standing: STANDING, "hall-of-fame": HALL, "repo-compact": HALL, "repo-stats": HALL, "repo-faces": HALL, versus: VERSUS, archetype: ARCHETYPE, achievement: ACHIEVEMENT, wrapped: WRAPPED, "wrapped-calendar": WRAPPED } as const;
 
 describe("every Card", () => {
   for (const kind of Object.keys(CARDS) as (keyof typeof CARDS)[]) {

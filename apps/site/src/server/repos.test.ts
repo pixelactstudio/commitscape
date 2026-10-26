@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { eq } from "drizzle-orm";
-import { now, reportPrefix, schema } from "@commitscape/server";
+import { now, reportPrefix, schema, type BuildJob } from "@commitscape/server";
 import { fakeGitHub, repoFacts, signedIn, testDeps, viewer } from "#/test/deps";
 import { engineOf } from "./engine";
 import { canSee, known, lookup, reportHead, requestBuild } from "./repos";
@@ -101,6 +101,30 @@ describe("renamed and moved repositories", () => {
     expect(await known(deps, "acme", "rocket")).toMatchObject({ githubId: 2, reportKey: null, pullsReadAt: null });
     expect(await deps.db.select().from(repoPeople)).toEqual([]);
     expect(await deps.db.select().from(pullRequests)).toEqual([]);
+  });
+});
+
+describe("a Report's head", () => {
+  const meta = { name: "rocket", windows: ["all"], window: "all", anchor: 1, history: "complete", lines: "counting", avatars: false };
+  const stats = { commits: 3, people: 2, bus_factor: 1, maintainers: 1, commits_30d: 3, people_30d: 2, code_lines: 40, untouched_5y: 0 };
+
+  test("is read from the repository's row a Build wrote it into, and from R2 for a Report not built since", async () => {
+    const deps = await testDeps();
+    await deps.db.insert(repositories).values([
+      { id: "acme/rocket", owner: "acme", name: "rocket", reportKey: reportPrefix("acme/rocket", "b2"), reportAt: now(), factsAt: now(), reportMeta: meta, reportStats: stats, indexId: 4 },
+      { id: "acme/old", owner: "acme", name: "old", reportKey: reportPrefix("acme/old", "b1"), reportAt: now(), factsAt: now() },
+    ]);
+    await deps.storage.put(`${reportPrefix("acme/old", "b1")}/index.json`, JSON.stringify({ meta: { ...meta, name: "old", lines: "counted" }, stats: null, keys: ["/api/stats"] }), { type: "application/json" });
+    expect(await reportHead(deps, viewer(), "acme", "rocket")).toMatchObject({ index: { meta, stats, keys: [] }, ranges: true });
+    expect((await reportHead(deps, viewer(), "acme", "old")).index).toEqual({ meta: { ...meta, name: "old", lines: "counted" }, stats: null, keys: ["/api/stats"] });
+  });
+
+  test("a Build asked for by someone signed in carries who asked, for the Builder's events", async () => {
+    const jobs: BuildJob[] = [];
+    const deps = await testDeps({ queue: async () => ({ send: async (job) => void jobs.push(job) }) });
+    await deps.db.insert(repositories).values({ id: "acme/rocket", owner: "acme", name: "rocket", factsAt: now(), facts: facts("acme/rocket") });
+    await requestBuild(deps, signedIn(), "acme", "rocket");
+    expect(jobs).toEqual([{ buildId: expect.any(String), repoId: "acme/rocket", userId: "u1" }]);
   });
 });
 

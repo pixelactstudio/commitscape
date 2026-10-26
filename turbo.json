@@ -8,6 +8,10 @@
       "outputs": [
         "dist/**",
         ".output/**"
+      ],
+      "env": [
+        "PUBLIC_APP_URL",
+        "PUBLIC_LANDING_URL"
       ]
     },
     "typecheck": {},
@@ -15,6 +19,15 @@
     "test": {
       "passThroughEnv": [
         "CARD_BUDGET_MS"
+      ]
+    },
+    "@commitscape/landing#test": {
+      "dependsOn": [
+        "build"
+      ],
+      "env": [
+        "PUBLIC_APP_URL",
+        "PUBLIC_LANDING_URL"
       ]
     }
   }

@@ -8,13 +8,15 @@ import { now } from "./time";
 
 export type RepoRow = typeof repositories.$inferSelect;
 
-/** Deletes repositories' stored Reports, cards, git data and Atlas payloads, and their rows; their commit rows go with them. */
+/** Deletes repositories' stored Reports, packs, cards, git data and Atlas payloads, and their rows; their commit rows go with them. */
 export async function removeReports(db: Db, storage: Storage, rows: RepoRow[]): Promise<void> {
   await removeGit(db, storage, rows.map((r) => r.id));
   for (let i = 0; i < rows.length; i += 500) {
     const ids = rows.slice(i, i + 500).map((r) => r.id);
-    const indexes = ids.length > 0 ? await db.select({ id: storedIndexes.id }).from(storedIndexes).where(inArray(storedIndexes.repoId, ids)) : [];
+    const indexes = ids.length > 0 ? await db.select({ id: storedIndexes.id, pack: storedIndexes.pack }).from(storedIndexes).where(inArray(storedIndexes.repoId, ids)) : [];
     for (const si of new Set([...indexes.map((x) => x.id), ...rows.slice(i, i + 500).flatMap((r) => (r.indexId === null ? [] : [r.indexId]))])) await storage.deletePrefix(`atlas/${si}/`);
+    const packs = indexes.flatMap((x) => (x.pack ? [x.pack] : []));
+    if (packs.length > 0) await storage.delete(packs);
   }
   for (const r of rows) {
     if (r.reportKey) await storage.deletePrefix(`${r.reportKey}/`);

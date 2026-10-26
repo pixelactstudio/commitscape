@@ -1,4 +1,4 @@
-import type { HallOfFameData, ProfileCardData, VersusCardData, WindowCardData } from "@commitscape/data";
+import type { HallOfFameData, ProfileCardData, VersusCardData } from "@commitscape/data";
 
 export const CELL = 12;
 export const GAP = 3;
@@ -58,10 +58,6 @@ export function versusSize(data: VersusCardData) {
 export const ARCHETYPE_SIZE = { width: 600, height: 268 };
 
 export const ACHIEVEMENT_SIZE = { width: 600, height: 236 };
-
-export function windowSize(data: WindowCardData) {
-  return { width: 720, height: 186 + Math.min(10, data.rows.length) * 40 };
-}
 
 export const WRAPPED_SIZE = { width: 1200, height: 630 };
 

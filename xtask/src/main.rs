@@ -4,6 +4,7 @@ mod fixtures;
 mod layering;
 mod line_cost;
 mod npm;
+mod pack_read;
 mod verify;
 
 use anyhow::Result;
@@ -73,6 +74,13 @@ enum Command {
         #[arg(long)]
         verify: bool,
     },
+    /// Time reading a pack `commitscape build` wrote.
+    PackRead {
+        pack: std::path::PathBuf,
+        /// Read it this many times and report the quickest.
+        #[arg(long, default_value_t = 3)]
+        times: u32,
+    },
     /// Check the history walk against `git diff-tree` on a real repository.
     VerifyWalk {
         /// The repository to check.
@@ -110,6 +118,7 @@ fn main() -> Result<()> {
             newest,
             verify,
         } => line_cost::run(&repo, newest, verify),
+        Command::PackRead { pack, times } => pack_read::run(&pack, times),
     }
 }
 

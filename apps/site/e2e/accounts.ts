@@ -8,6 +8,9 @@ import pg from "pg";
 const root = resolve(import.meta.dirname, "../../..");
 const SECRET = "e2e-secret-e2e-secret-e2e-secret-e2e";
 const site = `http://127.0.0.1:${process.env.SITE_PORT ?? 8790}`;
+const ACCOUNTS: Record<string, string> = { alice: "1", bob: "2", dana: "3" };
+
+export const SIGNED_IN = join(root, "target", "site-e2e-signed-in.json");
 
 export async function sql(text: string, values: unknown[] = []): Promise<Record<string, unknown>[]> {
   const { databaseUrl } = JSON.parse(readFileSync(join(root, "target", "site-e2e-env.json"), "utf8")) as { databaseUrl: string };
@@ -24,11 +27,12 @@ export async function sql(text: string, values: unknown[] = []): Promise<Record<
 export async function signInAs(context: BrowserContext, login: string): Promise<void> {
   const userId = `u-${login}`;
   await sql(`INSERT INTO "user" (id, name, email, login, image) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO NOTHING`, [userId, login, `${login}@users.noreply.github.com`, login, `http://127.0.0.1/${login}.png`]);
-  if (login === "alice" || login === "bob") {
+  const accountId = ACCOUNTS[login];
+  if (accountId) {
     await sql(
       `INSERT INTO account (id, account_id, provider_id, user_id, access_token, refresh_token, access_token_expires_at, refresh_token_expires_at, created_at, updated_at)
        VALUES ($1, $2, 'github', $3, $4, $5, now() + interval '8 hours', now() + interval '180 days', now(), now()) ON CONFLICT (id) DO NOTHING`,
-      [`a-${login}`, `${login === "alice" ? 1 : 2}`, userId, await symmetricEncrypt({ key: SECRET, data: `ghu_${login}` }), await symmetricEncrypt({ key: SECRET, data: `ghr_${login}` })],
+      [`a-${login}`, accountId, userId, await symmetricEncrypt({ key: SECRET, data: `ghu_${login}` }), await symmetricEncrypt({ key: SECRET, data: `ghr_${login}` })],
     );
   }
   const token = randomBytes(24).toString("base64url");

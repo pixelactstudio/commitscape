@@ -9,9 +9,15 @@
     "./styles.css": "./src/index.css",
     "./mode": "./src/mode.ts",
     "./motion": "./src/motion/index.ts",
+    "./motion/constants": "./src/motion/constants.ts",
     "./design": "./src/design/tokens.ts",
     "./cards/render": "./src/cards/render.tsx",
-    "./cards/fonts": "./src/cards/fonts.ts"
+    "./cards/fonts": "./src/cards/fonts.ts",
+    "./theme": "./src/theme.ts",
+    "./kit/primitives": "./src/kit/primitives.tsx",
+    "./components/Face": "./src/components/Face.tsx",
+    "./components/Logo": "./src/components/Logo.tsx",
+    "./cards/style": "./src/cards/style.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

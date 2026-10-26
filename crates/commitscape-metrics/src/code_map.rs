@@ -144,7 +144,12 @@ impl Analysis<'_> {
                 let (a, b) = (sizes.get(a), sizes.get(b));
                 b.map(|s| s.0)
                     .cmp(&a.map(|s| s.0))
-                    .then_with(|| a.map(|s| &s.1).cmp(&b.map(|s| &s.1)))
+                    .then_with(|| match (a, b) {
+                        (Some(a), Some(b)) => {
+                            crate::text::compare_text(a.1.as_bytes(), b.1.as_bytes())
+                        }
+                        (a, b) => a.map(|s| &s.1).cmp(&b.map(|s| &s.1)),
+                    })
             });
         }
         CodeMap { nodes }

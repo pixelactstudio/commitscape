@@ -134,10 +134,14 @@ jobs:
             exit 1
           fi
 
-      - name: Build the binary and the fixtures
+      - name: Build the binaries and the fixtures
         run: |
           cargo xtask fixtures --force
-          cargo build --release -p commitscape
+          cargo build --release -p commitscape -p commitscape-engine
+
+      - name: The Site's engine client against the engine, on packs commitscape builds
+        working-directory: apps/site
+        run: pnpm exec vitest run src/server/engine-service.test.ts
 
       - name: The Site, end to end
         working-directory: apps/site
