@@ -4,23 +4,32 @@ How ADR-0027 gets built, in the order it ships. Each phase leaves the live
 Site working: new tables fill beside the old ones, and a screen moves only
 when its answers match the Report's.
 
-## Where it stands (2026-10-18)
+## Where it stands (2026-10-26)
 
-Every phase is built. What differs from the plan below:
+Every phase is built, and [ADR-0028](./adr/0028-the-engine-service-answers-from-immutable-packs.md)
+changed where answers come from. The Stored Index is now for row lookups:
+the Commit List and its search, a person's commits on a day, branches,
+tags, pull requests and the files at HEAD. Every screen's answer comes from
+the engine service, from the pack each Build writes beside the rows, and
+the Site holds no Stored Index in memory. The four daily summary tables were
+dropped with export format 3: nothing read them. What else differs from the
+plan below:
 
-- **Phase 2** works the answers out in TypeScript from the Stored Index held
-  in memory (`@commitscape/data/answers`, `apps/site/src/server/answers.ts`),
-  a port of the engine's `Analysis`, rather than in SQL. The parity test
-  (`packages/server/src/parity.test.ts`) holds it equal to the Report on every
-  fixture, BurntSushi/ripgrep and facebook/react. Any dates can be chosen on
-  every screen of a repository with a Stored Index.
+- **Phase 2** worked the answers out in TypeScript from the Stored Index held
+  in memory, a port of the engine's `Analysis`, rather than in SQL. Since the
+  engine service (2026-10-25) the answers come from it, from a pack the Build
+  writes, and the TypeScript is gone: its answers on every fixture are kept
+  as golden files the engine's tests compare against
+  (`apps/engine/tests/golden/`). Any dates can be chosen on every screen of a
+  repository with a Stored Index.
 - **Phase 3** keeps the HEAD listing and blob upload in the Builder
   (`gitdata/files.ts`) and records the kept blobs in `repo_blobs`; the tree,
-  coupling, history and folder listings are worked out from the Stored Index;
-  branches, tags and branch details are rows. Squash and rebase merges are
+  coupling, history and folder listings are worked out by the engine
+  service from the pack; branches, tags and branch details are rows. Squash and rebase merges are
   found with `git merge-tree` and by the pull request's `head_ref`.
 - **Phase 4** stops writing answer objects for a Build whose Stored Index
-  loaded, and drops the `commits` table: commit pages, a person's commits on
+  loaded (since the engine service a Build writes no Report objects at all,
+  only the pack), and drops the `commits` table: commit pages, a person's commits on
   a day and the commit count on Cards read `index_commits`. The old answer
   objects stay for repositories not built since, which show their commits
   after their next Build.
@@ -50,14 +59,16 @@ rename touches one row.
 **`stored_indexes`**: `id` serial, `repo_id` → repositories, `lineage`
 (the engine cache's identity), `kept` (whether that cache was written, so
 the next export may append), `head`, `frontier` (the heads the export was
-made at), `commits`, `lines` (whether Lines Changed are counted), `state`
-(`loading`, `live`), `built_at`, `loaded_at`. `repositories.index_id`
-points at the live one.
+made at), `commits`, `lines` (whether the Mainline's Lines Changed are all
+counted), `lines_left` (commits the line pass has not reached yet), `pack`
+(the R2 key of the current pack), `state` (`loading`, `live`), `built_at`,
+`loaded_at`. `repositories.index_id` points at the live one.
 
 **Facts, appended**
 
 - `index_commits`: `si`, `sha` bytea, `at`, `offset`, `author_delta`,
-  `signature`, `kind`, `flags` (merge, bulk, ignored by blame), `subject`,
+  `signature`, `kind`, `flags` (merge, bulk, ignored by blame, reachable
+  from HEAD, first-parent), `arrival` (Main Arrival), `subject`,
   `files int4[]`, `changes int2[]` (added, modified, deleted, renamed),
   `added int4[]`, `removed int4[]` (null until counted). Keys: `(si, sha)`;
   `(si, at)`; `(si, signature, at)`; GIN `(si, files)` with `btree_gin`
@@ -75,15 +86,11 @@ points at the live one.
   Report's people use), `person_name`, `colour`, `login`, `bot`. No email
   address ever leaves the Builder (ADR-0019). `repo_people` stays as it is.
 
-**Daily summaries, by Landing Day**
+**Daily summaries, by Landing Day** (dropped with export format 3: nothing
+read them)
 
-- `index_days`: `si`, `day`, commits, merges, bulk, added, removed.
-- `index_signature_days`: `si`, `day`, `signature`, commits, added,
-  removed, files.
-- `index_folder_days`: `si`, `day`, `folder`, commits, added, removed
-  (every depth; a folder counts its whole subtree, Bulk and Merge Commits
-  left out as Churn leaves them out).
-- `index_signature_folder_days`: the same per Signature, folders to depth 3.
+- `index_days`, `index_signature_days`, `index_folder_days`,
+  `index_signature_folder_days`.
 
 **HEAD, replaced each Build**
 

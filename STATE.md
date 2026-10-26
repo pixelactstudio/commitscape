@@ -3,7 +3,9 @@
 Running log for Build Run 1 (Phases 0 to 7). Written so a fresh session with
 no context can read this plus `docs/adr/` and continue without asking anything.
 
-**Current position:** Build Run 5 (Phases 32 to 42) is done, uncommitted in the working tree: its brief is `IDEA.md`, with ADR-0020 to ADR-0022 and ADR-0023, written during the run. The table under "Build Run 5" gives each phase's gate and result, each phase's findings are under "Phase N findings", and "Where to pick up" (at the end) lists what is left for the owner. Phase 36's README embed and Phase 40's three real accounts need the owner; everything else met its gate. Build Run 4 (Phases 23 to 31) is committed. Since Build Run 4 the Site moved from Cloudflare to TanStack Start on Node with Postgres and R2 (`CLAUDE.md`, `DEPLOY.md`); older findings below that mention D1, Workers or `wrangler` describe that earlier Site.
+This log stops at the end of Build Run 5. What runs now is described in `README.md`, `docs/working.md` and the ADRs up to ADR-0028 (the engine service).
+
+**Where this log stops:** Build Run 5 (Phases 32 to 42) is done: its brief is `IDEA.md`, with ADR-0020 to ADR-0022 and ADR-0023, written during the run. The table under "Build Run 5" gives each phase's gate and result, each phase's findings are under "Phase N findings", and "Where to pick up" (at the end) lists what is left for the owner. Phase 36's README embed and Phase 40's three real accounts need the owner; everything else met its gate. Build Run 4 (Phases 23 to 31) is committed. Since Build Run 4 the Site moved from Cloudflare to TanStack Start on Node with Postgres and R2 (`CLAUDE.md`, `DEPLOY.md`); older findings below that mention D1, Workers or `wrangler` describe that earlier Site.
 Build Run 1 (Phases 0 to 7) built a correct, fast tool. Build Run 2 (Phases 8
 to 12) made it fun and visual. On 2026-09-24 the owner used it on their own
 repositories and reviewed it. The review and the decisions that followed are
