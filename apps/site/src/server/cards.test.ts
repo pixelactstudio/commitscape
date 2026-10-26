@@ -5,7 +5,7 @@ import { Resvg } from "@resvg/resvg-js";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { Profile } from "@commitscape/data";
 import { now, schema } from "@commitscape/server";
-import { CARDS } from "@commitscape/ui";
+import { CARDS, DEFAULT_STYLE } from "@commitscape/ui";
 import { renderCard } from "@commitscape/ui/cards/render";
 import { ACHIEVEMENT, ARCHETYPE, HALL, PROFILE, STANDING, VERSUS, WRAPPED } from "../../../../packages/ui/src/cards/fixture";
 import { testDeps } from "#/test/deps";
@@ -54,6 +54,18 @@ describe("a Card as an image", () => {
     const again = await cardImage(deps, "totals", { login: "alice" }, "dark", "svg");
     expect(again.ms).toBeNull();
     expect(deps.faces).toEqual(["alice"]);
+  });
+
+  test("a colour outside the swatches is drawn once and kept in memory, never stored", async () => {
+    const deps = await cardDeps();
+    await deps.db.insert(profiles).values({ login: "alice", scope: "public", identity: JSON.stringify(profile.identity), identityAt: now(), data: JSON.stringify(profile), fetchedAt: now() });
+    const style = { ...DEFAULT_STYLE, accent: "123457" };
+    const first = await cardImage(deps, "totals", { login: "alice" }, "dark", "png", style);
+    expect(first.ms).not.toBeNull();
+    const svg = await cardImage(deps, "totals", { login: "alice" }, "dark", "svg", style);
+    expect(svg.ms).toBeNull();
+    expect(new TextDecoder().decode(svg.body)).toContain("<svg");
+    expect([...deps.storage.objects.keys()]).toEqual([]);
   });
 
   test("a stale one is served while a new one is drawn; with nothing stored, a pending card for a minute", async () => {
