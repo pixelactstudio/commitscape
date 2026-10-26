@@ -1,212 +1,405 @@
-use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
+use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::Mutex;
+use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::Arc;
+use std::time::Instant;
 
 use commitscape_core::{LineDelta, Oid};
 use gix::objs::{FindExt, FindHeader};
+use gix::odb::pack::cache::lru::MemoryCappedHashmap;
 use gix::ObjectId;
 
 use super::tree_diff::{Changed, TreeDiffer};
 use super::walk::tree_of_commit;
 use super::{GixError, GixRepo};
+use crate::build::{pair_exact_renames, Resolved};
 use crate::lines::{is_binary, line_delta, MAX_BYTES};
-use crate::source::{LineSink, RawChange, RawChangeKind};
+use crate::source::{LineSink, LineWork, RawChange, RawChangeKind};
 
 const COMMIT_BATCH: usize = 16;
 const PAIR_BATCH: usize = 32;
-const THREAD_OBJECT_CACHE_BYTES: usize = 16 * 1024 * 1024;
-const THREAD_DELTA_CACHE_BYTES: usize = 48 * 1024 * 1024;
+const FIRST_SEGMENT: usize = 1_024;
+const LARGEST_SEGMENT: usize = 16_384;
+const TREE_OBJECT_CACHE_BYTES: usize = 16 * 1024 * 1024;
+const TREE_DELTA_CACHE_BYTES: usize = 32 * 1024 * 1024;
+const BLOB_DELTA_CACHE_BYTES: usize = 48 * 1024 * 1024;
 const RECENT_BLOBS: usize = 4;
 
-pub(super) fn count(source: &GixRepo, commits: &[Oid], sink: LineSink<'_>) -> Result<(), GixError> {
-    let diffs = in_parallel(
-        source,
-        commits,
-        COMMIT_BATCH,
-        |repo| {
-            repo.object_cache_size_if_unset(THREAD_OBJECT_CACHE_BYTES);
-            Differ::new(repo)
-        },
-        |differ, repo, id| differ.one(repo, *id),
-    )?;
+pub(super) fn count(
+    source: &GixRepo,
+    work: &[LineWork<'_>],
+    until: Option<Instant>,
+    sink: LineSink<'_>,
+) -> Result<(), GixError> {
+    if work.is_empty() {
+        return Ok(());
+    }
+    let threads = crate::threads::threads(work.len().div_ceil(COMMIT_BATCH));
+    std::thread::scope(|scope| {
+        let pool = Pool::start(scope, &source.sync, threads);
+        let mut start = 0;
+        let mut size = FIRST_SEGMENT;
+        while let Some(segment) = work
+            .get(start..(start + size).min(work.len()))
+            .map(one_part)
+            .filter(|s| !s.is_empty())
+        {
+            if past(until) || !count_segment(&pool, segment, until, sink)? {
+                break;
+            }
+            start += segment.len();
+            size = (size * 2).min(LARGEST_SEGMENT);
+        }
+        Ok(())
+    })
+}
 
-    let mut slots: HashMap<(Option<ObjectId>, ObjectId), usize> = HashMap::new();
+fn one_part<'a, 'b>(segment: &'a [LineWork<'b>]) -> &'a [LineWork<'b>] {
+    let first = segment.first().map(|w| w.mainline);
+    let end = segment
+        .iter()
+        .position(|w| Some(w.mainline) != first)
+        .unwrap_or(segment.len());
+    segment.get(..end).unwrap_or(segment)
+}
+
+fn past(until: Option<Instant>) -> bool {
+    until.is_some_and(|t| Instant::now() >= t)
+}
+
+struct Commit<'a> {
+    raws: Vec<RawChange<'a>>,
+    want: Vec<Option<usize>>,
+}
+
+struct Pair<'a> {
+    path: &'a [u8],
+    newest: i64,
+    before: Option<ObjectId>,
+    after: ObjectId,
+}
+
+#[derive(PartialEq, Eq)]
+struct PairKey {
+    before: Option<ObjectId>,
+    after: ObjectId,
+}
+
+impl Hash for PairKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.after.hash(state);
+    }
+}
+
+fn count_segment(
+    pool: &Pool,
+    segment: &[LineWork<'_>],
+    until: Option<Instant>,
+    sink: LineSink<'_>,
+) -> Result<bool, GixError> {
+    let ids = segment
+        .iter()
+        .map(|w| {
+            ObjectId::try_from(w.id.0.as_slice()).map_err(|e| GixError::Git {
+                context: "reading a commit id",
+                source: Box::new(e),
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut diffs: Vec<Option<Option<Vec<Changed>>>> = (0..segment.len()).map(|_| None).collect();
+    for (start, out) in pool.run(Task::Diff(ids), until)? {
+        if let Output::Diffs(found) = out {
+            for (slot, d) in diffs.iter_mut().skip(start).zip(found) {
+                *slot = Some(d);
+            }
+        }
+    }
+    if diffs.iter().any(Option::is_none) {
+        return Ok(false);
+    }
+
+    let mut slots: gix::hashtable::HashMap<PairKey, usize> = gix::hashtable::HashMap::default();
     let mut pairs: Vec<Pair<'_>> = Vec::new();
-    let mut wanted: Vec<Vec<Option<usize>>> = Vec::with_capacity(diffs.len());
-    for (at, changed) in diffs.iter().enumerate() {
-        let Some(changed) = changed else {
-            wanted.push(Vec::new());
+    let mut commits: Vec<Option<Commit<'_>>> = Vec::with_capacity(segment.len());
+    for (w, diff) in segment.iter().zip(&diffs) {
+        let Some(Some(changed)) = diff else {
+            commits.push(None);
             continue;
         };
-        let mut want = Vec::with_capacity(changed.len());
-        for c in changed {
-            if Oid::from_bytes(c.blob.as_bytes()).is_none() {
-                continue;
+        let kept: Vec<(&Changed, Oid)> = changed
+            .iter()
+            .filter_map(|c| Some((c, Oid::from_bytes(c.blob.as_bytes())?)))
+            .collect();
+        let raws: Vec<RawChange<'_>> = kept
+            .iter()
+            .map(|&(c, blob)| RawChange {
+                path: &c.path,
+                kind: c.kind,
+                blob,
+            })
+            .collect();
+        let mut counts = vec![false; raws.len()];
+        for (j, resolved) in pair_exact_renames(&raws).iter().enumerate() {
+            if let Resolved::Plain { raw, .. } = resolved {
+                if !w.skip.get(j).copied().unwrap_or(false) {
+                    if let Some(c) = counts.get_mut(*raw) {
+                        *c = true;
+                    }
+                }
             }
+        }
+        let mut want = Vec::with_capacity(kept.len());
+        for (&(c, _), counted) in kept.iter().zip(counts) {
             let pair = match c.kind {
-                _ if c.symlink => None,
-                RawChangeKind::Added => Some((None, c.blob, false)),
-                RawChangeKind::Deleted => Some((None, c.blob, true)),
-                RawChangeKind::Modified => c.before.map(|b| (Some(b), c.blob, false)),
+                _ if c.symlink || !counted => None,
+                RawChangeKind::Added => Some((None, false)),
+                RawChangeKind::Deleted => Some((None, true)),
+                RawChangeKind::Modified => c.before.map(|b| (Some(b), false)),
             };
-            want.push(pair.map(|(before, after, deleted)| {
-                let key = (before, after);
+            want.push(pair.map(|(before, deleted)| {
+                let key = PairKey {
+                    before,
+                    after: c.blob,
+                };
                 let slot = *slots.entry(key).or_insert_with(|| {
                     pairs.push(Pair {
                         path: &c.path,
-                        newest: at,
+                        newest: w.time,
                         before,
-                        after,
+                        after: c.blob,
                     });
                     pairs.len() - 1
                 });
                 if let Some(p) = pairs.get_mut(slot) {
-                    p.newest = p.newest.max(at);
+                    p.newest = p.newest.max(w.time);
                 }
                 (slot << 1) | usize::from(deleted)
             }));
         }
-        wanted.push(want);
+        commits.push(Some(Commit { raws, want }));
     }
     drop(slots);
 
     let mut order: Vec<usize> = (0..pairs.len()).collect();
     order.sort_unstable_by_key(|&i| pairs.get(i).map(|p| (p.path, p.newest)));
-    let counted = in_parallel(
-        source,
-        &order,
-        PAIR_BATCH,
-        |repo| {
-            repo.object_cache_size(0);
-            Blobs::new()
-        },
-        |blobs, repo, &i| match pairs.get(i) {
-            Some(p) => blobs.count(repo, p.before, p.after),
-            None => Ok(None),
-        },
-    )?;
-    let mut by_pair = vec![None; pairs.len()];
-    for (&i, delta) in order.iter().zip(counted) {
-        if let Some(slot) = by_pair.get_mut(i) {
-            *slot = delta;
+    let wanted: Vec<(Option<ObjectId>, ObjectId)> = order
+        .iter()
+        .filter_map(|&i| pairs.get(i).map(|p| (p.before, p.after)))
+        .collect();
+    let mut by_pair: Vec<Option<Option<LineDelta>>> = vec![None; pairs.len()];
+    for (start, out) in pool.run(Task::Count(wanted), until)? {
+        if let Output::Counts(found) = out {
+            for (k, delta) in found.into_iter().enumerate() {
+                if let Some(slot) = order.get(start + k).and_then(|&i| by_pair.get_mut(i)) {
+                    *slot = Some(delta);
+                }
+            }
         }
     }
 
-    for ((id, changed), want) in commits.iter().zip(&diffs).zip(&wanted) {
-        let Some(changed) = changed else {
+    let mut finished = true;
+    for (w, commit) in segment.iter().zip(&commits) {
+        let Some(commit) = commit else {
             continue;
         };
-        let raws: Vec<RawChange<'_>> = changed
+        let deltas: Option<Vec<Option<LineDelta>>> = commit
+            .want
             .iter()
-            .filter_map(|c| {
-                Some(RawChange {
-                    path: &c.path,
-                    kind: c.kind,
-                    blob: Oid::from_bytes(c.blob.as_bytes())?,
-                })
-            })
-            .collect();
-        let deltas: Vec<Option<LineDelta>> = want
-            .iter()
-            .map(|w| {
-                let w = (*w)?;
-                let d = by_pair.get(w >> 1).copied().flatten()?;
-                Some(if w & 1 == 1 {
-                    LineDelta {
-                        added: d.removed,
-                        removed: d.added,
-                    }
-                } else {
-                    d
-                })
-            })
-            .collect();
-        sink(*id, &raws, &deltas);
-    }
-    Ok(())
-}
-
-struct Pair<'a> {
-    path: &'a [u8],
-    newest: usize,
-    before: Option<ObjectId>,
-    after: ObjectId,
-}
-
-fn in_parallel<I, T, S>(
-    source: &GixRepo,
-    items: &[I],
-    batch: usize,
-    init: impl Fn(&mut gix::Repository) -> S + Sync,
-    work: impl Fn(&mut S, &gix::Repository, &I) -> Result<T, GixError> + Sync,
-) -> Result<Vec<T>, GixError>
-where
-    I: Sync,
-    T: Send,
-{
-    let threads = std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(1)
-        .clamp(1, 16)
-        .min(items.len().div_ceil(batch).max(1));
-    let next = AtomicUsize::new(0);
-    let failed = AtomicBool::new(false);
-    let first_error: Mutex<Option<GixError>> = Mutex::new(None);
-    let done: Mutex<Vec<(usize, Vec<T>)>> = Mutex::new(Vec::new());
-
-    std::thread::scope(|scope| {
-        for _ in 0..threads {
-            let (next, failed, first_error, done) = (&next, &failed, &first_error, &done);
-            let (init, work) = (&init, &work);
-            let sync = &source.sync;
-            scope.spawn(move || {
-                let mut repo = sync.to_thread_local();
-                repo.objects.set_pack_cache(|| {
-                    Box::new(gix::odb::pack::cache::lru::MemoryCappedHashmap::new(
-                        THREAD_DELTA_CACHE_BYTES,
-                    ))
-                });
-                let mut state = init(&mut repo);
-                let mut mine = Vec::new();
-                loop {
-                    if failed.load(Ordering::Relaxed) {
-                        break;
-                    }
-                    let start = next.fetch_add(batch, Ordering::Relaxed);
-                    let Some(chunk) = items.get(start..(start + batch).min(items.len())) else {
-                        break;
-                    };
-                    if chunk.is_empty() {
-                        break;
-                    }
-                    let mut out = Vec::with_capacity(chunk.len());
-                    for item in chunk {
-                        match work(&mut state, &repo, item) {
-                            Ok(t) => out.push(t),
-                            Err(e) => {
-                                failed.store(true, Ordering::Relaxed);
-                                if let Ok(mut slot) = first_error.lock() {
-                                    slot.get_or_insert(e);
-                                }
-                                return;
+            .map(|want| match want {
+                None => Some(None),
+                Some(want) => {
+                    let counted = by_pair.get(want >> 1).copied().flatten()?;
+                    Some(counted.map(|d| {
+                        if want & 1 == 1 {
+                            LineDelta {
+                                added: d.removed,
+                                removed: d.added,
                             }
+                        } else {
+                            d
                         }
-                    }
-                    mine.push((start, out));
+                    }))
                 }
-                if let Ok(mut d) = done.lock() {
-                    d.append(&mut mine);
+            })
+            .collect();
+        match deltas {
+            Some(deltas) => sink(w.id, &commit.raws, &deltas),
+            None => finished = false,
+        }
+    }
+    Ok(finished)
+}
+
+enum Task {
+    Diff(Vec<ObjectId>),
+    Count(Vec<(Option<ObjectId>, ObjectId)>),
+}
+
+enum Output {
+    Diffs(Vec<Option<Vec<Changed>>>),
+    Counts(Vec<Option<LineDelta>>),
+}
+
+type Done = Result<Vec<(usize, Output)>, GixError>;
+
+struct Job {
+    task: Task,
+    next: AtomicUsize,
+    stop: AtomicBool,
+    until: Option<Instant>,
+}
+
+impl Job {
+    fn halted(&self) -> bool {
+        self.stop.load(Ordering::Relaxed) || past(self.until)
+    }
+
+    fn claim<'a, T>(&self, items: &'a [T], batch: usize) -> Option<(usize, &'a [T])> {
+        if self.halted() {
+            return None;
+        }
+        let start = self.next.fetch_add(batch, Ordering::Relaxed);
+        let chunk = items.get(start..(start + batch).min(items.len()))?;
+        (!chunk.is_empty()).then_some((start, chunk))
+    }
+
+    fn failed(&self, e: GixError) -> Done {
+        self.stop.store(true, Ordering::Relaxed);
+        Err(e)
+    }
+}
+
+struct Pool {
+    jobs: Vec<Sender<Arc<Job>>>,
+    done: Receiver<Done>,
+}
+
+impl Pool {
+    fn start<'scope, 'env>(
+        scope: &'scope std::thread::Scope<'scope, 'env>,
+        sync: &'env gix::ThreadSafeRepository,
+        threads: usize,
+    ) -> Pool {
+        let (finished, done) = channel::<Done>();
+        let mut jobs = Vec::with_capacity(threads);
+        for _ in 0..threads {
+            let (send, receive) = channel::<Arc<Job>>();
+            jobs.push(send);
+            let finished = finished.clone();
+            scope.spawn(move || {
+                let mut worker = Worker::new(sync);
+                for job in receive {
+                    let done = std::panic::catch_unwind(AssertUnwindSafe(|| worker.run(&job)))
+                        .unwrap_or_else(|_| {
+                            job.failed(GixError::Git {
+                                context: "counting lines on a thread",
+                                source: Box::new(std::io::Error::other("the thread stopped")),
+                            })
+                        });
+                    if finished.send(done).is_err() {
+                        break;
+                    }
                 }
             });
         }
-    });
-
-    if let Some(e) = first_error.into_inner().ok().flatten() {
-        return Err(e);
+        Pool { jobs, done }
     }
-    let mut done = done.into_inner().unwrap_or_default();
-    done.sort_unstable_by_key(|(start, _)| *start);
-    Ok(done.into_iter().flat_map(|(_, out)| out).collect())
+
+    fn run(&self, task: Task, until: Option<Instant>) -> Result<Vec<(usize, Output)>, GixError> {
+        let job = Arc::new(Job {
+            task,
+            next: AtomicUsize::new(0),
+            stop: AtomicBool::new(false),
+            until,
+        });
+        let sent = self
+            .jobs
+            .iter()
+            .filter(|send| send.send(Arc::clone(&job)).is_ok())
+            .count();
+        let mut out = Vec::new();
+        let mut error = None;
+        for _ in 0..sent {
+            match self.done.recv() {
+                Ok(Ok(mut batches)) => out.append(&mut batches),
+                Ok(Err(e)) => {
+                    job.stop.store(true, Ordering::Relaxed);
+                    error.get_or_insert(e);
+                }
+                Err(_) => break,
+            }
+        }
+        match error {
+            Some(e) => Err(e),
+            None => Ok(out),
+        }
+    }
+}
+
+struct Worker {
+    trees: gix::Repository,
+    blobs: gix::Repository,
+    differ: Differ,
+    recent: Blobs,
+}
+
+impl Worker {
+    fn new(sync: &gix::ThreadSafeRepository) -> Worker {
+        let mut trees = sync.to_thread_local();
+        trees.object_cache_size(TREE_OBJECT_CACHE_BYTES);
+        trees
+            .objects
+            .set_pack_cache(|| Box::new(MemoryCappedHashmap::new(TREE_DELTA_CACHE_BYTES)));
+        let mut blobs = sync.to_thread_local();
+        blobs.object_cache_size(0);
+        blobs
+            .objects
+            .set_pack_cache(|| Box::new(MemoryCappedHashmap::new(BLOB_DELTA_CACHE_BYTES)));
+        Worker {
+            differ: Differ::new(&trees),
+            trees,
+            blobs,
+            recent: Blobs::new(),
+        }
+    }
+
+    fn run(&mut self, job: &Job) -> Done {
+        let mut out = Vec::new();
+        match &job.task {
+            Task::Diff(commits) => {
+                while let Some((start, chunk)) = job.claim(commits, COMMIT_BATCH) {
+                    let mut found = Vec::with_capacity(chunk.len());
+                    for id in chunk {
+                        if job.halted() {
+                            break;
+                        }
+                        match self.differ.one(&self.trees, *id) {
+                            Ok(changed) => found.push(changed),
+                            Err(e) => return job.failed(e),
+                        }
+                    }
+                    out.push((start, Output::Diffs(found)));
+                }
+            }
+            Task::Count(pairs) => {
+                while let Some((start, chunk)) = job.claim(pairs, PAIR_BATCH) {
+                    let mut found = Vec::with_capacity(chunk.len());
+                    for (before, after) in chunk {
+                        if job.halted() {
+                            break;
+                        }
+                        match self.recent.count(&self.blobs, *before, *after) {
+                            Ok(delta) => found.push(delta),
+                            Err(e) => return job.failed(e),
+                        }
+                    }
+                    out.push((start, Output::Counts(found)));
+                }
+            }
+        }
+        Ok(out)
+    }
 }
 
 struct Differ {
@@ -222,11 +415,11 @@ impl Differ {
         }
     }
 
-    fn one(&mut self, repo: &gix::Repository, id: Oid) -> Result<Option<Vec<Changed>>, GixError> {
-        let oid = ObjectId::try_from(id.0.as_slice()).map_err(|e| GixError::Git {
-            context: "reading a commit id",
-            source: Box::new(e),
-        })?;
+    fn one(
+        &mut self,
+        repo: &gix::Repository,
+        oid: ObjectId,
+    ) -> Result<Option<Vec<Changed>>, GixError> {
         let (tree, parents) = {
             let commit = repo
                 .objects
@@ -253,16 +446,20 @@ impl Differ {
     }
 }
 
+struct Recent {
+    id: ObjectId,
+    bytes: Vec<u8>,
+    big: bool,
+}
+
 struct Blobs {
-    recent: Vec<(ObjectId, Vec<u8>)>,
-    scratch: Vec<u8>,
+    recent: Vec<Recent>,
 }
 
 impl Blobs {
     fn new() -> Self {
         Blobs {
             recent: Vec::with_capacity(RECENT_BLOBS),
-            scratch: Vec::new(),
         }
     }
 
@@ -272,31 +469,75 @@ impl Blobs {
         before: Option<ObjectId>,
         after: ObjectId,
     ) -> Result<Option<LineDelta>, GixError> {
-        for id in before.iter().chain(std::iter::once(&after)) {
-            if self.too_big(repo, id)? {
-                return Ok(None);
-            }
-        }
+        let mut hint = None;
         if let Some(id) = before {
-            self.load(repo, id)?;
-            let bytes = self.bytes(Some(id));
-            if bytes.len() > MAX_BYTES || is_binary(bytes) {
+            if !self.load(repo, id, None)? {
                 return Ok(None);
             }
+            let bytes = self.bytes(Some(id));
+            if is_binary(bytes) {
+                return Ok(None);
+            }
+            hint = Some(bytes.len());
         }
-        self.load(repo, after)?;
+        if !self.load(repo, after, hint)? {
+            return Ok(None);
+        }
         Ok(line_delta(self.bytes(before), self.bytes(Some(after))))
     }
 
     fn bytes(&self, id: Option<ObjectId>) -> &[u8] {
-        id.and_then(|id| self.recent.iter().find(|(r, _)| *r == id))
-            .map_or(&[][..], |(_, b)| b.as_slice())
+        id.and_then(|id| self.recent.iter().find(|r| r.id == id))
+            .map_or(&[][..], |r| r.bytes.as_slice())
     }
 
-    fn too_big(&self, repo: &gix::Repository, id: &ObjectId) -> Result<bool, GixError> {
-        if let Some((_, b)) = self.recent.iter().find(|(r, _)| r == id) {
-            return Ok(b.len() > MAX_BYTES);
+    fn load(
+        &mut self,
+        repo: &gix::Repository,
+        id: ObjectId,
+        hint: Option<usize>,
+    ) -> Result<bool, GixError> {
+        if let Some(at) = self.recent.iter().position(|r| r.id == id) {
+            let big = self.recent.get(at).is_some_and(|r| r.big);
+            if let Some(hit) = self.recent.get_mut(at..) {
+                hit.rotate_left(1);
+            }
+            return Ok(!big);
         }
+        let mut bytes = if self.recent.len() >= RECENT_BLOBS {
+            self.recent.remove(0).bytes
+        } else {
+            Vec::new()
+        };
+        let unsure = hint.is_none_or(|n| n > MAX_BYTES / 2);
+        if unsure && self.over_limit(repo, &id)? {
+            bytes.clear();
+            self.recent.push(Recent {
+                id,
+                bytes,
+                big: true,
+            });
+            return Ok(false);
+        }
+        let size = repo
+            .objects
+            .find_blob(&id, &mut bytes)
+            .map_err(|e| GixError::Git {
+                context: "reading a blob for its lines",
+                source: Box::new(e),
+            })?
+            .data
+            .len();
+        bytes.truncate(size);
+        let big = size > MAX_BYTES;
+        if big {
+            bytes = Vec::new();
+        }
+        self.recent.push(Recent { id, bytes, big });
+        Ok(!big)
+    }
+
+    fn over_limit(&self, repo: &gix::Repository, id: &ObjectId) -> Result<bool, GixError> {
         let header = repo
             .objects
             .try_header(id)
@@ -306,29 +547,30 @@ impl Blobs {
             })?;
         Ok(header.is_some_and(|h| h.size > MAX_BYTES as u64))
     }
+}
 
-    fn load(&mut self, repo: &gix::Repository, id: ObjectId) -> Result<(), GixError> {
-        if let Some(at) = self.recent.iter().position(|(r, _)| *r == id) {
-            if let Some(hit) = self.recent.get_mut(at..) {
-                hit.rotate_left(1);
-            }
-            return Ok(());
-        }
-        let mut kept = if self.recent.len() >= RECENT_BLOBS {
-            self.recent.remove(0).1
-        } else {
-            Vec::new()
-        };
-        let blob = repo
-            .objects
-            .find_blob(&id, &mut self.scratch)
-            .map_err(|e| GixError::Git {
-                context: "reading a blob for its lines",
-                source: Box::new(e),
-            })?;
-        kept.clear();
-        kept.extend_from_slice(blob.data);
-        self.recent.push((id, kept));
-        Ok(())
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn work(mainline: &[bool]) -> Vec<LineWork<'static>> {
+        mainline
+            .iter()
+            .enumerate()
+            .map(|(i, &mainline)| LineWork {
+                id: Oid([i as u8; 20]),
+                time: 0,
+                mainline,
+                skip: &[],
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_segment_ends_where_the_mainline_does() {
+        let all = work(&[true, true, false, false]);
+        assert_eq!(one_part(&all).len(), 2);
+        assert_eq!(one_part(all.get(2..).unwrap_or_default()).len(), 2);
+        assert!(one_part(&[]).is_empty());
     }
 }

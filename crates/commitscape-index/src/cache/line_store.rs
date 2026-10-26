@@ -1,8 +1,8 @@
-use std::collections::HashMap;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use commitscape_core::{LineDelta, Oid, RepoIdentity};
+use foldhash::{HashMap, HashMapExt};
 
 use super::CacheOptions;
 

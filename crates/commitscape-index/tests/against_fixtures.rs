@@ -261,6 +261,7 @@ fn a_real_repository_loads_warm_the_second_time() {
     let dir = tempfile::tempdir().expect("temp dir");
     let options = CacheOptions {
         root: Some(dir.path().to_path_buf()),
+        key: None,
     };
     let first = load(&repo, &options, &mut |_| {}).expect("first load");
     assert_eq!(

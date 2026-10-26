@@ -2,7 +2,9 @@
 
 use commitscape_core::{LineDelta, Oid};
 use commitscape_index::source::RawChangeKind::{Added, Deleted, Modified};
-use commitscape_index::{index_from_scratch, line_pass, CacheOptions, LineStore, ScriptedRepo};
+use commitscape_index::{
+    index_from_scratch, line_pass, CacheOptions, LinePlan, LineStore, ScriptedRepo,
+};
 
 const ALICE: (&str, &str) = ("Alice Example", "alice@example.com");
 const DAY: i64 = 86_400;
@@ -44,15 +46,20 @@ fn counts_line_up_with_the_changes_and_are_counted_once() {
     let store = LineStore::for_repo(
         &CacheOptions {
             root: Some(dir.path().to_path_buf()),
+            key: None,
         },
         &idx.repo,
     )
     .expect("a store");
 
     let mut asked = Vec::new();
-    let first = line_pass(&repo, &idx, Some(&store), &mut |done, total| {
-        asked.push((done, total))
-    })
+    let first = line_pass(
+        &repo,
+        &idx,
+        &LinePlan::default(),
+        Some(&store),
+        &mut |done, total| asked.push((done, total)),
+    )
     .expect("counting");
     let by_commit: Vec<Vec<Option<LineDelta>>> = idx
         .commits
@@ -73,9 +80,13 @@ fn counts_line_up_with_the_changes_and_are_counted_once() {
     assert_eq!(asked.last(), Some(&(3, 3)));
 
     let mut again = Vec::new();
-    let second = line_pass(&repo, &idx, Some(&store), &mut |done, total| {
-        again.push((done, total))
-    })
+    let second = line_pass(
+        &repo,
+        &idx,
+        &LinePlan::default(),
+        Some(&store),
+        &mut |done, total| again.push((done, total)),
+    )
     .expect("counting");
     assert_eq!(again, vec![(0, 0)], "everything was kept");
     assert_eq!(second, first);
@@ -88,9 +99,17 @@ fn a_store_cut_short_keeps_what_it_had() {
     let dir = tempfile::tempdir().expect("temp dir");
     let options = CacheOptions {
         root: Some(dir.path().to_path_buf()),
+        key: None,
     };
     let store = LineStore::for_repo(&options, &idx.repo).expect("a store");
-    let first = line_pass(&repo, &idx, Some(&store), &mut |_, _| {}).expect("counting");
+    let first = line_pass(
+        &repo,
+        &idx,
+        &LinePlan::default(),
+        Some(&store),
+        &mut |_, _| {},
+    )
+    .expect("counting");
 
     let file = dir.path().join(idx.repo.cache_key()).join("lines");
     let bytes = std::fs::read(&file).expect("the store was written");
@@ -98,9 +117,13 @@ fn a_store_cut_short_keeps_what_it_had() {
     std::fs::write(&file, cut).expect("cutting it short");
 
     let mut asked = Vec::new();
-    let resumed = line_pass(&repo, &idx, Some(&store), &mut |done, total| {
-        asked.push((done, total))
-    })
+    let resumed = line_pass(
+        &repo,
+        &idx,
+        &LinePlan::default(),
+        Some(&store),
+        &mut |done, total| asked.push((done, total)),
+    )
     .expect("counting");
     assert_eq!(asked.last(), Some(&(1, 1)), "only the commit cut short");
     assert_eq!(resumed, first);
@@ -167,4 +190,96 @@ fn trimming_the_shared_lines_counts_what_the_whole_files_count() {
         let want = whole_file_delta(&before, &after);
         assert_eq!((got.added, got.removed), want, "{before:?} -> {after:?}");
     }
+}
+
+fn per_commit(
+    idx: &commitscape_core::Index,
+    lines: &[Option<LineDelta>],
+) -> Vec<Vec<Option<LineDelta>>> {
+    idx.commits
+        .iter()
+        .map(|c| lines.get(c.changes()).expect("in range").to_vec())
+        .collect()
+}
+
+#[test]
+fn what_the_plan_skips_is_not_counted_and_never_reaches_the_store() {
+    let repo = repo();
+    let idx = index_from_scratch(&repo).expect("indexing");
+    let dir = tempfile::tempdir().expect("temp dir");
+    let store = LineStore::for_repo(
+        &CacheOptions {
+            root: Some(dir.path().to_path_buf()),
+            key: None,
+        },
+        &idx.repo,
+    )
+    .expect("a store");
+    let b = idx.paths.get(b"b.rs");
+    let plan = LinePlan {
+        skip_commits: vec![false, false, true],
+        skip_files: (0..idx.paths.len())
+            .map(|i| Some(commitscape_core::FileId(i as u32)) == b)
+            .collect(),
+        ..LinePlan::default()
+    };
+    let mut asked = Vec::new();
+    let pass = line_pass(&repo, &idx, &plan, Some(&store), &mut |done, total| {
+        asked.push((done, total))
+    })
+    .expect("counting");
+    assert_eq!(
+        per_commit(&idx, &pass.lines),
+        vec![vec![d(3, 0)], vec![d(2, 1), None], vec![None, None]]
+    );
+    assert_eq!((pass.counted, pass.left), (2, 0));
+    assert_eq!(asked.last(), Some(&(2, 2)));
+
+    let everything = line_pass(
+        &repo,
+        &idx,
+        &LinePlan::default(),
+        Some(&store),
+        &mut |_, _| {},
+    )
+    .expect("counting");
+    assert_eq!(
+        per_commit(&idx, &everything.lines),
+        vec![vec![d(3, 0)], vec![d(2, 1), None], vec![d(0, 0), None]]
+    );
+    assert_eq!((everything.counted, everything.left), (3, 0));
+}
+
+#[test]
+fn a_spent_budget_counts_nothing_and_the_next_run_carries_on() {
+    let repo = repo();
+    let idx = index_from_scratch(&repo).expect("indexing");
+    let dir = tempfile::tempdir().expect("temp dir");
+    let store = LineStore::for_repo(
+        &CacheOptions {
+            root: Some(dir.path().to_path_buf()),
+            key: None,
+        },
+        &idx.repo,
+    )
+    .expect("a store");
+    let spent = LinePlan {
+        budget: Some(std::time::Duration::ZERO),
+        ..LinePlan::default()
+    };
+    let cut = line_pass(&repo, &idx, &spent, Some(&store), &mut |_, _| {}).expect("counting");
+    assert!(cut.lines.iter().all(Option::is_none));
+    assert_eq!((cut.counted, cut.left), (0, 3));
+
+    let mut asked = Vec::new();
+    let rest = line_pass(
+        &repo,
+        &idx,
+        &LinePlan::default(),
+        Some(&store),
+        &mut |done, total| asked.push((done, total)),
+    )
+    .expect("counting");
+    assert_eq!(asked.last(), Some(&(3, 3)));
+    assert_eq!((rest.counted, rest.left), (3, 0));
 }

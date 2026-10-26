@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::ops::ControlFlow;
 
 use commitscape_core::{
@@ -383,7 +382,19 @@ pub(crate) enum Resolved<'a> {
 }
 
 pub(crate) fn pair_exact_renames<'a>(changes: &[RawChange<'a>]) -> Vec<Resolved<'a>> {
-    let mut deletions_by_blob: HashMap<Oid, Vec<usize>> = HashMap::new();
+    let has = |kind| changes.iter().any(|c| c.kind == kind);
+    if !has(RawChangeKind::Added) || !has(RawChangeKind::Deleted) {
+        return changes
+            .iter()
+            .enumerate()
+            .map(|(raw, c)| Resolved::Plain {
+                path: c.path,
+                raw,
+                kind: plain_kind(c.kind),
+            })
+            .collect();
+    }
+    let mut deletions_by_blob: foldhash::HashMap<Oid, Vec<usize>> = Default::default();
     for (i, c) in changes.iter().enumerate() {
         if c.kind == RawChangeKind::Deleted {
             deletions_by_blob.entry(c.blob).or_default().push(i);
@@ -428,15 +439,19 @@ pub(crate) fn pair_exact_renames<'a>(changes: &[RawChange<'a>]) -> Vec<Resolved<
         out.push(Resolved::Plain {
             path: c.path,
             raw: i,
-            kind: match c.kind {
-                RawChangeKind::Added => ChangeKind::Added,
-                RawChangeKind::Modified => ChangeKind::Modified,
-                RawChangeKind::Deleted => ChangeKind::Deleted,
-            },
+            kind: plain_kind(c.kind),
         });
     }
 
     out
+}
+
+fn plain_kind(kind: RawChangeKind) -> ChangeKind {
+    match kind {
+        RawChangeKind::Added => ChangeKind::Added,
+        RawChangeKind::Modified => ChangeKind::Modified,
+        RawChangeKind::Deleted => ChangeKind::Deleted,
+    }
 }
 
 #[cfg(test)]

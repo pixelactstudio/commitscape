@@ -8,12 +8,14 @@ mod head_pass;
 pub mod identity;
 pub mod lines;
 pub mod mailmap;
+pub mod mainline;
 pub mod measure;
 mod message;
 pub mod scripted;
 pub mod similarity;
 pub mod source;
 pub mod surviving;
+mod threads;
 
 pub use build::IndexBuilder;
 pub use cache::{
@@ -23,14 +25,17 @@ pub use cache::{
 pub use commitscape_core::LinePass;
 pub use gix_source::{GixError, GixRepo, GixThreads};
 pub use identity::{resolve_authors, IdentityRules};
-pub use lines::line_pass;
+pub use lines::{line_pass, LinePlan};
 pub use mailmap::Mailmap;
+pub use mainline::{mainline, Mainline};
 pub use scripted::{ScriptedChangeSpec, ScriptedRepo};
 pub use source::{
     BlameCommit, BlameSource, BlameThreads, BlobSink, CommitSink, Frontier, HeadChange, HeadEntry,
-    InParent, Indexed, LineSink, Moves, RawChange, RawChangeKind, RawCommit, RepoSource, WalkStats,
+    InParent, Indexed, LineSink, LineWork, Moves, RawChange, RawChangeKind, RawCommit, RepoSource,
+    WalkStats,
 };
 pub use surviving::{Survival, Survived};
+pub use threads::threads;
 
 use commitscape_core::Index;
 

@@ -32,6 +32,18 @@ pub(crate) fn head_pass<S: RepoSource>(
     paths: &PathTable,
     previous: Option<Previous<'_>>,
 ) -> Result<HeadTable, S::Error> {
+    let span = tracing::info_span!("head_pass", files = tracing::field::Empty);
+    let _entered = span.enter();
+    let table = read_head(source, paths, previous)?;
+    span.record("files", table.files.len());
+    Ok(table)
+}
+
+fn read_head<S: RepoSource>(
+    source: &S,
+    paths: &PathTable,
+    previous: Option<Previous<'_>>,
+) -> Result<HeadTable, S::Error> {
     let current = previous
         .as_ref()
         .filter(|p| p.context.version == CLASSIFIER_VERSION);

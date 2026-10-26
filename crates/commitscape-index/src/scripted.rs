@@ -6,7 +6,7 @@ use commitscape_core::{Oid, RepoIdentity};
 use crate::mailmap::Mailmap;
 use crate::source::{
     BlameCommit, BlameSource, BlameThreads, BlobSink, CommitSink, HeadChange, HeadEntry, InParent,
-    Indexed, LineSink, Moves, RawChange, RawChangeKind, RawCommit, RepoSource, WalkStats,
+    Indexed, LineSink, LineWork, Moves, RawChange, RawChangeKind, RawCommit, RepoSource, WalkStats,
 };
 
 #[derive(Debug, Clone)]
@@ -346,7 +346,28 @@ impl RepoSource for ScriptedRepo {
         Ok(None)
     }
 
-    fn count_lines(&self, commits: &[Oid], sink: LineSink<'_>) -> Result<(), Self::Error> {
+    fn head_history(
+        &self,
+        visit: &mut dyn FnMut(Oid, i64, &[Oid]),
+    ) -> Result<Option<Oid>, Self::Error> {
+        let Some(head) = self.cursor else {
+            return Ok(None);
+        };
+        let reachable = self.reachable([head]);
+        for c in self.commits.iter().rev() {
+            if reachable.contains(&c.id) {
+                visit(c.id, c.time, &c.parents);
+            }
+        }
+        Ok(Some(head))
+    }
+
+    fn count_lines(
+        &self,
+        work: &[LineWork<'_>],
+        until: Option<std::time::Instant>,
+        sink: LineSink<'_>,
+    ) -> Result<(), Self::Error> {
         let contents = |id: Option<Oid>| -> Option<&[u8]> {
             match id {
                 None => Some(&[]),
@@ -357,7 +378,11 @@ impl RepoSource for ScriptedRepo {
                     .map(|(_, c)| c.as_slice()),
             }
         };
-        for id in commits {
+        for w in work {
+            if until.is_some_and(|t| std::time::Instant::now() >= t) {
+                break;
+            }
+            let id = &w.id;
             let Some(c) = self.commits.iter().find(|c| c.id == *id) else {
                 continue;
             };

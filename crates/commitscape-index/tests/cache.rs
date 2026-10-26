@@ -24,6 +24,7 @@ fn blob(n: u8) -> Oid {
 fn load_with(repo: &ScriptedRepo, root: Option<&Path>) -> Loaded {
     let options = CacheOptions {
         root: root.map(Path::to_path_buf),
+        key: None,
     };
     match load(repo, &options, &mut |_| {}) {
         Ok(l) => l,

@@ -61,6 +61,7 @@ fn cached(repo: &Path, cache: &Path) -> (Index, Freshness) {
     let source = GixRepo::open(repo).expect("open");
     let options = CacheOptions {
         root: Some(cache.to_path_buf()),
+        key: None,
     };
     let loaded = load(&source, &options, &mut |_| {}).expect("load");
     (loaded.index, loaded.freshness)
