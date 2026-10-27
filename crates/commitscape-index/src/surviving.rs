@@ -35,6 +35,27 @@ pub enum Survived {
     },
 }
 
+enum Named {
+    One(FileId),
+    Many(Vec<FileId>),
+}
+
+impl Named {
+    fn add(&mut self, file: FileId) {
+        match self {
+            Named::One(first) => *self = Named::Many(vec![*first, file]),
+            Named::Many(files) => files.push(file),
+        }
+    }
+
+    fn has(&self, file: FileId) -> bool {
+        match self {
+            Named::One(only) => *only == file,
+            Named::Many(files) => files.contains(&file),
+        }
+    }
+}
+
 pub struct Survival<'i> {
     index: &'i Index,
     head: Oid,
@@ -45,7 +66,7 @@ pub struct Survival<'i> {
     flows: HashMap<usize, Vec<(FileId, FileId)>>,
     paths: Option<HashMap<FileId, Vec<Vec<u8>>>>,
     commit_at: CommitAt,
-    files_at: HashMap<Vec<u8>, Vec<FileId>>,
+    files_at: HashMap<&'i [u8], Named>,
     batch_bytes: usize,
     settings: u64,
     kept: Option<PathBuf>,
@@ -109,6 +130,21 @@ impl<'i> Survival<'i> {
         self.head
     }
 
+    fn name_files(&mut self) {
+        if !self.files_at.is_empty() {
+            return;
+        }
+        let index: &'i Index = self.index;
+        for (file, path) in index.paths.iter().chain(index.paths.departures()) {
+            match self.files_at.get_mut(path) {
+                Some(named) => named.add(file),
+                None => {
+                    self.files_at.insert(path, Named::One(file));
+                }
+            }
+        }
+    }
+
     /// The Ownership kept in the cache from the last count, when there is one.
     pub fn previous(&self) -> Option<Ownership> {
         self.kept.as_deref().and_then(Ownership::open)
@@ -141,11 +177,7 @@ impl<'i> Survival<'i> {
             .cloned()
             .collect();
         if !todo.is_empty() {
-            if self.files_at.is_empty() {
-                for (file, path) in self.index.paths.iter().chain(self.index.paths.departures()) {
-                    self.files_at.entry(path.to_vec()).or_default().push(file);
-                }
-            }
+            self.name_files();
             let Survival {
                 index,
                 head,
@@ -171,7 +203,7 @@ impl<'i> Survival<'i> {
                 index
                     .changes_of(c)
                     .iter()
-                    .any(|change| files.contains(&change.file))
+                    .any(|change| files.has(change.file))
             };
             let walked = blame_in_threads(
                 threads,
@@ -301,11 +333,7 @@ impl<'i> Survival<'i> {
             .filter(|f| !carried.contains(&f.path))
             .collect();
         drop(carried);
-        if self.files_at.is_empty() {
-            for (file, path) in self.index.paths.iter().chain(self.index.paths.departures()) {
-                self.files_at.entry(path.to_vec()).or_default().push(file);
-            }
-        }
+        self.name_files();
         let Survival {
             index,
             pass_through,
@@ -329,7 +357,7 @@ impl<'i> Survival<'i> {
             index
                 .changes_of(c)
                 .iter()
-                .any(|change| files.contains(&change.file))
+                .any(|change| files.has(change.file))
         };
         let known = previous.as_ref().and_then(|p| {
             Some(Owners {
@@ -406,29 +434,31 @@ impl<'i> Survival<'i> {
                 owned.entry(author).or_default().push((file, n, oldest));
             }
         }
-        let mut touched: HashMap<AuthorId, HashSet<FileId>> = HashMap::new();
-        for c in index.commits.iter() {
-            if let Some(author) = index.author_of(c) {
-                touched
-                    .entry(author)
-                    .or_default()
-                    .extend(index.changes_of(c).iter().map(|ch| ch.file));
-            }
-        }
+        let mut by_author: Vec<(AuthorId, u32)> = index
+            .commits
+            .iter()
+            .zip(0u32..)
+            .filter_map(|(c, i)| Some((index.author_of(c)?, i)))
+            .collect();
+        by_author.sort_unstable();
         let head_ids: HashSet<FileId> = head_files
             .iter()
             .filter_map(|f| file_of_path.get(f.path.as_slice()).copied())
             .collect();
-        let mut people: Vec<AuthorId> = touched.keys().copied().collect();
-        people.sort_unstable();
         let far = Instant::now()
             .checked_add(Duration::from_secs(365 * 24 * 3600))
             .unwrap_or_else(Instant::now);
-        let mut out = Vec::with_capacity(people.len());
-        for person in people {
-            let Some(seen) =
-                self.closure(source, touched.remove(&person).unwrap_or_default(), far)?
-            else {
+        let mut out = Vec::new();
+        for theirs in by_author.chunk_by(|a, b| a.0 == b.0) {
+            let Some(&(person, _)) = theirs.first() else {
+                continue;
+            };
+            let touched: HashSet<FileId> = theirs
+                .iter()
+                .filter_map(|&(_, i)| index.commits.get(i as usize))
+                .flat_map(|c| index.changes_of(c).iter().map(|ch| ch.file))
+                .collect();
+            let Some(seen) = self.closure(source, touched, far)? else {
                 continue;
             };
             let files = seen.iter().filter(|f| head_ids.contains(f)).count() as u32;
