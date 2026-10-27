@@ -10,6 +10,8 @@ const { builds, repositories, surviving } = schema;
 
 export const KEPT_FOR = 24 * 3600;
 
+const REPO_PART = /^[A-Za-z0-9_.][A-Za-z0-9_.-]{0,99}$/;
+
 export const holding = new Set<string>();
 
 const LEGACY = /^(clones|health|out|[0-9a-f]{16})$/;
@@ -30,6 +32,18 @@ export async function cacheFor(cfg: Config, repo: { isPrivate: boolean; owner: s
   await mkdir(dir, { recursive: true });
   await utimes(dir, new Date(), new Date()).catch(() => undefined);
   return dir;
+}
+
+/** The line store a public repository's kept cache holds, such as a fork's parent's, for a fork's first count of lines to start from; null when there is none on this disk. */
+export async function lineStoreOf(cfg: Config, repo: string): Promise<string | null> {
+  const [owner = "", name = "", ...rest] = repo.split("/");
+  if (rest.length > 0 || !REPO_PART.test(owner) || !REPO_PART.test(name) || name === "." || name === "..") return null;
+  const root = cacheDir(cfg, owner, name);
+  for (const entry of await readdir(root, { withFileTypes: true }).catch(() => [])) {
+    const lines = join(root, entry.name, "lines");
+    if (entry.isDirectory() && existsSync(lines)) return lines;
+  }
+  return null;
 }
 
 /** Runs `fn` holding a cache folder: an engine run reading or writing it, and its State being saved or brought back, never overlap. Take it before an engine slot, never while holding one. */

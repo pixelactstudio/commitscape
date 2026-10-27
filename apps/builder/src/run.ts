@@ -9,7 +9,7 @@ import { readSignatures, writeAccountsFile, type Signature } from "./accounts";
 import { peakMb } from "./admission";
 import { cloneUrl, ensureClone, gitEnv, locked, missingIn, tipsOf, type Cloned } from "./clone";
 import type { Config } from "./config";
-import { cacheFor, holdingCache, privateDir, repoDir, scratchDir } from "./disk";
+import { cacheFor, holdingCache, lineStoreOf, privateDir, repoDir, scratchDir } from "./disk";
 import { readBuilt, readEvents, type Built } from "./engine";
 import { prefetch } from "./lean";
 import { hasCache } from "./state";
@@ -28,6 +28,7 @@ export type BuildTarget = {
   hasLines?: boolean;
   more?: boolean;
   lean?: boolean;
+  forkOf?: string | null;
 };
 
 export type Phase = "quick" | "full";
@@ -200,6 +201,8 @@ export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<
     const memoryMb = peakMb(kind, { commits: before?.commits ?? 0, sizeKb: req.sizeKb });
     const args = ["build", ...(phase === "quick" ? ["--no-lines"] : ["--lines-budget", String(linesBudgetOf(cfg, binLimit, !!req.more))]), "--offline", "--max-changeset-size", String(cfg.bulkFiles), ...cache, "--events", events, "--out", out];
     if (accounts) args.push("--accounts", accounts);
+    const seed = phase === "full" && req.forkOf ? await lineStoreOf(cfg, req.forkOf) : null;
+    if (seed) args.push("--lines-from", seed);
     if (appendable(before)) {
       const frontier = join(scratch, `${phase}.frontier`);
       await writeFile(frontier, before.frontier.join("\n"));

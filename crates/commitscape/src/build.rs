@@ -38,6 +38,12 @@ pub struct ExportArgs {
     #[arg(long)]
     no_lines: bool,
 
+    /// Another repository's line store (its cache's `lines`), such as the
+    /// one this is a fork of: a cache with none yet starts as a copy, so the
+    /// lines counted there for the commits both share are not counted again.
+    #[arg(long, value_name = "FILE", hide = true)]
+    lines_from: Option<PathBuf>,
+
     /// A file of commit ids, one per line: the frontier of the previous
     /// export. Only commits not reachable from them are written.
     #[arg(long, value_name = "FILE", requires = "lineage")]
@@ -121,6 +127,15 @@ fn read(args: &ExportArgs) -> anyhow::Result<Read> {
         }
         None => mainline_since(&repo, &loaded.index, before)?,
     };
+    if let (Some(from), Some(store), false) = (
+        args.lines_from.as_deref(),
+        LineStore::for_repo(&options, &loaded.index.repo),
+        args.no_lines,
+    ) {
+        if store.seed(from) {
+            tracing::info!("the line store starts from {}", from.display());
+        }
+    }
     let lines = if args.no_lines {
         None
     } else {

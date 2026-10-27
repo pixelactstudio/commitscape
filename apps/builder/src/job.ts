@@ -167,6 +167,7 @@ async function claimedJob(buildId: string, ctx: JobContext, attempt: number, ask
           hasLines: !!repo.reportKey && repo.reportLines !== false,
           more: more > 0,
           lean: await leanReady(db, repo),
+          forkOf: repo.isPrivate ? null : parentOf(repo.facts),
         },
         ctx.cfg,
         {
@@ -232,6 +233,15 @@ async function claimedJob(buildId: string, ctx: JobContext, attempt: number, ask
     await end("failed", { reason: why?.reason ?? "error", detail: why?.detail ?? null });
   }
   ctx.telemetry?.capture("build failed", who, { ...summary, reason: why?.reason ?? "error", published: outcome.published });
+}
+
+function parentOf(facts: string | null): string | null {
+  try {
+    const parent = (JSON.parse(facts ?? "null") as { parent?: unknown } | null)?.parent;
+    return typeof parent === "string" ? parent : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Whether a Build can end at its head check: the Report is whole and the remote's default branch is still at the head it was built from, asked with one `git ls-remote`, without a clone, the engine or an upload. Records when that was found. */

@@ -17,6 +17,7 @@ export type Facts = {
   languages: { name: string; bytes: number }[];
   contributors: { login: string; avatar: string; contributions: number }[];
   releases: { name: string; tag: string; at: string | null }[];
+  parent?: string | null;
 };
 
 export type Lookup = {

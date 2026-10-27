@@ -152,6 +152,23 @@ test("a State is saved or brought back only while no engine run reads or writes 
   expect(seen.every((n) => n === 0)).toBe(true);
 });
 
+test("a fork's count of lines starts from the line store its parent's cache holds on this disk, and nothing else's", async () => {
+  const work = await mkdtemp(join(tmpdir(), "builder-"));
+  const parent = join(cacheDir(cfg(work), "upstream", "rocket"), "key-0123");
+  await mkdir(parent, { recursive: true });
+  await writeFile(join(parent, "lines"), "commitscape lines 1\n");
+  const seeded = (calls: Call[]) => builds(calls).map((c) => flagOf(c.args, "--lines-from") ?? null);
+  const fork = fake();
+  await build(req({ forkOf: "upstream/rocket" }), cfg(work), fork.deps);
+  expect(seeded(fork.calls)).toEqual([null, join(parent, "lines")]);
+  for (const forkOf of ["upstream/missing", "../caches/x", null]) {
+    const other = fake();
+    await build(req({ forkOf }), cfg(work), other.deps);
+    expect(seeded(other.calls).length).toBeGreaterThan(0);
+    expect(seeded(other.calls).every((f) => f === null)).toBe(true);
+  }
+});
+
 test("a repository ready to be lean is read from a blobless clone without files, fetching only what its Build reads, and its full clone is let go", async () => {
   const work = await mkdtemp(join(tmpdir(), "builder-"));
   const live: LiveIndex = { id: 1, lineage: "7", kept: true, frontier: ["f".repeat(40)], lines: true, linesLeft: 0, head: "f".repeat(40), pack: "p", mark: null, buildFormat: null, commits: 0 };

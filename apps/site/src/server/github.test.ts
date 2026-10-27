@@ -54,6 +54,14 @@ describe("askGitHub", () => {
     expect(gh.asked).toHaveLength(4);
   });
 
+  test("a fork's facts name the repository it is a fork of, and another repository's name none", async () => {
+    const forked = { ...rocket, "/repos/acme/rocket": { body: repoFacts(1, { fork: true, parent: { full_name: "upstream/rocket" } }) } };
+    const d = await deps(github(forked).fetcher);
+    expect(await askGitHub(d, "acme", "rocket")).toMatchObject({ facts: { parent: "upstream/rocket" } });
+    const plain = await deps(github(rocket).fetcher);
+    expect(await askGitHub(plain, "acme", "rocket")).toMatchObject({ facts: { parent: null } });
+  });
+
   test("when the facts have gone stale GitHub is asked with the stored ETags, and a 304 renews them", async () => {
     const calls: Record<string, number> = {};
     const gh = github({

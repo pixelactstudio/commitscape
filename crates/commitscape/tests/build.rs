@@ -738,3 +738,106 @@ fn a_blobless_clone_counts_only_the_lines_it_can_read_and_a_full_clone_fills_in_
     assert!(left > 0);
     assert_eq!(filled, whole);
 }
+
+fn line_store_in(cache: &Path) -> PathBuf {
+    std::fs::read_dir(cache)
+        .expect("a cache")
+        .flatten()
+        .map(|d| d.path().join("lines"))
+        .find(|p| p.exists())
+        .expect("a line store")
+}
+
+#[test]
+fn a_fork_seeded_with_its_parents_line_store_counts_only_its_own_commits_and_writes_the_same() {
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let parent = dir.path().join("parent");
+    std::fs::create_dir(&parent).expect("a folder");
+    git(&[
+        "-C",
+        parent.to_str().expect("a path"),
+        "init",
+        "-q",
+        "-b",
+        "main",
+    ]);
+    committed(
+        &parent,
+        &[("a.rs", "1\n2\n3\n"), ("b.rs", "x\n")],
+        1_700_000_000,
+    );
+    committed(&parent, &[("a.rs", "1\ntwo\n3\n4\n")], 1_700_086_400);
+    committed(&parent, &[("b.rs", "x\ny\n")], 1_700_172_800);
+    let fork = dir.path().join("fork");
+    git(&[
+        "clone",
+        "-q",
+        parent.to_str().expect("a path"),
+        fork.to_str().expect("a path"),
+    ]);
+    committed(&fork, &[("c.rs", "c\nd\n")], 1_700_259_200);
+    let build = |cache: &str,
+                 repo: &Path,
+                 name: &str,
+                 extra: &[&Path]|
+     -> (Vec<(String, Vec<u8>)>, Vec<Value>) {
+        let out = dir.path().join(name);
+        let events_file = dir.path().join(format!("{name}.events"));
+        let cache_dir = dir.path().join(cache);
+        let mut paths: Vec<&Path> = vec![
+            &cache_dir,
+            Path::new("--events"),
+            &events_file,
+            Path::new("--out"),
+            &out,
+        ];
+        paths.extend_from_slice(extra);
+        paths.push(repo);
+        commitscape(
+            &[
+                "build",
+                "--offline",
+                "--anchor",
+                "1800000000",
+                "--cache-key",
+                "acme/rocket",
+                "--cache-dir",
+            ],
+            &paths,
+        );
+        (outputs(&out), events(&events_file))
+    };
+    build("parent-cache", &parent, "parent-out", &[]);
+    let seed = line_store_in(&dir.path().join("parent-cache"));
+    let (seeded, seeded_events) = build(
+        "fork-cache",
+        &fork,
+        "fork-out",
+        &[Path::new("--lines-from"), &seed],
+    );
+    let (plain, plain_events) = build("plain-cache", &fork, "plain-out", &[]);
+    assert_eq!(field(&plain_events, "line_pass", "commits"), Value::from(4));
+    assert_eq!(
+        field(&seeded_events, "line_pass", "commits"),
+        Value::from(1)
+    );
+    for ((name, a), (_, b)) in seeded.iter().zip(&plain) {
+        if name == "manifest.json" {
+            let cache_free = |bytes: &[u8]| {
+                let mut v: Value = serde_json::from_slice(bytes).expect("json");
+                v["mark"] = Value::Null;
+                v["lineage"] = Value::Null;
+                v
+            };
+            assert_eq!(cache_free(a), cache_free(b));
+            continue;
+        }
+        if name == "pack.bin" {
+            let (a, mut b) = (read_pack(a).expect("a pack"), read_pack(b).expect("a pack"));
+            b.lineage = a.lineage;
+            assert!(a == b, "pack.bin differs");
+            continue;
+        }
+        assert!(a == b, "{name} differs");
+    }
+}

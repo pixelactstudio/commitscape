@@ -34,6 +34,25 @@ impl LineStore {
         self.dir.join(FILE)
     }
 
+    /// Starts this store as a copy of another repository's, when it has none yet: lines are counted per commit, so the ones counted there for commits this repository shares (a fork's parent, say) are not counted again, and the others are never asked for. True when it was copied.
+    pub fn seed(&self, from: &Path) -> bool {
+        let path = self.path();
+        if path.exists() {
+            return false;
+        }
+        let mut head = vec![0u8; MAGIC.len()];
+        let readable = std::fs::File::open(from)
+            .and_then(|mut f| std::io::Read::read_exact(&mut f, &mut head))
+            .is_ok();
+        if !readable || head != MAGIC {
+            return false;
+        }
+        let temp = self.dir.join(format!("{FILE}.seeding"));
+        std::fs::create_dir_all(&self.dir).is_ok()
+            && std::fs::copy(from, &temp).is_ok()
+            && std::fs::rename(&temp, &path).is_ok()
+    }
+
     pub fn read(&self) -> Counted {
         let path = self.path();
         let bytes = std::fs::read(&path).unwrap_or_default();
