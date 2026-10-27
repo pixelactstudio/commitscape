@@ -628,6 +628,11 @@ impl BlameSource for GixRepo {
     fn blame_blob(&self, blob: Oid) -> Result<Vec<u8>, Self::Error> {
         blame::blob(self, blob)
     }
+
+    fn blame_size(&self, blob: Oid) -> Result<Option<u64>, Self::Error> {
+        let oid = GixRepo::to_gix(blob).ok_or(GixError::UnsupportedHash)?;
+        Ok(self.repo.find_header(oid).ok().map(|h| h.size()))
+    }
 }
 
 fn is_release(name: &str) -> bool {

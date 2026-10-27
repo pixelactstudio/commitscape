@@ -545,4 +545,8 @@ impl BlameSource for ScriptedRepo {
             })
             .unwrap_or_default())
     }
+
+    fn blame_size(&self, blob: Oid) -> Result<Option<u64>, Self::Error> {
+        Ok(Some(self.blame_blob(blob)?.len() as u64))
+    }
 }

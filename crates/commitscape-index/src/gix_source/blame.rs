@@ -215,9 +215,29 @@ pub(super) fn moves(source: &GixRepo, commit: Oid, parent: Oid) -> Result<Moves,
 pub(super) fn blob(source: &GixRepo, id: Oid) -> Result<Vec<u8>, GixError> {
     let oid = GixRepo::to_gix(id).ok_or(GixError::UnsupportedHash)?;
     let mut buf = Vec::new();
-    let blob = git_ctx!(
-        source.repo.objects.find_blob(&oid, &mut buf),
-        "reading a file to blame"
-    )?;
-    Ok(blob.data.to_vec())
+    let (at, len) = {
+        let blob = git_ctx!(
+            source.repo.objects.find_blob(&oid, &mut buf),
+            "reading a file to blame"
+        )?;
+        (blob.data.as_ptr() as usize, blob.data.len())
+    };
+    match at
+        .checked_sub(buf.as_ptr() as usize)
+        .filter(|start| start + len <= buf.len())
+    {
+        Some(start) => {
+            buf.truncate(start + len);
+            buf.drain(..start);
+            buf.shrink_to_fit();
+            Ok(buf)
+        }
+        None => {
+            let blob = git_ctx!(
+                source.repo.objects.find_blob(&oid, &mut buf),
+                "reading a file to blame"
+            )?;
+            Ok(blob.data.to_vec())
+        }
+    }
 }

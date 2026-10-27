@@ -1,16 +1,15 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use commitscape_core::{AuthorId, ChangeKind, CommitFlags, FileClass, FileId, Index, Oid};
 
-use crate::blame::{blame_in_threads, BlameFile, Walked, BATCH_BYTES};
+use crate::blame::{blame_in_threads, spans_at, BlameFile, Gone, Walked, BATCH_BYTES};
 use crate::cache::{repo_dir, BlameStore, CacheOptions, Known, Moved};
 use crate::commit_at::CommitAt;
 use crate::lines::MAX_BYTES;
 use crate::ownership::{own_in_threads, Known as Owners, Ownership, Writer};
-use crate::similarity::{rename_source, spans, Spans};
+use crate::similarity::rename_source;
 use crate::source::{BlameSource, BlameThreads};
 
 const ENGINE: u64 = 4;
@@ -579,25 +578,19 @@ fn moves_in<S: BlameSource>(source: &S, commit: Oid) -> Result<Moved, S::Error> 
         return Ok(Vec::new());
     };
     let moves = source.blame_moves(commit, *parent)?;
-    let mut known: Vec<Option<Rc<Spans>>> = vec![None; moves.deleted.len()];
+    let Gone {
+        deleted,
+        mut spans,
+        mut sizes,
+    } = Gone::new(moves.deleted);
     let mut out = Vec::new();
     for (path, blob) in &moves.added {
         let data = source.blame_blob(*blob)?;
-        let found = rename_source((path, *blob, &data), &moves.deleted, &mut |i| {
-            if let Some(Some(found)) = known.get(i) {
-                return Ok(found.clone());
-            }
-            let text = match moves.deleted.get(i) {
-                Some((_, blob)) => source.blame_blob(*blob)?,
-                None => Vec::new(),
-            };
-            let found = Rc::new(spans(&text));
-            if let Some(slot) = known.get_mut(i) {
-                *slot = Some(found.clone());
-            }
-            Ok(found)
+        let target = data.len() as u64;
+        let found = rename_source((path, *blob, &data), &deleted, &mut |i| {
+            spans_at(source, &deleted, (&mut spans, &mut sizes), i, target)
         })?;
-        if let Some((from, _)) = found.and_then(|j| moves.deleted.get(j)) {
+        if let Some((from, _)) = found.and_then(|j| deleted.get(j)) {
             out.push((from.clone(), path.clone()));
         }
     }

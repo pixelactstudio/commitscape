@@ -175,4 +175,9 @@ pub trait BlameSource {
     fn blame_moves(&self, commit: Oid, parent: Oid) -> Result<Moves, Self::Error>;
 
     fn blame_blob(&self, blob: Oid) -> Result<Vec<u8>, Self::Error>;
+
+    fn blame_size(&self, blob: Oid) -> Result<Option<u64>, Self::Error> {
+        let _ = blob;
+        Ok(None)
+    }
 }

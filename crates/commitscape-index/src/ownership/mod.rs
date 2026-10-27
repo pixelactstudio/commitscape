@@ -39,7 +39,6 @@ struct Version {
     parent: Oid,
     blob: Oid,
     path: Rc<[u8]>,
-    text: Option<Rc<Vec<u8>>>,
 }
 
 struct Walk<'a, S: BlameSource> {
@@ -289,22 +288,24 @@ impl<S: BlameSource> Walk<'_, S> {
                         parent: *parent,
                         blob,
                         path: item.path.clone(),
-                        text: None,
                     }),
                     InParent::Absent => {
                         if moved.is_none() {
                             let deleted = self.source.blame_moves(id, *parent)?.deleted;
-                            moved = Some(Gone {
-                                texts: vec![None; deleted.len()],
-                                deleted,
-                            });
+                            moved = Some(Gone::new(deleted));
                         }
-                        if let Some(Gone { deleted, texts }) = moved.as_mut() {
+                        if let Some(Gone {
+                            deleted,
+                            spans,
+                            sizes,
+                        }) = moved.as_mut()
+                        {
                             let source = self.source;
+                            let target = item.text.len() as u64;
                             let found = rename_source(
                                 (&item.path, item.blob, &item.text),
                                 deleted,
-                                &mut |i| spans_at(source, deleted, texts, i),
+                                &mut |i| spans_at(source, deleted, (spans, sizes), i, target),
                             )?;
                             if let Some((from, blob)) = found.and_then(|j| deleted.get(j)) {
                                 if *blob == item.blob {
@@ -316,9 +317,6 @@ impl<S: BlameSource> Walk<'_, S> {
                                     parent: *parent,
                                     blob: *blob,
                                     path: from.as_slice().into(),
-                                    text: found
-                                        .and_then(|j| texts.get(j).cloned().flatten())
-                                        .map(|t| t.0),
                                 });
                             }
                         }
@@ -331,20 +329,11 @@ impl<S: BlameSource> Walk<'_, S> {
 
         for (item, versions) in open {
             let mut remaining = item.segs;
-            for Version {
-                parent,
-                blob,
-                path,
-                text,
-            } in versions
-            {
+            for Version { parent, blob, path } in versions {
                 if remaining.is_empty() {
                     break;
                 }
-                let before = match text {
-                    Some(text) => text,
-                    None => Rc::new(self.source.blame_blob(blob)?),
-                };
+                let before = Rc::new(self.source.blame_blob(blob)?);
                 let input = InternedInput::new(before.as_slice(), item.text.as_slice());
                 let mut diff = Diff::compute(Algorithm::Myers, &input);
                 diff.postprocess_lines(&input);

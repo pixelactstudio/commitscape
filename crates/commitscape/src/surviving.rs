@@ -291,6 +291,10 @@ impl BlameSource for Fetched {
             .map_err(FetchError::Git)
     }
 
+    fn blame_size(&self, blob: Oid) -> Result<Option<u64>, Self::Error> {
+        self.repo.blame_size(blob).map_err(FetchError::Git)
+    }
+
     fn blame_blob(&self, blob: Oid) -> Result<Vec<u8>, Self::Error> {
         if let Ok(bytes) = self.repo.blame_blob(blob) {
             return Ok(bytes);

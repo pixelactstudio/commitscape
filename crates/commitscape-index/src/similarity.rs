@@ -53,6 +53,10 @@ fn hash(accum1: u32, accum2: u32) -> u32 {
     accum1.wrapping_add(accum2.wrapping_mul(0x61)) % HASHBASE
 }
 
+pub(crate) fn may_be_renamed(from: u64, to: u64) -> bool {
+    sizes_allow(from, to, RENAME_SCORE)
+}
+
 fn sizes_allow(src: u64, dst: u64, minimum: u64) -> bool {
     let max = src.max(dst);
     let delta = max - src.min(dst);
@@ -87,7 +91,7 @@ fn basename(path: &[u8]) -> &[u8] {
 pub fn rename_source<E>(
     target: (&[u8], Oid, &[u8]),
     deleted: &[(Vec<u8>, Oid)],
-    spans_of: &mut dyn FnMut(usize) -> Result<Rc<Spans>, E>,
+    spans_of: &mut dyn FnMut(usize) -> Result<Option<Rc<Spans>>, E>,
 ) -> Result<Option<usize>, E> {
     let (path, blob, data) = target;
     let name = basename(path);
@@ -111,14 +115,19 @@ pub fn rename_source<E>(
 
     let named: Vec<usize> = (0..deleted.len()).filter(|&i| same_name(i)).collect();
     if let [only] = named.as_slice() {
-        if score(&*spans_of(*only)?, &ours, BASENAME_SCORE) >= BASENAME_SCORE {
-            return Ok(Some(*only));
+        if let Some(theirs) = spans_of(*only)? {
+            if score(&theirs, &ours, BASENAME_SCORE) >= BASENAME_SCORE {
+                return Ok(Some(*only));
+            }
         }
     }
 
     let mut best: Option<(u64, bool, usize)> = None;
     for i in 0..deleted.len() {
-        let s = score(&*spans_of(i)?, &ours, RENAME_SCORE);
+        let Some(theirs) = spans_of(i)? else {
+            continue;
+        };
+        let s = score(&theirs, &ours, RENAME_SCORE);
         if s < RENAME_SCORE {
             continue;
         }
@@ -165,7 +174,11 @@ mod tests {
         rename_source::<()>(
             (target.0.as_bytes(), oid(target.1), target.2.as_bytes()),
             &list,
-            &mut |i| Ok(Rc::new(spans(data.get(i).copied().unwrap_or_default()))),
+            &mut |i| {
+                Ok(Some(Rc::new(spans(
+                    data.get(i).copied().unwrap_or_default(),
+                ))))
+            },
         )
         .unwrap()
     }
