@@ -346,14 +346,7 @@ pub(crate) fn make_report(
     let mut loaded = load(&repo, &options, &mut |p| meter.show(p))?;
     meter.clear();
     if count_lines {
-        count_lines_into(
-            &repo,
-            &options,
-            &mut loaded.index,
-            common.metrics(),
-            budget,
-            None,
-        )?;
+        count_lines_kept(&repo, &options, &mut loaded, common.metrics(), budget, None)?;
     }
     let accounts = with_accounts(&repo, &options, &mut loaded.index, given)?;
     let name = repo_name(&loaded.index);
@@ -379,43 +372,7 @@ pub(crate) struct LineCount {
     pub(crate) settled: Vec<bool>,
 }
 
-/// Counts the Lines Changed the Index lacks, the Mainline first (worked out here unless given), never Bulk Commits, lockfiles or Generated Files, for at most `budget`.
-pub(crate) fn count_lines_into(
-    repo: &GixRepo,
-    options: &CacheOptions,
-    index: &mut Index,
-    metrics: Options,
-    budget: Option<Duration>,
-    mainline: Option<Vec<u8>>,
-) -> anyhow::Result<LineCount> {
-    let plan = LinePlan {
-        skip_commits: index.commits.iter().map(|c| metrics.is_bulk(c)).collect(),
-        skip_files: commitscape_metrics::skipped_files(index),
-        mainline,
-        budget,
-    };
-    let store = LineStore::for_repo(options, &index.repo);
-    let mut meter = ProgressLine::new();
-    let mut pass = line_pass(repo, index, &plan, store.as_ref(), &mut |done, total| {
-        meter.lines(done, total)
-    })?;
-    meter.clear();
-    let count = LineCount {
-        counted: pass.counted,
-        left: pass.left,
-        settled: std::mem::take(&mut pass.settled),
-    };
-    pass.apply(index);
-    if count.left > 0 {
-        eprintln!(
-            "lines not counted yet for {} commits: the next run carries on",
-            grouped(count.left)
-        );
-    }
-    Ok(count)
-}
-
-/// Counts Lines Changed as `count_lines_into` does, from the Index's kept columns when they were read and counted with the same masking: only the commits they do not hold settled are read from the line store or counted, and only those are written back. Otherwise every commit's lines are put in as before and the columns are written whole for the cache's generation.
+/// Counts Lines Changed into the Index, from its kept columns when they were read and counted with the same masking: only the commits they do not hold settled are read from the line store or counted, and only those are written back. Otherwise every commit's lines are put in as before and the columns are written whole for the cache's generation.
 pub(crate) fn count_lines_kept(
     repo: &GixRepo,
     options: &CacheOptions,

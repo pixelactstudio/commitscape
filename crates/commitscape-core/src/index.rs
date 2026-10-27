@@ -685,11 +685,10 @@ pub struct LinePass {
 
 impl LinePass {
     pub fn apply(self, index: &mut Index) {
-        if self.lines.len() != index.changes.len() {
-            return;
-        }
-        for (change, lines) in index.changes.iter_mut().zip(self.lines) {
-            change.set_lines(lines);
+        if self.lines.len() == index.changes.len() {
+            for (change, lines) in index.changes.iter_mut().zip(self.lines) {
+                change.set_lines(lines);
+            }
         }
         let ignored: std::collections::HashSet<Oid> = self.ignored.into_iter().collect();
         for c in index.commits.iter_mut() {

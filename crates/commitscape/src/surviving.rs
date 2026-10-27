@@ -14,7 +14,7 @@ use commitscape_metrics::{Analysis, Window};
 use commitscape_report::api::{Surviving, SurvivingPerson, SurvivingStatus};
 
 use crate::{
-    count_lines_into, now, read_accounts, repo_source, with_accounts, Common, ProgressLine,
+    count_lines_kept, now, read_accounts, repo_source, with_accounts, Common, ProgressLine,
 };
 
 #[derive(Args)]
@@ -80,7 +80,7 @@ pub fn run(args: SurvivingArgs) -> anyhow::Result<()> {
     let count_lines = !args.partial;
     let metrics = args.common.metrics();
     if count_lines {
-        count_lines_into(&repo, &options, &mut loaded.index, metrics, None, None)?;
+        count_lines_kept(&repo, &options, &mut loaded, metrics, None, None)?;
     }
     let index = &loaded.index;
     let added = if count_lines {
