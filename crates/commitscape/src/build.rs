@@ -132,7 +132,8 @@ fn read(args: &ExportArgs) -> anyhow::Result<Read> {
         LineStore::for_repo(&options, &loaded.index.repo),
         args.no_lines,
     ) {
-        if store.seed(from) {
+        let skipped = commitscape_metrics::skipped_files(&loaded.index);
+        if store.seed(from, &loaded.index, &skipped) {
             tracing::info!("the line store starts from {}", from.display());
         }
     }

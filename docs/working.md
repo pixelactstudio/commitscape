@@ -224,9 +224,11 @@ per finished step with its start, end and counts, and `COMMITSCAPE_THREADS`
 caps the threads every step uses. `--cache-key KEY` names the cache by KEY
 instead of the clone's path, so the Build's two clones share one cache and
 the history is walked once. `--lines-from FILE` starts a repository with no
-line store from another's: the Builder passes a fork's parent's
+line store from another's: the Builder passes a copy of a fork's parent's
 (`facts.parent`, public repositories only) when that cache is on its disk,
-so a fork counts only its own commits' lines. `--after FILE --lineage N` writes only the
+so a fork counts only its own commits' lines. Only the parent's commits
+whose uncounted files (lockfiles, Generated Files) the fork leaves out too
+are taken; a commit touching a file the fork keeps is counted again. `--after FILE --lineage N` writes only the
 commits the frontier in FILE does not reach, and `--since MARK`, the mark
 the last loaded export left, narrows the earlier commits' rows to the
 Mainline that moved and the Lines Changed counted since. Beside the Index

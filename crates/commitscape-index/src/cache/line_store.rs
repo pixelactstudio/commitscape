@@ -1,7 +1,9 @@
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-use commitscape_core::{LineDelta, Oid, RepoIdentity};
+use commitscape_core::{Index, LineDelta, Oid, RepoIdentity};
+
+use crate::commit_at::CommitAt;
 use foldhash::{HashMap, HashMapExt};
 use xxhash_rust::xxh3::xxh3_64;
 
@@ -34,23 +36,51 @@ impl LineStore {
         self.dir.join(FILE)
     }
 
-    /// Starts this store as a copy of another repository's, when it has none yet: lines are counted per commit, so the ones counted there for commits this repository shares (a fork's parent, say) are not counted again, and the others are never asked for. True when it was copied.
-    pub fn seed(&self, from: &Path) -> bool {
+    /// Starts this store from another repository's, when it has none yet: lines are counted per commit, so the ones counted there for commits this repository shares (a fork's parent, say) are not counted again, and the others are never asked for. Only commits of `index` are taken whose changes this repository leaves out (`skipped`, by file) wherever the other left lines uncounted, so a file it keeps is never taken as having none. True when anything was taken.
+    pub fn seed(&self, from: &Path, index: &Index, skipped: &[bool]) -> bool {
         let path = self.path();
         if path.exists() {
             return false;
         }
-        let mut head = vec![0u8; MAGIC.len()];
-        let readable = std::fs::File::open(from)
-            .and_then(|mut f| std::io::Read::read_exact(&mut f, &mut head))
-            .is_ok();
-        if !readable || head != MAGIC {
-            return false;
-        }
+        let at = CommitAt::of(index);
+        let fits = |id: &Oid, deltas: &[Option<LineDelta>]| {
+            let Some(c) = at.get(index, id) else {
+                return false;
+            };
+            let changes = index.changes_of(c);
+            changes.len() == deltas.len()
+                && changes.iter().zip(deltas).all(|(change, delta)| {
+                    delta.is_some() || skipped.get(change.file.idx()).copied().unwrap_or(false)
+                })
+        };
         let temp = self.dir.join(format!("{FILE}.seeding"));
-        std::fs::create_dir_all(&self.dir).is_ok()
-            && std::fs::copy(from, &temp).is_ok()
-            && std::fs::rename(&temp, &path).is_ok()
+        let mut taken = 0usize;
+        let written = (|| -> io::Result<bool> {
+            std::fs::create_dir_all(&self.dir)?;
+            let mut out = io::BufWriter::new(std::fs::File::create(&temp)?);
+            out.write_all(MAGIC)?;
+            let mut failed = None;
+            let read = each_record(from, &mut |id, deltas, raw| {
+                if failed.is_none() && fits(&id, &deltas) {
+                    taken += 1;
+                    if let Err(e) = out.write_all(raw) {
+                        failed = Some(e);
+                    }
+                }
+            });
+            if let Some(e) = failed {
+                return Err(e);
+            }
+            out.flush()?;
+            Ok(read.is_some() && taken > 0)
+        })();
+        match written {
+            Ok(true) => std::fs::rename(&temp, &path).is_ok(),
+            _ => {
+                let _ = std::fs::remove_file(&temp);
+                false
+            }
+        }
     }
 
     pub fn read(&self) -> Counted {
