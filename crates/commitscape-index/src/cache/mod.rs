@@ -172,7 +172,7 @@ fn uncached<S: RepoSource>(
     progress: &mut dyn FnMut(Progress),
 ) -> Result<Loaded, S::Error> {
     let rules = IdentityRules::from_mailmap(source.mailmap()?);
-    let (index, _) = build(source, identity, rules, progress)?;
+    let (index, _) = build(source, identity, rules, progress, None)?;
     Ok(Loaded {
         index,
         freshness: Freshness::Built {
@@ -226,8 +226,14 @@ fn build<S: RepoSource>(
     identity: RepoIdentity,
     rules: IdentityRules,
     progress: &mut dyn FnMut(Progress),
+    spill: Option<&Path>,
 ) -> Result<(Index, ClassifyContext), S::Error> {
-    let mut builder = IndexBuilder::new(rules);
+    let spilling = spill.and_then(|dir| {
+        std::fs::create_dir_all(dir).ok()?;
+        IndexBuilder::spilling(rules.clone(), dir).ok()
+    });
+    let spilled = spilling.is_some();
+    let mut builder = spilling.unwrap_or_else(|| IndexBuilder::new(rules.clone()));
     let stats = source.walk_history(
         &std::collections::HashSet::new(),
         &mut Reporting {
@@ -236,7 +242,14 @@ fn build<S: RepoSource>(
         },
     )?;
     let tips = source.tips()?;
-    let mut index = builder.finish(identity, tips, stats.history_truncated);
+    let mut index = if spilled {
+        match builder.finish_spilled(identity.clone(), tips, stats.history_truncated) {
+            Ok(index) => index,
+            Err(_) => return build(source, identity, rules, progress, None),
+        }
+    } else {
+        builder.finish(identity, tips, stats.history_truncated)
+    };
     progress(Progress::HeadFiles);
     let head = head_pass(source, &index.paths, None)?;
     index.head = head.files;
@@ -250,7 +263,13 @@ fn rebuild<S: RepoSource>(
     reason: RebuildReason,
     progress: &mut dyn FnMut(Progress),
 ) -> Result<Loaded, S::Error> {
-    let (index, classify) = build(source, ctx.identity.clone(), ctx.rules(source)?, progress)?;
+    let (index, classify) = build(
+        source,
+        ctx.identity.clone(),
+        ctx.rules(source)?,
+        progress,
+        Some(ctx.dir),
+    )?;
     let lineage = format::new_generation();
     let head = format::head_of(
         &index,
@@ -350,7 +369,7 @@ fn warm(
                     id_runs: previous.id_runs,
                     ids,
                 }),
-                fresh: Vec::new(),
+                fresh: format::no_blocks(),
                 new_ids: Vec::new(),
                 dir: ctx.dir,
             });
@@ -488,7 +507,7 @@ fn resume<S: RepoSource>(
                     .collect(),
             )
         }
-        None => (Vec::new(), old_blocks.clone()),
+        None => (format::no_blocks(), old_blocks.clone()),
     };
     let written = format::write(format::Writing {
         head: format::head_of(
@@ -562,6 +581,44 @@ mod tests {
     }
 
     #[test]
+    fn a_history_built_through_files_is_the_history_built_in_memory() {
+        let blob = |n: u8| Oid([n; 20]);
+        let repo = ScriptedRepo::new()
+            .commit(
+                10,
+                ("Ada", "ada@example.com"),
+                &[(b"src/a.rs", Added, blob(1))],
+            )
+            .commit(
+                30,
+                ("Bob", "bob@example.com"),
+                &[(b"src/b.rs", Added, blob(2))],
+            )
+            .commit(
+                20,
+                ("Ada", "ada@example.com"),
+                &[(b"docs/c.md", Added, blob(3))],
+            );
+        let dir = tempfile::tempdir().expect("a folder");
+        let build_in = |spill: Option<&Path>| match build(
+            &repo,
+            RepoIdentity {
+                git_dir: "/scripted/.git".to_string(),
+            },
+            IdentityRules::default(),
+            &mut |_| {},
+            spill,
+        ) {
+            Ok(built) => built.0,
+            Err(never) => match never {},
+        };
+        let (memory, files) = (build_in(None), build_in(Some(dir.path())));
+        assert!(files.changes.is_mapped() && !memory.changes.is_mapped());
+        assert_eq!(files, memory);
+        assert_eq!(files.commits.len(), 3);
+    }
+
+    #[test]
     fn a_cache_classified_by_older_rules_is_classified_again_without_rewalking() {
         let repo = ScriptedRepo::new()
             .commit(
@@ -595,7 +652,7 @@ mod tests {
         format::write(format::Writing {
             head,
             previous: Some(previous),
-            fresh: Vec::new(),
+            fresh: format::no_blocks(),
             new_ids: Vec::new(),
             dir: &cache,
         })

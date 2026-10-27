@@ -343,14 +343,20 @@ pub(super) fn read_ids(dir: &Path, head: &Head) -> Result<SortedIds, Unusable> {
     Ok(SortedIds { runs })
 }
 
-pub(super) fn encode_blocks(
-    commits: &[CommitMeta],
-    changes: &[FileChange],
-    subjects: &[u8],
-) -> Vec<(Month, u32, u32, Vec<u8>)> {
-    let mut out = Vec::new();
+pub(super) type Fresh<'a> = Box<dyn Iterator<Item = (Month, u32, u32, Vec<u8>)> + 'a>;
+
+pub(super) fn no_blocks<'a>() -> Fresh<'a> {
+    Box::new(std::iter::empty())
+}
+
+pub(super) fn encode_blocks<'a>(
+    commits: &'a [CommitMeta],
+    changes: &'a [FileChange],
+    subjects: &'a [u8],
+) -> Fresh<'a> {
     let mut i = 0;
-    while let Some(first) = commits.get(i) {
+    Box::new(std::iter::from_fn(move || {
+        let first = commits.get(i)?;
         let month = Month::of(first.time);
         let len = commits
             .get(i..)
@@ -377,10 +383,9 @@ pub(super) fn encode_blocks(
         }
         let (n_commits, n_changes) = (block.commits.len() as u32, block.changes.len() as u32);
         let bytes = bincode::serde::encode_to_vec(&block, config()).unwrap_or_default();
-        out.push((month, n_commits, n_changes, bytes));
         i += len.max(1);
-    }
-    out
+        Some((month, n_commits, n_changes, bytes))
+    }))
 }
 
 pub(super) struct Previous {
@@ -393,7 +398,7 @@ pub(super) struct Previous {
 pub(super) struct Writing<'a> {
     pub head: Head,
     pub previous: Option<Previous>,
-    pub fresh: Vec<(Month, u32, u32, Vec<u8>)>,
+    pub fresh: Fresh<'a>,
     pub new_ids: Vec<u8>,
     pub dir: &'a Path,
 }
@@ -417,7 +422,7 @@ fn lock(dir: &Path) -> std::io::Result<WriteLock> {
     Ok(WriteLock(f))
 }
 
-pub(super) fn write(w: Writing<'_>) -> std::io::Result<u64> {
+pub(super) fn write(mut w: Writing<'_>) -> std::io::Result<u64> {
     std::fs::create_dir_all(w.dir)?;
     let _lock = lock(w.dir)?;
     let mut head = w.head;
@@ -441,7 +446,7 @@ pub(super) fn write(w: Writing<'_>) -> std::io::Result<u64> {
             let mut out = std::io::BufWriter::with_capacity(1 << 20, &mut file);
             head.data_file = prev.data_file.clone();
             head.blocks = prev.blocks.clone();
-            append_blocks(&mut out, &mut at, &w.fresh, &mut head.blocks)?;
+            append_blocks(&mut out, &mut at, &mut w.fresh, &mut head.blocks)?;
             head.id_runs = prev.id_runs.clone();
             if prev.id_runs.len() >= MAX_ID_RUNS {
                 let merged = prev.ids.merged_with(&w.new_ids);
@@ -475,7 +480,7 @@ pub(super) fn write(w: Writing<'_>) -> std::io::Result<u64> {
                 }
                 None => w.new_ids.clone(),
             };
-            append_blocks(&mut out, &mut at, &w.fresh, &mut head.blocks)?;
+            append_blocks(&mut out, &mut at, &mut w.fresh, &mut head.blocks)?;
             head.id_runs = vec![append(&mut out, &mut at, &ids)?];
             out.flush()?;
         }
@@ -511,16 +516,16 @@ fn append(out: &mut impl std::io::Write, at: &mut u64, bytes: &[u8]) -> std::io:
 fn append_blocks(
     out: &mut impl std::io::Write,
     at: &mut u64,
-    fresh: &[(Month, u32, u32, Vec<u8>)],
+    fresh: &mut dyn Iterator<Item = (Month, u32, u32, Vec<u8>)>,
     blocks: &mut Vec<BlockEntry>,
 ) -> std::io::Result<()> {
     for (month, commits, changes, bytes) in fresh {
-        let extent = append(out, at, bytes)?;
-        blocks.retain(|b| b.month != *month);
+        let extent = append(out, at, &bytes)?;
+        blocks.retain(|b| b.month != month);
         blocks.push(BlockEntry {
-            month: *month,
-            commits: *commits,
-            changes: *changes,
+            month,
+            commits,
+            changes,
             extent,
         });
     }

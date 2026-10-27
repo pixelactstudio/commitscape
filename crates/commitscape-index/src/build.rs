@@ -1,9 +1,14 @@
+use std::fs::File;
+use std::io::{BufWriter, Write};
+use std::mem::{offset_of, size_of};
 use std::ops::ControlFlow;
+use std::path::{Path, PathBuf};
 
 use commitscape_core::{
     ChangeKind, Column, CommitFlags, CommitKind, CommitMeta, FileChange, FileHistory, HistorySpan,
-    Index, Oid, PathEvent, PathId, PathTable, RepoIdentity, Signature, SignatureId,
+    Index, Oid, PathEvent, PathId, PathTable, Record, RepoIdentity, Signature, SignatureId,
 };
+use commitscape_map::Records;
 
 use crate::hash_index::HashIndex;
 use crate::identity::resolve_authors;
@@ -11,10 +16,121 @@ use crate::identity::IdentityRules;
 use crate::source::{CommitSink, RawChange, RawChangeKind, RawCommit};
 
 #[derive(Debug, Clone, Copy)]
+#[repr(C)]
 struct PendingChange {
     path: PathId,
-    kind: ChangeKind,
     from: PathId,
+    kind: ChangeKind,
+}
+
+impl Record for PendingChange {
+    const SIZE: usize = size_of::<PendingChange>();
+
+    fn write_to(&self, out: &mut [u8]) {
+        out.fill(0);
+        for (at, bytes) in [
+            (offset_of!(PendingChange, path), self.path.0.to_ne_bytes()),
+            (offset_of!(PendingChange, from), self.from.0.to_ne_bytes()),
+        ] {
+            if let Some(slot) = out.get_mut(at..at + 4) {
+                slot.copy_from_slice(&bytes);
+            }
+        }
+        if let Some(slot) = out.get_mut(offset_of!(PendingChange, kind)) {
+            *slot = self.kind as u8;
+        }
+    }
+
+    fn valid(bytes: &[u8]) -> bool {
+        bytes
+            .get(offset_of!(PendingChange, kind))
+            .is_some_and(|&k| k < 4)
+    }
+}
+
+/// Records kept in memory, or appended to a file and mapped once all are written, so a long history does not sit on the heap.
+enum Spill<T: Record> {
+    Memory(Vec<T>),
+    File {
+        out: BufWriter<File>,
+        path: PathBuf,
+        len: usize,
+        buf: Vec<u8>,
+        failed: Option<std::io::Error>,
+    },
+}
+
+impl<T: Record> Spill<T> {
+    fn at(dir: Option<&Path>, name: &str) -> std::io::Result<Spill<T>> {
+        let Some(dir) = dir else {
+            return Ok(Spill::Memory(Vec::new()));
+        };
+        let path = dir.join(format!("building.{name}"));
+        Ok(Spill::File {
+            out: BufWriter::with_capacity(1 << 20, File::create(&path)?),
+            path,
+            len: 0,
+            buf: vec![0; T::SIZE],
+            failed: None,
+        })
+    }
+
+    fn len(&self) -> usize {
+        match self {
+            Spill::Memory(v) => v.len(),
+            Spill::File { len, .. } => *len,
+        }
+    }
+
+    fn extend(&mut self, items: &[T]) {
+        match self {
+            Spill::Memory(v) => v.extend_from_slice(items),
+            Spill::File {
+                out,
+                len,
+                buf,
+                failed,
+                ..
+            } => {
+                for item in items {
+                    item.write_to(buf);
+                    if let Err(e) = out.write_all(buf) {
+                        failed.get_or_insert(e);
+                    }
+                }
+                *len += items.len();
+            }
+        }
+    }
+
+    fn push(&mut self, item: T) {
+        self.extend(&[item]);
+    }
+
+    fn done(self) -> std::io::Result<Column<T>> {
+        match self {
+            Spill::Memory(v) => Ok(v.into()),
+            Spill::File {
+                out,
+                path,
+                len,
+                failed,
+                ..
+            } => {
+                if let Some(e) = failed {
+                    return Err(e);
+                }
+                let file = out
+                    .into_inner()
+                    .map_err(std::io::IntoInnerError::into_error)?;
+                drop(file);
+                let file = File::open(&path)?;
+                let records = Records::<T>::open(&file, 0, len)?;
+                let _ = std::fs::remove_file(&path);
+                Ok(Column::mapped(Box::new(records)))
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -56,8 +172,9 @@ pub struct IndexBuilder {
     used: Vec<u32>,
     signature_ids: HashIndex,
     commits: Vec<PendingCommit>,
-    pending: Vec<PendingChange>,
-    subjects: Vec<u8>,
+    pending: Spill<PendingChange>,
+    subjects: Spill<u8>,
+    spill: Option<PathBuf>,
     base: Option<Index>,
 }
 
@@ -71,10 +188,21 @@ impl IndexBuilder {
             used: Vec::new(),
             signature_ids: HashIndex::default(),
             commits: Vec::new(),
-            pending: Vec::new(),
-            subjects: Vec::new(),
+            pending: Spill::Memory(Vec::new()),
+            subjects: Spill::Memory(Vec::new()),
+            spill: None,
             base: None,
         }
+    }
+
+    /// A builder that keeps the changes and subjects it gathers, and the columns it lays out, in files in `dir` rather than on the heap; `finish_spilled` finishes it.
+    pub fn spilling(rules: IdentityRules, dir: &Path) -> std::io::Result<Self> {
+        Ok(IndexBuilder {
+            pending: Spill::at(Some(dir), "pending")?,
+            subjects: Spill::at(Some(dir), "text")?,
+            spill: Some(dir.to_path_buf()),
+            ..IndexBuilder::new(rules)
+        })
     }
 
     pub fn resume(mut index: Index, rules: IdentityRules) -> Self {
@@ -99,8 +227,9 @@ impl IndexBuilder {
             used,
             signature_ids,
             commits: Vec::new(),
-            pending: Vec::new(),
-            subjects: Vec::new(),
+            pending: Spill::Memory(Vec::new()),
+            subjects: Spill::Memory(Vec::new()),
+            spill: None,
             base: Some(index),
         }
     }
@@ -159,17 +288,43 @@ impl IndexBuilder {
 
     /// Finishes as `finish` does, handing the earlier Index and the new commits, changes and subjects to `merge` first: what it returns become the Index's columns, and when it returns none they are merged in memory.
     pub fn finish_merging(
-        mut self,
+        self,
         repo: RepoIdentity,
         frontier: Vec<Oid>,
         history_truncated: bool,
         merge: &mut Merge<'_>,
     ) -> Index {
-        self.commits.sort_by_key(|c| (c.time, c.id.0));
+        let empty = Index::empty(repo.clone());
+        self.finished(repo, frontier, history_truncated, merge)
+            .unwrap_or(empty)
+    }
 
-        let mut changes = Vec::with_capacity(self.pending.len());
-        let mut commits = Vec::with_capacity(self.commits.len());
-        let mut subjects = Vec::with_capacity(self.subjects.len());
+    /// Finishes a builder made by `spilling`, its columns read in place from the files it laid them out in.
+    pub fn finish_spilled(
+        self,
+        repo: RepoIdentity,
+        frontier: Vec<Oid>,
+        history_truncated: bool,
+    ) -> std::io::Result<Index> {
+        self.finished(repo, frontier, history_truncated, &mut |_, _, _, _| None)
+    }
+
+    fn finished(
+        mut self,
+        repo: RepoIdentity,
+        frontier: Vec<Oid>,
+        history_truncated: bool,
+        merge: &mut Merge<'_>,
+    ) -> std::io::Result<Index> {
+        self.commits.sort_by_key(|c| (c.time, c.id.0));
+        let dir = self.spill.clone();
+        let dir = dir.as_deref();
+        let pending = std::mem::replace(&mut self.pending, Spill::Memory(Vec::new())).done()?;
+        let text = std::mem::replace(&mut self.subjects, Spill::Memory(Vec::new())).done()?;
+
+        let mut changes: Spill<FileChange> = Spill::at(dir, "changes")?;
+        let mut commits: Spill<CommitMeta> = Spill::at(dir, "commits")?;
+        let mut subjects: Spill<u8> = Spill::at(dir, "subjects")?;
         let mut history: Vec<FileHistory> = self
             .base
             .as_mut()
@@ -179,7 +334,7 @@ impl IndexBuilder {
         for c in &self.commits {
             let start = changes.len() as u32;
             let range = c.changes_start as usize..(c.changes_start + c.changes_len) as usize;
-            for p in self.pending.get(range).unwrap_or(&[]) {
+            for p in pending.get(range).unwrap_or(&[]) {
                 let event = match p.kind {
                     ChangeKind::Added => PathEvent::Added(p.path),
                     ChangeKind::Modified => PathEvent::Modified(p.path),
@@ -213,11 +368,7 @@ impl IndexBuilder {
             }
             let subject_start = subjects.len() as u32;
             let from = c.subject_start as usize;
-            subjects.extend_from_slice(
-                self.subjects
-                    .get(from..from + c.subject_len as usize)
-                    .unwrap_or(&[]),
-            );
+            subjects.extend(text.get(from..from + c.subject_len as usize).unwrap_or(&[]));
             commits.push(CommitMeta {
                 id: c.id,
                 time: c.time,
@@ -232,6 +383,9 @@ impl IndexBuilder {
                 subject_len: c.subject_len,
             });
         }
+        drop(pending);
+        drop(text);
+        let (commits, changes, subjects) = (commits.done()?, changes.done()?, subjects.done()?);
 
         let added = HistorySpan::of(&commits);
         let mut index = match self.base.take() {
@@ -242,7 +396,12 @@ impl IndexBuilder {
                         base.changes = ch;
                         base.subjects = s;
                     }
-                    None => merge_history(&mut base, commits, changes, subjects),
+                    None => merge_history(
+                        &mut base,
+                        commits.into_vec(),
+                        changes.into_vec(),
+                        subjects.into_vec(),
+                    ),
                 }
                 base.span = base.span.joined(added);
                 base.history_truncated = history_truncated;
@@ -250,9 +409,9 @@ impl IndexBuilder {
             }
             None => {
                 let mut fresh = Index::empty(repo.clone());
-                fresh.commits = commits.into();
-                fresh.changes = changes.into();
-                fresh.subjects = subjects.into();
+                fresh.commits = commits;
+                fresh.changes = changes;
+                fresh.subjects = subjects;
                 fresh.span = added;
                 fresh.history_truncated = history_truncated;
                 fresh
@@ -264,7 +423,7 @@ impl IndexBuilder {
         index.schema_version = commitscape_core::SCHEMA_VERSION;
         index.paths = self.paths;
         index.authors = resolve_authors(self.signatures, self.used, &self.rules);
-        index
+        Ok(index)
     }
 }
 
@@ -378,7 +537,7 @@ impl CommitSink for IndexBuilder {
             subject_start: self.subjects.len() as u32,
             subject_len: commit.subject.len().min(commitscape_core::SUBJECT_CAP) as u8,
         });
-        self.subjects.extend_from_slice(
+        self.subjects.extend(
             commit
                 .subject
                 .as_bytes()
