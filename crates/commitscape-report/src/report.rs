@@ -79,28 +79,36 @@ pub fn summary(r: &Report) -> Summary {
         login_of: &login_of,
         emails: false,
     };
-    let (people, stats) = rayon::join(
+    let ((contributors, lines), stats) = rayon::join(
         || {
             let a = Analysis::new(&r.index, Span::All.window(r.anchor), r.options);
-            api::People::of(&a, &cx, &api::Shared::of(&a))
+            rayon::join(|| a.contributors(), || a.lines_by_person())
         },
         || api::Stats::of(&r.index, r.anchor, r.options, &r.releases),
     );
     Summary {
         meta: r.meta(),
         stats,
-        people: people
-            .people
+        people: contributors
             .into_iter()
-            .map(|row| SummaryPerson {
-                person_id: row.person.id,
-                name: row.person.name,
-                login: row.person.login,
-                commits: row.commits,
-                lines_added: row.lines_added,
-                lines_removed: row.lines_removed,
-                first: row.first,
-                last: row.last,
+            .map(|c| {
+                let person = cx.person(&r.index, c.author);
+                let changed = lines
+                    .binary_search_by_key(&c.author, |(a, _)| *a)
+                    .ok()
+                    .and_then(|i| lines.get(i))
+                    .map(|(_, l)| *l)
+                    .unwrap_or_default();
+                SummaryPerson {
+                    person_id: person.id,
+                    name: person.name,
+                    login: person.login,
+                    commits: c.commits,
+                    lines_added: r.lines_counted.then_some(changed.added),
+                    lines_removed: r.lines_counted.then_some(changed.removed),
+                    first: c.first,
+                    last: c.last,
+                }
             })
             .collect(),
         head: r.index.head_commit.map(|h| h.to_hex()),

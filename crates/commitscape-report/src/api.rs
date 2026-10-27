@@ -278,7 +278,7 @@ impl Shared {
 }
 
 impl Context<'_> {
-    fn person(&self, index: &Index, id: AuthorId) -> PersonRef {
+    pub(crate) fn person(&self, index: &Index, id: AuthorId) -> PersonRef {
         PersonRef {
             id: id.0,
             name: index

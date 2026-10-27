@@ -92,7 +92,8 @@ impl Analysis<'_> {
         let mut dir_list: Vec<u32> = Vec::new();
         let mut last_seen: Vec<u32> = Vec::new();
         let mut commits_per_dir: Vec<u32> = Vec::new();
-        let mut pairs: Vec<(u32, AuthorId)> = Vec::new();
+        let mut counted: std::collections::HashMap<(u32, AuthorId), u32> =
+            std::collections::HashMap::new();
 
         for (n, commit) in self.window_commits().iter().enumerate() {
             if !counts(commit, &options) {
@@ -137,30 +138,30 @@ impl Analysis<'_> {
                     if let Some(c) = commits_per_dir.get_mut(d_idx) {
                         *c += 1;
                     }
-                    pairs.push((d, author));
+                    *counted.entry((d, author)).or_default() += 1;
                 }
             }
         }
 
+        let mut pairs: Vec<((u32, AuthorId), u32)> = counted.into_iter().collect();
         pairs.sort_unstable();
         let mut out: Vec<DirectoryOwnership> = Vec::new();
         let mut i = 0;
-        while let Some(&(dir, _)) = pairs.get(i) {
+        while let Some(&((dir, _), _)) = pairs.get(i) {
             let run = pairs
                 .get(i..)
                 .unwrap_or(&[])
                 .iter()
-                .take_while(|(d, _)| *d == dir)
+                .take_while(|((d, _), _)| *d == dir)
                 .count();
             let commits = commits_per_dir.get(dir as usize).copied().unwrap_or(0);
             if commits >= options.ownership_min_commits {
-                let mut owners: Vec<Owner> = Vec::new();
-                for &(_, author) in pairs.get(i..i + run).unwrap_or(&[]) {
-                    match owners.last_mut() {
-                        Some(o) if o.author == author => o.commits += 1,
-                        _ => owners.push(Owner { author, commits: 1 }),
-                    }
-                }
+                let mut owners: Vec<Owner> = pairs
+                    .get(i..i + run)
+                    .unwrap_or(&[])
+                    .iter()
+                    .map(|&((_, author), commits)| Owner { author, commits })
+                    .collect();
                 owners.sort_by(|a, b| b.commits.cmp(&a.commits).then(a.author.cmp(&b.author)));
                 out.push(DirectoryOwnership {
                     dir: dirs.path(dir),
@@ -209,36 +210,47 @@ impl Analysis<'_> {
 
     fn committers(&self, bots: bool) -> Vec<Contributor> {
         let index = self.index();
-        let mut made: Vec<(AuthorId, i64)> = self
-            .window_commits()
-            .iter()
-            .filter(|c| !c.is_merge())
-            .filter_map(|c| index.author_of(c).map(|a| (a, c.landed_clock())))
-            .filter(|&(a, _)| index.authors.is_bot(a) == bots)
-            .collect();
-        made.sort_unstable();
-
+        let made = || {
+            self.window_commits()
+                .iter()
+                .filter(|c| !c.is_merge())
+                .filter_map(|c| index.author_of(c).map(|a| (a, c.landed_clock())))
+                .filter(|&(a, _)| index.authors.is_bot(a) == bots)
+        };
+        let mut at: std::collections::HashMap<AuthorId, usize> = std::collections::HashMap::new();
         let mut out: Vec<Contributor> = Vec::new();
-        let mut last_day = None;
-        for (author, clock) in made {
-            let day = clock.div_euclid(DAY);
-            match out.last_mut() {
-                Some(c) if c.author == author => {
-                    c.commits += 1;
-                    c.last = clock;
-                    if last_day != Some(day) {
-                        c.active_days += 1;
-                    }
-                }
-                _ => out.push(Contributor {
+        let mut count = 0;
+        for (author, clock) in made() {
+            count += 1;
+            let i = *at.entry(author).or_insert_with(|| {
+                out.push(Contributor {
                     author,
-                    commits: 1,
-                    active_days: 1,
+                    commits: 0,
+                    active_days: 0,
                     first: clock,
                     last: clock,
-                }),
+                });
+                out.len() - 1
+            });
+            if let Some(c) = out.get_mut(i) {
+                c.commits += 1;
+                c.first = c.first.min(clock);
+                c.last = c.last.max(clock);
             }
-            last_day = Some(day);
+        }
+        let mut days: Vec<u64> = Vec::with_capacity(count);
+        for (author, clock) in made() {
+            if let Some(&i) = at.get(&author) {
+                let day = clock.div_euclid(DAY) as i32 as u32;
+                days.push(((i as u64) << 32) | u64::from(day));
+            }
+        }
+        days.sort_unstable();
+        days.dedup();
+        for d in days {
+            if let Some(c) = out.get_mut((d >> 32) as usize) {
+                c.active_days += 1;
+            }
         }
         top(&mut out, |a, b| {
             b.commits.cmp(&a.commits).then(a.author.cmp(&b.author))
