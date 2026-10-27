@@ -47,7 +47,7 @@ export async function runSurvival(job: SurvivalJob, ctx: JobContext & { budget: 
     await mark("stale", job.personIds);
     return;
   }
-  let token: string | null = null;
+  let token: string | null = repo.isPrivate ? null : ctx.github.token;
   if (repo.isPrivate) {
     token = repo.installationId && ctx.app ? await installationToken(ctx.app, repo.installationId, repo.name) : null;
     if (!token) {

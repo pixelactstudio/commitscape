@@ -484,14 +484,16 @@ test("a private repository with no installation token fails as private and reads
   expect(ctx.captured.at(-1)?.[1].repo).toMatch(/^private:[0-9a-f]{16}$/);
 });
 
-test("a public repository is cloned without the token lent for its Build, so a repository gone private since cannot be read with someone's own access", async () => {
+test("a public repository is fetched with the Builder's own token, which reads nothing private, and never with the token lent for its Build, so a repository gone private since cannot be read with someone's own access", async () => {
   const db = await database();
   const envs: NodeJS.ProcessEnv[] = [];
+  const argv: string[] = [];
   const base = tools();
   const ctx = await context(db, {
     tokenSecret: "s".repeat(32),
     run: async (cmd, args, env) => {
       if (cmd === "git") envs.push(env);
+      argv.push(`${cmd} ${args.join(" ")}`);
       return base(cmd, args);
     },
   });
@@ -499,9 +501,13 @@ test("a public repository is cloned without the token lent for its Build, so a r
   await db.insert(schema.user).values({ id: "u1", name: "Ada", email: "ada@example.com", emailVerified: true, createdAt: new Date(), updatedAt: new Date() });
   await lendToken(db, "s".repeat(32), "acme/rocket", "u1", "ghu_lent");
   await db.insert(builds).values({ id: "b9", repoId: "acme/rocket", state: "queued", requestedAt: 1 });
+  ctx.github = { ...ctx.github, token: "ghs_site" };
   await runJob("b9", ctx);
+  const carries = (e: NodeJS.ProcessEnv, token: string) => Object.values(e).some((v) => typeof v === "string" && v.includes(Buffer.from(`x-access-token:${token}`).toString("base64")));
   expect(envs.length).toBeGreaterThan(0);
-  expect(envs.some((e) => Object.values(e).some((v) => typeof v === "string" && v.includes(Buffer.from("x-access-token:ghu_lent").toString("base64"))))).toBe(false);
+  expect(envs.some((e) => carries(e, "ghu_lent"))).toBe(false);
+  expect(envs.every((e) => carries(e, "ghs_site"))).toBe(true);
+  expect(argv.some((a) => a.includes("ghs_site"))).toBe(false);
 });
 
 test("a Build that publishes a new Report asks for everyone's Surviving Lines once, and one that keeps its Report asks for nothing", async () => {

@@ -117,9 +117,10 @@ async function claimedJob(buildId: string, ctx: JobContext, attempt: number, ask
   }
   const scope = repo.isPrivate ? repo.id : "public";
   const gh: GitHubApi = { ...ctx.github, token: token ?? ctx.github.token };
+  const gitToken = repo.isPrivate ? token : ctx.github.token;
   let pullsQueued = !!more;
   const started = Date.now();
-  if (!more && attempt === 1 && (await keptUnchanged(ctx, repo, repo.isPrivate ? token : null))) {
+  if (!more && attempt === 1 && (await keptUnchanged(ctx, repo, gitToken))) {
     const seconds = (Date.now() - started) / 1000;
     await end("done", { seconds, partial: false });
     ctx.telemetry?.capture("build unchanged", who, { ...about, seconds });
@@ -160,7 +161,7 @@ async function claimedJob(buildId: string, ctx: JobContext, attempt: number, ask
           name: repo.name,
           sizeKb: repo.sizeKb ?? 0,
           private: repo.isPrivate,
-          token: repo.isPrivate ? token : null,
+          token: gitToken,
           seed: repo.seed,
           attempt,
           hasLines: !!repo.reportKey && repo.reportLines !== false,

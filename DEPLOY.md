@@ -120,7 +120,10 @@ Install the App on an account (or an organisation of your own) and choose
 installation's id, the number at the end of its settings page's address, in
 `GITHUB_APP_INSTALLATION_ID`. If that installation can read any private
 repository the Site refuses its token, logs why, and falls back to
-`GITHUB_TOKEN`, so private data is never kept as public.
+`GITHUB_TOKEN`, so private data is never kept as public. The Builder also
+fetches public repositories with it (in git's environment, never in an
+address or a log), so its many small fetches of file versions count
+against an account's limits rather than GitHub's anonymous ones.
 
 Keep the App ID (`GITHUB_APP_ID`), the slug from `github.com/apps/<slug>`
 (`GITHUB_APP_SLUG`), the Client ID (`GITHUB_APP_CLIENT_ID`), a new client
