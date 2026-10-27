@@ -23,4 +23,19 @@ describe("screens stored with a Report", () => {
     expect(await readEntry(storage, "reports/gh/1/b", "/api/stats?")).toEqual({ bus_factor: 1 });
     expect(await readEntry(storage, "reports/gh/1/b", "/api/people?window=all")).toBeNull();
   });
+
+  it("are read from the bucket once and kept as their bytes, so what a reader does with one never shows in the next", async () => {
+    const storage = memoryStorage();
+    await storeEntries(storage, "reports/gh/2/b", { "/api/overview?window=all": { commits: 3, people: [{ id: 1 }] } });
+    let gets = 0;
+    const get = storage.get.bind(storage);
+    storage.get = async (key) => {
+      gets += 1;
+      return get(key);
+    };
+    const first = await readEntry<{ commits: number; people: { id: number }[] }>(storage, "reports/gh/2/b", "/api/overview?window=all");
+    if (first) first.people.push({ id: 2 });
+    expect(await readEntry(storage, "reports/gh/2/b", "/api/overview?window=all")).toEqual({ commits: 3, people: [{ id: 1 }] });
+    expect(gets).toBe(1);
+  });
 });

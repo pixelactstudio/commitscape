@@ -247,14 +247,14 @@ export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<
   };
 
   const leanClone = async (): Promise<Cloned> => {
-    const c = await ensureClone(deps.run, { url, dir: full, blobless: true, checkout: false, env, timeoutMs: cloneLimit });
+    const c = await ensureClone(deps.run, { url, dir: full, blobless: true, checkout: false, env, timeoutMs: cloneLimit, sizeKb: req.sizeKb });
     if (!c.ok) return c;
     const live = await deps.index.live();
     const fetched = await (deps.prefetch ?? prefetch)(full, env, live?.frontier ?? [], cloneLimit, cfg.bulkFiles);
     deps.log?.(`clone of ${req.owner}/${req.name}: blobless, ${fetched} file versions fetched for this Build`);
     return c;
   };
-  const fullClone = () => (lean ? leanClone() : ensureClone(deps.run, { url, dir: full, blobless: false, env, timeoutMs: cloneLimit }));
+  const fullClone = () => (lean ? leanClone() : ensureClone(deps.run, { url, dir: full, blobless: false, env, timeoutMs: cloneLimit, sizeKb: req.sizeKb }));
 
   const caughtUp = async () => {
     const missing = await missingIn(deps.run, full, await tipsOf(deps.run, quick, env, CHECK_MS), env, CHECK_MS);
@@ -288,7 +288,7 @@ export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<
         fullCloned = true;
       });
       const quickDone: Promise<Cloned | null> = quickWanted
-        ? phases.time("clone quick", "git.clone", () => ensureClone(deps.run, { url, dir: quick, blobless: true, env, timeoutMs: cloneLimit })).catch((e: unknown): Cloned => ({ ok: false, reason: "error", detail: (e as Error).message }))
+        ? phases.time("clone quick", "git.clone", () => ensureClone(deps.run, { url, dir: quick, blobless: true, env, timeoutMs: cloneLimit, sizeKb: req.sizeKb })).catch((e: unknown): Cloned => ({ ok: false, reason: "error", detail: (e as Error).message }))
         : Promise.resolve(null);
       const firstClone = new Promise<string | null>((resolve) => {
         let waiting = quickWanted ? 2 : 1;

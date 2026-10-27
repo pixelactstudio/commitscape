@@ -73,7 +73,7 @@ export async function runSurvival(job: SurvivalJob, ctx: JobContext & { budget: 
     holding.add(key);
     try {
       if (leaned) await prefetch(ctx, repo.id, lean, env);
-      const cloned = existsSync(join(full, ".git")) ? ({ ok: true } as const) : await ensureClone(ctx.run, { url: cloneUrl(cfg, repo.owner, repo.name), dir: full, blobless: false, env, timeoutMs: cfg.cloneLimit * 1000 });
+      const cloned = existsSync(join(full, ".git")) ? ({ ok: true } as const) : await ensureClone(ctx.run, { url: cloneUrl(cfg, repo.owner, repo.name), dir: full, blobless: false, env, timeoutMs: cfg.cloneLimit * 1000, sizeKb: repo.sizeKb ?? 0 });
       if (!cloned.ok) {
         ctx.log(`surviving ${job.repoId}: clone ${cloned.reason}`);
         return "failed";

@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, rename, rm } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import type { BuildFailure } from "@commitscape/data";
+import { peakMb } from "./admission";
 import type { Config } from "./config";
 import type { run as runCommand } from "./run";
 
@@ -55,9 +56,10 @@ const lastLine = (text: string) => text.trim().split("\n").at(-1);
 /** Brings a kept clone up to date, or clones the repository afresh beside `dir` and moves it there once whole; `blobless` leaves old file contents on GitHub, and `checkout: false` writes no files out, only moving the branch, so a blobless clone fetches none. */
 export async function ensureClone(
   run: typeof runCommand,
-  how: { url: string; dir: string; blobless: boolean; env: NodeJS.ProcessEnv; timeoutMs: number; checkout?: boolean },
+  how: { url: string; dir: string; blobless: boolean; env: NodeJS.ProcessEnv; timeoutMs: number; checkout?: boolean; sizeKb?: number },
 ): Promise<Cloned> {
   const checkout = how.checkout ?? true;
+  const sized = { commits: 0, sizeKb: how.sizeKb ?? 0 };
   const started = Date.now();
   const left = () => Math.max(1000, how.timeoutMs - (Date.now() - started));
   const seconds = () => Math.round((Date.now() - started) / 100) / 10;
@@ -70,7 +72,7 @@ export async function ensureClone(
       ["fetch", "--quiet", "--prune", "--tags", "origin"],
       ["reset", "--quiet", checkout ? "--hard" : "--soft", "origin/HEAD"],
     ]) {
-      const ran = await run("git", args, inside, left());
+      const ran = await run("git", args, inside, left(), args[0] === "fetch" ? { memoryMb: peakMb("fetch", sized) } : {});
       if (ran.timedOut) return timedOut;
       if (ran.code !== 0) {
         ok = false;
@@ -84,7 +86,7 @@ export async function ensureClone(
   await mkdir(parent, { recursive: true });
   await rm(temp, { recursive: true, force: true });
   const args = ["clone", "--quiet", ...(how.blobless ? ["--filter=blob:none"] : []), ...(checkout ? [] : ["--no-checkout"]), "--", how.url, temp];
-  const ran = await run("git", args, { ...how.env, GIT_CEILING_DIRECTORIES: parent }, left());
+  const ran = await run("git", args, { ...how.env, GIT_CEILING_DIRECTORIES: parent }, left(), { memoryMb: peakMb(how.blobless ? "blobless" : "clone", sized) });
   if (ran.timedOut || ran.code !== 0) {
     await rm(temp, { recursive: true, force: true });
     return ran.timedOut ? timedOut : { ok: false, reason: failure(ran.stderr), detail: lastLine(ran.stderr) };

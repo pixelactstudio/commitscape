@@ -1,5 +1,9 @@
 import { expect, test } from "vitest";
+import { mkdir, mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { admitting, peakMb } from "./admission";
+import { ensureClone } from "./clone";
 import type { Ran, RunOptions } from "./run";
 
 function gate(budget: number, heavy = ["commitscape", "node"]) {
@@ -66,6 +70,29 @@ test("any other command that says the memory it takes waits in the same line", a
   expect(g.order.at(-1)).toBe("start repack");
   for (const name of ["repack", "status"]) await g.finish(name);
   await Promise.all(runs);
+});
+
+test("a clone and a fetch say the memory they take, so they wait in the same line as the engine's runs", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "gate-"));
+  const asked: [string, number | undefined][] = [];
+  const run = async (_cmd: string, args: string[], _env: NodeJS.ProcessEnv, _t: number, opts?: RunOptions): Promise<Ran> => {
+    asked.push([args[0] ?? "", opts?.memoryMb]);
+    if (args[0] === "clone") await mkdir(join(args.at(-1) ?? "", ".git"), { recursive: true });
+    return { code: 0, stderr: "", timedOut: false };
+  };
+  const how = { url: "file:///nowhere", dir: join(dir, "full"), blobless: false, env: {}, timeoutMs: 1000, sizeKb: 1_100_000 };
+  await ensureClone(run as never, how);
+  await ensureClone(run as never, how);
+  await ensureClone(run as never, { ...how, dir: join(dir, "lean"), blobless: true });
+  expect(asked).toEqual([
+    ["clone", peakMb("clone", { commits: 0, sizeKb: 1_100_000 })],
+    ["commit-graph", undefined],
+    ["rev-parse", undefined],
+    ["fetch", peakMb("fetch", { commits: 0, sizeKb: 1_100_000 })],
+    ["reset", undefined],
+    ["clone", peakMb("blobless", { commits: 0, sizeKb: 1_100_000 })],
+  ]);
+  expect(peakMb("clone", { commits: 0, sizeKb: 1_100_000 })).toBeGreaterThan(92);
 });
 
 test("an estimate is above every peak measured on linux and react", () => {

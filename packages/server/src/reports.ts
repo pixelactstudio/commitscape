@@ -77,17 +77,16 @@ export async function storeEntries(storage: Storage, prefix: string, data: Recor
   return writes.length;
 }
 
-const cache = new LRUCache<string, { value: unknown }>({ maxSize: 256 * 1024 * 1024 });
+const cache = new LRUCache<string, Buffer>({ maxSize: 256 * 1024 * 1024, sizeCalculation: (bytes) => Math.max(1, bytes.length) });
 
 async function readJson<T>(storage: Storage, key: string): Promise<T | null> {
   const hit = cache.get(key);
-  if (hit) return hit.value as T;
+  if (hit) return JSON.parse(hit.toString("utf8")) as T;
   const object = await storage.get(key);
   if (!object) return null;
-  const text = (object.encoding === "gzip" ? await gunzipAsync(object.body) : Buffer.from(object.body)).toString("utf8");
-  const value = JSON.parse(text) as T;
-  cache.set(key, { value }, { size: Math.max(1, text.length) });
-  return value;
+  const bytes = object.encoding === "gzip" ? await gunzipAsync(object.body) : Buffer.from(object.body);
+  cache.set(key, bytes);
+  return JSON.parse(bytes.toString("utf8")) as T;
 }
 
 /** A stored Report's meta, stats and the answers it holds. */
