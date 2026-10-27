@@ -503,7 +503,8 @@ this order:
    `/v1/commits/under`.
 2. Deploy the Builder, stopping the old one first: a Builder that finds
    another running against the database stops. Its migrations add
-   `repositories.checked_at`, `repositories.report_head`, the
+   `repositories.checked_at`, `repositories.report_head`,
+   `repositories.report_refs`, the
    `repo_states` table and `stored_indexes.build_format`. It no longer
    reads `ENGINE_SLOTS`, which can go: `ENGINE_MEMORY_MB` (1200) takes its
    place, and every run of the engine, counts of Surviving Lines too, waits

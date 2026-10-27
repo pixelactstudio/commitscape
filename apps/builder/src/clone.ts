@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, rename, rm } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
@@ -94,11 +95,20 @@ export async function ensureClone(
   return { ok: true, fresh: true, seconds: seconds() };
 }
 
-/** The commit a repository's HEAD points at on its remote, asked without fetching anything; null when the remote cannot tell. */
-export async function remoteHead(run: typeof runCommand, url: string, env: NodeJS.ProcessEnv, timeoutMs: number): Promise<string | null> {
-  const ran = await run("git", ["ls-remote", "--", url, "HEAD"], env, timeoutMs);
-  if (ran.code !== 0) return null;
-  return /^([0-9a-f]{40}|[0-9a-f]{64})\tHEAD$/m.exec(ran.stdout ?? "")?.[1] ?? null;
+export type RemoteRefs = { head: string | null; refs: string };
+
+/** What `git ls-remote <url> HEAD refs/heads/* refs/tags/*` printed, as the commit HEAD points at and one fingerprint of every branch and tag, annotated tags peeled too. */
+export function refsOf(stdout: string): RemoteRefs {
+  const lines = stdout.split("\n").filter((l) => /^[0-9a-f]{40,64}\t\S/.test(l));
+  const head = lines.find((l) => l.endsWith("\tHEAD"))?.split("\t")[0] ?? null;
+  const refs = lines.filter((l) => /\trefs\/(heads|tags)\//.test(l)).sort();
+  return { head, refs: createHash("sha256").update(refs.join("\n")).digest("hex") };
+}
+
+/** The commit a repository's HEAD points at on its remote and a fingerprint of all its branches and tags, asked in one `git ls-remote` without fetching anything; null when the remote cannot tell. */
+export async function remoteRefs(run: typeof runCommand, url: string, env: NodeJS.ProcessEnv, timeoutMs: number): Promise<RemoteRefs | null> {
+  const ran = await run("git", ["ls-remote", "--", url, "HEAD", "refs/heads/*", "refs/tags/*"], env, timeoutMs, { maxStdout: 64 << 20 });
+  return ran.code === 0 && !ran.timedOut ? refsOf(ran.stdout ?? "") : null;
 }
 
 const inClone = (dir: string, env: NodeJS.ProcessEnv) => ({ ...env, GIT_DIR: join(dir, ".git") });

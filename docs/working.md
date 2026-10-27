@@ -38,12 +38,16 @@ to a repository the App is installed on, the nightly seeds and
 
 1. **Claims the Build** in one database update, on the `builds` queue, or
    `builds-large` for a repository over `LARGE_REPOSITORY_MB`.
-   When the Report is whole (its pack, every Mainline line counted and
-   none left, built within a week), one `git ls-remote` asks where the
-   default branch's head is; if it is still the head the Report was built
-   from, the Build ends there, without a clone, the engine or an upload,
-   and `repositories.checked_at` records that the Report is current. Quiet
-   Builds and retries skip the check.
+   One `git ls-remote` asks for the remote's HEAD and every branch and tag
+   (annotated tags peeled; pull requests' refs left out), and a fingerprint
+   of the branches and tags is kept with the Report it publishes
+   (`repositories.report_refs`). When the Report is whole (its pack, every
+   Mainline line counted and none left, built within a week), HEAD is
+   still the head it was built from and every branch and tag is as that
+   Build saw them, the Build ends there, without a clone, the engine or an
+   upload, and `repositories.checked_at` records that the Report is
+   current. Quiet Builds and retries skip the check. Seeds keep their
+   weekly check of the default branch's head by GraphQL.
 2. **Starts two clones at once** on a cold Build: a quick clone without old
    file contents (`git clone --filter=blob:none`) into the Build's scratch
    folder, and the full clone, kept under `WORK_DIR/repos/<owner>/<name>/full`

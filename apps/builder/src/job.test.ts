@@ -13,6 +13,7 @@ import { cacheDir, inUse, sweep } from "./disk";
 import { fakePerson, flagOf, writeBuilt, type FakeBuild } from "./fake";
 import { MORE_LINES_AFTER, MORE_LINES_MAX, runJob, type JobAsked, type JobContext } from "./job";
 import { BUILD_ATTEMPTS, type Ran } from "./run";
+import { refsOf } from "./clone";
 import { headsOf, queueSeeds, type Named } from "./seeds";
 import { writeAtlas } from "./universe";
 import type { Telemetry, Who } from "./telemetry";
@@ -295,9 +296,11 @@ test("a Build of a repository found renamed while it ran stores its Report and p
   expect((await db.select().from(builds)).map((b) => [b.repoId, b.state])).toEqual([["react/react", "done"]]);
 });
 
+const remoteSays = (head: string, more = "") => `${head}\tHEAD\n${head}\trefs/heads/main\n${"e".repeat(40)}\trefs/tags/v1\n${head}\trefs/tags/v1^{}\n${more}`;
+
 async function wholeReport(db: Db, id: string, head: string, over: Partial<typeof repositories.$inferInsert> = {}) {
   const [owner = "", name = ""] = id.split("/");
-  await db.insert(repositories).values({ id, owner, name, sizeKb: 10, reportKey: `reports/gh/${id}/b0`, reportAt: now() - 3 * 24 * 3600, reportLines: true, ...over });
+  await db.insert(repositories).values({ id, owner, name, sizeKb: 10, reportKey: `reports/gh/${id}/b0`, reportAt: now() - 3 * 24 * 3600, reportLines: true, reportRefs: refsOf(remoteSays(head)).refs, ...over });
   const [si] = await db
     .insert(storedIndexes)
     .values({ repoId: id, lineage: "7", kept: true, head, frontier: [head], lines: true, linesLeft: 0, pack: `packs/${id}/1/${head}-b0-lines.pack`, state: "live", builtAt: 1, buildFormat: BUILD_FORMAT })
@@ -312,7 +315,7 @@ test("a Build whose Report is whole and whose head has not moved ends at its hea
   const ctx = await context(db, {
     run: async (cmd, args) => {
       ran.push(`${cmd} ${args[0]}`);
-      return cmd === "git" && args[0] === "ls-remote" ? { ...ok, stdout: `${head}\tHEAD\n` } : ok;
+      return cmd === "git" && args[0] === "ls-remote" ? { ...ok, stdout: remoteSays(head) } : ok;
     },
   });
   await wholeReport(db, "acme/rocket", head);
@@ -335,27 +338,30 @@ test("a Report published by a Builder of an earlier release is built again even 
   const ctx = await context(db, {
     run: async (cmd, args) => {
       ran.push(`${cmd} ${args[0]}`);
-      return cmd === "git" && args[0] === "ls-remote" ? { ...ok, stdout: `${head}\tHEAD\n` } : base(cmd, args);
+      return cmd === "git" && args[0] === "ls-remote" ? { ...ok, stdout: remoteSays(head) } : base(cmd, args);
     },
   });
   await wholeReport(db, "acme/rocket", head);
   await db.update(storedIndexes).set({ buildFormat: null });
   await db.insert(builds).values({ id: "b1", repoId: "acme/rocket", state: "queued", requestedAt: 1 });
   await runJob("b1", ctx);
-  expect(ran).not.toContain("git ls-remote");
+  expect(ran[0]).toBe("git ls-remote");
   expect(ran.some((r) => r.startsWith("commitscape build"))).toBe(true);
   const live = await db.select().from(storedIndexes).where(eq(storedIndexes.state, "live"));
   expect(live.map((l) => l.buildFormat)).toEqual([BUILD_FORMAT]);
 });
 
-test("a Build goes on when the head moved, when the Report is not whole, or for quiet Builds and retries, and asks the remote only when the Report is whole", async () => {
+test("a Build goes on when the head moved, a branch or tag moved or came, the Report is not whole, or for quiet Builds and retries, and asks the remote on every first Build that is not quiet", async () => {
   const head = "c".repeat(40);
   const cases: [string, Partial<typeof repositories.$inferInsert>, string, number, JobAsked, boolean][] = [
-    ["moved", {}, "d".repeat(40), 1, {}, true],
-    ["a week old", { reportAt: now() - 8 * 24 * 3600 }, head, 1, {}, false],
-    ["without lines", { reportLines: false }, head, 1, {}, false],
-    ["quiet", {}, head, 1, { more: 1 }, false],
-    ["a retry", {}, head, 2, {}, false],
+    ["moved", {}, remoteSays("d".repeat(40)), 1, {}, true],
+    ["a new tag", {}, remoteSays(head, `${"f".repeat(40)}\trefs/tags/v2\n`), 1, {}, true],
+    ["a branch moved", {}, remoteSays(head, `${"f".repeat(40)}\trefs/heads/next\n`), 1, {}, true],
+    ["refs never seen", { reportRefs: null }, remoteSays(head), 1, {}, true],
+    ["a week old", { reportAt: now() - 8 * 24 * 3600 }, remoteSays(head), 1, {}, true],
+    ["without lines", { reportLines: false }, remoteSays(head), 1, {}, true],
+    ["quiet", {}, remoteSays(head), 1, { more: 1 }, false],
+    ["a retry", {}, remoteSays(head), 2, {}, false],
   ];
   for (const [label, over, remote, attempt, asked, asks] of cases) {
     const db = await database();
@@ -364,7 +370,7 @@ test("a Build goes on when the head moved, when the Report is not whole, or for 
     const ctx = await context(db, {
       run: async (cmd, args) => {
         ran.push(`${cmd} ${args[0]}`);
-        return cmd === "git" && args[0] === "ls-remote" ? { ...ok, stdout: `${remote}\tHEAD\n` } : base(cmd, args);
+        return cmd === "git" && args[0] === "ls-remote" ? { ...ok, stdout: remote } : base(cmd, args);
       },
     });
     await wholeReport(db, "acme/rocket", head, over);
@@ -372,6 +378,7 @@ test("a Build goes on when the head moved, when the Report is not whole, or for 
     await runJob("b1", ctx, attempt, asked);
     expect([label, ran.includes("git ls-remote")]).toEqual([label, asks]);
     expect([label, ran.some((r) => r.startsWith("commitscape build"))]).toEqual([label, true]);
+    if (asks) expect([label, (await repoRow(db))?.reportRefs]).toEqual([label, refsOf(remote).refs]);
   }
 });
 

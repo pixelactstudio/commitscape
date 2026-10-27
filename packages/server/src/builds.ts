@@ -15,7 +15,7 @@ export const UNCHANGED_FOR = 7 * 24 * 3600;
 /** What a Build of this release makes beside a Stored Index, recorded on it when its pack is published: format 3 packs, the head's standard screens stored with the Report, the Builder's Atlas and everyone's Ownership of lines. A Stored Index made otherwise is built again. */
 export const BUILD_FORMAT = 2;
 
-type Reported = Pick<typeof repositories.$inferSelect, "reportKey" | "reportAt" | "reportLines"> & { checkedAt?: number | null };
+type Reported = Pick<typeof repositories.$inferSelect, "reportKey" | "reportAt" | "reportLines"> & { checkedAt?: number | null; reportRefs?: string | null };
 
 /** When a repository's Report was last known current: built, or found with its head where the Build left it. */
 export function currentAt(row: Reported): number {
@@ -32,6 +32,11 @@ export function whole(row: Reported, live: Whole | null, at = now()): boolean {
 /** Whether a Build has nothing to do: the Report is whole and the default branch's head is still the one it was built from. */
 export function unchanged(row: Reported, live: Whole | null, head: string | null, at = now()): boolean {
   return !!head && whole(row, live, at) && live?.head === head;
+}
+
+/** Whether a Build has nothing to do, as `unchanged` says, with every branch and tag on the remote as the Build that published the Report saw them: a Report covers them all, not only the default branch. */
+export function refsUnchanged(row: Reported, live: Whole | null, remote: { head: string | null; refs: string } | null, at = now()): boolean {
+  return !!remote && !!row.reportRefs && row.reportRefs === remote.refs && unchanged(row, live, remote.head, at);
 }
 
 type BuildState = Pick<typeof builds.$inferSelect, "state" | "reason" | "requestedAt" | "finishedAt"> & { startedAt?: number | null };

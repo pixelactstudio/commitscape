@@ -20,14 +20,13 @@ import {
   type Loaded,
   type Storage,
   type SurvivalJob,
-  unchanged,
-  whole,
+  refsUnchanged,
 } from "@commitscape/server";
 import type { BuildFailure, Meta } from "@commitscape/data";
 import { accountsFor } from "./accounts";
 import { replaceIndex } from "./atlas";
 import { storeScreens } from "./screens";
-import { cloneUrl, gitEnv, remoteHead } from "./clone";
+import { cloneUrl, gitEnv, remoteRefs, type RemoteRefs } from "./clone";
 import type { Config } from "./config";
 import type { SummaryPerson } from "./engine";
 import type { GitHubApi } from "./github";
@@ -122,7 +121,8 @@ async function claimedJob(buildId: string, ctx: JobContext, attempt: number, ask
   const gitToken = repo.isPrivate ? token : ctx.github.token;
   let pullsQueued = !!more;
   const started = Date.now();
-  if (!more && attempt === 1 && (await keptUnchanged(ctx, repo, gitToken))) {
+  const remote = !more && attempt === 1 ? await remoteRefs(ctx.run, cloneUrl(ctx.cfg, repo.owner, repo.name), gitEnv(gitToken), HEAD_CHECK_MS).catch(() => null) : null;
+  if (remote && (await keptUnchanged(ctx, repo, remote))) {
     const seconds = (Date.now() - started) / 1000;
     await end("done", { seconds, partial: false });
     ctx.telemetry?.capture("build unchanged", who, { ...about, seconds });
@@ -133,7 +133,7 @@ async function claimedJob(buildId: string, ctx: JobContext, attempt: number, ask
 
   const publish = async (made: Made): Promise<boolean> => {
     const continuing = made.phase === "quick" || (!!ctx.queueBuild && more < MORE_LINES_MAX);
-    const target = await publishBuild(ctx, phases, buildId, made, continuing);
+    const target = await publishBuild(ctx, phases, buildId, made, continuing, remote?.refs ?? null);
     if (!target) return false;
     const at = (Date.now() - started) / 1000;
     if (made.phase === "quick") {
@@ -246,12 +246,10 @@ function parentOf(facts: string | null): string | null {
   }
 }
 
-/** Whether a Build can end at its head check: the Report is whole and the remote's default branch is still at the head it was built from, asked with one `git ls-remote`, without a clone, the engine or an upload. Records when that was found. */
-async function keptUnchanged(ctx: JobContext, repo: typeof repositories.$inferSelect, token: string | null): Promise<boolean> {
+/** Whether a Build can end at its head check: the Report is whole, and the remote's HEAD and every branch and tag are as the Build that published it saw them, asked with one `git ls-remote`, without a clone, the engine or an upload. Records when that was found. */
+async function keptUnchanged(ctx: JobContext, repo: typeof repositories.$inferSelect, remote: RemoteRefs): Promise<boolean> {
   const live = await liveIndex(ctx.db, repo.id);
-  if (!whole(repo, live)) return false;
-  const head = await remoteHead(ctx.run, cloneUrl(ctx.cfg, repo.owner, repo.name), gitEnv(token), HEAD_CHECK_MS).catch(() => null);
-  if (!unchanged(repo, live, head)) return false;
+  if (!refsUnchanged(repo, live, remote)) return false;
   await ctx.db.update(repositories).set({ checkedAt: now() }).where(eq(repositories.id, repo.id));
   return true;
 }
@@ -290,7 +288,7 @@ async function linesOff(db: Db, buildId: string): Promise<void> {
 type Published = { id: string; prefix: string; people: SummaryPerson[]; fresh: boolean };
 
 /** Uploads a Build's pack, then makes its Stored Index the repository's Report: the pack's key on the Stored Index, the Report's meta and stats on the repository, its people, and the version the rest compares against, deleting the pack and Report objects it replaces. A quick one never replaces one with lines, and one of the same head and Stored Index keeps its version, so counts made for it stay. */
-async function publishBuild(ctx: JobContext, phases: Phases, buildId: string, made: Made, continuing: boolean): Promise<Published | null> {
+async function publishBuild(ctx: JobContext, phases: Phases, buildId: string, made: Made, continuing: boolean, refs: string | null): Promise<Published | null> {
   const { db, storage } = ctx;
   const [named] = await db
     .select({ id: repositories.id, reportKey: repositories.reportKey, reportLines: repositories.reportLines })
@@ -333,6 +331,7 @@ async function publishBuild(ctx: JobContext, phases: Phases, buildId: string, ma
       .set({
         reportKey: prefix,
         reportHead: made.manifest.head ?? null,
+        ...(refs ? { reportRefs: refs } : {}),
         reportAt: now(),
         reportBytes: body.length,
         reportLines: lines,
