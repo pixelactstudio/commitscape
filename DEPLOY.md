@@ -195,7 +195,7 @@ Optional, with their defaults:
 | Variable | Default | What |
 |---|---|---|
 | `CONCURRENCY` | 1 | Builds at a time, for repositories under `LARGE_REPOSITORY_MB`. Their clones, GitHub reads and Postgres loads overlap; their runs of the engine share `ENGINE_MEMORY_MB` |
-| `ENGINE_MEMORY_MB` | 1200 | Memory the runs of the engine may take at once, across every Build and count of Surviving Lines: each run waits, in the order it asked, until its estimate fits beside the others (a warm build of linux about 230 MB, a cold one about 340, everyone's Surviving Lines about 450, react's about 50 to 200); a run larger than this runs alone. 1200 fits a 3 GiB container with the Builder, git and Postgres loads beside it |
+| `ENGINE_MEMORY_MB` | 1200 | Memory the runs of the engine may take at once, across every Build and count of Surviving Lines: each run waits, in the order it asked, until its estimate fits beside the others (a warm build of linux about 230 MB, a cold one about 340, everyone's Surviving Lines about 260, react's about 50 to 200); a run larger than this runs alone. 1200 fits a 3 GiB container with the Builder, git and Postgres loads beside it |
 | `BULK_COMMIT_FILES` | 50 | A commit changing more files than this is a Bulk Commit: left out of Churn, Ownership, Change Coupling and Lines Changed, and passed through by Surviving Lines. A lean clone fetches no file versions for commits changing more than twice as many paths |
 | `COMMITSCAPE_THREADS` | every core, up to 16 | Threads one run of the engine may use |
 | `ENGINE_NICE` | 10 | The engine runs at this lower priority (0 to 19), so git, the database and the Builder stay responsive |

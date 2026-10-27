@@ -61,11 +61,11 @@ test("an estimate is above every peak measured on linux and react", () => {
   const linux = { commits: 1_501_892, sizeKb: 5_800_000 };
   const react = { commits: 21_722, sizeKb: 1_100_000 };
   const measured: [Parameters<typeof peakMb>[0], typeof linux, number][] = [
-    ["build", linux, 224],
+    ["build", linux, 170],
     ["build", react, 38],
-    ["cold", linux, 276],
+    ["cold", linux, 248],
     ["cold", react, 158],
-    ["surviving", linux, 442],
+    ["surviving", linux, 245],
     ["surviving", react, 121],
     ["screens", linux, 191],
     ["atlas", linux, 635],
