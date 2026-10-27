@@ -7,6 +7,7 @@ import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { expect, test } from "vitest";
 import { memoryStorage, schema, type Db, type SurvivalJob } from "@commitscape/server";
+import { holdingCache } from "./disk";
 import type { JobContext } from "./job";
 import type { Ran } from "./run";
 import { budgetOf, runSurvival, SURVIVING_BUDGET_MAX } from "./survival";
@@ -65,6 +66,24 @@ test("a count is everyone's, whoever asked: each person's answer is recorded at 
   ]);
   expect(await oldestOf(db, 3)).toBe(1_500_000_000);
   expect(await oldestOf(db, 4)).toBeNull();
+});
+
+test("a count waits while another job holds the repository's cache, and saves its State holding it too", async () => {
+  const order: string[] = [];
+  const { ctx } = await setup(async (_cmd, args) => {
+    order.push(args[0] ?? "");
+    return { code: 0, stderr: "", timedOut: false, stdout: everyone([alice, bob]) };
+  });
+  const root = join(ctx.cfg.work, "caches", "acme", "rocket");
+  ctx.saveState = async () => void order.push("save");
+  const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const other = holdingCache(root, async () => {
+    order.push("other starts");
+    await pause(80);
+    order.push("other ends");
+  });
+  await Promise.all([other, runSurvival({ repoId: "acme/rocket", reportKey: "r/b1", personIds: [3] }, ctx)]);
+  expect(order).toEqual(["other starts", "other ends", "surviving", "save"]);
 });
 
 test("ownership not whole within the budget is asked again for everyone with twice the budget, and its rows stay counting; past four hours they are over budget", async () => {

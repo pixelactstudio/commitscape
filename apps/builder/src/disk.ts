@@ -3,6 +3,7 @@ import { mkdir, readdir, readFile, rename, rm, stat, utimes, writeFile } from "n
 import { dirname, join } from "node:path";
 import { and, eq, gt, inArray, or } from "drizzle-orm";
 import { now, schema, type Db } from "@commitscape/server";
+import { locked } from "./clone";
 import type { Config } from "./config";
 
 const { builds, repositories, surviving } = schema;
@@ -29,6 +30,11 @@ export async function cacheFor(cfg: Config, repo: { isPrivate: boolean; owner: s
   await mkdir(dir, { recursive: true });
   await utimes(dir, new Date(), new Date()).catch(() => undefined);
   return dir;
+}
+
+/** Runs `fn` holding a cache folder: an engine run reading or writing it, and its State being saved or brought back, never overlap. Take it before an engine slot, never while holding one. */
+export function holdingCache<T>(root: string, fn: () => Promise<T>): Promise<T> {
+  return locked(`cache:${root}`, fn);
 }
 
 /** Where a private repository's clone and cache live while one job uses them. */

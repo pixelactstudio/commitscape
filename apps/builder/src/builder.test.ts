@@ -7,7 +7,7 @@ import { expect, test } from "vitest";
 import { readManifest, type LiveIndex, type Loaded } from "@commitscape/server";
 import { ensureClone, failure, gitEnv } from "./clone";
 import type { Config } from "./config";
-import { cacheDir, cacheFor, prune, repoDir } from "./disk";
+import { cacheDir, cacheFor, holdingCache, prune, repoDir } from "./disk";
 import { readEvents } from "./engine";
 import { flagOf, writeBuilt, type FakeBuild } from "./fake";
 import { build, BUILD_ATTEMPTS, cloneLimitOf, run, sharingEngine, timeLimitOf, type BuildTarget, type Deps, type Made, type Ran, type RunOptions } from "./run";
@@ -122,6 +122,34 @@ test("a Build brings its State back before the engine first runs and keeps it af
     await build(req({ private: isPrivate, token: isPrivate ? "t" : null }), cfg(work), f.deps);
     expect(order).toEqual(isPrivate ? ["signatures", "build", "publish quick", "build", "publish full"] : ["restore cache", "signatures", "build", "publish quick", "build", "publish full", "save cache"]);
   }
+});
+
+test("a State is saved or brought back only while no engine run reads or writes its cache, from this job or another", async () => {
+  const work = await mkdtemp(join(tmpdir(), "builder-"));
+  let busy = 0;
+  const seen: number[] = [];
+  const f = fake(async (c) => {
+    if (c.cmd !== "commitscape") return ok;
+    busy += 1;
+    await pause(40);
+    busy -= 1;
+    return ok;
+  });
+  const holdSave = async () => {
+    seen.push(busy);
+    await pause(30);
+    seen.push(busy);
+    return { uploaded: 0, sent: 0, bytes: 0 };
+  };
+  f.deps.state = { restore: async () => ({ restored: false, bytes: 0 }), save: holdSave };
+  const root = cacheDir(cfg(work), "acme", "rocket");
+  const building = build(req(), cfg(work), f.deps);
+  await pause(20);
+  const elsewhere = [holdingCache(root, holdSave), pause(60).then(() => holdingCache(root, holdSave))];
+  await Promise.all([building, ...elsewhere]);
+  expect(builds(f.calls)).toHaveLength(2);
+  expect(seen).toHaveLength(6);
+  expect(seen.every((n) => n === 0)).toBe(true);
 });
 
 test("a repository ready to be lean is read from a blobless clone without files, fetching only what its Build reads, and its full clone is let go", async () => {

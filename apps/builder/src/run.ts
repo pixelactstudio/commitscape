@@ -8,7 +8,7 @@ import { appendable, type LiveIndex, type Loaded } from "@commitscape/server";
 import { readSignatures, writeAccountsFile, type Signature } from "./accounts";
 import { cloneUrl, ensureClone, gitEnv, locked, missingIn, tipsOf, type Cloned } from "./clone";
 import type { Config } from "./config";
-import { cacheFor, privateDir, repoDir, scratchDir } from "./disk";
+import { cacheFor, holdingCache, privateDir, repoDir, scratchDir } from "./disk";
 import { readBuilt, readEvents, type Built } from "./engine";
 import { prefetch } from "./lean";
 import { engineSpans, Phases } from "./telemetry";
@@ -198,6 +198,7 @@ export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<
   const url = cloneUrl(cfg, req.owner, req.name);
   const cacheRoot = await cacheFor(cfg, { isPrivate: !!req.private, owner: req.owner, name: req.name, home });
   const cache = ["--cache-dir", cacheRoot, "--cache-key", req.repo];
+  const cached: typeof deps.run = (cmd, args, env, timeoutMs, opts) => holdingCache(cacheRoot, () => deps.run(cmd, args, env, timeoutMs, opts));
   const state = req.private ? undefined : deps.state;
   let restoring: Promise<unknown> = Promise.resolve();
   const warm = existsSync(join(full, ".git"));
@@ -225,7 +226,7 @@ export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<
     args.push("--", dir);
     const t = Date.now();
     const ran = await phases.time(`build ${phase}`, "engine", async () => {
-      const done = await deps.run(cfg.bin, args, engineEnv, binLimit * 1000, { nice: cfg.nice });
+      const done = await cached(cfg.bin, args, engineEnv, binLimit * 1000, { nice: cfg.nice });
       engineSpans(await readEvents(events));
       return done;
     });
@@ -248,7 +249,7 @@ export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<
     await restoring;
     const events = join(scratch, "signatures.events");
     const signatures = await phases.time("signatures", "engine", async () => {
-      const found = await readSignatures(deps.run, { bin: cfg.bin, dir, scratch, cache, env: engineEnv, timeoutMs: binLimit * 1000, nice: cfg.nice, events, ...(deps.log ? { log: deps.log } : {}) });
+      const found = await readSignatures(cached, { bin: cfg.bin, dir, scratch, cache, env: engineEnv, timeoutMs: binLimit * 1000, nice: cfg.nice, events, ...(deps.log ? { log: deps.log } : {}) });
       engineSpans(await readEvents(events));
       return found;
     });
@@ -287,7 +288,7 @@ export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<
     await utimes(home, new Date(), new Date());
     if (state) {
       restoring = phases
-        .time("restore state", "state", () => state.restore(cacheRoot))
+        .time("restore state", "state", () => holdingCache(cacheRoot, () => state.restore(cacheRoot)))
         .then((r) => r.restored && deps.log?.(`state of ${req.owner}/${req.name}: restored ${Math.round(r.bytes / 1e6)} MB from R2`))
         .catch((e: unknown) => deps.log?.(`state of ${req.owner}/${req.name} not restored: ${(e as Error).message}`));
     }
@@ -354,7 +355,7 @@ export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<
     const made = fullMade ?? quickMade;
     if (state && made) {
       await phases
-        .time("save state", "state", () => state.save(cacheRoot))
+        .time("save state", "state", () => holdingCache(cacheRoot, () => state.save(cacheRoot)))
         .then((s) => deps.log?.(`state of ${req.owner}/${req.name}: ${s.uploaded} new chunks, ${Math.round(s.sent / 1e6)} MB sent, ${Math.round(s.bytes / 1e6)} MB kept`))
         .catch((e: unknown) => deps.log?.(`state of ${req.owner}/${req.name} not saved: ${(e as Error).message}`));
     }
