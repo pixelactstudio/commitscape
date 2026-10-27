@@ -18,6 +18,15 @@ pub fn release_large_blocks() {
     }
 }
 
+/// Gives the system back the free memory in the middle of the C allocator's heaps, which it otherwise keeps for the next allocation: call it after a step that freed much on several threads. Does nothing where the allocator is not glibc's.
+pub fn release_free_memory() {
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    #[allow(unsafe_code)]
+    unsafe {
+        libc::malloc_trim(0);
+    }
+}
+
 /// Records read in place from a stretch of a file mapped copy-on-write: the pages are the file's until one is written, which then becomes the process's own and never reaches the file.
 pub struct Records<T: Record> {
     map: Option<MmapMut>,

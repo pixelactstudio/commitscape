@@ -433,7 +433,11 @@ impl<'p> Writer<'p> {
         moves: HashMap<Oid, Moved>,
     ) -> io::Result<Ownership> {
         self.runs.flush()?;
-        let mut fresh: Vec<(Oid, u32)> = self.fresh.iter().copied().zip(0u32..).collect();
+        drop(std::mem::take(&mut self.fresh_at));
+        let mut fresh: Vec<(Oid, u32)> = std::mem::take(&mut self.fresh)
+            .into_iter()
+            .zip(0u32..)
+            .collect();
         fresh.sort_unstable();
         let mut from_previous = vec![u32::MAX; self.used.len()];
         let mut from_fresh = vec![u32::MAX; fresh.len()];

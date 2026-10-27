@@ -384,6 +384,7 @@ impl<'i> Survival<'i> {
             },
         )
         .map_err(OwnError::Source)?;
+        commitscape_map::release_free_memory();
         if let Some(e) = failed {
             return Err(OwnError::Kept(e));
         }
