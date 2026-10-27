@@ -1,16 +1,26 @@
 import { randomBytes } from "node:crypto";
-import { appendFile, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp as made, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
-import { expect, test } from "vitest";
+import { afterAll, expect, test } from "vitest";
 import { memoryStorage, schema, type Db } from "@commitscape/server";
 import { CHUNK_BYTES, forgetStates, hasCache, restoreState, saveState, statePrefix, stateKeys } from "./state";
 
 const migrations = fileURLToPath(new URL("../../../packages/server/drizzle", import.meta.url));
+
+const folders: string[] = [];
+
+const mkdtemp = async (prefix: string) => {
+  const dir = await made(prefix);
+  folders.push(dir);
+  return dir;
+};
+
+afterAll(() => Promise.all(folders.map((dir) => rm(dir, { recursive: true, force: true }))));
 
 async function database(): Promise<Db> {
   const db = drizzle(new PGlite(), { schema });
