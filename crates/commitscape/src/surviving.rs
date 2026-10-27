@@ -6,9 +6,10 @@ use std::time::{Duration, Instant};
 
 use clap::Args;
 use commitscape_core::{AuthorId, Index, Oid};
+use commitscape_index::ownership::Ownership;
 use commitscape_index::{
-    load, BlameCommit, BlameSource, BlameThreads, GixError, GixRepo, GixThreads, InParent, Moves,
-    RepoSource, Survival, Survived,
+    load, repo_dir, BlameCommit, BlameSource, BlameThreads, GixError, GixRepo, GixThreads,
+    InParent, Moves, RepoSource, Survival, Survived,
 };
 use commitscape_metrics::{Analysis, Window};
 use commitscape_report::api::{Surviving, SurvivingPerson, SurvivingStatus};
@@ -27,8 +28,19 @@ pub struct SurvivingArgs {
 
     /// A person, by the id the repository's Report gives them (made with the
     /// same cache directory). Give it once for each person.
-    #[arg(long = "person", value_name = "ID", required = true)]
+    #[arg(
+        long = "person",
+        value_name = "ID",
+        required_unless_present = "everyone"
+    )]
     people: Vec<u32>,
+
+    /// Count everyone at once from who owns each line at the head, kept in
+    /// the cache from one head to the next so a new head works out only the
+    /// files that changed. The budget is for working out the ownership; past
+    /// it what was done is kept and the next run goes on.
+    #[arg(long, conflicts_with = "people")]
+    everyone: bool,
 
     /// How long each person may take. Past it they are not counted, never
     /// estimated.
@@ -86,6 +98,53 @@ pub fn run(args: SurvivingArgs) -> anyhow::Result<()> {
         threads: repo.threads(),
         dir: path.clone(),
     };
+
+    if args.everyone {
+        let started = Instant::now();
+        let kept = repo_dir(&options, &index.repo).map(|d| d.join("ownership"));
+        let previous = kept.as_deref().and_then(Ownership::read);
+        let deadline = started.checked_add(budget);
+        let mut ownership = survival.own(&threads, previous, deadline)?;
+        let everyone = survival.everyone(&repo, &mut ownership)?;
+        if let Some(path) = kept.as_deref() {
+            ownership.write(path)?;
+        }
+        let seconds = (started.elapsed().as_secs_f64() * 1000.0).round() / 1000.0;
+        let people: Vec<SurvivingPerson> = everyone
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|(author, survived)| {
+                let Survived::Counted {
+                    lines,
+                    files,
+                    oldest,
+                } = survived
+                else {
+                    return None;
+                };
+                Some(SurvivingPerson {
+                    id: author.0,
+                    name: index.authors.get(author).map(|a| a.name.to_string()),
+                    status: SurvivingStatus::Counted,
+                    surviving: Some(lines),
+                    added: added.as_ref().map(|a| a.get(&author).copied().unwrap_or(0)),
+                    files,
+                    oldest,
+                    seconds,
+                })
+            })
+            .collect();
+        let out = serde_json::json!({
+            "head": survival.head().to_hex(),
+            "complete": ownership.complete,
+            "files": ownership.files.len(),
+            "people": people,
+        });
+        let mut stdout = std::io::stdout().lock();
+        serde_json::to_writer(&mut stdout, &out)?;
+        writeln!(stdout)?;
+        return Ok(());
+    }
 
     let mut people = Vec::with_capacity(args.people.len());
     for id in args.people {

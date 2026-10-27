@@ -461,23 +461,19 @@ test("a public repository is cloned without the token lent for its Build, so a r
   expect(envs.some((e) => Object.values(e).some((v) => typeof v === "string" && v.includes(Buffer.from("x-access-token:ghu_lent").toString("base64"))))).toBe(false);
 });
 
-test("a seed repository's Build asks for the Surviving Lines of its people with most commits, bots and people with no login left out", async () => {
+test("a Build that publishes a new Report asks for everyone's Surviving Lines once, and one that keeps its Report asks for nothing", async () => {
   const db = await database();
-  const people = [fakePerson(1, "bot[bot]", 900), fakePerson(2, null, 800), ...Array.from({ length: 34 }, (_, i) => fakePerson(10 + i, `p${i}`, 100 - i))];
   const asked: SurvivalJob[] = [];
-  const ctx = await context(db, { queueCounts: async (job) => void asked.push(job) }, { people });
+  const ctx = await context(db, { queueCounts: async (job) => void asked.push(job) });
   await db.insert(repositories).values({ id: "acme/seed", owner: "acme", name: "seed", sizeKb: 10, seed: true });
   await db.insert(builds).values({ id: "b3", repoId: "acme/seed", state: "queued", requestedAt: 1 });
   await runJob("b3", ctx);
-  expect(asked.map((j) => j.personIds.length)).toEqual([10, 10, 10]);
-  expect(asked.flatMap((j) => j.personIds)).toEqual(Array.from({ length: 30 }, (_, i) => 10 + i));
-  expect(asked.every((j) => j.reportKey === "reports/gh/acme/seed/b3")).toBe(true);
-  expect(await db.select({ status: surviving.status }).from(surviving)).toHaveLength(30);
-
+  expect(asked).toEqual([{ repoId: "acme/seed", reportKey: "reports/gh/acme/seed/b3", personIds: [], everyone: true }]);
+  expect((await db.select().from(surviving)).map((r) => [r.personId, r.status, r.reportKey])).toEqual([[1, "queued", "reports/gh/acme/seed/b3"]]);
   await db.insert(repositories).values({ id: "acme/other", owner: "acme", name: "other", sizeKb: 10 });
   await db.insert(builds).values({ id: "b4", repoId: "acme/other", state: "queued", requestedAt: 1 });
   await runJob("b4", ctx);
-  expect(asked).toHaveLength(3);
+  expect(asked.map((j) => j.repoId)).toEqual(["acme/seed", "acme/other"]);
 });
 
 test("a Build past its time limit is queued again to go on from the lines it counted, until its last attempt fails", async () => {

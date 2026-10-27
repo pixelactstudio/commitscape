@@ -91,9 +91,18 @@ to a repository the App is installed on, the nightly seeds and
    minutes.
 7. **Carries on.** If the budget left commits uncounted, a quiet Build is
    queued a minute later, below people's and seeds' Builds, three at most; each counts
-   on from where the last stopped. Seeds' top people get their Surviving
-   Lines counted, reusing the full clone and the same accounts, so person
-   ids match.
+   on from where the last stopped. A new Report queues one count of
+   everyone's Surviving Lines (`commitscape surviving --everyone`), every
+   person of it marked counting meanwhile. It reuses the full clone and the
+   same accounts, so person ids match, and works out the head's Ownership
+   of lines: kept in the cache as `ownership` (runs of lines per file, with
+   the commit each came from), a later head along the first-parent line
+   keeps every file no first-parent commit since changed and blames only
+   the rest, stopping wherever a walk reaches the earlier head. Everyone's
+   Surviving Lines are then a sum over it. Ownership not whole within the
+   budget is kept and the count is queued again with twice the budget; a
+   person asked for on the Site gets the same count for everyone. react:
+   1,997 people in 18.5 s from nothing, 0.3 s for a head 20 commits on.
 
 Every publish sends `pg_notify`, so the Site forgets the old pack key and
 warms the new pack in the engine service. If the full phase fails after the

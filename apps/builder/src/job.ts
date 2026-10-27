@@ -36,8 +36,6 @@ import { storeAtlas } from "./universe";
 
 const { builds, repoPeople, repositories, storedIndexes, surviving } = schema;
 
-export const SEED_COUNTED = 30;
-const COUNTED_AT_ONCE = 10;
 
 export const MORE_LINES_MAX = 3;
 export const MORE_LINES_AFTER = 60;
@@ -58,6 +56,7 @@ export type JobContext = {
   telemetry?: Telemetry;
   queuePulls?: (repoId: string) => Promise<void>;
   queueCounts?: (job: SurvivalJob) => Promise<void>;
+  saveState?: (repoId: string, root: string) => Promise<unknown>;
   queueBuild?: (job: BuildJob & { attempt: number }, priority: number, startAfter?: number) => Promise<void>;
 };
 
@@ -141,7 +140,7 @@ async function claimedJob(buildId: string, ctx: JobContext, attempt: number, ask
       pullsQueued = true;
       await ctx.queuePulls?.(target.id).catch((e: unknown) => log(`pulls for ${target.id} not queued: ${(e as Error).message}`));
     }
-    if (made.phase === "full" && repo.seed && target.fresh) await queueSeedCounts(ctx, target.id, target.prefix, target.people).catch((e: unknown) => log(`counts for ${target.id} not queued: ${(e as Error).message}`));
+    if (made.phase === "full" && target.fresh) await queueEveryone(ctx, target.id, target.prefix, target.people).catch((e: unknown) => log(`counts for ${target.id} not queued: ${(e as Error).message}`));
     log(`build ${buildId} ${target.id}: ${made.phase} Report published after ${at.toFixed(1)} s, built in ${made.seconds} s`);
     return true;
   };
@@ -335,14 +334,15 @@ async function publishBuild(ctx: JobContext, phases: Phases, buildId: string, ma
   return { id: target.current.id, prefix, people, fresh: target.current.reportKey !== prefix };
 }
 
-async function queueSeedCounts(ctx: JobContext, repoId: string, reportKey: string, people: SummaryPerson[]): Promise<void> {
+async function queueEveryone(ctx: JobContext, repoId: string, reportKey: string, people: SummaryPerson[]): Promise<void> {
   if (!ctx.queueCounts) return;
-  const ids = people
-    .filter((p) => p.login && !p.login.endsWith("[bot]"))
-    .sort((a, b) => b.commits - a.commits)
-    .slice(0, SEED_COUNTED)
-    .map((p) => p.person_id);
-  if (ids.length === 0) return;
-  await ctx.db.insert(surviving).values(ids.map((personId) => ({ repoId, reportKey, personId, status: "queued", askedAt: now() }))).onConflictDoNothing();
-  for (let i = 0; i < ids.length; i += COUNTED_AT_ONCE) await ctx.queueCounts({ repoId, reportKey, personIds: ids.slice(i, i + COUNTED_AT_ONCE) });
+  const at = now();
+  const ids = people.map((p) => p.person_id);
+  for (let i = 0; i < ids.length; i += 1000) {
+    await ctx.db
+      .insert(surviving)
+      .values(ids.slice(i, i + 1000).map((personId) => ({ repoId, reportKey, personId, status: "queued", askedAt: at })))
+      .onConflictDoNothing();
+  }
+  await ctx.queueCounts({ repoId, reportKey, personIds: [], everyone: true });
 }

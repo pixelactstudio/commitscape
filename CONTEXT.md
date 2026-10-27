@@ -223,8 +223,12 @@ Said of a Profile whose person chose to stay out of comparisons: it appears in n
 _Avoid_: private profile, opted out.
 
 **Surviving Lines**:
-The lines at a repository's head that blame attributes to a person, passing through Bulk Commits and ignored revisions, leaving out Generated Files, Prose Files and files over a megabyte (ADR-0022). Passing through gives a changed line to the commit before only when the two are the same once whitespace is removed; any other line a reformat changed stays with the reformat. Counted per person on request; "not counted" when over its time budget, never an estimate.
+The lines at a repository's head that blame attributes to a person, passing through Bulk Commits and ignored revisions, leaving out Generated Files, Prose Files and files over a megabyte (ADR-0022). Passing through gives a changed line to the commit before only when the two are the same once whitespace is removed; any other line a reformat changed stays with the reformat. Counted for everyone at once, once per head, as a sum over the head's Ownership of lines; "counting" until that is whole, "not counted" when it is over its time budget, never an estimate.
 _Avoid_: lines owned, code alive, impact.
+
+**Ownership of lines**:
+Which commit each line of a head's Source files came from, as blame says, kept per head in the Repo State as runs of lines. A new head that went forward along the first-parent line keeps it for every file whose path no first-parent commit since changed, and works out the rest, stopping wherever a walk reaches the earlier head. Surviving Lines are summed from it. Not to be confused with Ownership, which counts commits.
+_Avoid_: blame cache, attribution.
 
 **Survival**:
 A person's Surviving Lines as a share of the lines they added in that repository (their Lines Changed). Shown only when both are known and it is at most 100%: an import left out of Lines Changed as a Bulk Commit can keep more lines than were counted as added.

@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { installationToken, now, randomId, schema, type SurvivalJob } from "@commitscape/server";
 import { cloneUrl, ensureClone, gitEnv, locked } from "./clone";
 import { accountsFor, writeAccounts } from "./accounts";
@@ -20,18 +20,18 @@ export function budgetOf(base: number, attempt = 0): number {
 
 type Counted = { id: number; status: "counted" | "over_budget" | "unknown_person"; surviving: number | null; added: number | null; files: number; seconds: number; oldest?: number | null };
 
-/** Parses what `commitscape surviving` printed. */
-export function survivingOf(stdout: string): { head: string; people: Counted[] } | null {
+/** Parses what `commitscape surviving --everyone` printed: the head, whether its ownership is whole, and then every person's count. */
+export function survivingOf(stdout: string): { head: string; complete: boolean; people: Counted[] } | null {
   try {
-    const answer = JSON.parse(stdout) as { head?: unknown; people?: unknown };
-    if (typeof answer.head !== "string" || !Array.isArray(answer.people)) return null;
-    return { head: answer.head, people: answer.people as Counted[] };
+    const answer = JSON.parse(stdout) as { head?: unknown; complete?: unknown; people?: unknown };
+    if (typeof answer.head !== "string" || typeof answer.complete !== "boolean" || !Array.isArray(answer.people)) return null;
+    return { head: answer.head, complete: answer.complete, people: answer.people as Counted[] };
   } catch {
     return null;
   }
 }
 
-/** Counts people's Surviving Lines in one repository at its stored Report's head and records each answer; anyone over budget is queued again with a larger one, going on from the files already counted. */
+/** Counts everyone's Surviving Lines in one repository at its stored Report's head, from who owns each line, which the cache keeps from one head to the next so a new head works out only the files that changed, and records every person's answer, whoever asked. Ownership not worked out within the budget is kept, and the count is queued again with twice the budget to go on from it. */
 export async function runSurvival(job: SurvivalJob, ctx: JobContext & { budget: number }): Promise<void> {
   const { db, cfg } = ctx;
   const mark = (status: string, ids: number[]) =>
@@ -77,40 +77,48 @@ export async function runSurvival(job: SurvivalJob, ctx: JobContext & { budget: 
     const cache = ["--cache-dir", await cacheFor(cfg, { isPrivate: repo.isPrivate, owner: repo.owner, name: repo.name, home }), "--cache-key", repo.id];
     const engineEnv = { ...env, ...(cfg.threads ? { COMMITSCAPE_THREADS: String(cfg.threads) } : {}) };
     const accounts = await writeAccounts(ctx.run, { bin: cfg.bin, dir: full, scratch, cache, env: engineEnv, timeoutMs: cfg.timeLimit * 1000, nice: cfg.nice, log: ctx.log }, async (signatures) => (await accountsFor(db, gh, { owner: repo.owner, name: repo.name, scope }, signatures, cfg.logins)).accounts);
-    const args = ["surviving", "--budget-seconds", String(budget), ...cache, "--offline"];
+    const args = ["surviving", "--everyone", "--budget-seconds", String(budget), ...cache, "--offline"];
     if (accounts) args.push("--accounts", accounts);
-    for (const id of job.personIds) args.push("--person", String(id));
     args.push("--", full);
-    ran = await ctx.run(cfg.bin, args, engineEnv, (budget * job.personIds.length + cfg.timeLimit) * 1000, { nice: cfg.nice });
+    ran = await ctx.run(cfg.bin, args, engineEnv, (budget + cfg.timeLimit) * 1000, { nice: cfg.nice });
+    if (!repo.isPrivate && ran.code === 0) await ctx.saveState?.(repo.id, cache[1] ?? "").catch((e: unknown) => ctx.log(`state of ${repo.id} not saved: ${(e as Error).message}`));
   } finally {
     await rm(scratch, { recursive: true, force: true });
     if (repo.isPrivate) await rm(home, { recursive: true, force: true });
     holding.delete(key);
   }
   const answer = ran.code === 0 ? survivingOf(ran.stdout ?? "") : null;
-  ctx.log(`surviving ${job.repoId} [${job.personIds.join(",")}]: ${answer ? "done" : ran.timedOut ? "timed out" : "failed"} in ${((Date.now() - started) / 1000).toFixed(1)} s, budget ${budget} s`);
-  const again = async (ids: number[]) => {
-    if (ids.length === 0 || budget >= budgetOf(ctx.budget, attempt + 1) || !ctx.queueCounts) return;
-    for (const id of ids) {
-      const row = and(eq(surviving.repoId, job.repoId), eq(surviving.reportKey, job.reportKey), eq(surviving.personId, id));
-      await db.update(surviving).set({ status: "queued", askedAt: now() }).where(row);
-      await ctx.queueCounts({ repoId: job.repoId, reportKey: job.reportKey, personIds: [id], attempt: attempt + 1 }).catch(async (e: unknown) => {
-        ctx.log(`surviving ${job.repoId} [${id}] not queued again: ${(e as Error).message}`);
-        await db.update(surviving).set({ status: "over_budget" }).where(row);
-      });
+  ctx.log(`surviving ${job.repoId}: ${answer ? (answer.complete ? `${answer.people.length} people counted` : "ownership not whole yet") : ran.timedOut ? "timed out" : "failed"} in ${((Date.now() - started) / 1000).toFixed(1)} s, budget ${budget} s`);
+  const again = async () => {
+    if (budget >= budgetOf(ctx.budget, attempt + 1) || !ctx.queueCounts) {
+      await mark("over_budget", job.personIds);
+      return;
     }
+    await ctx.queueCounts({ repoId: job.repoId, reportKey: job.reportKey, personIds: job.personIds, everyone: true, attempt: attempt + 1 }).catch(async (e: unknown) => {
+      ctx.log(`surviving ${job.repoId} not queued again: ${(e as Error).message}`);
+      await mark("over_budget", job.personIds);
+    });
   };
   if (!answer) {
-    await mark(ran.timedOut ? "over_budget" : "failed", job.personIds);
-    if (ran.timedOut) await again(job.personIds);
+    if (ran.timedOut) await again();
+    else await mark("failed", job.personIds);
     return;
   }
-  for (const p of answer.people) {
-    const status = p.status === "unknown_person" ? "failed" : p.status;
-    await db
-      .update(surviving)
-      .set({ status, lines: p.surviving, added: p.added, files: p.files, seconds: p.seconds, head: answer.head, oldest: p.oldest ?? null, countedAt: now() })
-      .where(and(eq(surviving.repoId, job.repoId), eq(surviving.reportKey, job.reportKey), eq(surviving.personId, p.id)));
+  if (!answer.complete) {
+    await again();
+    return;
   }
-  await again(answer.people.filter((p) => p.status === "over_budget").map((p) => p.id));
+  const at = now();
+  for (let i = 0; i < answer.people.length; i += 500) {
+    const rows = answer.people.slice(i, i + 500).map((p) => ({ repoId: job.repoId, reportKey: job.reportKey, personId: p.id, status: "counted", lines: p.surviving, added: p.added, files: p.files, seconds: p.seconds, head: answer.head, oldest: p.oldest ?? null, askedAt: at, countedAt: at }));
+    await db
+      .insert(surviving)
+      .values(rows)
+      .onConflictDoUpdate({
+        target: [surviving.repoId, surviving.reportKey, surviving.personId],
+        set: { status: sql`excluded.status`, lines: sql`excluded.lines`, added: sql`excluded.added`, files: sql`excluded.files`, seconds: sql`excluded.seconds`, head: sql`excluded.head`, oldest: sql`excluded.oldest`, countedAt: sql`excluded.counted_at` },
+      });
+  }
+  const counted = new Set(answer.people.map((p) => p.id));
+  await mark("failed", job.personIds.filter((id) => !counted.has(id)));
 }

@@ -9,7 +9,7 @@ export type BuildTrace = { sentryTrace: string; baggage: string };
 
 export type BuildJob = { buildId: string; repoId?: string; attempt?: number; trace?: BuildTrace; queuedAt?: number; userId?: string; more?: number };
 
-export type SurvivalJob = { repoId: string; reportKey: string; personIds: number[]; attempt?: number };
+export type SurvivalJob = { repoId: string; reportKey: string; personIds: number[]; attempt?: number; everyone?: boolean };
 
 export type PullsJob = { repoId: string };
 
@@ -20,7 +20,7 @@ export const LONGEST_JOB_SECONDS = 24 * 3600;
 export type Queue = { send(job: BuildJob, priority: number): Promise<void>; count?(job: SurvivalJob): Promise<void> };
 
 export const buildKey = (job: BuildJob) => job.repoId ?? job.buildId;
-export const survivalKey = (job: SurvivalJob) => `${job.repoId}:${job.reportKey}:${job.personIds.join(",")}`;
+export const survivalKey = (job: SurvivalJob) => `${job.repoId}:${job.reportKey}:${job.everyone ? "*" : job.personIds.join(",")}`;
 
 /** Starts pg-boss and creates the queues: a repository's Builds run one at a time, and a read of pull requests or a count of Surviving Lines waits at most once behind the same one running. A worker also runs maintenance and sets how long a Build may run. */
 export async function startQueue(url: string, options: { worker: boolean; expireInSeconds?: number }): Promise<PgBoss> {

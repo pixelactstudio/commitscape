@@ -8,7 +8,7 @@ use imara_diff::{Algorithm, Diff, InternedInput};
 use crate::similarity::{rename_source, spans, Spans};
 use crate::source::{BlameCommit, BlameSource, BlameThreads, InParent};
 
-const UNMAPPED: u32 = u32::MAX;
+pub(crate) const UNMAPPED: u32 = u32::MAX;
 
 const MAX_THREADS: usize = 8;
 
@@ -33,9 +33,9 @@ type Seg = (u32, u32);
 pub(crate) type Text = (Rc<Vec<u8>>, Rc<Spans>);
 
 #[derive(Clone)]
-struct Gone {
-    deleted: Vec<(Vec<u8>, Oid)>,
-    texts: Vec<Option<Text>>,
+pub(crate) struct Gone {
+    pub(crate) deleted: Vec<(Vec<u8>, Oid)>,
+    pub(crate) texts: Vec<Option<Text>>,
 }
 
 struct Version {
@@ -442,7 +442,7 @@ pub fn blame_in_threads<T: BlameThreads>(
     })
 }
 
-fn folder(path: &[u8]) -> &[u8] {
+pub(crate) fn folder(path: &[u8]) -> &[u8] {
     let mut slashes = path
         .iter()
         .enumerate()
@@ -455,12 +455,12 @@ fn folder(path: &[u8]) -> &[u8] {
     }
 }
 
-fn line_count(text: &[u8]) -> u32 {
+pub(crate) fn line_count(text: &[u8]) -> u32 {
     let n = text.iter().filter(|&&c| c == b'\n').count();
     (n + usize::from(text.last().is_some_and(|&c| c != b'\n'))) as u32
 }
 
-fn line_map(diff: &Diff, before: usize, after: usize) -> Vec<u32> {
+pub(crate) fn line_map(diff: &Diff, before: usize, after: usize) -> Vec<u32> {
     let mut map = vec![UNMAPPED; after];
     let mut b = 0u32;
     for (a, slot) in map.iter_mut().enumerate() {
@@ -511,7 +511,7 @@ fn squeezed(line: &[u8]) -> Vec<u8> {
         .collect()
 }
 
-fn ignored_map(before: &[u8], after: &[u8], diff: &Diff) -> Vec<u32> {
+pub(crate) fn ignored_map(before: &[u8], after: &[u8], diff: &Diff) -> Vec<u32> {
     let old = lines_of(before);
     let new = lines_of(after);
     let mut map = vec![UNMAPPED; new.len()];

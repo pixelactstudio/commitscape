@@ -12,6 +12,7 @@ pub mod mailmap;
 pub mod mainline;
 pub mod measure;
 mod message;
+pub mod ownership;
 pub mod scripted;
 pub mod similarity;
 pub mod source;
