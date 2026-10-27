@@ -112,7 +112,7 @@ export async function keptText(key: string, make: () => Promise<string | null>, 
       if (text === null) throw NOTHING;
       const p = await packed(pack(text, quality));
       done(p);
-      sent.trim();
+      sent.refresh(key);
       return p;
     };
     const entry: Made = { packed: making((p) => void (entry.done = p)), done: null };
