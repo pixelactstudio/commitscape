@@ -12,7 +12,7 @@ pub(crate) const UNMAPPED: u32 = u32::MAX;
 
 const MAX_THREADS: usize = 8;
 
-pub const BATCH_BYTES: usize = 256 << 20;
+pub const BATCH_BYTES: usize = 32 << 20;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlameFile {

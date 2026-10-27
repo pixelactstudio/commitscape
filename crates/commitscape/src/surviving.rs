@@ -6,10 +6,9 @@ use std::time::{Duration, Instant};
 
 use clap::Args;
 use commitscape_core::{AuthorId, Index, Oid};
-use commitscape_index::ownership::Ownership;
 use commitscape_index::{
-    load, repo_dir, BlameCommit, BlameSource, BlameThreads, GixError, GixRepo, GixThreads,
-    InParent, Moves, RepoSource, Survival, Survived,
+    load, BlameCommit, BlameSource, BlameThreads, GixError, GixRepo, GixThreads, InParent, Moves,
+    RepoSource, Survival, Survived,
 };
 use commitscape_metrics::{Analysis, Window};
 use commitscape_report::api::{Surviving, SurvivingPerson, SurvivingStatus};
@@ -101,8 +100,7 @@ pub fn run(args: SurvivingArgs) -> anyhow::Result<()> {
 
     if args.everyone {
         let started = Instant::now();
-        let kept = repo_dir(&options, &index.repo).map(|d| d.join("ownership"));
-        let previous = kept.as_deref().and_then(Ownership::read);
+        let previous = survival.previous();
         let deadline = started.checked_add(budget);
         let (ownership, everyone) = if args.partial || repo.is_partial() {
             let mut ownership = survival.own(&fetching, previous, deadline)?;
@@ -113,9 +111,7 @@ pub fn run(args: SurvivingArgs) -> anyhow::Result<()> {
             let everyone = survival.everyone(&repo, &mut ownership)?;
             (ownership, everyone)
         };
-        if let Some(path) = kept.as_deref() {
-            ownership.write(path)?;
-        }
+        ownership.keep_moves()?;
         let seconds = (started.elapsed().as_secs_f64() * 1000.0).round() / 1000.0;
         let people: Vec<SurvivingPerson> = everyone
             .unwrap_or_default()
@@ -144,7 +140,7 @@ pub fn run(args: SurvivingArgs) -> anyhow::Result<()> {
         let out = serde_json::json!({
             "head": survival.head().to_hex(),
             "complete": ownership.complete,
-            "files": ownership.files.len(),
+            "files": ownership.len(),
             "people": people,
         });
         let mut stdout = std::io::stdout().lock();

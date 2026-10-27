@@ -1,16 +1,28 @@
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use commitscape_core::{AuthorId, ChangeKind, CommitFlags, FileClass, FileId, Index, Oid};
+use commitscape_core::{
+    AuthorId, ChangeKind, CommitFlags, CommitMeta, FileClass, FileId, Index, Oid,
+};
 
 use crate::blame::{blame_in_threads, spans_at, BlameFile, Walked, BATCH_BYTES};
-use crate::cache::{BlameStore, CacheOptions, Known, Moved};
+use crate::cache::{repo_dir, BlameStore, CacheOptions, Known, Moved};
 use crate::lines::MAX_BYTES;
-use crate::ownership::{own_in_threads, Known as Owners, Ownership};
+use crate::ownership::{own_in_threads, Known as Owners, Ownership, Writer};
 use crate::similarity::rename_source;
 use crate::source::{BlameSource, BlameThreads};
 
 const ENGINE: u64 = 4;
+
+/// Why working out the Ownership stopped: the repository could not be read, or the Ownership could not be kept.
+#[derive(Debug, thiserror::Error)]
+pub enum OwnError<E: std::error::Error + 'static> {
+    #[error(transparent)]
+    Source(E),
+    #[error("could not keep the ownership of lines")]
+    Kept(#[source] std::io::Error),
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Survived {
@@ -28,16 +40,49 @@ pub struct Survival<'i> {
     index: &'i Index,
     head: Oid,
     pass_through: HashSet<Oid>,
-    authors: HashMap<Oid, (AuthorId, i64)>,
     known: Known,
     store: Option<BlameStore>,
     deletions: HashMap<FileId, Vec<usize>>,
     flows: HashMap<usize, Vec<(FileId, FileId)>>,
     paths: Option<HashMap<FileId, Vec<Vec<u8>>>>,
-    commit_at: HashMap<Oid, usize>,
+    commit_at: CommitAt,
     files_at: HashMap<Vec<u8>, Vec<FileId>>,
     batch_bytes: usize,
     settings: u64,
+    kept: Option<PathBuf>,
+}
+
+struct CommitAt {
+    keys: Vec<(u64, u32)>,
+}
+
+impl CommitAt {
+    fn of(index: &Index) -> Self {
+        let mut keys: Vec<(u64, u32)> = index
+            .commits
+            .iter()
+            .zip(0u32..)
+            .map(|(c, i)| (key(&c.id), i))
+            .collect();
+        keys.sort_unstable();
+        CommitAt { keys }
+    }
+
+    fn get<'i>(&self, index: &'i Index, id: &Oid) -> Option<&'i CommitMeta> {
+        let k = key(id);
+        let from = self.keys.partition_point(|&(at, _)| at < k);
+        self.keys
+            .get(from..)?
+            .iter()
+            .take_while(|&&(at, _)| at == k)
+            .find_map(|&(_, i)| index.commits.get(i as usize).filter(|c| c.id == *id))
+    }
+}
+
+fn key(id: &Oid) -> u64 {
+    let mut head = [0u8; 8];
+    head.copy_from_slice(id.0.get(..8).unwrap_or(&[0; 8]));
+    u64::from_le_bytes(head)
 }
 
 impl<'i> Survival<'i> {
@@ -59,16 +104,6 @@ impl<'i> Survival<'i> {
             .map(|c| c.id)
             .collect();
         pass_through.extend(ignored.iter().copied());
-        let authors = index
-            .commits
-            .iter()
-            .filter_map(|c| {
-                Some((
-                    c.id,
-                    (index.author_of(c)?, c.time + i64::from(c.author_delta)),
-                ))
-            })
-            .collect();
         let store = BlameStore::for_head(
             options,
             &index.repo,
@@ -91,26 +126,31 @@ impl<'i> Survival<'i> {
             index,
             head,
             pass_through,
-            authors,
             known,
             store,
             deletions,
             flows: HashMap::new(),
             paths: None,
-            commit_at: index
-                .commits
-                .iter()
-                .enumerate()
-                .map(|(i, c)| (c.id, i))
-                .collect(),
+            commit_at: CommitAt::of(index),
             files_at: HashMap::new(),
             batch_bytes: BATCH_BYTES,
             settings: settings(max_changeset_size, ignored),
+            kept: repo_dir(options, &index.repo).map(|d| d.join("ownership")),
         })
     }
 
     pub fn head(&self) -> Oid {
         self.head
+    }
+
+    /// The Ownership kept in the cache from the last count, when there is one.
+    pub fn previous(&self) -> Option<Ownership> {
+        self.kept.as_deref().and_then(Ownership::open)
+    }
+
+    fn author(&self, commit: &Oid) -> Option<(AuthorId, i64)> {
+        let c = self.commit_at.get(self.index, commit)?;
+        Some((self.index.author_of(c)?, c.time + i64::from(c.author_delta)))
     }
 
     /// Counts one person's Surviving Lines over the files at the head they ever changed, or says they are over budget.
@@ -153,7 +193,7 @@ impl<'i> Survival<'i> {
             } = self;
             let index: &Index = index;
             let may_change = |commit: Oid, path: &[u8]| -> bool {
-                let Some(c) = commit_at.get(&commit).and_then(|&i| index.commits.get(i)) else {
+                let Some(c) = commit_at.get(index, &commit) else {
                     return true;
                 };
                 if c.is_merge() || c.flags.contains(CommitFlags::BULK) {
@@ -193,8 +233,8 @@ impl<'i> Survival<'i> {
             .filter_map(|f| self.known.files.get(&f.path))
             .flatten()
             .filter(|(_, n)| *n > 0)
-            .filter_map(|(commit, n)| match self.authors.get(commit) {
-                Some((author, time)) if *author == person => Some((u64::from(*n), *time)),
+            .filter_map(|(commit, n)| match self.author(commit) {
+                Some((author, time)) if author == person => Some((u64::from(*n), time)),
                 _ => None,
             })
             .collect();
@@ -249,54 +289,44 @@ impl<'i> Survival<'i> {
         threads: &T,
         previous: Option<Ownership>,
         deadline: Option<Instant>,
-    ) -> Result<Ownership, <T::Local as BlameSource>::Error> {
+    ) -> Result<Ownership, OwnError<<T::Local as BlameSource>::Error>> {
         let source = threads.local();
         let files = self.head_files();
         let previous = previous.filter(|p| p.settings == self.settings && p.head.is_some());
-        let mut out = Ownership {
-            head: Some(self.head),
-            settings: self.settings,
-            ..Ownership::default()
-        };
-        let mut at: HashMap<Oid, u32> = HashMap::new();
+        let mut out = Writer::create(
+            self.kept.as_deref(),
+            previous.as_ref(),
+            Some(self.head),
+            self.settings,
+        )
+        .map_err(OwnError::Kept)?;
         let mut carried: HashSet<Vec<u8>> = HashSet::new();
         if let Some(prev) = previous.as_ref() {
-            out.moves.clone_from(&prev.moves);
             let candidates: Vec<&BlameFile> = files
                 .iter()
-                .filter(|f| prev.files.get(&f.path).is_some_and(|o| o.blob == f.blob))
+                .filter(|f| prev.get(&f.path).is_some_and(|o| o.blob == f.blob))
                 .collect();
             let line = match prev.head {
-                Some(h) => self.first_parent_line(&source, h)?,
+                Some(h) => self
+                    .first_parent_line(&source, h)
+                    .map_err(OwnError::Source)?,
                 None => None,
             };
             if let Some(edges) = line {
                 let paths: Vec<&[u8]> = candidates.iter().map(|f| f.path.as_slice()).collect();
                 let mut changed = vec![false; paths.len()];
                 for (commit, parent) in edges {
-                    let states = source.blame_compare(commit, parent, &paths)?;
+                    let states = source
+                        .blame_compare(commit, parent, &paths)
+                        .map_err(OwnError::Source)?;
                     for (c, s) in changed.iter_mut().zip(states) {
                         *c |= s != crate::source::InParent::Same;
                     }
                 }
                 for (f, changed) in candidates.iter().zip(changed) {
-                    if changed {
-                        continue;
+                    if !changed && out.carry(&f.path).map_err(OwnError::Kept)? {
+                        carried.insert(f.path.clone());
                     }
-                    let owners: Vec<Oid> = prev
-                        .files
-                        .get(&f.path)
-                        .into_iter()
-                        .flat_map(|o| &o.runs)
-                        .flat_map(|&(c, n)| {
-                            std::iter::repeat_n(
-                                prev.commits.get(c as usize).copied().unwrap_or(self.head),
-                                n as usize,
-                            )
-                        })
-                        .collect();
-                    out.add(f.path.clone(), f.blob, &owners, &mut at);
-                    carried.insert(f.path.clone());
                 }
             }
         }
@@ -304,6 +334,7 @@ impl<'i> Survival<'i> {
             .into_iter()
             .filter(|f| !carried.contains(&f.path))
             .collect();
+        drop(carried);
         if self.files_at.is_empty() {
             for (file, path) in self.index.paths.iter().chain(self.index.paths.departures()) {
                 self.files_at.entry(path.to_vec()).or_default().push(file);
@@ -320,7 +351,7 @@ impl<'i> Survival<'i> {
         } = self;
         let index: &Index = index;
         let may_change = |commit: Oid, path: &[u8]| -> bool {
-            let Some(c) = commit_at.get(&commit).and_then(|&i| index.commits.get(i)) else {
+            let Some(c) = commit_at.get(index, &commit) else {
                 return true;
             };
             if c.is_merge() || c.flags.contains(CommitFlags::BULK) {
@@ -340,6 +371,7 @@ impl<'i> Survival<'i> {
                 ownership: p,
             })
         });
+        let mut failed: Option<std::io::Error> = None;
         let walked = own_in_threads(
             threads,
             *head,
@@ -350,13 +382,23 @@ impl<'i> Survival<'i> {
             deadline,
             *batch_bytes,
             &mut |i, owners| {
-                if let Some(f) = todo.get(i) {
-                    out.add(f.path.clone(), f.blob, &owners, &mut at);
+                if let (Some(f), None) = (todo.get(i), failed.as_ref()) {
+                    if let Err(e) = out.add(f.path.clone(), f.blob, &owners) {
+                        failed = Some(e);
+                    }
                 }
             },
-        )?;
-        out.complete = walked == Walked::Finished;
-        Ok(out)
+        )
+        .map_err(OwnError::Source)?;
+        if let Some(e) = failed {
+            return Err(OwnError::Kept(e));
+        }
+        let moves = previous
+            .as_ref()
+            .map(|p| p.moves.clone())
+            .unwrap_or_default();
+        out.finish(walked == Walked::Finished, moves)
+            .map_err(OwnError::Kept)
     }
 
     /// Every person's Surviving Lines from the head's Ownership, as `person` counts them one by one: their lines in the head files they or the files they changed flowed into, with how many such files and when their oldest surviving line was written. None when the Ownership is not complete, or not of this head; the moves found on the way are kept in it.
@@ -388,7 +430,7 @@ impl<'i> Survival<'i> {
                 if n == 0 {
                     continue;
                 }
-                if let Some(&(author, time)) = self.authors.get(&commit) {
+                if let Some((author, time)) = self.author(&commit) {
                     let e = by.entry(author).or_insert((0, i64::MAX));
                     e.0 += u64::from(n);
                     e.1 = e.1.min(time);
@@ -899,8 +941,7 @@ mod tests {
     }
 
     fn lines_of(o: &Ownership, path: &[u8]) -> Vec<Oid> {
-        o.files
-            .get(path)
+        o.get(path)
             .and_then(|f| o.lines(path, f.blob))
             .unwrap_or_default()
     }
@@ -1004,19 +1045,27 @@ mod tests {
 
     #[test]
     fn a_later_head_carries_over_what_did_not_change_and_works_out_the_rest_as_blame_does() {
-        let mut previous: Option<Ownership> = None;
+        let dir = tempfile::tempdir().unwrap();
+        let options = CacheOptions {
+            root: Some(dir.path().to_path_buf()),
+            key: Some("acme/grown".to_string()),
+        };
         for steps in [1, 2, 4, 5, 6, 7] {
             let repo = grown(steps);
             let index = index_from_scratch(&repo).unwrap();
-            let mut survival = Survival::new(&index, &[], 50, &CacheOptions::default()).unwrap();
+            let mut survival = Survival::new(&index, &[], 50, &options).unwrap();
             let fresh = same_as_blame(&repo, 50);
-            let carried = survival.own(&repo, previous.take(), None).unwrap();
+            let previous = survival.previous();
+            assert_eq!(previous.is_some(), steps > 1, "step {steps}");
+            let mut carried = survival.own(&repo, previous, None).unwrap();
             assert!(carried.complete);
+            assert!(survival.everyone(&repo, &mut carried).unwrap().is_some());
+            carried.keep_moves().unwrap();
             assert_eq!(
-                carried.files.keys().collect::<Vec<_>>(),
-                fresh.files.keys().collect::<Vec<_>>()
+                carried.paths().collect::<Vec<_>>(),
+                fresh.paths().collect::<Vec<_>>()
             );
-            for path in fresh.files.keys() {
+            for path in fresh.paths() {
                 assert_eq!(
                     lines_of(&carried, path),
                     lines_of(&fresh, path),
@@ -1024,7 +1073,6 @@ mod tests {
                     String::from_utf8_lossy(path)
                 );
             }
-            previous = Some(carried);
         }
     }
 
@@ -1039,7 +1087,7 @@ mod tests {
         assert!(ownership.complete);
         assert!(survival.everyone(&repo, &mut ownership).unwrap().is_some());
         let fresh = same_as_blame(&repo, 50);
-        for path in fresh.files.keys() {
+        for path in fresh.paths() {
             assert_eq!(lines_of(&ownership, path), lines_of(&fresh, path));
         }
     }

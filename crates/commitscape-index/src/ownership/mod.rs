@@ -1,112 +1,25 @@
-use std::collections::{BTreeMap, BinaryHeap, HashMap, HashSet};
-use std::path::Path;
+use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::rc::Rc;
 use std::time::Instant;
 
 use commitscape_core::Oid;
 use imara_diff::{Algorithm, Diff, InternedInput};
-use serde::{Deserialize, Serialize};
 
 use crate::blame::{
     folder, ignored_map, line_count, line_map, spans_at, BlameFile, Gone, MayChange, Walked,
     UNMAPPED,
 };
-use crate::cache::Moved;
 use crate::similarity::rename_source;
 use crate::source::{BlameCommit, BlameSource, BlameThreads, InParent};
 
+mod file;
+
+pub(crate) use file::Writer;
+pub use file::{Owned, Ownership, Runs};
+
 const MAX_THREADS: usize = 8;
-const MAGIC: &[u8; 8] = b"CSOWNS\x00\x01";
 
 type Seg = (u32, u32, u32);
-
-/// One file at a head: its blob, and who owns its lines as runs of (commit, lines), the commit an index into the Ownership's commits.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Owned {
-    pub blob: Oid,
-    pub runs: Vec<(u32, u32)>,
-}
-
-/// Who owns every line of a head's files, as blame would say, kept per head so the next head only works out the files that changed.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Ownership {
-    pub head: Option<Oid>,
-    pub settings: u64,
-    pub commits: Vec<Oid>,
-    pub files: BTreeMap<Vec<u8>, Owned>,
-    pub moves: HashMap<Oid, Moved>,
-    pub complete: bool,
-}
-
-impl Ownership {
-    /// Each owner of a file's lines with how many lines it owns.
-    pub fn counts(&self, path: &[u8]) -> Vec<(Oid, u32)> {
-        let Some(owned) = self.files.get(path) else {
-            return Vec::new();
-        };
-        let mut counts: HashMap<Oid, u32> = HashMap::new();
-        for &(c, n) in &owned.runs {
-            if let Some(id) = self.commits.get(c as usize) {
-                *counts.entry(*id).or_default() += n;
-            }
-        }
-        let mut out: Vec<(Oid, u32)> = counts.into_iter().collect();
-        out.sort_unstable();
-        out
-    }
-
-    pub(crate) fn lines(&self, path: &[u8], blob: Oid) -> Option<Vec<Oid>> {
-        let owned = self.files.get(path).filter(|o| o.blob == blob)?;
-        let mut out = Vec::new();
-        for &(c, n) in &owned.runs {
-            let id = *self.commits.get(c as usize)?;
-            out.extend(std::iter::repeat_n(id, n as usize));
-        }
-        Some(out)
-    }
-
-    /// Reads an Ownership written by `write`; None when there is none or it cannot be read.
-    pub fn read(path: &Path) -> Option<Ownership> {
-        let bytes = std::fs::read(path).ok()?;
-        let body = bytes.strip_prefix(MAGIC)?;
-        bincode::serde::decode_from_slice(body, bincode::config::standard())
-            .ok()
-            .map(|(o, _)| o)
-    }
-
-    /// Writes the Ownership beside the cache, whole, then moves it into place.
-    pub fn write(&self, path: &Path) -> std::io::Result<()> {
-        let mut out = MAGIC.to_vec();
-        out.extend(
-            bincode::serde::encode_to_vec(self, bincode::config::standard())
-                .map_err(std::io::Error::other)?,
-        );
-        let temp = path.with_extension("writing");
-        std::fs::write(&temp, out)?;
-        std::fs::rename(temp, path)
-    }
-
-    pub(crate) fn add(
-        &mut self,
-        path: Vec<u8>,
-        blob: Oid,
-        owners: &[Oid],
-        at: &mut HashMap<Oid, u32>,
-    ) {
-        let mut runs: Vec<(u32, u32)> = Vec::new();
-        for id in owners {
-            let c = *at.entry(*id).or_insert_with(|| {
-                self.commits.push(*id);
-                (self.commits.len() - 1) as u32
-            });
-            match runs.last_mut() {
-                Some(last) if last.0 == c => last.1 += 1,
-                _ => runs.push((c, 1)),
-            }
-        }
-        self.files.insert(path, Owned { blob, runs });
-    }
-}
 
 /// What the previous head's Ownership says, for blame walks that reach that head.
 pub(crate) struct Known<'a> {
