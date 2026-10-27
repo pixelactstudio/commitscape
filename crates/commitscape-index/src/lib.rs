@@ -2,6 +2,7 @@ pub mod blame;
 pub mod build;
 pub mod cache;
 mod classify;
+mod commit_at;
 pub mod gix_source;
 pub mod graph;
 mod hash_index;

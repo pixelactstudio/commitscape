@@ -3,12 +3,11 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use commitscape_core::{
-    AuthorId, ChangeKind, CommitFlags, CommitMeta, FileClass, FileId, Index, Oid,
-};
+use commitscape_core::{AuthorId, ChangeKind, CommitFlags, FileClass, FileId, Index, Oid};
 
 use crate::blame::{blame_in_threads, BlameFile, Walked, BATCH_BYTES};
 use crate::cache::{repo_dir, BlameStore, CacheOptions, Known, Moved};
+use crate::commit_at::CommitAt;
 use crate::lines::MAX_BYTES;
 use crate::ownership::{own_in_threads, Known as Owners, Ownership, Writer};
 use crate::similarity::{rename_source, spans, Spans};
@@ -51,39 +50,6 @@ pub struct Survival<'i> {
     batch_bytes: usize,
     settings: u64,
     kept: Option<PathBuf>,
-}
-
-struct CommitAt {
-    keys: Vec<(u64, u32)>,
-}
-
-impl CommitAt {
-    fn of(index: &Index) -> Self {
-        let mut keys: Vec<(u64, u32)> = index
-            .commits
-            .iter()
-            .zip(0u32..)
-            .map(|(c, i)| (key(&c.id), i))
-            .collect();
-        keys.sort_unstable();
-        CommitAt { keys }
-    }
-
-    fn get<'i>(&self, index: &'i Index, id: &Oid) -> Option<&'i CommitMeta> {
-        let k = key(id);
-        let from = self.keys.partition_point(|&(at, _)| at < k);
-        self.keys
-            .get(from..)?
-            .iter()
-            .take_while(|&&(at, _)| at == k)
-            .find_map(|&(_, i)| index.commits.get(i as usize).filter(|c| c.id == *id))
-    }
-}
-
-fn key(id: &Oid) -> u64 {
-    let mut head = [0u8; 8];
-    head.copy_from_slice(id.0.get(..8).unwrap_or(&[0; 8]));
-    u64::from_le_bytes(head)
 }
 
 impl<'i> Survival<'i> {

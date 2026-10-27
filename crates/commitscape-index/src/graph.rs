@@ -7,6 +7,7 @@ use tracing::field::Empty;
 use xxhash_rust::xxh3::{xxh3_64, Xxh3};
 
 use crate::cache::{repo_dir, CacheOptions};
+use crate::commit_at::CommitAt;
 use crate::mainline::{Mainline, FIRST_PARENT, REACHABLE};
 use crate::source::RepoSource;
 
@@ -114,28 +115,29 @@ impl CommitGraph {
         lineage: u64,
     ) -> Result<CommitGraph, S::Error> {
         let n = index.commits.len();
-        let mut at: HashMap<Oid, u32> = HashMap::with_capacity(n);
-        for (i, c) in index.commits.iter().enumerate() {
-            at.insert(c.id, i as u32);
-        }
-        let mut of: Vec<Option<Vec<u32>>> = vec![None; n];
+        let at = CommitAt::of(index);
+        let mut edges: Vec<(u32, u32)> = Vec::with_capacity(n + n / 8);
         source.history_parents(&mut |id, parents| {
-            if let Some(slot) = at.get(&id).and_then(|&i| of.get_mut(i as usize)) {
-                *slot = Some(
+            if let Some(child) = at.position(index, &id) {
+                edges.extend(
                     parents
                         .iter()
-                        .map(|p| at.get(p).copied().unwrap_or(NONE))
-                        .collect(),
+                        .map(|p| (child, at.position(index, p).unwrap_or(NONE))),
                 );
             }
         })?;
         drop(at);
+        edges.sort_by_key(|&(child, _)| child);
         let mut ends = Vec::with_capacity(n);
-        let mut parents = Vec::with_capacity(n + n / 8);
-        for p in of {
-            parents.extend(p.unwrap_or_default());
+        let mut parents = Vec::with_capacity(edges.len());
+        let mut next = edges.iter().peekable();
+        for i in 0..n as u32 {
+            while let Some(&(_, parent)) = next.next_if(|&&(child, _)| child == i) {
+                parents.push(parent);
+            }
             ends.push(parents.len() as u32);
         }
+        drop(edges);
         Ok(CommitGraph {
             lineage,
             hashes: index
