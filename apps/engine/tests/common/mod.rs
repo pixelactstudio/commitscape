@@ -170,7 +170,7 @@ pub async fn serve(packs: &[(&str, &Pack)]) -> Served {
         let path = source.join(key);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         let mut bytes = Vec::new();
-        write_pack(pack, &mut bytes).unwrap();
+        write_pack(&mut (*pack).clone(), &mut bytes).unwrap();
         std::fs::write(path, bytes).unwrap();
     }
     let engine = commitscape_engine::engine(&Settings {

@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use commitscape_index::{load, CacheOptions, GixRepo};
-use commitscape_report::pack::{read_pack, MAGIC};
+use commitscape_report::pack::{read_pack, FORMAT, MAGIC};
 use serde_json::Value;
 
 fn fixture(name: &str) -> PathBuf {
@@ -160,7 +160,7 @@ fn build_writes_the_export_the_pack_and_the_meta_from_one_reading() {
     let bytes = std::fs::read(out.join("pack.bin")).expect("a pack");
     assert!(bytes.starts_with(MAGIC));
     let pack = read_pack(&bytes).expect("it reads back");
-    assert_eq!(pack.format, 2);
+    assert_eq!(pack.format, FORMAT);
     assert_eq!(pack.head.as_deref(), manifest["head"].as_str());
     assert_eq!(
         pack.lineage.to_string(),

@@ -54,6 +54,36 @@ impl<T: Record> Records<T> {
     }
 }
 
+impl<T: Record> Records<T> {
+    /// Records copied out of `bytes` into memory of their own, after the same checks as `open`.
+    pub fn copied(bytes: &[u8]) -> io::Result<Records<T>> {
+        if size_of::<T>() != T::SIZE || !bytes.len().is_multiple_of(T::SIZE) {
+            return Err(invalid("not whole records"));
+        }
+        let len = bytes.len() / T::SIZE;
+        if len == 0 {
+            return Ok(Records {
+                map: None,
+                len: 0,
+                kind: PhantomData,
+            });
+        }
+        let mut map = MmapMut::map_anon(bytes.len())?;
+        map.copy_from_slice(bytes);
+        if map.as_ptr().align_offset(align_of::<T>()) != 0 {
+            return Err(invalid("records are not aligned"));
+        }
+        if !map.chunks_exact(T::SIZE).all(T::valid) {
+            return Err(invalid("a record is not one"));
+        }
+        Ok(Records {
+            map: Some(map),
+            len,
+            kind: PhantomData,
+        })
+    }
+}
+
 impl<T: Record> Slab<T> for Records<T> {
     #[allow(unsafe_code)]
     fn get(&self) -> &[T] {
@@ -133,6 +163,16 @@ mod tests {
         }
         let read = Records::<CommitMeta>::open(&file, PAGE, commits.len()).expect("mapped");
         assert_eq!(read.get(), commits.as_slice());
+        let mut bytes = vec![0u8; CommitMeta::SIZE * commits.len()];
+        for (c, slot) in commits
+            .iter()
+            .zip(bytes.as_chunks_mut::<{ CommitMeta::SIZE }>().0)
+        {
+            c.write_to(slot);
+        }
+        let copied = Records::<CommitMeta>::copied(&bytes).expect("copied");
+        assert_eq!(copied.get(), commits.as_slice());
+        assert!(Records::<CommitMeta>::copied(&bytes[1..]).is_err());
         let mut read = Records::<FileChange>::open(&file, at, changes.len()).expect("mapped");
         assert_eq!(read.get(), changes.as_slice());
         read.get_mut()[0].set_lines(Some(LineDelta {

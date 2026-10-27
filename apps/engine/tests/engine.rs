@@ -92,7 +92,7 @@ fn put(dir: &Path, key: &str, pack: &Pack) {
     let path = dir.join(key);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     let mut bytes = Vec::new();
-    write_pack(pack, &mut bytes).unwrap();
+    write_pack(&mut pack.clone(), &mut bytes).unwrap();
     std::fs::write(path, bytes).unwrap();
 }
 
@@ -280,6 +280,56 @@ async fn answers_are_the_reports_screens_for_any_window() {
     assert_eq!(
         (gone["lines"].clone(), gone["churn"].clone()),
         (Value::Null, json!(2))
+    );
+}
+
+#[tokio::test]
+async fn a_pack_of_the_format_before_answers_as_the_same_pack_does_unpacked() {
+    use std::io::Write;
+
+    let s = setup().await;
+    let old = "packs/acme/rocket/0/old-0-lines.pack";
+    let mut pack = pack("acme/rocket");
+    pack.format = 2;
+    let payload = bincode::serde::encode_to_vec(&pack, bincode::config::standard()).unwrap();
+    let mut z = flate2::write::ZlibEncoder::new(
+        b"commitscape pack 1\n".to_vec(),
+        flate2::Compression::default(),
+    );
+    z.write_all(&payload).unwrap();
+    std::fs::write(
+        s.source
+            .join(old)
+            .parent()
+            .map(|p| {
+                std::fs::create_dir_all(p).unwrap();
+                s.source.join(old)
+            })
+            .unwrap(),
+        z.finish().unwrap(),
+    )
+    .unwrap();
+    for path in ["/api/overview", "/api/people", "/api/activity", "/api/map"] {
+        let (status, new) = ask(&s.app, json!({ "pack": ROCKET, "path": path })).await;
+        assert_eq!(status, StatusCode::OK, "{path}");
+        let (status, before) = ask(&s.app, json!({ "pack": old, "path": path })).await;
+        assert_eq!(status, StatusCode::OK, "{path}");
+        assert_eq!(before, new, "{path}");
+    }
+    let kept: Vec<String> = std::fs::read_dir(&s.cache)
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(
+        kept.iter().filter(|n| n.ends_with(".unpacked")).count(),
+        1,
+        "{kept:?}"
+    );
+    assert_eq!(
+        kept.iter().filter(|n| n.ends_with(".pack")).count(),
+        1,
+        "{kept:?}"
     );
 }
 
@@ -755,7 +805,7 @@ async fn packs_are_fetched_from_s3_with_a_signed_get() {
     use axum::routing::get;
 
     let mut bytes = Vec::new();
-    write_pack(&pack("acme/rocket"), &mut bytes).unwrap();
+    write_pack(&mut pack("acme/rocket"), &mut bytes).unwrap();
     let stored = Arc::new(bytes);
     let fake = Router::new()
         .route(

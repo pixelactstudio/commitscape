@@ -454,6 +454,7 @@ name = "commitscape-engine"
 version = "0.4.0"
 dependencies = [
  "axum",
+ "bincode",
  "commitscape-core",
  "commitscape-index",
  "commitscape-metrics",
@@ -526,11 +527,13 @@ dependencies = [
  "bincode",
  "commitscape-core",
  "commitscape-index",
+ "commitscape-map",
  "commitscape-metrics",
  "flate2",
  "rayon",
  "serde",
  "serde_json",
+ "tempfile",
  "ts-rs",
 ]
 

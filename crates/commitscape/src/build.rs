@@ -286,7 +286,7 @@ pub fn build(args: ExportArgs) -> anyhow::Result<()> {
 
     let span = tracing::info_span!("pack", bytes = Empty);
     let entered = span.enter();
-    let pack = Pack::of(
+    let mut pack = Pack::of(
         report,
         Reading {
             lineage: loaded.lineage,
@@ -302,7 +302,7 @@ pub fn build(args: ExportArgs) -> anyhow::Result<()> {
     );
     let path = args.out.join("pack.bin");
     let mut out = BufWriter::with_capacity(1 << 20, std::fs::File::create(&path)?);
-    write_pack(&pack, &mut out)?;
+    write_pack(&mut pack, &mut out)?;
     out.flush()?;
     drop(out);
     span.record("bytes", std::fs::metadata(&path)?.len());

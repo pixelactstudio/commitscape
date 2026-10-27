@@ -9,6 +9,8 @@ use sha2::{Digest, Sha256};
 use tokio::sync::OnceCell;
 use tracing::Instrument;
 
+use commitscape_report::pack::{open_unpacked, unpack, PackError};
+
 use crate::loaded::LoadedPack;
 use crate::lru::SizedLru;
 use crate::s3::{Fetched, S3Source};
@@ -84,6 +86,10 @@ fn file_name(key: &str) -> String {
     out
 }
 
+fn unpacked_name(name: &str) -> String {
+    format!("{}.unpacked", name.trim_end_matches(".pack"))
+}
+
 fn io(e: std::io::Error) -> PackFailure {
     PackFailure::Fetch(e.to_string())
 }
@@ -104,7 +110,7 @@ impl Packs {
             let name = entry.file_name().to_string_lossy().into_owned();
             if name.ends_with(".part") {
                 let _ = tokio::fs::remove_file(entry.path()).await;
-            } else if name.ends_with(".pack") {
+            } else if name.ends_with(".pack") || name.ends_with(".unpacked") {
                 let meta = entry.metadata().await?;
                 found.push((
                     meta.modified().unwrap_or(SystemTime::UNIX_EPOCH),
@@ -184,18 +190,90 @@ impl Packs {
         }
         let name = file_name(key);
         let path = self.dir.join(&name);
-        let kept = self.disk.lock().is_ok_and(|mut d| d.get(&name).is_some());
-        if !kept {
-            self.fetch(key, &name, &path).await?;
-        }
-        let bytes = match tokio::fs::read(&path).await {
-            Ok(bytes) => bytes,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+        let unpacked = unpacked_name(&name);
+        let mapped = self.dir.join(&unpacked);
+        let kept = self
+            .disk
+            .lock()
+            .is_ok_and(|mut d| d.get(&unpacked).is_some());
+        let loaded = if kept && tokio::fs::try_exists(&mapped).await.unwrap_or(false) {
+            self.open_unpacked(key, &mapped).await?
+        } else {
+            let kept = self.disk.lock().is_ok_and(|mut d| d.get(&name).is_some());
+            if !kept || !tokio::fs::try_exists(&path).await.unwrap_or(false) {
                 self.fetch(key, &name, &path).await?;
-                tokio::fs::read(&path).await.map_err(io)?
             }
-            Err(e) => return Err(io(e)),
+            let (from, to) = (path.clone(), mapped.clone());
+            let unpacking = self
+                .work
+                .run(move || {
+                    let _span = tracing::info_span!("pack.unpack").entered();
+                    unpack(&from, &to)
+                })
+                .await
+                .map_err(PackFailure::Work)?;
+            match unpacking {
+                Ok(bytes) => {
+                    let gone = match self.disk.lock() {
+                        Ok(mut disk) => {
+                            disk.remove(&name);
+                            disk.insert(unpacked.clone(), (), bytes)
+                        }
+                        Err(_) => Vec::new(),
+                    };
+                    let _ = tokio::fs::remove_file(&path).await;
+                    for (old, ()) in gone {
+                        let _ = tokio::fs::remove_file(self.dir.join(old)).await;
+                    }
+                    self.open_unpacked(key, &mapped).await?
+                }
+                Err(PackError::Format(_)) => self.decode(key, &name, &path).await?,
+                Err(e) => {
+                    self.forget(&name, &path).await;
+                    return Err(PackFailure::Decode(e.to_string()));
+                }
+            }
         };
+        self.decodes.fetch_add(1, Ordering::Relaxed);
+        let loaded = Arc::new(loaded);
+        if let Ok(mut memory) = self.memory.lock() {
+            memory.insert(key.to_string(), loaded.clone(), loaded.bytes);
+        }
+        Ok(loaded)
+    }
+
+    async fn forget(&self, name: &str, path: &Path) {
+        if let Ok(mut disk) = self.disk.lock() {
+            disk.remove(&name.to_string());
+        }
+        let _ = tokio::fs::remove_file(path).await;
+    }
+
+    async fn open_unpacked(&self, key: &str, path: &Path) -> Result<LoadedPack, PackFailure> {
+        let (owned, from) = (key.to_string(), path.to_path_buf());
+        let opened = self
+            .work
+            .run(move || {
+                let _span = tracing::info_span!("pack.open").entered();
+                open_unpacked(&from).map(|pack| LoadedPack::of(&owned, pack))
+            })
+            .await
+            .map_err(PackFailure::Work)?;
+        match opened {
+            Ok(loaded) => Ok(loaded),
+            Err(e) => {
+                let name = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                self.forget(&name, path).await;
+                Err(PackFailure::Decode(e.to_string()))
+            }
+        }
+    }
+
+    async fn decode(&self, key: &str, name: &str, path: &Path) -> Result<LoadedPack, PackFailure> {
+        let bytes = tokio::fs::read(path).await.map_err(io)?;
         let owned = key.to_string();
         let decoded = self
             .work
@@ -205,21 +283,13 @@ impl Packs {
             })
             .await
             .map_err(PackFailure::Work)?;
-        let loaded = match decoded {
-            Ok(loaded) => Arc::new(loaded),
+        match decoded {
+            Ok(loaded) => Ok(loaded),
             Err(e) => {
-                if let Ok(mut disk) = self.disk.lock() {
-                    disk.remove(&name);
-                }
-                let _ = tokio::fs::remove_file(&path).await;
-                return Err(PackFailure::Decode(e.to_string()));
+                self.forget(name, path).await;
+                Err(PackFailure::Decode(e.to_string()))
             }
-        };
-        self.decodes.fetch_add(1, Ordering::Relaxed);
-        if let Ok(mut memory) = self.memory.lock() {
-            memory.insert(key.to_string(), loaded.clone(), loaded.bytes);
         }
-        Ok(loaded)
     }
 
     async fn fetch(&self, key: &str, name: &str, path: &Path) -> Result<(), PackFailure> {
