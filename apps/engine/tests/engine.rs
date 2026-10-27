@@ -186,6 +186,21 @@ async fn ask(app: &Router, body: Value) -> (StatusCode, Value) {
     call(app, "/v1/answer", Some(TOKEN), Some(body)).await
 }
 
+#[test]
+fn the_engine_service_writes_beside_the_packs_which_formats_it_reads() {
+    let dir = tempfile::tempdir().expect("a folder");
+    commitscape_engine::announce_formats(&Source::Dir(dir.path().to_path_buf()))
+        .expect("announced");
+    assert_eq!(commitscape_engine::FORMATS_KEY, "engine/formats.json");
+    let marker: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(dir.path().join("engine/formats.json")).expect("written"),
+    )
+    .expect("JSON");
+    assert_eq!(marker["pack_formats"], serde_json::json!([2, 3]));
+    assert_eq!(marker["version"], env!("CARGO_PKG_VERSION"));
+    assert!(marker["at"].as_u64().unwrap_or(0) > 1_700_000_000);
+}
+
 #[tokio::test]
 async fn health_is_open_and_everything_else_needs_the_token() {
     let s = setup().await;

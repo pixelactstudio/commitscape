@@ -33,6 +33,8 @@ export const isQuickPack = (pack: string) => pack.endsWith("-quick.pack");
 /** Where the standard screens a Build worked out ahead are kept: beside its pack, as one gzipped JSON object of answers under the keys the Site asks them by, which the engine service fetches with the pack and answers from. */
 export const screensKey = (pack: string) => `${pack}.screens`;
 
+export const ENGINE_FORMATS_KEY = "engine/formats.json";
+
 /** What is kept beside a Stored Index's pack, its Atlas and its screens, as prefixes to delete with the pack. */
 export function besidePack(si: number, pack: string): string[] {
   return [`atlas/${si}/${sha256(pack).slice(0, 16)}/`, screensKey(pack)];

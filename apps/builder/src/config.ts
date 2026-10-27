@@ -34,6 +34,7 @@ export function loadEnv(runtimeEnv: Record<string, string | undefined> = process
       BULK_COMMIT_FILES: positive(50),
       ATLAS_QUALITY: z.coerce.number().int().min(1).max(11).default(5),
       ENGINE_URL: z.url().optional(),
+      PACK_FORMAT: z.enum(["2", "3"]).optional(),
       STATE_KEY: z.string().min(32).optional(),
       STATE_DISK_DAYS: positive(7),
       STATE_KEEP_DAYS: positive(180),
@@ -95,6 +96,7 @@ export type GitSettings = {
 export type Config = {
   bin: string;
   engineUrl?: string | undefined;
+  packFormat?: 2 | 3 | undefined;
   threads: number | undefined;
   linesBudget: number;
   nice: number;
@@ -142,6 +144,7 @@ export function configOf(env: Env): Config {
     moreLinesBudget: env.MORE_LINES_BUDGET_SECONDS,
     gitBase: env.GIT_BASE,
     engineUrl: env.ENGINE_URL,
+    packFormat: env.PACK_FORMAT === undefined ? undefined : env.PACK_FORMAT === "2" ? 2 : 3,
     state: env.STATE_KEY ? { secret: env.STATE_KEY, diskDays: env.STATE_DISK_DAYS, keepDays: env.STATE_KEEP_DAYS } : undefined,
     git: env.GIT_DATA
       ? {

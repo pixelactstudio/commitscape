@@ -237,7 +237,8 @@ Optional, with their defaults:
 | `ENGINE_NICE` | 10 | The engine runs at this lower priority (0 to 19), so git, the database and the Builder stay responsive |
 | `LINES_BUDGET_SECONDS` | 120 | How long a Build's line pass may count Lines Changed, the Mainline first, newest first. Lines show once the Mainline's are counted; the commits left are counted by a quiet Build queued a minute later (three at most), and by the next Build |
 | `MORE_LINES_BUDGET_SECONDS` | 600 | How long such a quiet Build may count, kept two minutes inside `TIME_LIMIT_SECONDS`: nobody waits for it, so it counts what is left in one go and publishes once |
-| `ENGINE_URL` | none | The engine service, as the Site reaches it (`http://<its name on Dokploy's network>:4100`, or its private address from a second server). The Builder asks its health answer which pack formats it reads and writes format 2 while it reads no newer one, so a Builder deployed before its engine service still publishes packs the engine service reads; unset, it writes format 3 and the engine service must be deployed first |
+| `PACK_FORMAT` | none | `2` or `3`: the pack format to write, whatever the engine service says. Set `2` while an engine service of the release before runs (a rollback), and unset it once the engine service is of this release |
+| `ENGINE_URL` | none | Only where the Builder can reach the engine service (on one server, or over a private network): its address as the Site uses it. The Builder then asks its health answer which pack formats it reads, every five minutes, and writes the newest it also writes (format 2 for an engine service of the release before, which lists none) |
 | `ATLAS_QUALITY` | 5 | The brotli quality `commitscape atlas` packs each pack's Universe Atlas with, 1 to 11. On linux 5 gives a 7.8 MB map (the whole Atlas: 2.9 s, 98 MB); the Atlas is made once per pack, in a process of its own that waits for its share of `ENGINE_MEMORY_MB` |
 | `LARGE_REPOSITORY_MB` | 1500 | Repositories larger than this, by GitHub's size, are built in a lane of their own |
 | `LARGE_CONCURRENCY` | 1 | Builds at a time in that lane |
@@ -321,7 +322,11 @@ Optional, with their defaults:
 
 The image has a health check (`commitscape-engine health`, which asks
 `/healthz`). Deploy it before the Site: the Site does not start without
-`ENGINE_URL` and `ENGINE_TOKEN`.
+`ENGINE_URL` and `ENGINE_TOKEN`. Each time it starts it writes
+`engine/formats.json` to the bucket, with the pack formats it reads, for the
+Builder, which cannot reach it from another server; its token needs write
+access for that, and without it the log says so and the Builder writes
+format 3.
 
 ## 6. The Site
 
@@ -491,7 +496,12 @@ When a release is made, the Docker images workflow pushes `latest` and
 `vX.Y.Z` and then calls a Dokploy deploy webhook for each application, in
 this order: engine service, Builder, Site. The engine service goes first
 because it reads every pack format a Builder of the same or an earlier
-release writes. In each application's
+release writes. When it starts it also writes `engine/formats.json` to R2,
+listing the pack formats it reads, and the Builder writes the newest of
+those it can write, so a Builder that comes up first, or an engine service
+rolled back, is caught. With no such file (an engine service of the release
+before writes none) the Builder writes format 3, so roll back with
+`PACK_FORMAT=2` on the Builder. In each application's
 Deployments tab in Dokploy, copy its webhook URL into this repository's
 secrets on GitHub:
 

@@ -45,6 +45,24 @@ impl S3Source {
         })
     }
 
+    /// Writes `body` as the object `key` with a signed PUT, blocking.
+    pub fn put(&self, key: &str, body: &[u8], content_type: &str) -> Result<(), String> {
+        let url = self
+            .bucket
+            .put_object(Some(&self.credentials), key)
+            .sign(SIGNED_FOR);
+        let response = self
+            .agent
+            .put(url.as_str())
+            .header("content-type", content_type)
+            .send(body)
+            .map_err(|e| format!("could not reach the bucket: {e}"))?;
+        match response.status().as_u16() {
+            200..=299 => Ok(()),
+            status => Err(format!("the bucket answered {status}")),
+        }
+    }
+
     /// Downloads one object into `to` with a signed GET, blocking; `Missing` when the bucket has no such object.
     pub fn fetch(&self, key: &str, to: &Path) -> Result<Fetched, String> {
         let url = self
