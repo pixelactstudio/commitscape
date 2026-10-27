@@ -39,6 +39,9 @@ export function failure(stderr: string): BuildFailure {
 
 const locks = new Map<string, Promise<unknown>>();
 
+/** Whether anything holds or waits for the lock named `key`. */
+export const isLocked = (key: string): boolean => locks.has(key);
+
 /** Runs `fn` once every earlier call with the same key has finished. */
 export function locked<T>(key: string, fn: () => Promise<T>): Promise<T> {
   const before = locks.get(key) ?? Promise.resolve();

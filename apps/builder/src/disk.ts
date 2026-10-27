@@ -1,9 +1,9 @@
 import { existsSync } from "node:fs";
 import { copyFile, mkdir, readdir, readFile, rename, rm, stat, utimes, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { and, eq, gt, inArray, or } from "drizzle-orm";
 import { now, schema, type Db } from "@commitscape/server";
-import { locked } from "./clone";
+import { isLocked, locked } from "./clone";
 import type { Config } from "./config";
 
 const { builds, repositories, surviving } = schema;
@@ -85,8 +85,11 @@ async function readSizes(work: string): Promise<Sizes> {
   }
 }
 
+let writes = 0;
+
 async function writeSizes(work: string, sizes: Sizes): Promise<void> {
-  const tmp = join(work, `${SIZES}.${process.pid}.tmp`);
+  writes += 1;
+  const tmp = join(work, `${SIZES}.${process.pid}.${writes}.tmp`);
   await writeFile(tmp, JSON.stringify(sizes))
     .then(() => rename(tmp, join(work, SIZES)))
     .catch(() => rm(tmp, { force: true }));
@@ -117,7 +120,7 @@ export async function inUse(db: Db, cfg: Config, where: (cfg: Config, owner: str
   return repos.map((r) => where(cfg, r.owner, r.name));
 }
 
-/** Deletes the least recently used repository folders (clones, or with `folder` caches) until they fit the budget, and with `maxAgeMs` every one unused for longer, leaving the ones in `keep`. A folder is measured again only when it was used since it was last measured. */
+/** Deletes the least recently used repository folders (clones, or with `folder` caches) until they fit the budget, and with `maxAgeMs` every one unused for longer, leaving the ones in `keep` and any whose repository a job holds; each is deleted holding its repository. A folder is measured again only when it was used since it was last measured. */
 export async function prune(work: string, budget: number, keep: Iterable<string> = [], folder: Kept = "repos", maxAgeMs?: number): Promise<string[]> {
   const left = new Set(keep);
   const known = await readSizes(work);
@@ -134,7 +137,9 @@ export async function prune(work: string, budget: number, keep: Iterable<string>
   for (const c of found.sort((a, b) => a.at - b.at)) {
     if (total <= budget && c.at >= oldest) break;
     if (left.has(c.path)) continue;
-    await rm(c.path, { recursive: true, force: true });
+    const home = join(work, "repos", relative(join(work, folder), c.path));
+    if (isLocked(`repo:${home}`)) continue;
+    await holdingRepo(home, () => rm(c.path, { recursive: true, force: true }));
     total -= c.bytes;
     deleted.push(c.path);
   }

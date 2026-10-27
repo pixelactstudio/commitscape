@@ -134,6 +134,8 @@ async function work() {
   const timed = (slug: string, minutes: number, fn: () => Promise<void>) => () => monitored(slug, minutes, fn).catch((e: unknown) => log(`${slug}: ${(e as Error).message}`));
   const reapTimed = timed("builder-reaper", REAP_MINUTES, reap);
   const tidyTimed = timed("builder-tidy", TIDY_MINUTES, tidy);
+  let tidying: Promise<void> | null = null;
+  const tidyOnce = () => (tidying ??= tidyTimed().finally(() => (tidying = null)));
   const tier = cfg.state ? { storage, keys: stateKeys(cfg.state.secret), db, log } : null;
   const saveState = tier ? (repoId: string, root: string) => saveRepoState(tier, repoId, root) : undefined;
   const queueAtlas = async (job: AtlasJob) => {
@@ -143,9 +145,9 @@ async function work() {
   const building = (queue: string, job: { id: string; data: BuildJob }) =>
     inQueueSpan(job, queue, () => runJob(job.data.buildId, ctx, job.data.attempt ?? 1, { ...(job.data.userId ? { userId: job.data.userId } : {}), ...(job.data.more ? { more: job.data.more } : {}) }));
   await reapTimed();
-  await tidyTimed();
+  await tidyOnce();
   const reaper = setInterval(() => void reapTimed(), REAP_MINUTES * 60_000);
-  const tidier = setInterval(() => void tidyTimed(), TIDY_MINUTES * 60_000);
+  const tidier = setInterval(() => void tidyOnce(), TIDY_MINUTES * 60_000);
   await boss.work<BuildJob>(BUILD_QUEUE, { localConcurrency: cfg.concurrency, batchSize: 1 }, async ([job]) => {
     if (!job) return;
     await site.ready();
@@ -155,13 +157,13 @@ async function work() {
       return;
     }
     await building(BUILD_QUEUE, job);
-    await tidy();
+    void tidyOnce();
   });
   await boss.work<BuildJob>(BUILD_LARGE_QUEUE, { localConcurrency: cfg.largeConcurrency, batchSize: 1 }, async ([job]) => {
     if (!job) return;
     await site.ready();
     await building(BUILD_LARGE_QUEUE, job);
-    await tidy();
+    void tidyOnce();
   });
   await boss.work<SurvivalJob>(SURVIVAL_QUEUE, { localConcurrency: 1, batchSize: 1 }, async ([job]) => {
     if (!job) return;

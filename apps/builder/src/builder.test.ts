@@ -552,6 +552,28 @@ test("the least recently used repository folders go first when the disk budget i
   expect(await prune(work, 1500, [join(work, "repos", "acme", "mid")])).toEqual([join(work, "repos", "acme", "new")]);
 });
 
+test("a repository a job holds is never pruned, its clone or its cache, and two prunes at once each keep their own record of sizes", async () => {
+  const work = await mkdtemp(join(tmpdir(), "builder-"));
+  for (const folder of ["repos", "caches"]) {
+    for (const name of ["held", "free"]) {
+      const dir = join(work, folder, "acme", name);
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, "x"), Buffer.alloc(1000));
+      await utimes(dir, 1000, 1000);
+    }
+  }
+  let release = () => {};
+  const holding = holdingRepo(join(work, "repos", "acme", "held"), () => new Promise<void>((r) => (release = r)));
+  expect(await Promise.all([prune(work, 1e9), prune(work, 1e9, [], "caches")])).toEqual([[], []]);
+  expect((await readdir(work)).filter((f) => f.endsWith(".tmp"))).toEqual([]);
+  expect(await prune(work, 0)).toEqual([join(work, "repos", "acme", "free")]);
+  expect(await prune(work, 0, [], "caches")).toEqual([join(work, "caches", "acme", "free")]);
+  release();
+  await holding;
+  expect(await prune(work, 0)).toEqual([join(work, "repos", "acme", "held")]);
+  expect(JSON.parse(await readFile(join(work, "sizes.json"), "utf8"))).toBeTypeOf("object");
+});
+
 test("a cache unused for longer than the days a State is kept on disk goes even within the budget, unless a Build still needs it", async () => {
   const work = await mkdtemp(join(tmpdir(), "builder-"));
   const day = 86_400;
