@@ -453,7 +453,11 @@ fn resume<S: RepoSource>(
     let old_blocks = head.blocks.clone();
     let id_runs = head.id_runs.clone();
     let mut classify = head.classify.clone();
-    let lineage = head.lineage;
+    let lineage = if reclassify {
+        format::new_generation()
+    } else {
+        head.lineage
+    };
     let indexed = match format::read_ids(ctx.dir, &head) {
         Ok(ids) => ids,
         Err(_) => return rebuild(source, ctx, RebuildReason::Unreadable, progress),
@@ -683,6 +687,7 @@ mod tests {
             .cache_key(),
         );
         let mut head = format::read_head(&cache).expect("a cache");
+        let lineage = head.lineage;
         head.classify.version = 0;
         let previous = Previous {
             data_file: head.data_file.clone(),
@@ -702,7 +707,12 @@ mod tests {
         let again = load_in(&repo, dir.path());
         assert_eq!(again.freshness, Freshness::Updated { added: 0 });
         assert_eq!(repo.blobs_read() - read, 2, "both files read again");
+        assert_ne!(
+            again.lineage, lineage,
+            "commit rows exported before are not appended to"
+        );
         let warm = load_in(&repo, dir.path());
         assert_eq!(warm.freshness, Freshness::Warm, "and saved");
+        assert_eq!(warm.lineage, again.lineage);
     }
 }
