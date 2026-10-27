@@ -1147,3 +1147,99 @@ fn a_cache_brought_back_from_an_older_state_never_appends_onto_rows_another_cach
     postgres.load(&out);
     assert_eq!(fifth["full"], false);
 }
+
+#[test]
+fn a_file_that_becomes_generated_has_its_lines_sent_again_for_the_commits_already_exported() {
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let repo = dir.path().join("repo");
+    std::fs::create_dir(&repo).expect("a folder");
+    git(&[
+        "-C",
+        repo.to_str().expect("a path"),
+        "init",
+        "-q",
+        "-b",
+        "main",
+    ]);
+    committed_by(
+        &repo,
+        "ada",
+        "feat: a",
+        &[("a.rs", "1\n2\n"), ("gen.rs", "1\n2\n3\n")],
+        1_700_000_000,
+    );
+    let first = rows_of_commit(&dir, &repo, "first", None, "feat: a");
+    assert_eq!(first.1, (5, 0));
+    committed_by(
+        &repo,
+        "ada",
+        "chore: generated",
+        &[(".gitattributes", "gen.rs linguist-generated\n")],
+        1_700_086_400,
+    );
+    let second = rows_of_commit(&dir, &repo, "second", Some(&first.0), "feat: a");
+    assert_eq!(second.0["full"], false);
+    assert_eq!(second.1, (2, 0));
+}
+
+fn rows_of_commit(
+    dir: &tempfile::TempDir,
+    repo: &Path,
+    name: &str,
+    after: Option<&Value>,
+    subject: &str,
+) -> (Value, (i64, i64)) {
+    let out = dir.path().join(name);
+    let cache = dir.path().join("cache");
+    let frontier = dir.path().join(format!("{name}.frontier"));
+    let mut args = vec!["build", "--offline", "--cache-key", "acme/generated"];
+    let (lineage, mark);
+    let mut paths: Vec<&Path> = Vec::new();
+    if let Some(m) = after {
+        let tips: Vec<&str> = m["frontier"]
+            .as_array()
+            .expect("a frontier")
+            .iter()
+            .filter_map(Value::as_str)
+            .collect();
+        std::fs::write(&frontier, tips.join("\n")).expect("the frontier");
+        lineage = m["lineage"].as_str().unwrap_or("").to_string();
+        mark = m["mark"].as_str().unwrap_or("").to_string();
+        args.extend_from_slice(&["--lineage", &lineage, "--since", &mark, "--after"]);
+        paths.push(&frontier);
+    }
+    paths.extend_from_slice(&[
+        Path::new("--cache-dir"),
+        &cache,
+        Path::new("--out"),
+        &out,
+        repo,
+    ]);
+    commitscape(&args, &paths);
+    let manifest = json(&out.join("manifest.json"));
+    let sha = git(&[
+        "-C",
+        repo.to_str().expect("a path"),
+        "log",
+        "--format=%H",
+        "--grep",
+        subject,
+    ]);
+    let sum = |a: &str| -> i64 {
+        a.trim_matches(|c| c == '{' || c == '}')
+            .split(',')
+            .filter_map(|n| n.parse::<i64>().ok())
+            .sum()
+    };
+    let wanted = format!("\\\\x{}", sha.trim());
+    let from_commits = rows(&out.join("commits.tsv"))
+        .into_iter()
+        .find(|r| r[0] == wanted)
+        .map(|r| (sum(&r[11]), sum(&r[12])));
+    let from_lines = rows(&out.join("lines.tsv"))
+        .into_iter()
+        .find(|r| r[0] == wanted)
+        .map(|r| (sum(&r[1]), sum(&r[2])));
+    let sent = from_commits.or(from_lines).unwrap_or((-1, -1));
+    (manifest, sent)
+}

@@ -253,7 +253,10 @@ cache generation the export was read from, and the cache keeps the
 generations it passed through (`index.generations`): a run appends only
 when its cache descends from that generation, so a cache brought back from
 an older Repo State, whose signature and file ids may differ from the rows
-Postgres holds, writes a full export instead. Beside the Index
+Postgres holds, writes a full export instead. The mark's fingerprint covers
+the files left out of Lines Changed (generated, vendored and lockfiles, by
+id and path): when they change, every commit's lines are sent again and
+the loader replaces what Postgres held. Beside the Index
 the cache keeps its commit graph (`graph`: each commit's parents by place,
 and the Mainline of the head it was last worked out for); a Build brings it
 up to date from the commits added since, so the Mainline and the commits

@@ -154,7 +154,7 @@ describe.skipIf(!url)("loading an export into Postgres", async () => {
     expect(tree).toEqual([{ id: 0, path: "", parent: null }, { id: 1, path: "src", parent: 0 }]);
   });
 
-  test("lines counted after a quick load are filled in on the same Stored Index, and show once the Mainline's are all counted", async () => {
+  test("lines counted after a quick load are filled in on the same Stored Index, lines sent again replace what was there, and lines show once the Mainline's are all counted", async () => {
     await fresh();
     const quick = await loadExport(pool, repo, writeExport({ lines: false, lines_counted: 0, lines_mainline: false, lines_left: null }, [{ n: 1, at: 86_400, signature: 0, files: [0], added: null }, { n: 2, at: 2 * 86_400, signature: 0, files: [0, 1], added: null }]));
     await makeLive(db, repo, quick.si);
@@ -166,9 +166,11 @@ describe.skipIf(!url)("loading an export into Postgres", async () => {
     expect(mainline).toMatchObject({ si: quick.si, commits: 0, lines: 0 });
     expect(await liveIndex(db, repo)).toMatchObject({ id: quick.si, lines: true, linesLeft: 1 });
     const filled = await loadExport(pool, repo, writeExport({ full: false, lines: true, total: 2 }, [], { lines: [{ n: 1, added: [9] }, { n: 2, added: [1, 1] }] }));
-    expect(filled).toMatchObject({ si: quick.si, commits: 0, lines: 1 });
+    expect(filled).toMatchObject({ si: quick.si, commits: 0, lines: 2 });
     expect(await liveIndex(db, repo)).toMatchObject({ id: quick.si, lines: true, linesLeft: 0 });
-    expect((await commitRows(quick.si)).map((r) => r.added)).toEqual([9, 15]);
+    expect((await commitRows(quick.si)).map((r) => r.added)).toEqual([9, 2]);
+    const same = await loadExport(pool, repo, writeExport({ full: false, lines: true, total: 2 }, [], { lines: [{ n: 1, added: [9] }] }));
+    expect(same).toMatchObject({ lines: 0 });
     expect(await db.select().from(storedIndexes).where(eq(storedIndexes.repoId, repo))).toHaveLength(1);
   });
 

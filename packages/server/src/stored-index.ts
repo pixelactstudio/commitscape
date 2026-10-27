@@ -79,7 +79,7 @@ export function appendable(live: LiveIndex | null): live is LiveIndex {
   return live !== null && live.kept && live.frontier.length > 0;
 }
 
-/** Loads what `commitscape export` wrote into Postgres in one transaction, as a new Stored Index that is not live until `makeLive` publishes it, or appended to the live one with its Mainline brought up to date and the Lines Changed counted since filled in. Its lines show once the Mainline's are all counted; how many commits still wait is kept beside. */
+/** Loads what `commitscape export` wrote into Postgres in one transaction, as a new Stored Index that is not live until `makeLive` publishes it, or appended to the live one with its Mainline brought up to date and the Lines Changed counted since filled in, those sent again (when the files left out of lines changed) replacing what was there. Its lines show once the Mainline's are all counted; how many commits still wait is kept beside. */
 export async function loadExport(pool: pg.Pool, repoId: string, dir: string): Promise<Loaded> {
   const started = Date.now();
   const manifest = await readManifest(dir);
@@ -172,7 +172,8 @@ async function merge(db: Db, si: number, manifest: ExportManifest): Promise<{ ma
       SELECT ${si}, l.sha, coalesce((SELECT sum(x) FROM unnest(l.added) AS x), 0), coalesce((SELECT sum(x) FROM unnest(l.removed) AS x), 0)
       FROM ${from} l JOIN index_commits c ON c.si = ${si} AND c.sha = l.sha
       WHERE l.added IS NOT NULL
-      ON CONFLICT (si, sha) DO NOTHING`);
+      ON CONFLICT (si, sha) DO UPDATE SET added = excluded.added, removed = excluded.removed
+      WHERE (index_commit_lines.added, index_commit_lines.removed) IS DISTINCT FROM (excluded.added, excluded.removed)`);
   await lines(sql`s_commits`);
   const changed = { mainline: 0, lines: 0 };
   if (!manifest.full) {

@@ -60,16 +60,28 @@ impl fmt::Display for Mark {
     }
 }
 
-/// What an export's rows depend on beside the commits themselves: the export format, the Bulk Commit size, the commits blame passes through and whether the history was cut short.
-pub(crate) fn fingerprint(max_changeset_size: u32, ignored: &[Oid], truncated: bool) -> u64 {
+/// What an export's rows depend on beside the commits themselves: the export format, the Bulk Commit size, the commits blame passes through, whether the history was cut short, and the files, by id and path, whose lines are left out (generated, vendored and lockfiles, as the head says).
+pub(crate) fn fingerprint(
+    max_changeset_size: u32,
+    ignored: &[Oid],
+    truncated: bool,
+    left_out: &[(u32, &[u8])],
+) -> u64 {
     let mut ignored = ignored.to_vec();
     ignored.sort_unstable();
+    let mut left_out = left_out.to_vec();
+    left_out.sort_unstable();
     let mut h = Sha256::new();
     h.update(FORMAT.to_le_bytes());
     h.update(max_changeset_size.to_le_bytes());
     h.update([u8::from(truncated)]);
     for id in &ignored {
         h.update(id.0);
+    }
+    for (file, path) in &left_out {
+        h.update(file.to_le_bytes());
+        h.update((path.len() as u64).to_le_bytes());
+        h.update(path);
     }
     let digest = h.finalize();
     let mut first = [0u8; 8];
@@ -90,7 +102,7 @@ mod tests {
                     len: 1234,
                     hash: 0xfeed,
                 }),
-                fingerprint: fingerprint(100, &[Oid([1; 20])], false),
+                fingerprint: fingerprint(100, &[Oid([1; 20])], false, &[]),
                 generation: Some(0x1234_abcd),
             },
             Mark {
@@ -119,10 +131,18 @@ mod tests {
     #[test]
     fn the_fingerprint_changes_with_what_the_rows_depend_on_and_not_with_order() {
         let (a, b) = (Oid([1; 20]), Oid([2; 20]));
-        let base = fingerprint(100, &[a, b], false);
-        assert_eq!(base, fingerprint(100, &[b, a], false));
-        assert_ne!(base, fingerprint(101, &[a, b], false));
-        assert_ne!(base, fingerprint(100, &[a], false));
-        assert_ne!(base, fingerprint(100, &[a, b], true));
+        let x: (u32, &[u8]) = (4, b"gen/x.rs");
+        let y: (u32, &[u8]) = (9, b"Cargo.lock");
+        let base = fingerprint(100, &[a, b], false, &[x, y]);
+        assert_eq!(base, fingerprint(100, &[b, a], false, &[y, x]));
+        assert_ne!(base, fingerprint(101, &[a, b], false, &[x, y]));
+        assert_ne!(base, fingerprint(100, &[a], false, &[x, y]));
+        assert_ne!(base, fingerprint(100, &[a, b], true, &[x, y]));
+        assert_ne!(base, fingerprint(100, &[a, b], false, &[x]));
+        assert_ne!(base, fingerprint(100, &[a, b], false, &[(5, x.1), y]));
+        assert_ne!(
+            fingerprint(100, &[], false, &[(1, b"ab"), (2, b"c")]),
+            fingerprint(100, &[], false, &[(1, b"a"), (2, b"bc")])
+        );
     }
 }

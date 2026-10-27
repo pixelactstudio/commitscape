@@ -119,10 +119,19 @@ fn read(args: &ExportArgs) -> anyhow::Result<Read> {
         _ => None,
     };
     let ignored = repo.blame_ignore_revs()?;
+    let skipped = commitscape_metrics::skipped_files(&loaded.index);
+    let left_out: Vec<(u32, &[u8])> = loaded
+        .index
+        .paths
+        .iter()
+        .filter(|(id, _)| skipped.get(id.idx()).copied().unwrap_or(false))
+        .map(|(id, path)| (id.0, path))
+        .collect();
     let fingerprint = fingerprint(
         args.common.metrics().max_changeset_size,
         &ignored,
         truncated,
+        &left_out,
     );
     let held = since.filter(|m| known.is_some() && m.fingerprint == fingerprint);
     let before = held.and_then(|m| m.head).filter(|_| !truncated);
