@@ -14,6 +14,8 @@ use crate::source::{CommitSink, Indexed, RawChange, RawCommit, WalkStats};
 
 const BATCH: usize = 64;
 
+const CHUNK: usize = 32_768;
+
 const THREAD_OBJECT_CACHE_BYTES: usize = 1024 * 1024;
 
 const THREAD_DELTA_CACHE_BYTES: usize = 3 * 1024 * 1024;
@@ -36,10 +38,43 @@ struct Walked {
 
 type BatchResult = Result<Vec<Vec<Changed>>, GixError>;
 
+struct Signatures {
+    list: Vec<(Vec<u8>, Vec<u8>)>,
+    ids: HashIndex,
+}
+
+impl Signatures {
+    fn of(&mut self, name: &[u8], email: &[u8]) -> usize {
+        let hash = signature_hash(name, email);
+        let list = &self.list;
+        let found = self.ids.get(hash, |i| {
+            list.get(i as usize)
+                .is_some_and(|(n, e)| n.as_slice() == name && e.as_slice() == email)
+        });
+        match found {
+            Some(i) => i as usize,
+            None => {
+                self.list.push((name.to_vec(), email.to_vec()));
+                self.ids.insert(hash, (self.list.len() - 1) as u32);
+                self.list.len() - 1
+            }
+        }
+    }
+}
+
 pub(super) fn walk(
     source: &GixRepo,
     indexed: &dyn Indexed,
     sink: &mut dyn CommitSink,
+) -> Result<WalkStats, GixError> {
+    walk_in(source, indexed, sink, CHUNK)
+}
+
+fn walk_in(
+    source: &GixRepo,
+    indexed: &dyn Indexed,
+    sink: &mut dyn CommitSink,
+    chunk: usize,
 ) -> Result<WalkStats, GixError> {
     let repo = &source.repo;
     let tips: Vec<ObjectId> = source.tips_gix()?.into_iter().map(|(_, id)| id).collect();
@@ -49,74 +84,100 @@ pub(super) fn walk(
         ..WalkStats::default()
     };
 
-    let walk = git_ctx!(
+    let mut walk = git_ctx!(
         repo.rev_walk(tips).selected(|id| {
             Oid::from_bytes(id.as_bytes()).is_none_or(|oid| !indexed.contains(&oid))
         }),
         "starting the history walk"
     )?;
-    let mut signatures: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
-    let mut signature_ids = HashIndex::default();
-    let mut walked: Vec<Walked> = Vec::new();
+    let mut signatures = Signatures {
+        list: Vec::new(),
+        ids: HashIndex::default(),
+    };
     let mut buf = Vec::new();
-    for info in walk {
-        let info = git_ctx!(info, "walking history")?;
-        let commit = git_ctx!(
-            repo.objects.find_commit(&info.id, &mut buf),
-            "reading a commit"
-        )?;
-        let author = git_ctx!(commit.author(), "reading an author")?;
-        let time = git_ctx!(commit.time(), "reading a commit time")?.seconds;
-        let written = author.time().unwrap_or(gix::date::Time {
-            seconds: time,
-            offset: 0,
-        });
-        let kind = message::kind_of(commit.message);
-        let subject = message::subject_of(commit.message).into_boxed_str();
-        let (name, email): (&[u8], &[u8]) = (author.name, author.email);
-        let hash = signature_hash(name, email);
-        let found = signature_ids.get(hash, |i| {
-            signatures
-                .get(i as usize)
-                .is_some_and(|(n, e)| n.as_slice() == name && e.as_slice() == email)
-        });
-        let signature = match found {
-            Some(i) => i as usize,
-            None => {
-                signatures.push((name.to_vec(), email.to_vec()));
-                signature_ids.insert(hash, (signatures.len() - 1) as u32);
-                signatures.len() - 1
+    let mut read =
+        |walked: &mut Vec<Walked>, signatures: &mut Signatures| -> Result<(), GixError> {
+            while walked.len() < chunk {
+                let Some(info) = walk.next() else {
+                    break;
+                };
+                let info = git_ctx!(info, "walking history")?;
+                let commit = git_ctx!(
+                    repo.objects.find_commit(&info.id, &mut buf),
+                    "reading a commit"
+                )?;
+                let author = git_ctx!(commit.author(), "reading an author")?;
+                let time = git_ctx!(commit.time(), "reading a commit time")?.seconds;
+                let written = author.time().unwrap_or(gix::date::Time {
+                    seconds: time,
+                    offset: 0,
+                });
+                walked.push(Walked {
+                    id: info.id,
+                    time,
+                    signature: signatures.of(author.name, author.email),
+                    author_time: written.seconds,
+                    author_offset: written.offset,
+                    kind: message::kind_of(commit.message),
+                    subject: message::subject_of(commit.message).into_boxed_str(),
+                    tree: commit.tree(),
+                    parents: commit.parents().collect(),
+                });
             }
+            Ok(())
         };
-        walked.push(Walked {
-            id: info.id,
-            time,
-            signature,
-            author_time: written.seconds,
-            author_offset: written.offset,
-            kind,
-            subject,
-            tree: commit.tree(),
-            parents: commit.parents().collect(),
-        });
+
+    let mut current: Vec<Walked> = Vec::new();
+    read(&mut current, &mut signatures)?;
+    let mut done = 0u64;
+    while !current.is_empty() {
+        let mut next: Vec<Walked> = Vec::new();
+        read(&mut next, &mut signatures)?;
+        let tree_of: gix::hashtable::HashMap<ObjectId, ObjectId> = current
+            .iter()
+            .chain(&next)
+            .map(|w| (w.id, w.tree))
+            .collect();
+        let total = done + (current.len() + next.len()) as u64;
+        let delivered = deliver(
+            source,
+            &current,
+            &tree_of,
+            &signatures.list,
+            sink,
+            &mut stats,
+            (&mut done, total),
+        )?;
+        if !delivered {
+            break;
+        }
+        current = next;
     }
+    Ok(stats)
+}
 
-    let tree_of: gix::hashtable::HashMap<ObjectId, ObjectId> =
-        walked.iter().map(|w| (w.id, w.tree)).collect();
-    let total = walked.len() as u64;
+/// Diffs a chunk of walked commits on several threads and hands them to the sink in walk order; false when the sink asked to stop.
+fn deliver(
+    source: &GixRepo,
+    walked: &[Walked],
+    tree_of: &gix::hashtable::HashMap<ObjectId, ObjectId>,
+    signatures: &[(Vec<u8>, Vec<u8>)],
+    sink: &mut dyn CommitSink,
+    stats: &mut WalkStats,
+    (done, total): (&mut u64, u64),
+) -> Result<bool, GixError> {
     let threads = crate::threads::threads(walked.len().div_ceil(BATCH));
-
     let next_batch = AtomicUsize::new(0);
     let delivered = AtomicUsize::new(0);
     let stop = AtomicBool::new(false);
     let ahead = threads * AHEAD_PER_THREAD;
     let (tx, rx) = sync_channel::<(usize, BatchResult)>(ahead);
+    let mut broke = false;
 
     std::thread::scope(|scope| -> Result<(), GixError> {
         for _ in 0..threads {
             let tx = tx.clone();
             let (next_batch, delivered, stop) = (&next_batch, &delivered, &stop);
-            let (walked, tree_of) = (&walked, &tree_of);
             let sync = &source.sync;
             scope.spawn(move || {
                 let mut repo = sync.to_thread_local();
@@ -159,8 +220,6 @@ pub(super) fn walk(
 
         let mut waiting: BTreeMap<usize, BatchResult> = BTreeMap::new();
         let mut want = 0usize;
-        let mut done = 0u64;
-        let mut broke = false;
         let mut outcome = Ok(());
         'receive: for (batch, result) in &rx {
             waiting.insert(batch, result);
@@ -207,9 +266,9 @@ pub(super) fn walk(
                         parent_count: w.parents.len(),
                     };
                     stats.commits_visited += 1;
-                    done += 1;
-                    if done.is_multiple_of(PROGRESS_EVERY) || done == total {
-                        sink.on_progress(done, total);
+                    *done += 1;
+                    if done.is_multiple_of(PROGRESS_EVERY) || *done == total {
+                        sink.on_progress(*done, total);
                     }
                     if sink.on_commit(&raw, &raw_changes).is_break() {
                         broke = true;
@@ -226,8 +285,7 @@ pub(super) fn walk(
         drop(rx);
         outcome
     })?;
-
-    Ok(stats)
+    Ok(!broke)
 }
 
 fn diff_one(
@@ -278,4 +336,48 @@ pub(super) fn tree_of_commit(
     };
     let commit = git_ctx!(data.decode(), "decoding a parent commit")?;
     Ok(commit.as_commit().map(|c| c.tree()))
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::expect_used)]
+
+    use std::collections::HashSet;
+    use std::ops::ControlFlow;
+    use std::path::Path;
+
+    use super::*;
+
+    type Changes = Vec<(Vec<u8>, Oid)>;
+
+    #[derive(Default)]
+    struct Seen(Vec<(Oid, String, Changes)>);
+
+    impl CommitSink for Seen {
+        fn on_commit(
+            &mut self,
+            commit: &RawCommit<'_>,
+            changes: &[RawChange<'_>],
+        ) -> ControlFlow<()> {
+            self.0.push((
+                commit.id,
+                commit.subject.to_string(),
+                changes.iter().map(|c| (c.path.to_vec(), c.blob)).collect(),
+            ));
+            ControlFlow::Continue(())
+        }
+    }
+
+    #[test]
+    fn a_history_walked_a_few_commits_at_a_time_is_the_history_walked_at_once() {
+        let repo =
+            GixRepo::open(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/merges"))
+                .expect("the merges fixture");
+        let (mut whole, mut chunked) = (Seen::default(), Seen::default());
+        walk_in(&repo, &HashSet::new(), &mut whole, CHUNK).expect("walked");
+        walk_in(&repo, &HashSet::new(), &mut chunked, 3).expect("walked");
+        assert!(whole.0.len() > 6);
+        assert!(whole.0.iter().any(|c| !c.2.is_empty()));
+        assert_eq!(whole.0, chunked.0);
+    }
 }
