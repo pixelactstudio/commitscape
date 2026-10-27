@@ -200,11 +200,25 @@ fn forget_uncounted(index: &Index, plan: &LinePlan, store: &LineStore, known: &m
     let Some(was) = store.left_out() else {
         return;
     };
-    let kept_now: Vec<bool> = (0..index.paths.len())
+    let mut was_out: Vec<bool> = (0..index.paths.len())
         .map(|i| {
-            let file = FileId(i as u32);
-            !plan.skips_file(file) && index.paths.path(file).is_some_and(|p| was.contains(p))
+            index
+                .paths
+                .path(FileId(i as u32))
+                .is_some_and(|p| was.contains(p))
         })
+        .collect();
+    for (file, path) in index.paths.departures() {
+        if was.contains(path) {
+            if let Some(slot) = was_out.get_mut(file.idx()) {
+                *slot = true;
+            }
+        }
+    }
+    let kept_now: Vec<bool> = was_out
+        .iter()
+        .enumerate()
+        .map(|(i, &out)| out && !plan.skips_file(FileId(i as u32)))
         .collect();
     if !kept_now.contains(&true) {
         return;
@@ -226,13 +240,18 @@ fn forget_uncounted(index: &Index, plan: &LinePlan, store: &LineStore, known: &m
 }
 
 fn keep_left_out(index: &Index, plan: &LinePlan, store: &LineStore) {
-    let paths = (0..index.paths.len()).filter_map(|i| {
+    let current = (0..index.paths.len()).filter_map(|i| {
         let file = FileId(i as u32);
         plan.skips_file(file)
             .then(|| index.paths.path(file))
             .flatten()
     });
-    if let Err(e) = store.keep_left_out(paths) {
+    let departed = index
+        .paths
+        .departures()
+        .filter(|(file, _)| plan.skips_file(*file))
+        .map(|(_, path)| path);
+    if let Err(e) = store.keep_left_out(current.chain(departed)) {
         tracing::warn!("the files left out of the line store were not recorded: {e}");
     }
 }

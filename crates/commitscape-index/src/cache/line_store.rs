@@ -84,7 +84,7 @@ impl LineStore {
         }
     }
 
-    /// The paths the store's lines were last counted without (lockfiles, Generated Files), when it was told: a change of one of them it holds as uncounted was never counted, so it is counted again once the file is kept.
+    /// The paths the store's lines were last counted without (lockfiles, Generated Files), each file's earlier paths with its current one, when it was told: a change it holds as uncounted of a file that had one of them was never counted, so it is counted again once the file is kept.
     pub fn left_out(&self) -> Option<std::collections::HashSet<Vec<u8>>> {
         let bytes = std::fs::read(self.dir.join(LEFT_OUT)).ok()?;
         Some(

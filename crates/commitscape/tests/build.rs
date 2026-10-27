@@ -1243,3 +1243,107 @@ fn rows_of_commit(
     let sent = from_commits.or(from_lines).unwrap_or((-1, -1));
     (manifest, sent)
 }
+
+#[test]
+fn a_file_left_out_and_then_moved_out_of_its_vendored_folder_has_its_lines_counted() {
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let repo = dir.path().join("repo");
+    std::fs::create_dir_all(repo.join("vendor")).expect("a folder");
+    git(&[
+        "-C",
+        repo.to_str().expect("a path"),
+        "init",
+        "-q",
+        "-b",
+        "main",
+    ]);
+    committed(
+        &repo,
+        &[("a.rs", "1\n2\n"), ("vendor/v.js", "v\nw\nx\n")],
+        1_700_000_000,
+    );
+    let build = |cache: &str, name: &str| -> LinesOf {
+        let out = dir.path().join(name);
+        let cache_dir = dir.path().join(cache);
+        commitscape(
+            &[
+                "build",
+                "--offline",
+                "--anchor",
+                "1800000000",
+                "--cache-key",
+                "acme/moved",
+                "--cache-dir",
+            ],
+            &[&cache_dir, Path::new("--out"), &out, &repo],
+        );
+        lines_of(&out)
+    };
+    let first = build("warm", "first");
+    std::fs::create_dir_all(repo.join("src")).expect("a folder");
+    std::fs::rename(repo.join("vendor/v.js"), repo.join("src/v.js")).expect("moved");
+    committed(&repo, &[], 1_700_086_400);
+    for f in kept_files(&dir.path().join("warm")) {
+        std::fs::remove_file(f).expect("removing kept columns");
+    }
+    let warm = build("warm", "second");
+    let cold = build("cold", "cold");
+    let added = git(&[
+        "-C",
+        repo.to_str().expect("a path"),
+        "rev-list",
+        "--max-parents=0",
+        "HEAD",
+    ]);
+    let added = added.trim();
+    assert!(first[added].contains(&None));
+    assert!(!cold[added].contains(&None));
+    assert_eq!(warm, cold);
+}
+
+#[test]
+fn a_file_moved_into_a_vendored_folder_by_commits_a_force_push_drops_has_its_lines_counted() {
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let repo = dir.path().join("repo");
+    std::fs::create_dir_all(repo.join("src")).expect("a folder");
+    let at = repo.to_str().expect("a path");
+    git(&["-C", at, "init", "-q", "-b", "main"]);
+    committed(
+        &repo,
+        &[("a.rs", "1\n2\n"), ("src/b.rs", "v\nw\nx\n")],
+        1_700_000_000,
+    );
+    let added = git(&["-C", at, "rev-parse", "HEAD"]);
+    let added = added.trim();
+    std::fs::create_dir_all(repo.join("vendor")).expect("a folder");
+    std::fs::rename(repo.join("src/b.rs"), repo.join("vendor/v.js")).expect("moved");
+    committed(&repo, &[], 1_700_086_400);
+    let build = |cache: &str, name: &str| -> LinesOf {
+        let out = dir.path().join(name);
+        let cache_dir = dir.path().join(cache);
+        commitscape(
+            &[
+                "build",
+                "--offline",
+                "--anchor",
+                "1800000000",
+                "--cache-key",
+                "acme/dropped",
+                "--cache-dir",
+            ],
+            &[&cache_dir, Path::new("--out"), &out, &repo],
+        );
+        lines_of(&out)
+    };
+    let first = build("warm", "first");
+    assert!(first[added].contains(&None));
+    git(&["-C", at, "reset", "-q", "--hard", added]);
+    committed(&repo, &[("a.rs", "1\n2\n3\n")], 1_700_172_800);
+    for f in kept_files(&dir.path().join("warm")) {
+        std::fs::remove_file(f).expect("removing kept columns");
+    }
+    let warm = build("warm", "second");
+    let cold = build("cold", "cold");
+    assert!(!cold[added].contains(&None));
+    assert_eq!(warm, cold);
+}
