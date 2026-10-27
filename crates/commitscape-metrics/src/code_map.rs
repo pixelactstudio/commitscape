@@ -84,7 +84,7 @@ impl Analysis<'_> {
 
         let options = self.options();
         let mut counted_for = vec![0u32; nodes.len()];
-        let mut made: Vec<(usize, AuthorId)> = Vec::new();
+        let mut made: HashMap<(usize, AuthorId), u32> = HashMap::new();
         for (n, commit) in self.window_commits().iter().enumerate() {
             if !counts(commit, &options) {
                 continue;
@@ -106,36 +106,28 @@ impl Analysis<'_> {
                         break;
                     };
                     node.churn += 1;
-                    made.push((i, author));
+                    *made.entry((i, author)).or_default() += 1;
                     at = node.parent;
                 }
             }
         }
 
-        made.sort_unstable();
-        let mut i = 0;
-        while let Some(&(at, _)) = made.get(i) {
-            let rest = made.get(i..).unwrap_or_default();
-            let len = rest.iter().take_while(|(n, _)| *n == at).count();
-            let run = rest.get(..len).unwrap_or_default();
-            let mut best: Option<Owner> = None;
-            let mut j = 0;
-            while let Some(&(_, author)) = run.get(j) {
-                let commits = run
-                    .get(j..)
-                    .unwrap_or_default()
-                    .iter()
-                    .take_while(|(_, a)| *a == author)
-                    .count() as u32;
-                if commits > best.map_or(0, |b| b.commits) {
-                    best = Some(Owner { author, commits });
+        let mut best: Vec<Option<Owner>> = vec![None; nodes.len()];
+        for (&(at, author), &commits) in &made {
+            if let Some(slot) = best.get_mut(at) {
+                let better = slot.is_none_or(|b| {
+                    commits > b.commits || (commits == b.commits && author < b.author)
+                });
+                if better {
+                    *slot = Some(Owner { author, commits });
                 }
-                j += commits as usize;
             }
-            if let Some(node) = nodes.get_mut(at) {
-                node.owner = best;
+        }
+        drop(made);
+        for (node, owner) in nodes.iter_mut().zip(best) {
+            if owner.is_some() {
+                node.owner = owner;
             }
-            i += run.len().max(1);
         }
 
         let sizes: Vec<(u64, String)> = nodes.iter().map(|n| (n.lines, n.name.clone())).collect();
