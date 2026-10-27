@@ -109,7 +109,7 @@ pub fn read(repo: &Path, lines: bool, budget: Option<Duration>, anchor: i64) -> 
         (settled, left)
     });
     let ignored: HashSet<Oid> = source.blame_ignore_revs().unwrap().into_iter().collect();
-    for c in &mut loaded.index.commits {
+    for c in loaded.index.commits.iter_mut() {
         if ignored.contains(&c.id) {
             c.flags = c.flags.with(CommitFlags::BLAME_IGNORED);
         }

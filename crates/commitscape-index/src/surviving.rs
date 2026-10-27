@@ -399,7 +399,7 @@ impl<'i> Survival<'i> {
             }
         }
         let mut touched: HashMap<AuthorId, HashSet<FileId>> = HashMap::new();
-        for c in &index.commits {
+        for c in index.commits.iter() {
             if let Some(author) = index.author_of(c) {
                 touched
                     .entry(author)

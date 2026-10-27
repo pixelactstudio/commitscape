@@ -192,11 +192,7 @@ impl IndexBuilder {
                         });
                     }
                 }
-                changes.push(FileChange {
-                    file,
-                    kind: p.kind,
-                    lines: None,
-                });
+                changes.push(FileChange::new(file, p.kind, None));
             }
             if let Some(n) = self.used.get_mut(c.signature.idx()) {
                 *n += 1;
@@ -233,9 +229,9 @@ impl IndexBuilder {
             }
             None => {
                 let mut fresh = Index::empty(repo.clone());
-                fresh.commits = commits;
-                fresh.changes = changes;
-                fresh.subjects = subjects;
+                fresh.commits = commits.into();
+                fresh.changes = changes.into();
+                fresh.subjects = subjects.into();
                 fresh.span = added;
                 fresh.history_truncated = history_truncated;
                 fresh
@@ -263,17 +259,20 @@ fn merge_history(
     let key = |c: &CommitMeta| (c.time, c.id.0);
     let split = index.commits.partition_point(|c| key(c) <= key(&first_new));
 
-    let tail: Vec<CommitMeta> = index.commits.split_off(split);
+    let commits = index.commits.vec_mut();
+    let changes = index.changes.vec_mut();
+    let subjects = index.subjects.vec_mut();
+    let tail: Vec<CommitMeta> = commits.split_off(split);
     let arena_split = tail
         .first()
         .map(|c| c.changes_start as usize)
-        .unwrap_or(index.changes.len());
-    let old_changes = index.changes.split_off(arena_split);
+        .unwrap_or(changes.len());
+    let old_changes = changes.split_off(arena_split);
     let subject_split = tail
         .first()
         .map(|c| c.subject_start as usize)
-        .unwrap_or(index.subjects.len());
-    let old_subjects = index.subjects.split_off(subject_split);
+        .unwrap_or(subjects.len());
+    let old_subjects = subjects.split_off(subject_split);
 
     let mut a = tail.into_iter().peekable();
     let mut b = new_commits.into_iter().peekable();
@@ -302,15 +301,15 @@ fn merge_history(
         let slice = arena
             .get(start..start + commit.changes_len as usize)
             .unwrap_or(&[]);
-        commit.changes_start = index.changes.len() as u32;
-        index.changes.extend_from_slice(slice);
+        commit.changes_start = changes.len() as u32;
+        changes.extend_from_slice(slice);
         let from = commit.subject_start as usize - text_base;
         let text = texts
             .get(from..from + commit.subject_len as usize)
             .unwrap_or(&[]);
-        commit.subject_start = index.subjects.len() as u32;
-        index.subjects.extend_from_slice(text);
-        index.commits.push(commit);
+        commit.subject_start = subjects.len() as u32;
+        subjects.extend_from_slice(text);
+        commits.push(commit);
     }
 }
 

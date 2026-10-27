@@ -63,7 +63,7 @@ impl Analysis<'_> {
                 if skipped(change.file) {
                     continue;
                 }
-                match change.lines {
+                match change.lines() {
                     Some(d) => {
                         l.added += u64::from(d.added);
                         l.removed += u64::from(d.removed);

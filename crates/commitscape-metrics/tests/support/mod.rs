@@ -168,18 +168,18 @@ pub fn index_with_suspects(
             if let Some(h) = idx.file_history.get_mut(file.idx()) {
                 *h = h.touched(time);
             }
-            idx.changes.push(FileChange {
+            idx.changes.vec_mut().push(FileChange::new(
                 file,
                 kind,
-                lines: commit
+                commit
                     .lines
                     .get(k)
                     .map(|&(added, removed)| commitscape_core::LineDelta { added, removed }),
-            });
+            ));
         }
         let mut id = [0u8; 20];
         id[16..].copy_from_slice(&(n as u32 + 1).to_be_bytes());
-        idx.commits.push(CommitMeta {
+        idx.commits.vec_mut().push(CommitMeta {
             id: Oid(id),
             time,
             signature,
@@ -198,7 +198,9 @@ pub fn index_with_suspects(
             subject_start: idx.subjects.len() as u32,
             subject_len: commit.subject.len() as u8,
         });
-        idx.subjects.extend_from_slice(commit.subject.as_bytes());
+        idx.subjects
+            .vec_mut()
+            .extend_from_slice(commit.subject.as_bytes());
     }
 
     let signatures: Vec<Signature> = emails

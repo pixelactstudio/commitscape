@@ -206,18 +206,18 @@ fn build_writes_the_export_the_pack_and_the_meta_from_one_reading() {
         );
     }
     expected.authors.blank_emails();
-    for (c, packed) in expected.commits.iter_mut().zip(&pack.index.commits) {
+    for (c, packed) in expected.commits.iter_mut().zip(pack.index.commits.iter()) {
         c.flags = packed.flags;
     }
-    for (ch, packed) in expected.changes.iter_mut().zip(&pack.index.changes) {
-        ch.lines = packed.lines;
+    for (ch, packed) in expected.changes.iter_mut().zip(pack.index.changes.iter()) {
+        ch.set_lines(packed.lines());
     }
     assert_eq!(pack.index, expected);
     let added: u64 = pack
         .index
         .changes
         .iter()
-        .filter_map(|ch| ch.lines.map(|l| u64::from(l.added)))
+        .filter_map(|ch| ch.lines().map(|l| u64::from(l.added)))
         .sum();
     let exported: u64 = commits
         .iter()

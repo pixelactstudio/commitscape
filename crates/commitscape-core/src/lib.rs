@@ -1,10 +1,12 @@
 mod bots;
+mod column;
 mod ids;
 mod index;
 mod oid;
 mod time;
 
 pub use bots::{is_bot_name, AUTOMATION};
+pub use column::{Column, Slab};
 pub use ids::{AuthorId, FileId, PathId, SignatureId};
 pub use index::{
     Author, AuthorRef, AuthorTable, ChangeKind, CommitFlags, CommitKind, CommitMeta, FileChange,

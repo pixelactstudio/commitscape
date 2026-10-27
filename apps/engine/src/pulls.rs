@@ -190,7 +190,7 @@ fn landed_of(held: &LoadedPack, named: &[Named]) -> Landed {
         if let Some(c) = c {
             for ch in index.changes_of(c) {
                 let (a, r) = ch
-                    .lines
+                    .lines()
                     .map_or((0, 0), |l| (u64::from(l.added), u64::from(l.removed)));
                 touched += 1;
                 let path = view.path(ch.file);

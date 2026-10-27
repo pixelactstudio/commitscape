@@ -180,7 +180,7 @@ fn mark_ignored(index: &mut Index, ignored: &[Oid]) {
     if ignored.is_empty() {
         return;
     }
-    for c in &mut index.commits {
+    for c in index.commits.iter_mut() {
         if ignored.contains(&c.id) {
             c.flags = c.flags.with(CommitFlags::BLAME_IGNORED);
         }

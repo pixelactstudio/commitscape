@@ -6,6 +6,7 @@ macro_rules! dense_id {
         #[derive(
             Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
         )]
+        #[repr(transparent)]
         pub struct $name(pub u32);
 
         impl $name {

@@ -315,8 +315,8 @@ fn write_commits(
 
 fn lines_of(out: &mut Copy, changes: &[FileChange], settled: bool) {
     if settled {
-        out.array(changes.iter().map(|ch| ch.lines.map(|l| l.added)))
-            .array(changes.iter().map(|ch| ch.lines.map(|l| l.removed)));
+        out.array(changes.iter().map(|ch| ch.lines().map(|l| l.added)))
+            .array(changes.iter().map(|ch| ch.lines().map(|l| l.removed)));
     } else {
         out.null().null();
     }
