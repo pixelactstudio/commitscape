@@ -404,13 +404,14 @@ pub(crate) fn count_lines_kept(
     });
     let count = match kept {
         Some((kept, flipped)) => {
-            let remasked = remask(index, &plan, store.as_ref(), &flipped, &kept.settled);
+            let remasked = remask(index, &plan, store.as_ref(), &flipped, &mut kept.settled);
             let (mut pass, newly) = line_pass_kept(
                 repo,
                 index,
                 &plan,
                 store.as_ref(),
                 &mut kept.settled,
+                &remasked.recount,
                 &mut |done, total| meter.lines(done, total),
             )?;
             meter.clear();
@@ -421,7 +422,7 @@ pub(crate) fn count_lines_kept(
             };
             pass.apply(index);
             let mut written = newly;
-            written.extend(remasked);
+            written.extend(remasked.rewritten);
             written.sort_unstable();
             written.dedup();
             if let Err(e) = kept.save(index, &written, &masking) {

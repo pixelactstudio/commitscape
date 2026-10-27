@@ -138,6 +138,9 @@ pub fn line_pass<S: RepoSource>(
     let _entered = span.enter();
     let until = plan.budget.and_then(|b| Instant::now().checked_add(b));
     let mut known = store.map(LineStore::read).unwrap_or_default();
+    if let Some(store) = store {
+        forget_uncounted(index, plan, store, &mut known);
+    }
     let todo: Vec<usize> = index
         .commits
         .iter()
@@ -181,6 +184,9 @@ pub fn line_pass<S: RepoSource>(
     }
     span.record("counted", counted);
     span.record("left", left);
+    if let Some(store) = store {
+        keep_left_out(index, plan, store);
+    }
     Ok(LinePass {
         lines,
         ignored: source.blame_ignore_revs()?,
@@ -188,6 +194,47 @@ pub fn line_pass<S: RepoSource>(
         left,
         settled,
     })
+}
+
+fn forget_uncounted(index: &Index, plan: &LinePlan, store: &LineStore, known: &mut Counted) {
+    let Some(was) = store.left_out() else {
+        return;
+    };
+    let kept_now: Vec<bool> = (0..index.paths.len())
+        .map(|i| {
+            let file = FileId(i as u32);
+            !plan.skips_file(file) && index.paths.path(file).is_some_and(|p| was.contains(p))
+        })
+        .collect();
+    if !kept_now.contains(&true) {
+        return;
+    }
+    for c in index.commits.iter() {
+        let uncounted = known.get(&c.id).is_some_and(|deltas| {
+            index
+                .changes_of(c)
+                .iter()
+                .zip(deltas)
+                .any(|(change, delta)| {
+                    delta.is_none() && kept_now.get(change.file.idx()).copied().unwrap_or(false)
+                })
+        });
+        if uncounted {
+            known.remove(&c.id);
+        }
+    }
+}
+
+fn keep_left_out(index: &Index, plan: &LinePlan, store: &LineStore) {
+    let paths = (0..index.paths.len()).filter_map(|i| {
+        let file = FileId(i as u32);
+        plan.skips_file(file)
+            .then(|| index.paths.path(file))
+            .flatten()
+    });
+    if let Err(e) = store.keep_left_out(paths) {
+        tracing::warn!("the files left out of the line store were not recorded: {e}");
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -285,16 +332,23 @@ fn masked(
     })
 }
 
-/// Brings the settled lines in the Index's changes, masked when the files in `flipped` were kept or left out the other way, to `plan`'s masking: changes of files now left out lose their lines, and changes of files now kept get theirs from the store. Returns the commits whose changes it rewrote.
+/// What `remask` did: the commits whose changes it rewrote, and those it marked not settled because a file now kept was never counted in them, which the line pass counts again without the store.
+#[derive(Debug, Default)]
+pub struct Remasked {
+    pub rewritten: Vec<usize>,
+    pub recount: std::collections::HashSet<Oid>,
+}
+
+/// Brings the settled lines in the Index's changes, masked when the files in `flipped` were kept or left out the other way, to `plan`'s masking: changes of files now left out lose their lines, and changes of files now kept get theirs from the store, or, when the store left them uncounted, their commit is marked not settled to be counted again.
 pub fn remask(
     index: &mut Index,
     plan: &LinePlan,
     store: Option<&LineStore>,
     flipped: &[usize],
-    settled: &[u8],
-) -> Vec<usize> {
+    settled: &mut [u8],
+) -> Remasked {
     if flipped.is_empty() {
-        return Vec::new();
+        return Remasked::default();
     }
     let mut flips = vec![false; index.paths.len()];
     for &f in flipped {
@@ -304,6 +358,7 @@ pub fn remask(
     }
     let flips_file = |file: FileId| flips.get(file.idx()).copied().unwrap_or(false);
     let mut rewritten = Vec::new();
+    let mut recount = std::collections::HashSet::new();
     let mut wanted = std::collections::HashSet::new();
     for i in 0..index.commits.len() {
         let Some(c) = index.commits.get(i).copied() else {
@@ -355,6 +410,16 @@ pub fn remask(
         if slots.len() != deltas.len() {
             continue;
         }
+        let uncounted = slots.iter().zip(deltas).any(|(slot, delta)| {
+            flips_file(slot.file) && !plan.skips_file(slot.file) && delta.is_none()
+        });
+        if uncounted {
+            if let Some(s) = settled.get_mut(i) {
+                *s = 0;
+            }
+            recount.insert(c.id);
+            continue;
+        }
         for (slot, delta) in slots.iter_mut().zip(deltas) {
             if flips_file(slot.file) && !plan.skips_file(slot.file) {
                 slot.set_lines(*delta);
@@ -364,16 +429,17 @@ pub fn remask(
     }
     rewritten.sort_unstable();
     rewritten.dedup();
-    rewritten
+    Remasked { rewritten, recount }
 }
 
-/// Counts the lines of the commits the kept columns do not hold settled, as `line_pass` does, writing them into the Index's changes and marking them settled there; every other commit's lines are already in the Index. Returns the pass and the commits it settled, for the columns to keep.
+/// Counts the lines of the commits the kept columns do not hold settled, as `line_pass` does, writing them into the Index's changes and marking them settled there; every other commit's lines are already in the Index. The commits in `recount` are counted again whatever the store holds for them. Returns the pass and the commits it settled, for the columns to keep.
 pub fn line_pass_kept<S: RepoSource>(
     source: &S,
     index: &mut Index,
     plan: &LinePlan,
     store: Option<&LineStore>,
     settled: &mut [u8],
+    recount: &std::collections::HashSet<Oid>,
     progress: &mut dyn FnMut(u64, u64),
 ) -> Result<(LinePass, Vec<usize>), S::Error> {
     let span = tracing::info_span!(
@@ -398,6 +464,7 @@ pub fn line_pass_kept<S: RepoSource>(
         .filter_map(|&i| index.commits.get(i).map(|c| c.id))
         .collect();
     let mut known = store.map(|s| s.read_some(&wanted)).unwrap_or_default();
+    known.retain(|id, _| !recount.contains(id));
     let todo: Vec<usize> = open
         .iter()
         .copied()
@@ -449,6 +516,9 @@ pub fn line_pass_kept<S: RepoSource>(
     }
     span.record("counted", counted);
     span.record("left", left);
+    if let Some(store) = store {
+        keep_left_out(index, plan, store);
+    }
     Ok((
         LinePass {
             lines: Vec::new(),

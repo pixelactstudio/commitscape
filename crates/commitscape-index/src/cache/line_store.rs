@@ -10,6 +10,7 @@ use xxhash_rust::xxh3::xxh3_64;
 use super::CacheOptions;
 
 const FILE: &str = "lines";
+const LEFT_OUT: &str = "lines.left-out";
 const MAGIC: &[u8] = b"commitscape lines 1\n";
 
 #[derive(Debug, Clone)]
@@ -81,6 +82,38 @@ impl LineStore {
                 false
             }
         }
+    }
+
+    /// The paths the store's lines were last counted without (lockfiles, Generated Files), when it was told: a change of one of them it holds as uncounted was never counted, so it is counted again once the file is kept.
+    pub fn left_out(&self) -> Option<std::collections::HashSet<Vec<u8>>> {
+        let bytes = std::fs::read(self.dir.join(LEFT_OUT)).ok()?;
+        Some(
+            bytes
+                .split(|&b| b == 0)
+                .filter(|p| !p.is_empty())
+                .map(<[u8]>::to_vec)
+                .collect(),
+        )
+    }
+
+    /// Records the paths the store's lines are now counted without, unless it says so already.
+    pub fn keep_left_out<'a>(&self, paths: impl Iterator<Item = &'a [u8]>) -> io::Result<()> {
+        let mut now: Vec<&[u8]> = paths.collect();
+        now.sort_unstable();
+        now.dedup();
+        let mut bytes = Vec::new();
+        for p in now {
+            bytes.extend_from_slice(p);
+            bytes.push(0);
+        }
+        let path = self.dir.join(LEFT_OUT);
+        if std::fs::read(&path).ok().as_deref() == Some(bytes.as_slice()) {
+            return Ok(());
+        }
+        std::fs::create_dir_all(&self.dir)?;
+        let temp = self.dir.join(format!("{LEFT_OUT}.tmp"));
+        std::fs::write(&temp, &bytes)?;
+        std::fs::rename(temp, path)
     }
 
     pub fn read(&self) -> Counted {

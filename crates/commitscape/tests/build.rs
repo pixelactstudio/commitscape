@@ -943,3 +943,52 @@ fn a_fork_that_keeps_a_file_its_parent_left_out_counts_that_files_lines_itself()
         assert!(a == b, "{name} differs");
     }
 }
+
+#[test]
+fn a_file_that_stops_being_left_out_has_its_lines_counted_on_the_next_build() {
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let repo = dir.path().join("repo");
+    std::fs::create_dir(&repo).expect("a folder");
+    git(&[
+        "-C",
+        repo.to_str().expect("a path"),
+        "init",
+        "-q",
+        "-b",
+        "main",
+    ]);
+    committed(
+        &repo,
+        &[
+            ("a.rs", "1\n2\n"),
+            ("gen.rs", "g\n"),
+            (".gitattributes", "gen.rs linguist-generated\n"),
+        ],
+        1_700_000_000,
+    );
+    committed(&repo, &[("gen.rs", "g\nh\ni\n")], 1_700_086_400);
+    let build = |cache: &str, name: &str| -> Value {
+        let out = dir.path().join(name);
+        let cache_dir = dir.path().join(cache);
+        commitscape(
+            &[
+                "build",
+                "--offline",
+                "--anchor",
+                "1800000000",
+                "--cache-key",
+                "acme/rocket",
+                "--cache-dir",
+            ],
+            &[&cache_dir, Path::new("--out"), &out, &repo],
+        );
+        json(&out.join("meta.json"))["people"].clone()
+    };
+    let before = build("warm", "first");
+    committed(&repo, &[(".gitattributes", "")], 1_700_172_800);
+    let warm = build("warm", "second");
+    let cold = build("cold", "cold");
+    assert_eq!(before[0]["lines_added"], Value::from(3));
+    assert_eq!(cold[0]["lines_added"], Value::from(6));
+    assert_eq!(warm, cold);
+}

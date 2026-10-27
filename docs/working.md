@@ -241,7 +241,11 @@ changes, subjects, and which commits' Lines Changed are settled) in a
 column file (`<generation>.cols`), laid out to be mapped and read in place:
 a warm Build reads it without decoding, a Build with new commits streams
 the old file and the new commits into the next one, and the line pass
-counts only the commits not settled and writes them back in place.
+counts only the commits not settled and writes them back in place. The
+line store keeps the paths it was counted without beside it
+(`lines.left-out`): a file that stops being left out (its attributes
+changed, or a new classifier) has the commits it changed counted again,
+from the kept columns or without them, never kept as having no lines.
 `commitscape screens PACK --out FILE` works out a pack's standard screens
 as one JSON object. `--anchor SECONDS` ends every Window there
 instead of now, so the output comes out the same every time.
