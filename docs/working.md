@@ -307,6 +307,18 @@ pnpm dev:landing               # the landing page on http://localhost:3200
 | `packages/server` against the real services | `TEST_DATABASE_URL=postgres://commitscape:commitscape@localhost:5434/commitscape TEST_S3_ENDPOINT=http://localhost:9100 pnpm --filter @commitscape/server test` |
 | The Site, the engine service and the Builder together | `cargo build --release -p commitscape -p commitscape-engine`, then `pnpm e2e` |
 | The Report's types after a Rust change | `COMMITSCAPE_UPDATE_TYPES=1 cargo test -p commitscape-report` |
+| Builds after random histories against a clean build | `cargo test -p commitscape --test differential` (8 seeds); `SEEDS_FROM=100 SEEDS=200 cargo test -p commitscape --test differential -- --ignored` for more |
+
+The differential test scripts random histories (commits by several
+people, renames, merges, force pushes, `.gitattributes` and `.mailmap`
+changes) and random operations on them (a killed build, the cache brought
+back from an earlier Repo State), loads every export as the Builder does
+into a model of Postgres, and compares the rows, the pack, `meta.json` and
+everyone's Surviving Lines with a clean build of the same history. Ids
+(signatures, people, files) are handed out in the order a cache first met
+them and stay fixed within a lineage, so it compares them by what they
+name; when they come out the same, the pack and `meta.json` must be the
+same bytes.
 
 When you run the binary on a real repository, set
 `COMMITSCAPE_CACHE_DIR` to a folder under `target/` so the cache stays in
