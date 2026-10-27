@@ -21,6 +21,9 @@ const UNPACKED: &[u8; 8] = b"CSUNPK03";
 
 pub const FORMAT: u32 = 3;
 
+/// The pack formats this release reads: the one it writes, and the one before, which an engine service of an earlier release reads alone.
+pub const FORMATS_READ: [u32; 2] = [2, FORMAT];
+
 const LEVEL: u32 = 6;
 
 const SECTIONS: usize = 5;
@@ -222,6 +225,20 @@ pub fn write_pack(pack: &mut Pack, out: &mut impl Write) -> Result<(), PackError
     pack.index.subjects = subjects;
     pack.arrival = arrival;
     written
+}
+
+/// Writes a pack in format 2, for an engine service that reads no other: its magic line, then the zlib of the whole pack's bincode, columns included.
+pub fn write_pack_2(pack: &mut Pack, out: &mut impl Write) -> Result<(), PackError> {
+    let format = std::mem::replace(&mut pack.format, 2);
+    out.write_all(MAGIC_2)?;
+    let mut z = ZlibEncoder::new(&mut *out, Compression::new(LEVEL));
+    let written = bincode::serde::encode_into_std_write(&*pack, &mut z, config())
+        .map(|_| ())
+        .map_err(|e| PackError::Decode(e.to_string()));
+    pack.format = format;
+    written?;
+    z.finish()?;
+    Ok(())
 }
 
 fn write_sections(
@@ -568,6 +585,37 @@ mod tests {
         assert_eq!(mapped, pack);
         let payload = bincode::serde::encode_to_vec(&read, config()).expect("encoded");
         assert!(!payload.contains(&b'@'));
+    }
+
+    #[test]
+    fn a_pack_written_in_format_2_reads_back_as_the_same_pack_and_unpacks_as_one_of_format_2() {
+        let mut pack = Pack::of(
+            report(),
+            Reading {
+                lineage: 9,
+                lines_complete: true,
+                lines_mainline: true,
+                mainline: vec![24, 24],
+                arrival: vec![Some(1), Some(2)],
+                release_commits: vec![("v1".into(), "ab".repeat(20))],
+            },
+        );
+        let mut bytes = Vec::new();
+        write_pack_2(&mut pack, &mut bytes).expect("written");
+        assert!(bytes.starts_with(MAGIC_2));
+        assert_eq!(pack.format, FORMAT);
+        let mut read = read_pack(&bytes).expect("read");
+        assert_eq!(read.format, 2);
+        read.format = FORMAT;
+        assert_eq!(read, pack);
+        let dir = tempfile::tempdir().expect("a folder");
+        let packed = dir.path().join("a.pack");
+        std::fs::write(&packed, &bytes).expect("a pack file");
+        assert!(matches!(
+            unpack(&packed, &dir.path().join("a.unpacked")),
+            Err(PackError::Format(2))
+        ));
+        assert_eq!(FORMATS_READ, [2, 3]);
     }
 
     #[test]

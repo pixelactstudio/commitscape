@@ -65,6 +65,7 @@ export type JobContext = {
   prefetch?: Deps["prefetch"];
   queueBuild?: (job: BuildJob & { attempt: number }, priority: number, startAfter?: number) => Promise<void>;
   queueAtlas?: (job: AtlasJob) => Promise<void>;
+  packFormat?: () => Promise<number>;
 };
 
 export type JobAsked = Pick<BuildJob, "userId" | "more">;
@@ -192,6 +193,7 @@ async function claimedJob(buildId: string, ctx: JobContext, attempt: number, ask
           },
           publish,
           ...(ctx.prefetch ? { prefetch: ctx.prefetch } : {}),
+          ...(ctx.packFormat ? { packFormat: ctx.packFormat } : {}),
           ...(stateTier ? { state: { restore: (root: string) => restoreState(stateTier, repo.id, root), save: (root: string) => saveState(stateTier, repo.id, root) } } : {}),
           index: {
             live: async () => liveIndex(db, await currentId()),

@@ -553,6 +553,19 @@ test("the least recently used repository folders go first when the disk budget i
   expect(await prune(work, 1500, [join(work, "repos", "acme", "mid")])).toEqual([join(work, "repos", "acme", "new")]);
 });
 
+test("a Build writes a pack of format 2 while the engine service reads no newer one", async () => {
+  const work = await mkdtemp(join(tmpdir(), "builder-"));
+  const formats = async (format: number | undefined) => {
+    const f = fake();
+    if (format) f.deps.packFormat = async () => format;
+    await build(req(), cfg(work), f.deps);
+    return builds(f.calls).map((c) => flagOf(c.args, "--pack-format") ?? null);
+  };
+  expect((await formats(2)).every((f) => f === "2")).toBe(true);
+  expect((await formats(3)).every((f) => f === null)).toBe(true);
+  expect((await formats(undefined)).every((f) => f === null)).toBe(true);
+});
+
 test("a cold Build keeps its quick blobless clone as the repository's lean clone instead of cloning again later; a private one keeps nothing", async () => {
   const work = await mkdtemp(join(tmpdir(), "builder-"));
   const f = fake();

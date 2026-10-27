@@ -11,7 +11,7 @@ use commitscape_index::{
 };
 use commitscape_metrics::Span;
 use commitscape_report::export::{self, Manifest, Since};
-use commitscape_report::pack::{write_pack, Pack, Reading};
+use commitscape_report::pack::{write_pack, write_pack_2, Pack, Reading};
 use commitscape_report::report::{summary, Report};
 use tracing::field::Empty;
 
@@ -60,6 +60,11 @@ pub struct ExportArgs {
     /// since are written for the commits the Site has.
     #[arg(long, value_name = "MARK", requires = "after")]
     since: Option<String>,
+
+    /// The pack format to write: 3, or 2 for an engine service of an
+    /// earlier release, which reads no other.
+    #[arg(long, default_value_t = 3, value_parser = clap::value_parser!(u32).range(2..=3), hide = true)]
+    pack_format: u32,
 
     #[command(flatten)]
     run: RunArgs,
@@ -321,7 +326,10 @@ pub fn build(args: ExportArgs) -> anyhow::Result<()> {
     );
     let path = args.out.join("pack.bin");
     let mut out = BufWriter::with_capacity(1 << 20, std::fs::File::create(&path)?);
-    write_pack(&mut pack, &mut out)?;
+    match args.pack_format {
+        2 => write_pack_2(&mut pack, &mut out)?,
+        _ => write_pack(&mut pack, &mut out)?,
+    }
     out.flush()?;
     drop(out);
     span.record("bytes", std::fs::metadata(&path)?.len());

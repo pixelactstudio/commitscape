@@ -147,6 +147,7 @@ export type Deps = {
   git?: (dir: string, env: NodeJS.ProcessEnv) => Promise<void>;
   log?: (line: string) => void;
   phases?: Phases;
+  packFormat?: () => Promise<number>;
 };
 
 export const NAME = /^[A-Za-z0-9_.][A-Za-z0-9_.-]{0,99}$/;
@@ -201,6 +202,7 @@ export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<
     if (accounts) args.push("--accounts", accounts);
     const seed = phase === "full" && req.forkOf ? await lineStoreOf(cfg, req.forkOf, join(scratch, "lines-from")) : null;
     if (seed) args.push("--lines-from", seed);
+    if ((await deps.packFormat?.()) === 2) args.push("--pack-format", "2");
     if (appendable(before)) {
       const frontier = join(scratch, `${phase}.frontier`);
       await writeFile(frontier, before.frontier.join("\n"));

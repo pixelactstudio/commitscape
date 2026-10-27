@@ -266,6 +266,7 @@ async fn healthz(State(engine): State<Arc<Engine>>) -> Response {
         "fetches": held.fetches,
         "decodes": held.decodes,
         "threads": engine.work.threads(),
+        "pack_formats": commitscape_report::pack::FORMATS_READ,
     }))
     .into_response()
 }

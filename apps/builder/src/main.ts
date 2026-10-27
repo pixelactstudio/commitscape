@@ -39,6 +39,7 @@ import { queueRebuilds } from "./rebuild";
 import { forgetStates, saveState as saveRepoState, stateKeys } from "./state";
 import { headsOf, queueSeeds, seedConfig, seedList } from "./seeds";
 import { atlasJob } from "./universe";
+import { packFormatOf } from "./formats";
 
 const command = process.argv[2] ?? "work";
 
@@ -141,7 +142,7 @@ async function work() {
   const queueAtlas = async (job: AtlasJob) => {
     await boss.send(ATLAS_QUEUE, job, { singletonKey: job.pack });
   };
-  const ctx = { db, pool, storage, cfg, app, run: engine, github, tokenSecret: env.TOKEN_SECRET, log, telemetry, queuePulls, queueCounts, queueBuild, queueAtlas, ...(saveState ? { saveState } : {}) };
+  const ctx = { db, pool, storage, cfg, app, run: engine, github, tokenSecret: env.TOKEN_SECRET, log, telemetry, queuePulls, queueCounts, queueBuild, queueAtlas, packFormat: packFormatOf(cfg.engineUrl), ...(saveState ? { saveState } : {}) };
   const building = (queue: string, job: { id: string; data: BuildJob }) =>
     inQueueSpan(job, queue, () => runJob(job.data.buildId, ctx, job.data.attempt ?? 1, { ...(job.data.userId ? { userId: job.data.userId } : {}), ...(job.data.more ? { more: job.data.more } : {}) }));
   await reapTimed();

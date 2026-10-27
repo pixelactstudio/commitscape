@@ -192,6 +192,7 @@ async fn health_is_open_and_everything_else_needs_the_token() {
     let (status, health) = call(&s.app, "/healthz", None, None).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(health["ok"], true);
+    assert_eq!(health["pack_formats"], json!([2, 3]));
     let body = json!({ "pack": ROCKET, "path": "/api/overview" });
     let (status, error) = call(&s.app, "/v1/answer", None, Some(body.clone())).await;
     assert_eq!(
