@@ -72,6 +72,23 @@ async function* chunksOf(path: string): AsyncGenerator<Buffer> {
   }
 }
 const DAY = 24 * 3600;
+const AT_ONCE = 4;
+
+async function* inOrder<T, R>(items: readonly T[], most: number, get: (item: T) => Promise<R>): AsyncGenerator<R> {
+  const pending: Promise<R>[] = [];
+  let next = 0;
+  const start = () => {
+    const p = get(items[next++] as T);
+    p.catch(() => undefined);
+    pending.push(p);
+  };
+  while (next < items.length && pending.length < most) start();
+  while (pending.length > 0) {
+    const first = await (pending.shift() as Promise<R>);
+    if (next < items.length) start();
+    yield first;
+  }
+}
 
 type Entry = { path: string; size: number; mtime: number; chunks: string[] };
 type Manifest = { version: 1; files: Entry[] };
@@ -150,6 +167,13 @@ export async function saveState(tier: StateTier, repoId: string, root: string, a
   let uploaded = 0;
   let sent = 0;
   let bytes = 0;
+  const uploading = new Set<Promise<void>>();
+  const upload = async (name: string, chunk: Buffer) => {
+    const body = await seal(tier.keys, chunk);
+    await tier.storage.put(prefix + name, body, { type: "application/octet-stream" });
+    uploaded++;
+    sent += body.byteLength;
+  };
   for (const path of await files(root)) {
     const rel = relative(root, path);
     const s = await stat(path).catch(() => null);
@@ -165,11 +189,11 @@ export async function saveState(tier: StateTier, repoId: string, root: string, a
     for await (const chunk of chunksOf(path)) {
       const name = nameOf(tier.keys, chunk);
       if (!held.has(name)) {
-        const body = await seal(tier.keys, chunk);
-        await tier.storage.put(prefix + name, body, { type: "application/octet-stream" });
         held.add(name);
-        uploaded++;
-        sent += body.byteLength;
+        const p: Promise<void> = upload(name, chunk).finally(() => uploading.delete(p));
+        p.catch(() => undefined);
+        uploading.add(p);
+        if (uploading.size >= AT_ONCE) await Promise.race(uploading);
       }
       chunks.push(name);
       size += chunk.byteLength;
@@ -177,6 +201,7 @@ export async function saveState(tier: StateTier, repoId: string, root: string, a
     entries.push({ path: rel, size, mtime: s.mtimeMs, chunks });
     bytes += size;
   }
+  await Promise.all(uploading);
   const manifest: Manifest = { version: 1, files: entries };
   await tier.storage.put(`${prefix}manifest`, await seal(tier.keys, Buffer.from(JSON.stringify(manifest))), { type: "application/octet-stream" });
   await writeFile(join(root, LOCAL), JSON.stringify(manifest));
@@ -205,19 +230,30 @@ export async function restoreState(tier: StateTier, repoId: string, root: string
       const target = join(into, f.path);
       if (relative(into, target).startsWith("..")) throw new Error(`a State file outside its folder: ${f.path}`);
       await mkdir(dirname(target), { recursive: true });
-      const out = await open(target, "w");
-      try {
-        for (const name of f.chunks) {
-          const body = await tier.storage.get(prefix + name);
-          if (!body) throw new Error(`a State chunk is missing: ${name}`);
-          const chunk = await unseal(tier.keys, body.body);
-          if (nameOf(tier.keys, chunk) !== name) throw new Error(`a State chunk does not match its name: ${name}`);
-          await out.write(chunk);
-          bytes += chunk.byteLength;
+      await writeFile(target, "");
+    }
+    const parts = manifest.files.flatMap((f) => f.chunks.map((name) => ({ path: f.path, name })));
+    const fetched = inOrder(parts, AT_ONCE, async ({ path, name }) => {
+      const body = await tier.storage.get(prefix + name);
+      if (!body) throw new Error(`a State chunk is missing: ${name}`);
+      const chunk = await unseal(tier.keys, body.body);
+      if (nameOf(tier.keys, chunk) !== name) throw new Error(`a State chunk does not match its name: ${name}`);
+      return { path, chunk };
+    });
+    let out: Awaited<ReturnType<typeof open>> | null = null;
+    let writing = "";
+    try {
+      for await (const { path, chunk } of fetched) {
+        if (path !== writing || !out) {
+          await out?.close();
+          out = await open(join(into, path), "a");
+          writing = path;
         }
-      } finally {
-        await out.close();
+        await out.write(chunk);
+        bytes += chunk.byteLength;
       }
+    } finally {
+      await out?.close();
     }
     const placed = await Promise.all(manifest.files.map(async (f) => ({ ...f, mtime: (await stat(join(into, f.path))).mtimeMs })));
     await writeFile(join(into, LOCAL), JSON.stringify({ version: 1, files: placed } satisfies Manifest));

@@ -86,6 +86,34 @@ test("bytes inserted into a large file upload only the chunks around them, and i
   expect((await read(into, "00000000000000aa.cols")).equals(inserted)).toBe(true);
 });
 
+test("chunks go to R2 and come back a few at a time, whatever order they finish in, and the files are the same", async () => {
+  const storage = memoryStorage();
+  const root = await cache();
+  const big = randomBytes(6 * CHUNK_BYTES);
+  await writeFile(join(root, "key-0123456789abcdef", "00000000000000aa.data"), big);
+  let moving = 0;
+  let most = 0;
+  const slow = <T>(fn: () => Promise<T>) => async () => {
+    moving += 1;
+    most = Math.max(most, moving);
+    await new Promise((r) => setTimeout(r, 5 + Math.random() * 30));
+    moving -= 1;
+    return fn();
+  };
+  const put = storage.put.bind(storage);
+  const get = storage.get.bind(storage);
+  storage.put = (key, body, options) => slow(() => put(key, body, options))();
+  storage.get = (key) => slow(() => get(key))();
+  await saveState({ storage, keys }, "acme/rocket", root);
+  expect([most > 1, most <= 4]).toEqual([true, true]);
+  most = 0;
+  const into = await mkdtemp(join(tmpdir(), "state-"));
+  expect((await restoreState({ storage, keys }, "acme/rocket", into)).restored).toBe(true);
+  expect([most > 1, most <= 4]).toEqual([true, true]);
+  expect((await read(into, "00000000000000aa.data")).equals(big)).toBe(true);
+  expect((await read(into, "lines")).toString()).toBe("lines");
+});
+
 test("files of another cache generation, and files being written, are not kept", async () => {
   const storage = memoryStorage();
   const root = await cache();
