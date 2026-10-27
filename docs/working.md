@@ -235,7 +235,12 @@ whose uncounted files (lockfiles, Generated Files) the fork leaves out too
 are taken; a commit touching a file the fork keeps is counted again. `--after FILE --lineage N` writes only the
 commits the frontier in FILE does not reach, and `--since MARK`, the mark
 the last loaded export left, narrows the earlier commits' rows to the
-Mainline that moved and the Lines Changed counted since. Beside the Index
+Mainline that moved and the Lines Changed counted since. The mark names the
+cache generation the export was read from, and the cache keeps the
+generations it passed through (`index.generations`): a run appends only
+when its cache descends from that generation, so a cache brought back from
+an older Repo State, whose signature and file ids may differ from the rows
+Postgres holds, writes a full export instead. Beside the Index
 the cache keeps its commit graph (`graph`: each commit's parents by place,
 and the Mainline of the head it was last worked out for); a Build brings it
 up to date from the commits added since, so the Mainline and the commits

@@ -10,6 +10,7 @@ pub(crate) struct Mark {
     pub(crate) head: Option<Oid>,
     pub(crate) lines: Option<LogMark>,
     pub(crate) fingerprint: u64,
+    pub(crate) generation: Option<u64>,
 }
 
 impl Mark {
@@ -28,10 +29,15 @@ impl Mark {
             }),
         };
         let fingerprint = u64::from_str_radix(parts.next()?, 16).ok()?;
+        let generation = match parts.next() {
+            Some(g) => Some(u64::from_str_radix(g, 16).ok()?),
+            None => None,
+        };
         parts.next().is_none().then_some(Mark {
             head,
             lines,
             fingerprint,
+            generation,
         })
     }
 }
@@ -46,7 +52,11 @@ impl fmt::Display for Mark {
             Some(l) => write!(f, ".{}.{:x}", l.len, l.hash)?,
             None => write!(f, ".-.-")?,
         }
-        write!(f, ".{:x}", self.fingerprint)
+        write!(f, ".{:x}", self.fingerprint)?;
+        match self.generation {
+            Some(g) => write!(f, ".{g:x}"),
+            None => Ok(()),
+        }
     }
 }
 
@@ -81,17 +91,27 @@ mod tests {
                     hash: 0xfeed,
                 }),
                 fingerprint: fingerprint(100, &[Oid([1; 20])], false),
+                generation: Some(0x1234_abcd),
             },
             Mark {
                 head: None,
                 lines: None,
                 fingerprint: 0,
+                generation: None,
             },
         ];
         for mark in marks {
             assert_eq!(Mark::parse(&mark.to_string()), Some(mark));
         }
-        for text in ["", "-", "-.-.-", "zz.-.-.0", "-.1.2.3.4", "-.x.2.3"] {
+        for text in [
+            "",
+            "-",
+            "-.-.-",
+            "zz.-.-.0",
+            "-.1.2.3.zz",
+            "-.1.2.3.4.5",
+            "-.x.2.3",
+        ] {
             assert_eq!(Mark::parse(text), None, "{text}");
         }
     }

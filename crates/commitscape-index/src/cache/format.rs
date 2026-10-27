@@ -14,6 +14,8 @@ use crate::head_pass::ClassifyContext;
 const HEAD_MAGIC: [u8; 8] = *b"CSCAPEH\x02";
 const DATA_MAGIC: [u8; 8] = *b"CSCAPED\x02";
 const POINTER_FILE: &str = "index.current";
+const GENERATIONS_FILE: &str = "index.generations";
+const GENERATIONS_KEPT: usize = 512;
 const LOCK_FILE: &str = "index.lock";
 const MAX_ID_RUNS: usize = 16;
 
@@ -533,9 +535,37 @@ fn append_blocks(
     Ok(())
 }
 
+/// The generations a cache passed through, oldest first, the current one last: each one written was made from the one before it, so its ids extend that one's.
+pub fn generations(dir: &Path) -> Vec<u64> {
+    std::fs::read_to_string(dir.join(GENERATIONS_FILE))
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|l| u64::from_str_radix(l.trim(), 16).ok())
+        .collect()
+}
+
+fn keep_generation(dir: &Path, previous: Option<u64>, generation: u64) -> std::io::Result<()> {
+    let mut kept = generations(dir);
+    if kept.last().copied() != previous {
+        kept = previous.into_iter().collect();
+    }
+    kept.push(generation);
+    let from = kept.len().saturating_sub(GENERATIONS_KEPT);
+    let text: String = kept
+        .get(from..)
+        .unwrap_or(&[])
+        .iter()
+        .map(|g| format!("{g:016x}\n"))
+        .collect();
+    let tmp = dir.join(format!("{GENERATIONS_FILE}.{generation:016x}.tmp"));
+    std::fs::write(&tmp, text)?;
+    std::fs::rename(&tmp, dir.join(GENERATIONS_FILE))
+}
+
 fn swap_to(dir: &Path, generation: u64, data_file: &str) -> std::io::Result<()> {
     let previous = current_generation(dir).ok();
     let previous_data = previous.and_then(|g| data_file_of(dir, g).ok());
+    keep_generation(dir, previous, generation)?;
     let tmp = dir.join(format!("{POINTER_FILE}.{generation:016x}.tmp"));
     std::fs::write(&tmp, format!("{generation:016x}\n"))?;
     std::fs::rename(&tmp, dir.join(POINTER_FILE))?;

@@ -6,7 +6,9 @@ use clap::Args;
 use commitscape_core::{CommitFlags, Index, Oid};
 use commitscape_index::graph::CommitGraph;
 use commitscape_index::mainline::mainline_since;
-use commitscape_index::{load, GixRepo, LineStore, Loaded, Mainline, RepoSource};
+use commitscape_index::{
+    cache_generations, load, GixRepo, LineStore, Loaded, Mainline, RepoSource,
+};
 use commitscape_metrics::Span;
 use commitscape_report::export::{self, Manifest, Since};
 use commitscape_report::pack::{write_pack, Pack, Reading};
@@ -92,8 +94,13 @@ fn read(args: &ExportArgs) -> anyhow::Result<Read> {
     let mut graph = (!truncated)
         .then(|| CommitGraph::of(&repo, &options, &loaded.index, loaded.lineage))
         .transpose()?;
+    let generation = loaded.columns.at.as_ref().map(|(_, g)| *g);
+    let since = args.since.as_deref().and_then(Mark::parse);
+    let extends = since
+        .and_then(|m| m.generation)
+        .is_some_and(|g| cache_generations(&options, &loaded.index.repo).contains(&g));
     let known = match (&args.after, args.lineage) {
-        (Some(file), Some(lineage)) if lineage == loaded.lineage => match &graph {
+        (Some(file), Some(lineage)) if lineage == loaded.lineage && extends => match &graph {
             Some(g) => g.reached_from(&loaded.index, &frontier(file)?),
             None => repo.ancestors(&frontier(file)?)?.map(|reached| {
                 loaded
@@ -112,11 +119,7 @@ fn read(args: &ExportArgs) -> anyhow::Result<Read> {
         &ignored,
         truncated,
     );
-    let held = args
-        .since
-        .as_deref()
-        .and_then(Mark::parse)
-        .filter(|m| known.is_some() && m.fingerprint == fingerprint);
+    let held = since.filter(|m| known.is_some() && m.fingerprint == fingerprint);
     let before = held.and_then(|m| m.head).filter(|_| !truncated);
     let (mainline, moved) = match graph.as_mut() {
         Some(g) => {
@@ -163,6 +166,7 @@ fn read(args: &ExportArgs) -> anyhow::Result<Read> {
             (None, None) => None,
         },
         fingerprint,
+        generation,
     };
     mark_ignored(&mut loaded.index, &ignored);
     let accounts = with_accounts(&repo, &options, &mut loaded.index, given.as_ref())?;

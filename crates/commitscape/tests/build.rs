@@ -1,6 +1,7 @@
 #![allow(clippy::expect_used)]
 #![allow(clippy::indexing_slicing)]
 
+use std::collections::HashMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -469,9 +470,8 @@ fn a_build_after_the_mark_the_site_holds_writes_only_what_changed_since() {
     let mut lost = counted.clone();
     lost["mark"] = "not a mark".into();
     let resent = build("resent", &[], Some(&lost));
+    assert_eq!(resent["full"], true);
     assert_eq!(resent["changes_only"], false);
-    assert_eq!(resent["mainline_rows"], 7);
-    assert_eq!(resent["lines_rows"], counted["lines_rows"]);
 }
 
 fn committed(repo: &Path, files: &[(&str, &str)], when: u64) {
@@ -630,6 +630,17 @@ fn builds_from_the_kept_columns_write_what_builds_from_the_cache_write_warm_and_
             without.iter().map(|f| &f.0).collect::<Vec<_>>()
         );
         for ((name, a), (_, b)) in with.iter().zip(&without) {
+            if name == "manifest.json" {
+                let without_generation = |bytes: &[u8]| {
+                    let mut v: Value = serde_json::from_slice(bytes).expect("json");
+                    let mark = v["mark"].as_str().unwrap_or("").to_string();
+                    let parts: Vec<&str> = mark.split('.').take(4).collect();
+                    v["mark"] = parts.join(".").into();
+                    v
+                };
+                assert_eq!(without_generation(a), without_generation(b), "step {step}");
+                continue;
+            }
             assert!(a == b, "step {step}: {name} differs");
         }
         assert_eq!(
@@ -991,4 +1002,148 @@ fn a_file_that_stops_being_left_out_has_its_lines_counted_on_the_next_build() {
     assert_eq!(before[0]["lines_added"], Value::from(3));
     assert_eq!(cold[0]["lines_added"], Value::from(6));
     assert_eq!(warm, cold);
+}
+
+fn committed_by(repo: &Path, who: &str, subject: &str, files: &[(&str, &str)], when: u64) {
+    for (path, text) in files {
+        std::fs::write(repo.join(path), text).expect("a file");
+    }
+    let date = format!("@{when} +0000");
+    let email = format!("{who}@example.com");
+    for args in [vec!["add", "-A"], vec!["commit", "-q", "-m", subject]] {
+        let out = Command::new("git")
+            .current_dir(repo)
+            .args(&args)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_AUTHOR_NAME", who)
+            .env("GIT_AUTHOR_EMAIL", &email)
+            .env("GIT_COMMITTER_NAME", who)
+            .env("GIT_COMMITTER_EMAIL", &email)
+            .env("GIT_AUTHOR_DATE", &date)
+            .env("GIT_COMMITTER_DATE", &date)
+            .output()
+            .expect("git");
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+}
+
+fn copy_dir(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).expect("a folder");
+    for entry in std::fs::read_dir(from).expect("a folder").flatten() {
+        let target = to.join(entry.file_name());
+        if entry.file_type().expect("a type").is_dir() {
+            copy_dir(&entry.path(), &target);
+        } else {
+            std::fs::copy(entry.path(), &target).expect("a copy");
+        }
+    }
+}
+
+#[derive(Default)]
+struct Loaded {
+    commits: HashMap<String, (String, String)>,
+    people: HashMap<String, String>,
+}
+
+impl Loaded {
+    fn load(&mut self, out: &Path) {
+        if json(&out.join("manifest.json"))["full"] == true {
+            self.commits.clear();
+        }
+        for row in rows(&out.join("commits.tsv")) {
+            self.commits
+                .insert(row[0].clone(), (row[4].clone(), row[8].clone()));
+        }
+        self.people = rows(&out.join("people.tsv"))
+            .into_iter()
+            .map(|row| (row[0].clone(), row[1].clone()))
+            .collect();
+    }
+
+    fn author_of(&self, subject: &str) -> Option<&str> {
+        let (signature, _) = self.commits.values().find(|(_, s)| s == subject)?;
+        self.people.get(signature).map(String::as_str)
+    }
+}
+
+#[test]
+fn a_cache_brought_back_from_an_older_state_never_appends_onto_rows_another_cache_wrote() {
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let repo = dir.path().join("repo");
+    std::fs::create_dir(&repo).expect("a folder");
+    git(&[
+        "-C",
+        repo.to_str().expect("a path"),
+        "init",
+        "-q",
+        "-b",
+        "main",
+    ]);
+    committed_by(&repo, "ada", "feat: a", &[("a.rs", "1\n")], 1_700_000_000);
+    let cache = dir.path().join("cache");
+    let build = |name: &str, after: Option<&Value>| -> (PathBuf, Value) {
+        let out = dir.path().join(name);
+        let mut args = vec!["build", "--offline", "--cache-key", "acme/rocket"];
+        let frontier = dir.path().join(format!("{name}.frontier"));
+        let (lineage, mark);
+        let mut paths: Vec<&Path> = Vec::new();
+        if let Some(m) = after {
+            let tips: Vec<&str> = m["frontier"]
+                .as_array()
+                .expect("a frontier")
+                .iter()
+                .filter_map(Value::as_str)
+                .collect();
+            std::fs::write(&frontier, tips.join("\n")).expect("the frontier");
+            lineage = m["lineage"].as_str().unwrap_or("").to_string();
+            mark = m["mark"].as_str().unwrap_or("").to_string();
+            args.extend_from_slice(&["--lineage", &lineage, "--since", &mark, "--after"]);
+            paths.push(&frontier);
+        }
+        paths.extend_from_slice(&[
+            Path::new("--cache-dir"),
+            &cache,
+            Path::new("--out"),
+            &out,
+            &repo,
+        ]);
+        commitscape(&args, &paths);
+        let manifest = json(&out.join("manifest.json"));
+        (out, manifest)
+    };
+    let mut postgres = Loaded::default();
+    let (out, first) = build("first", None);
+    postgres.load(&out);
+    let kept = dir.path().join("kept");
+    copy_dir(&cache, &kept);
+    committed_by(&repo, "pat", "feat: p", &[("p.rs", "p\n")], 1_700_086_400);
+    let (out, second) = build("second", Some(&first));
+    assert_eq!(second["full"], false);
+    postgres.load(&out);
+    committed_by(&repo, "quinn", "feat: q", &[("q.rs", "q\n")], 1_700_172_800);
+    let (out, third) = build("third", Some(&second));
+    assert_eq!(third["full"], false);
+    postgres.load(&out);
+    assert_eq!(postgres.author_of("feat: p"), Some("pat"));
+    std::fs::remove_dir_all(&cache).expect("the cache");
+    copy_dir(&kept, &cache);
+    committed_by(&repo, "ada", "feat: r", &[("r.rs", "r\n")], 1_700_259_200);
+    let (out, fourth) = build("fourth", Some(&third));
+    postgres.load(&out);
+    assert_eq!(fourth["full"], true);
+    for (subject, who) in [
+        ("feat: a", "ada"),
+        ("feat: p", "pat"),
+        ("feat: q", "quinn"),
+        ("feat: r", "ada"),
+    ] {
+        assert_eq!(postgres.author_of(subject), Some(who), "{subject}");
+    }
+    let (out, fifth) = build("fifth", Some(&fourth));
+    postgres.load(&out);
+    assert_eq!(fifth["full"], false);
 }

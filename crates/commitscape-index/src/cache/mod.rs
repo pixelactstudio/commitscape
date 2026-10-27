@@ -27,6 +27,13 @@ pub use location::default_cache_root;
 const LOAD_LOCK: &str = "index.load";
 
 /// The folder a repository's cache lives in: named by the cache key when one is given, so every clone of one repository shares it, or else by the clone's path.
+/// The generations a repository's cache passed through, oldest first, the current one last: a generation in it was made from each before it, so the cache's ids extend that generation's. Empty without a cache.
+pub fn cache_generations(options: &CacheOptions, repo: &RepoIdentity) -> Vec<u64> {
+    repo_dir(options, repo)
+        .map(|dir| format::generations(&dir))
+        .unwrap_or_default()
+}
+
 pub fn repo_dir(options: &CacheOptions, repo: &RepoIdentity) -> Option<PathBuf> {
     let root = options.root.as_deref()?;
     Some(match options.key.as_deref() {
