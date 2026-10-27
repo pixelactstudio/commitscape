@@ -145,6 +145,22 @@ impl Question for Under {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Search {
+    #[serde(default)]
+    pub query: CommitQuery,
+    #[serde(default)]
+    pub cursor: Option<String>,
+}
+
+impl Question for Search {
+    const PATH: &'static str = "/v1/commits/search";
+
+    fn answer(&self, held: &LoadedPack) -> serde_json::Result<Vec<u8>> {
+        serde_json::to_vec(&commits::search(held, &self.query, self.cursor.as_deref()))
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Insight {
     pub number: u64,
     #[serde(default)]

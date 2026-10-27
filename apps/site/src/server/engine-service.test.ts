@@ -174,6 +174,8 @@ async function ask(engine: EngineService, pack: string, endpoint: string, body: 
       return engine.codeLog(pack, b.path, b.page);
     case "/v1/commits/under":
       return engine.under(pack, b.path, b.query, b.cursor, b.said ?? null);
+    case "/v1/commits/search":
+      return engine.search(pack, b.query, b.cursor);
     case "/v1/pulls/insight":
       return engine.insight(pack, b.number, b.paths, b.author, b.named);
     case "/v1/universe/rows":

@@ -511,6 +511,70 @@ async fn the_code_window_and_the_universe_are_answered_from_the_pack() {
 }
 
 #[tokio::test]
+async fn commits_are_searched_by_their_words_in_the_engine_as_the_commit_list_searches_them() {
+    let s = setup().await;
+    let search = |query: Value| {
+        let app = s.app.clone();
+        async move {
+            let (status, found) = call(
+                &app,
+                "/v1/commits/search",
+                Some(TOKEN),
+                Some(json!({ "pack": ROCKET, "query": query })),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK);
+            found
+        }
+    };
+    let all = search(json!({})).await;
+    assert_eq!(all["total"], 3);
+    let newest_first = all["shas"].clone();
+    assert_eq!(
+        search(json!({ "q": "FIRST" })).await["shas"],
+        json!([newest_first[2]])
+    );
+    assert_eq!(search(json!({ "q": "feat first" })).await["total"], 1);
+    assert_eq!(search(json!({ "q": "feat nothing" })).await["total"], 0);
+    assert_eq!(
+        search(json!({ "q": "bob" })).await["shas"],
+        json!([newest_first[1]])
+    );
+    assert_eq!(search(json!({ "q": "ada" })).await["total"], 2);
+    assert_eq!(
+        search(json!({ "q": "ada", "merges": 0, "since": (DAY0 + DAY) / DAY })).await["shas"],
+        json!([newest_first[0]])
+    );
+    let first = search(json!({ "limit": 2 })).await;
+    assert_eq!(
+        (
+            first["total"].clone(),
+            first["shas"].as_array().map(Vec::len)
+        ),
+        (json!(3), Some(2))
+    );
+    let (_, rest) = call(
+        &s.app,
+        "/v1/commits/search",
+        Some(TOKEN),
+        Some(json!({ "pack": ROCKET, "query": { "limit": 2 }, "cursor": first["next"] })),
+    )
+    .await;
+    assert_eq!(
+        (rest["shas"].clone(), rest["next"].clone()),
+        (json!([newest_first[2]]), Value::Null)
+    );
+    let (_, under) = call(
+        &s.app,
+        "/v1/commits/under",
+        Some(TOKEN),
+        Some(json!({ "pack": ROCKET, "path": "src/", "query": { "q": "bob" } })),
+    )
+    .await;
+    assert_eq!(under["shas"], json!([newest_first[1]]));
+}
+
+#[tokio::test]
 async fn the_universe_rows_are_what_the_atlas_is_made_from() {
     let s = setup().await;
     let (status, rows) = call(

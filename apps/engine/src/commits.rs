@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use commitscape_core::{CommitMeta, Index, Oid};
+use commitscape_core::{AuthorId, CommitMeta, Index, Oid};
 use serde::{Deserialize, Serialize};
 
 use crate::loaded::LoadedPack;
@@ -32,6 +32,87 @@ pub struct CommitQuery {
     pub hour: Option<f64>,
     #[serde(default)]
     pub limit: Option<f64>,
+    #[serde(default)]
+    pub merges: Option<f64>,
+    #[serde(default)]
+    pub q: Option<String>,
+}
+
+const WORDS_MAX: usize = 12;
+
+/// The words of a search, as the Site's `wordsOf` splits them: lowercased, split at whitespace, at most twelve.
+pub fn words_of(q: Option<&str>) -> Vec<String> {
+    q.unwrap_or_default()
+        .to_lowercase()
+        .split_whitespace()
+        .take(WORDS_MAX)
+        .map(str::to_string)
+        .collect()
+}
+
+fn contains(text: &str, word: &str) -> bool {
+    if text.is_ascii() && word.is_ascii() {
+        let (t, w) = (text.as_bytes(), word.as_bytes());
+        return w.is_empty() || t.windows(w.len()).any(|x| x.eq_ignore_ascii_case(w));
+    }
+    text.to_lowercase().contains(word)
+}
+
+struct Words {
+    words: Vec<String>,
+    people: Vec<HashSet<AuthorId>>,
+    unknown: Vec<bool>,
+}
+
+impl Words {
+    fn of(held: &LoadedPack, q: Option<&str>) -> Words {
+        let words = words_of(q);
+        let index = &held.pack.index;
+        let named: Vec<(AuthorId, String)> = index
+            .authors
+            .iter()
+            .map(|(id, a)| {
+                let login = held.person(id).login.unwrap_or_default();
+                (id, format!("{} {login}", a.name).to_lowercase())
+            })
+            .collect();
+        Words {
+            people: words
+                .iter()
+                .map(|w| {
+                    named
+                        .iter()
+                        .filter(|(_, n)| n.contains(w.as_str()))
+                        .map(|(id, _)| *id)
+                        .collect()
+                })
+                .collect(),
+            unknown: words
+                .iter()
+                .map(|w| "someone unknown ".contains(w.as_str()))
+                .collect(),
+            words,
+        }
+    }
+
+    fn keep(&self, index: &Index, c: &CommitMeta) -> bool {
+        if self.words.is_empty() {
+            return true;
+        }
+        let subject = index
+            .subjects
+            .get(c.subject())
+            .map(String::from_utf8_lossy)
+            .unwrap_or_default();
+        let author = index.author_of(c);
+        self.words.iter().enumerate().all(|(i, w)| {
+            contains(&subject, w)
+                || match author {
+                    Some(a) => self.people.get(i).is_some_and(|p| p.contains(&a)),
+                    None => self.unknown.get(i).copied().unwrap_or(false),
+                }
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -62,6 +143,7 @@ fn keeps(index: &Index, q: &CommitQuery, c: &CommitMeta) -> bool {
         q.weekday.is_none_or(|w| ((day + 3) % 7) as f64 == w),
         q.hour
             .is_none_or(|h| (local % DAY).div_euclid(HOUR) as f64 == h),
+        q.merges.is_none_or(|m| m != 0.0 || !c.is_merge()),
     ];
     tests.iter().all(|&t| t)
 }
@@ -179,15 +261,40 @@ pub fn under(
     said: Option<&[String]>,
 ) -> Under {
     let index = &held.pack.index;
-    let limit = page_limit(query.limit);
     let said: Option<HashSet<Oid>> = said.map(|s| s.iter().filter_map(|x| oid_of(x)).collect());
+    let words = Words::of(
+        held,
+        if said.is_some() {
+            None
+        } else {
+            query.q.as_deref()
+        },
+    );
     let matched: Vec<&CommitMeta> = held
         .under(path)
         .iter()
         .filter_map(|&c| index.commits.get(c as usize))
-        .filter(|c| keeps(index, query, c))
+        .filter(|c| keeps(index, query, c) && words.keep(index, c))
         .filter(|c| said.as_ref().is_none_or(|s| s.contains(&c.id)))
         .collect();
+    paged(matched, query, cursor)
+}
+
+/// One page of every commit that matches the query, words and all, newest first, from the cursor on, with how many matched and the cursor of the next page, as the Site's Commit List finds them in Postgres.
+pub fn search(held: &LoadedPack, query: &CommitQuery, cursor: Option<&str>) -> Under {
+    let index = &held.pack.index;
+    let words = Words::of(held, query.q.as_deref());
+    let matched: Vec<&CommitMeta> = index
+        .commits
+        .iter()
+        .rev()
+        .filter(|c| keeps(index, query, c) && words.keep(index, c))
+        .collect();
+    paged(matched, query, cursor)
+}
+
+fn paged(matched: Vec<&CommitMeta>, query: &CommitQuery, cursor: Option<&str>) -> Under {
+    let limit = page_limit(query.limit);
     let start = match cursor.and_then(after_of) {
         Some((at, sha)) => matched.partition_point(|c| {
             !(c.time < at || (c.time == at && c.id.to_hex().as_str() < sha.as_str()))

@@ -44,17 +44,6 @@ function conditions(ask: Omit<IndexCommitAsk, "link">, who: Who[]): SQL[] {
   return where;
 }
 
-/** The shas of every commit of a Stored Index a query matches, newest first. */
-export async function indexCommitShas(db: Db, ask: Omit<IndexCommitAsk, "link" | "cursor" | "limit">): Promise<string[]> {
-  const where = conditions(ask, await peopleOf(db, ask.si));
-  const rows = await db
-    .select({ sha: sql<string>`encode(${indexCommits.sha}, 'hex')` })
-    .from(indexCommits)
-    .where(and(...where))
-    .orderBy(desc(indexCommits.at), desc(indexCommits.sha));
-  return rows.map((r) => r.sha);
-}
-
 /** One page of a Stored Index's commits, newest first: every word in the subject or in the name or login of who made it, narrowed by person, kind, time and the commits named. */
 export async function indexCommitPage(db: Db, ask: IndexCommitAsk): Promise<CommitPage | null> {
   const [index] = await db.select({ commits: storedIndexes.commits, lines: storedIndexes.lines }).from(storedIndexes).where(eq(storedIndexes.id, ask.si));

@@ -369,6 +369,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route(questions::Story::PATH, post(asked::<questions::Story>))
         .route(questions::CodeLog::PATH, post(asked::<questions::CodeLog>))
         .route(questions::Under::PATH, post(asked::<questions::Under>))
+        .route(questions::Search::PATH, post(asked::<questions::Search>))
         .route(questions::Insight::PATH, post(asked::<questions::Insight>));
     let v1 = v1.route_layer(middleware::from_fn_with_state(engine.clone(), authorized));
     Router::new()

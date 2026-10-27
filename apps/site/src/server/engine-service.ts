@@ -42,6 +42,7 @@ export type EngineService = {
   story(pack: string, path: string): Promise<Story>;
   codeLog(pack: string, path: string, page: number): Promise<CodeLog>;
   under(pack: string, path: string, query: CommitQuery, cursor: string | undefined, said: string[] | null): Promise<UnderPage>;
+  search(pack: string, query: CommitQuery, cursor: string | undefined): Promise<UnderPage>;
   insight(pack: string, number: number, paths: string[], author: string | null, named: Named[]): Promise<PullInsight>;
   universeRows(pack: string): Promise<AtlasRows>;
   warm(pack: string, keys: string[]): Promise<number>;
@@ -74,6 +75,7 @@ export function engineOver(post: Post): EngineService {
     story: (pack, path) => json("/v1/code/story", { pack, path }),
     codeLog: (pack, path, page) => json("/v1/code/log", { pack, path, page }),
     under: (pack, path, query, cursor, said) => json("/v1/commits/under", { pack, path, query, ...(cursor === undefined ? {} : { cursor }), said }),
+    search: (pack, query, cursor) => json("/v1/commits/search", { pack, query, ...(cursor === undefined ? {} : { cursor }) }),
     insight: (pack, number, paths, author, named) => json("/v1/pulls/insight", { pack, number, paths, author, named }),
     universeRows: (pack) => json("/v1/universe/rows", { pack }),
     warm: async (pack, keys) => (await json<{ made: number }>("/v1/warm", { pack, keys })).made,
