@@ -506,6 +506,7 @@ export const storedIndexes = pgTable(
     snapshot: jsonb("snapshot").$type<IndexSnapshot>(),
     pack: text("pack"),
     mark: text("mark"),
+    buildFormat: integer("build_format"),
   },
   (t) => [index("stored_indexes_repo").on(t.repoId)],
 );

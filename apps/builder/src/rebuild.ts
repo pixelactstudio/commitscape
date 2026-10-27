@@ -1,9 +1,9 @@
-import { and, eq, inArray, isNull, notExists, or, isNotNull } from "drizzle-orm";
-import { PRIORITY, queueBuild, schema, type Db, type Queue } from "@commitscape/server";
+import { and, eq, inArray, isNull, ne, notExists, or, isNotNull } from "drizzle-orm";
+import { BUILD_FORMAT, PRIORITY, queueBuild, schema, type Db, type Queue } from "@commitscape/server";
 
 const { builds, repositories, storedIndexes } = schema;
 
-/** Queues a Build at the lowest priority for every repository whose live Stored Index has no pack, which the engine service needs to answer for it; not for one already queued or building. */
+/** Queues a Build at the lowest priority for every repository whose live Stored Index has no pack, which the engine service needs to answer for it, or was made by a Build of an earlier release (its build format is not BUILD_FORMAT); not for one already queued or building. */
 export async function queueRebuilds(db: Db, queue: Queue): Promise<{ queued: number; repos: string[] }> {
   const waiting = db
     .select({ id: builds.id })
@@ -13,7 +13,7 @@ export async function queueRebuilds(db: Db, queue: Queue): Promise<{ queued: num
     .select({ id: repositories.id })
     .from(repositories)
     .innerJoin(storedIndexes, and(eq(storedIndexes.id, repositories.indexId), eq(storedIndexes.state, "live")))
-    .where(and(isNull(storedIndexes.pack), or(eq(repositories.status, "ok"), isNotNull(repositories.installationId)), notExists(waiting)))
+    .where(and(or(isNull(storedIndexes.pack), isNull(storedIndexes.buildFormat), ne(storedIndexes.buildFormat, BUILD_FORMAT)), or(eq(repositories.status, "ok"), isNotNull(repositories.installationId)), notExists(waiting)))
     .orderBy(repositories.id);
   for (const r of rows) await queueBuild(db, queue, r.id, PRIORITY.rebuild);
   return { queued: rows.length, repos: rows.map((r) => r.id) };

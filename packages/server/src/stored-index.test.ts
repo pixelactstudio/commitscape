@@ -63,7 +63,7 @@ function writeExport(manifest: Partial<ExportManifest>, commits: Commit[], extra
 }
 
 describe("appendable", () => {
-  const live = { id: 1, lineage: "7", kept: true, frontier: ["a"], lines: true, linesLeft: 0, head: "a", pack: null, mark: null };
+  const live = { id: 1, lineage: "7", kept: true, frontier: ["a"], lines: true, linesLeft: 0, head: "a", pack: null, mark: null, buildFormat: null };
   test("only a kept Stored Index with a frontier takes what is new", () => {
     expect(appendable(live)).toBe(true);
     expect(appendable(null)).toBe(false);

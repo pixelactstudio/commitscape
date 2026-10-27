@@ -36,7 +36,7 @@ export type ExportManifest = {
 
 export const LOADED = "stored_index_loaded";
 
-export type LiveIndex = { id: number; lineage: string; kept: boolean; frontier: string[]; lines: boolean; linesLeft: number | null; head: string | null; pack: string | null; mark: string | null };
+export type LiveIndex = { id: number; lineage: string; kept: boolean; frontier: string[]; lines: boolean; linesLeft: number | null; head: string | null; pack: string | null; mark: string | null; buildFormat: number | null };
 
 export type Loaded = { si: number; full: boolean; commits: number; total: number; mainline: number; lines: number; seconds: number };
 
@@ -67,7 +67,7 @@ async function readSnapshot(dir: string): Promise<IndexSnapshot | null> {
 /** The repository's live Stored Index, or null when it has none. */
 export async function liveIndex(db: Db, repoId: string): Promise<LiveIndex | null> {
   const [row] = await db
-    .select({ id: storedIndexes.id, lineage: storedIndexes.lineage, kept: storedIndexes.kept, frontier: storedIndexes.frontier, lines: storedIndexes.lines, linesLeft: storedIndexes.linesLeft, head: storedIndexes.head, pack: storedIndexes.pack, mark: storedIndexes.mark })
+    .select({ id: storedIndexes.id, lineage: storedIndexes.lineage, kept: storedIndexes.kept, frontier: storedIndexes.frontier, lines: storedIndexes.lines, linesLeft: storedIndexes.linesLeft, head: storedIndexes.head, pack: storedIndexes.pack, mark: storedIndexes.mark, buildFormat: storedIndexes.buildFormat })
     .from(repositories)
     .innerJoin(storedIndexes, eq(storedIndexes.id, repositories.indexId))
     .where(eq(repositories.id, repoId));

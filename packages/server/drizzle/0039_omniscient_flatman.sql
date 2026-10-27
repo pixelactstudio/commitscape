@@ -1,0 +1,1 @@
+ALTER TABLE "stored_indexes" ADD COLUMN "build_format" integer;

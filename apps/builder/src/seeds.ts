@@ -102,7 +102,7 @@ export async function queueSeeds(db: Db, queue: Queue, list: Seed[], budget: num
   const at = now();
   const due = (
     await db
-      .select({ row: repositories, live: { pack: storedIndexes.pack, lines: storedIndexes.lines, linesLeft: storedIndexes.linesLeft, head: storedIndexes.head } })
+      .select({ row: repositories, live: { pack: storedIndexes.pack, lines: storedIndexes.lines, linesLeft: storedIndexes.linesLeft, head: storedIndexes.head, buildFormat: storedIndexes.buildFormat } })
       .from(repositories)
       .leftJoin(storedIndexes, eq(storedIndexes.id, repositories.indexId))
       .where(and(eq(repositories.seed, true), eq(repositories.isPrivate, false)))

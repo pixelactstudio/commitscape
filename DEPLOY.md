@@ -234,9 +234,9 @@ In Schedules, add two jobs for this application:
 | `0 3 * * *` | `node builder.mjs seed` | Queues the night's seed Builds: a seed whose Report is whole is queued only when its head moved (asked of GitHub's GraphQL API, a hundred repositories to a request) and someone viewed it since its last Build, or when its Report is a week old |
 
 `node builder.mjs rebuild` queues a Build, at the lowest priority, for every
-repository whose live Stored Index has no pack. Run it once after upgrading
-from a release without the engine service (see "Upgrading" below), in the
-application's terminal or as a one-off schedule.
+repository whose live Stored Index has no pack, or was made by a Builder of
+an earlier release. Run it once after an upgrade that says so (see
+"Upgrading" below), in the application's terminal or as a one-off schedule.
 
 ## 5. The engine service
 
@@ -493,13 +493,13 @@ this order:
    it decodes as before, the new ones it unpacks once on its volume and
    reads in place. It adds `/v1/commits/search` and matches words in
    `/v1/commits/under`.
-2. Deploy the Builder. Its migrations add `repositories.checked_at` and
-   the `repo_states` table. From then on it ends a Build early when the
-   head has not moved, makes each pack's Atlas and standard screens itself,
-   counts everyone's Surviving Lines once per new Report, and moves a
-   repository to a lean clone once its lines and Surviving Lines are
-   counted. The first Build of each repository makes its commit graph and
-   its Index's columns once (linux: 2.6 s and 13 s).
+2. Deploy the Builder. Its migrations add `repositories.checked_at`, the
+   `repo_states` table and `stored_indexes.build_format`. From then on it
+   ends a Build early when the head has not moved, makes each pack's Atlas
+   and standard screens itself, counts everyone's Surviving Lines once per
+   new Report, and moves a repository to a lean clone once its lines and
+   Surviving Lines are counted. The first Build of each repository makes
+   its commit graph and its Index's columns once (linux: 2.6 s and 13 s).
 3. To keep Repo States in R2 as well, set `STATE_KEY` on the Builder (a
    secret of 32 characters or more, kept only there, never changed after)
    before or with this deploy. Without it the States live on its disk only.
@@ -510,7 +510,14 @@ this order:
    through the engine service, counts a Report found unchanged as current,
    and no longer serves `git/log.json`. Reports published before ask the
    engine service as before until their next Build.
-5. Seeds' Surviving Lines rows of older Reports stay; each repository's
+5. Run `node builder.mjs rebuild` once (on the Builder, from its Terminal
+   in Dokploy). It queues, at the lowest priority, a Build for every
+   repository whose live Stored Index was made by a Builder of an earlier
+   release; its migration adds `stored_indexes.build_format`, which only
+   this release's Builds fill in, and a Report without it is never kept as
+   whole, so those repositories are built again at their next Build anyway.
+   Until then they answer as before, from the engine service.
+6. Seeds' Surviving Lines rows of older Reports stay; each repository's
    next Report gets everyone's. The first count of a large repository
    (linux: about 20 minutes of both cores) shows "counting" until it is
    whole.

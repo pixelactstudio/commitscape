@@ -78,7 +78,7 @@ function fake(answer: (call: Call) => Ran | Promise<Ran> = () => ok, built: Fake
       load: async (dir): Promise<Loaded> => {
         const m = await readManifest(dir);
         loads.push({ full: m.full, lines: m.lines_mainline });
-        index.live = { id: 1, lineage: m.lineage, kept: true, frontier: m.frontier, lines: m.lines_mainline, linesLeft: m.lines_left, head: m.head, pack: null, mark: m.mark };
+        index.live = { id: 1, lineage: m.lineage, kept: true, frontier: m.frontier, lines: m.lines_mainline, linesLeft: m.lines_left, head: m.head, pack: null, mark: m.mark, buildFormat: null };
         return { si: 1, full: m.full, commits: m.commits, total: m.total, mainline: 0, lines: 0, seconds: 0 };
       },
     },
@@ -154,7 +154,7 @@ test("a State is saved or brought back only while no engine run reads or writes 
 
 test("a repository ready to be lean is read from a blobless clone without files, fetching only what its Build reads, and its full clone is let go", async () => {
   const work = await mkdtemp(join(tmpdir(), "builder-"));
-  const live: LiveIndex = { id: 1, lineage: "7", kept: true, frontier: ["f".repeat(40)], lines: true, linesLeft: 0, head: "f".repeat(40), pack: "p", mark: null };
+  const live: LiveIndex = { id: 1, lineage: "7", kept: true, frontier: ["f".repeat(40)], lines: true, linesLeft: 0, head: "f".repeat(40), pack: "p", mark: null, buildFormat: null };
   const f = fake(() => ok, {}, live);
   const asked: string[][] = [];
   f.deps.prefetch = async (dir, _env, frontier) => {
@@ -243,7 +243,7 @@ test("a warm Build brings the kept clone up to date and goes straight to the ful
   const work = await mkdtemp(join(tmpdir(), "builder-"));
   const full = join(work, "repos", "acme", "rocket", "full");
   await mkdir(join(full, ".git"), { recursive: true });
-  const f = fake(() => ok, {}, { id: 1, lineage: "7", kept: true, frontier: ["b".repeat(40)], lines: true, linesLeft: 0, head: "b".repeat(40), pack: "packs/acme/rocket/1/b-lines.pack", mark: null });
+  const f = fake(() => ok, {}, { id: 1, lineage: "7", kept: true, frontier: ["b".repeat(40)], lines: true, linesLeft: 0, head: "b".repeat(40), pack: "packs/acme/rocket/1/b-lines.pack", mark: null, buildFormat: null });
   const outcome = await build(req(), cfg(work), f.deps);
   expect(outcome).toMatchObject({ published: "full", kind: "warm" });
   expect(commands(f.calls)).toEqual(["git rev-parse", "git fetch", "git reset", "signatures", "build"]);
@@ -259,7 +259,7 @@ test("a warm Build brings the kept clone up to date and goes straight to the ful
 
 test("a cold Build of a repository whose Stored Index has lines skips the quick phase, and so does one whose Report has them", async () => {
   const work = await mkdtemp(join(tmpdir(), "builder-"));
-  const f = fake(() => ok, {}, { id: 1, lineage: "7", kept: true, frontier: ["b".repeat(40)], lines: true, linesLeft: 3, head: "b".repeat(40), pack: null, mark: null });
+  const f = fake(() => ok, {}, { id: 1, lineage: "7", kept: true, frontier: ["b".repeat(40)], lines: true, linesLeft: 3, head: "b".repeat(40), pack: null, mark: null, buildFormat: null });
   expect(await build(req(), cfg(work), f.deps)).toMatchObject({ published: "full", kind: "cold" });
   expect(commands(f.calls)).toEqual(["git clone", "git commit-graph", "signatures", "build"]);
   expect(f.published).toEqual(["full"]);

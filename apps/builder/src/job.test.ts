@@ -7,7 +7,7 @@ import { and, eq, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { expect, test } from "vitest";
-import { atlasKey, lendToken, memoryStorage, now, PRIORITY, readManifest, schema, settleRepository, type BuildJob, type Db, type Loaded, type Queue, type SurvivalJob } from "@commitscape/server";
+import { atlasKey, BUILD_FORMAT, lendToken, memoryStorage, now, PRIORITY, readManifest, schema, settleRepository, type BuildJob, type Db, type Loaded, type Queue, type SurvivalJob } from "@commitscape/server";
 import type { Config } from "./config";
 import { cacheDir, inUse, sweep } from "./disk";
 import { fakePerson, flagOf, writeBuilt, type FakeBuild } from "./fake";
@@ -144,6 +144,7 @@ test("a Build makes its pack's Atlas in a process of its own, under the engine's
   await runJob("b1", ctx);
   const [si] = await db.select().from(storedIndexes);
   expect(si?.pack).toBeTruthy();
+  expect(si?.buildFormat).toBe(BUILD_FORMAT);
   expect(ctx.storage.objects.has(atlasKey(si?.id ?? 0, si?.pack ?? "", "map"))).toBe(true);
   expect(ctx.storage.objects.has(atlasKey(si?.id ?? 0, si?.pack ?? "", "names"))).toBe(true);
   expect(order).toEqual(["atlas", "map.bin.br before the publish", "names.bin.br before the publish"]);
@@ -299,7 +300,7 @@ async function wholeReport(db: Db, id: string, head: string, over: Partial<typeo
   await db.insert(repositories).values({ id, owner, name, sizeKb: 10, reportKey: `reports/gh/${id}/b0`, reportAt: now() - 3 * 24 * 3600, reportLines: true, ...over });
   const [si] = await db
     .insert(storedIndexes)
-    .values({ repoId: id, lineage: "7", kept: true, head, frontier: [head], lines: true, linesLeft: 0, pack: `packs/${id}/1/${head}-b0-lines.pack`, state: "live", builtAt: 1 })
+    .values({ repoId: id, lineage: "7", kept: true, head, frontier: [head], lines: true, linesLeft: 0, pack: `packs/${id}/1/${head}-b0-lines.pack`, state: "live", builtAt: 1, buildFormat: BUILD_FORMAT })
     .returning({ id: storedIndexes.id });
   await db.update(repositories).set({ indexId: si?.id ?? null }).where(eq(repositories.id, id));
 }
@@ -324,6 +325,27 @@ test("a Build whose Report is whole and whose head has not moved ends at its hea
   expect(repo?.reportKey).toBe("reports/gh/acme/rocket/b0");
   expect(ctx.captured.map((c) => c[0])).toEqual(["build started", "build unchanged"]);
   expect(packs(ctx)).toEqual([]);
+});
+
+test("a Report published by a Builder of an earlier release is built again even when its head has not moved", async () => {
+  const db = await database();
+  const head = "c".repeat(40);
+  const ran: string[] = [];
+  const base = tools();
+  const ctx = await context(db, {
+    run: async (cmd, args) => {
+      ran.push(`${cmd} ${args[0]}`);
+      return cmd === "git" && args[0] === "ls-remote" ? { ...ok, stdout: `${head}\tHEAD\n` } : base(cmd, args);
+    },
+  });
+  await wholeReport(db, "acme/rocket", head);
+  await db.update(storedIndexes).set({ buildFormat: null });
+  await db.insert(builds).values({ id: "b1", repoId: "acme/rocket", state: "queued", requestedAt: 1 });
+  await runJob("b1", ctx);
+  expect(ran).not.toContain("git ls-remote");
+  expect(ran.some((r) => r.startsWith("commitscape build"))).toBe(true);
+  const live = await db.select().from(storedIndexes).where(eq(storedIndexes.state, "live"));
+  expect(live.map((l) => l.buildFormat)).toEqual([BUILD_FORMAT]);
 });
 
 test("a Build goes on when the head moved, when the Report is not whole, or for quiet Builds and retries, and asks the remote only when the Report is whole", async () => {

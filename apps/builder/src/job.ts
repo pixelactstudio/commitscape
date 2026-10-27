@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { and, eq, sql } from "drizzle-orm";
 import {
+  BUILD_FORMAT,
   type createDb,
   liveIndex,
   LOADED,
@@ -313,7 +314,7 @@ async function publishBuild(ctx: JobContext, phases: Phases, buildId: string, ma
       .where(eq(builds.id, buildId));
     if (!current) return null;
     const [index] = await tx.select({ pack: storedIndexes.pack }).from(storedIndexes).where(eq(storedIndexes.id, si));
-    await tx.update(storedIndexes).set({ pack }).where(eq(storedIndexes.id, si));
+    await tx.update(storedIndexes).set({ pack, buildFormat: BUILD_FORMAT }).where(eq(storedIndexes.id, si));
     await tx
       .update(repositories)
       .set({
