@@ -4,6 +4,7 @@ mod events;
 mod format;
 mod health;
 mod mark;
+mod screens;
 mod share;
 mod signatures;
 mod surviving;
@@ -80,6 +81,11 @@ enum Command {
     /// meta, stats and people.
     #[command(hide = true)]
     Build(build::ExportArgs),
+    /// Work out the standard screens of a pack a Build wrote: the overview,
+    /// activity, people and top of the map of the whole history, the last
+    /// year and the last 90 days, and the stats, as one JSON object.
+    #[command(hide = true)]
+    Screens(screens::ScreensArgs),
 }
 
 #[derive(Args)]
@@ -225,7 +231,9 @@ fn counted_as(command: Option<&Command>) -> Option<&'static str> {
         Some(Command::Health(_)) => Some("health"),
         Some(Command::Surviving(_)) => Some("surviving"),
         Some(Command::Report(_)) => Some("report"),
-        Some(Command::Signatures(_) | Command::Export(_) | Command::Build(_)) => None,
+        Some(
+            Command::Signatures(_) | Command::Export(_) | Command::Build(_) | Command::Screens(_),
+        ) => None,
     }
 }
 
@@ -257,6 +265,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         Some(Command::Signatures(args)) => signatures::run(args),
         Some(Command::Export(args)) => build::export(args),
         Some(Command::Build(args)) => build::build(args),
+        Some(Command::Screens(args)) => screens::run(args),
         None => share::run(cli.share),
     }
 }

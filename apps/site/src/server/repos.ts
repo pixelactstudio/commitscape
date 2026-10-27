@@ -6,6 +6,7 @@ import {
   cachedGet,
   currentAt,
   installationOf,
+  isStoredScreen,
   now,
   PRIORITY,
   queueBuild,
@@ -29,7 +30,7 @@ import { lendToken } from "@commitscape/server";
 import { apiOf, askGitHub, GITHUB_TTL, type GitHubConfig } from "./github";
 import { SiteError } from "./http";
 import { allow, RANGE_LIMIT } from "./limits";
-import { askedKey, isKept, isRange, keptEntry, keptText, packedOf, withPack, wholeDays } from "./answers";
+import { askedKey, isKept, isRange, keptEntry, keptText, packedOf, withPack, wholeDays, type Kept } from "./answers";
 import { answerTimed } from "./telemetry";
 import type { EngineService } from "./engine-service";
 import { jsonOf, type Packed } from "./packed";
@@ -333,6 +334,22 @@ const fromReport = (deps: Deps, reportKey: string, asked: ReturnType<typeof aske
   return found === null ? null : limited(asked.path, topOf(asked.params), found);
 };
 
+const unstored = new Set<string>();
+const UNSTORED_MAX = 50_000;
+
+/** A standard screen a Build stored with the Report, when the question is one and it is there: read once per Report and question, and kept; a Report written before Builds stored them is asked once. */
+async function storedScreen(deps: Deps, reportKey: string | null, asked: ReturnType<typeof askedKey>, browser = false): Promise<Kept | null> {
+  if (!reportKey || !isStoredScreen(asked.path, asked.params)) return null;
+  const at = `${reportKey}#${keyOf(asked.path, withoutTop(asked.params))}`;
+  if (unstored.has(at)) return null;
+  const kept = await keptEntry(`${reportKey}#${asked.key}`, fromReport(deps, reportKey, asked), browser);
+  if (!kept) {
+    if (unstored.size >= UNSTORED_MAX) unstored.clear();
+    unstored.add(at);
+  }
+  return kept;
+}
+
 /** One answer of a pack as JSON packed to send, asked of the engine service once per pack and question; a range of dates not asked before counts against the address's limit. Null when there is no such answer. */
 function packedAnswer(deps: Deps, viewer: Viewer, pack: string, asked: ReturnType<typeof askedKey>): Promise<Packed | null> {
   const kept = `${pack}#${asked.key}`;
@@ -352,6 +369,11 @@ export async function reportEntry(deps: Deps, viewer: Viewer, owner: string, nam
   const started = performance.now();
   const row = await readable(deps, viewer, owner, name);
   const asked = questionOf(key);
+  const stored = await storedScreen(deps, row.reportKey, asked);
+  if (stored) {
+    answerTimed(asked.path, "stored", performance.now() - started);
+    return stored.value;
+  }
   const found = await withPack(deps.db, row.indexId, (pack) => packedAnswer(deps, viewer, pack, asked), row.reportAt);
   if (found) {
     if (found.value === null) return null;
@@ -374,6 +396,14 @@ export async function reportAnswer(deps: Deps, viewer: Viewer, owner: string, na
   const pinned = at !== null && at === row.reportAt;
   const cacheControl = row.isPrivate ? "private, max-age=60" : pinned ? `public, max-age=${YEAR}, immutable` : "public, max-age=60";
   const tagOf = (version: string) => `"${sha256(`${version}\n${asked.key}`).slice(0, 32)}"`;
+  if (row.reportKey && isStoredScreen(asked.path, asked.params)) {
+    const etag = tagOf(row.reportKey);
+    const stored = matches(seen, etag) ? null : await storedScreen(deps, row.reportKey, asked, true);
+    if (matches(seen, etag) || stored) {
+      answerTimed(asked.path, "stored", performance.now() - started);
+      return { packed: stored ? await packedOf(stored) : null, etag, cacheControl };
+    }
+  }
   const found = await withPack(deps.db, row.indexId, async (pack) => {
     const etag = tagOf(pack);
     if (matches(seen, etag)) return { packed: null, etag };

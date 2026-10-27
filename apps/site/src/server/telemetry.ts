@@ -9,7 +9,7 @@ export const SERVER_FN_ROUTE = "/_serverFn";
 
 export type EngineOutcome = "ok" | "no_answer" | "no_pack" | "refused" | "failed" | "timeout" | "unreachable";
 
-export type AnswerSource = "engine" | "report" | "unchanged";
+export type AnswerSource = "engine" | "report" | "stored" | "unchanged";
 
 type Scored = { route: string; literal: number; length: number; splat: boolean };
 

@@ -6,6 +6,7 @@ use rayon::prelude::*;
 use serde::Serialize;
 
 use crate::api;
+use crate::screens::key;
 
 const PROFILES: usize = 30;
 
@@ -121,28 +122,6 @@ struct Inlined {
     meta: api::Meta,
     data: BTreeMap<String, serde_json::Value>,
     stats: api::Stats,
-}
-
-fn key(path: &str, params: &[(&str, &str)]) -> String {
-    let mut params = params.to_vec();
-    params.sort();
-    let query: Vec<String> = params
-        .iter()
-        .map(|(k, v)| format!("{k}={}", encode(v)))
-        .collect();
-    format!("{path}?{}", query.join("&"))
-}
-
-fn encode(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for b in s.bytes() {
-        if b.is_ascii_alphanumeric() || b"-_.!~*'()".contains(&b) {
-            out.push(b as char);
-        } else {
-            out.push_str(&format!("%{b:02X}"));
-        }
-    }
-    out
 }
 
 fn value(answer: impl Serialize) -> Option<serde_json::Value> {

@@ -334,6 +334,31 @@ async fn a_pack_of_the_format_before_answers_as_the_same_pack_does_unpacked() {
 }
 
 #[tokio::test]
+async fn the_standard_screens_worked_out_ahead_are_the_engines_answers() {
+    let s = setup().await;
+    let screens = commitscape_report::screens::standard(&pack("acme/rocket"));
+    assert_eq!(screens.len(), 13);
+    for (key, want) in screens {
+        let (path, query) = key.split_once('?').unwrap();
+        let params: serde_json::Map<String, Value> = query
+            .split('&')
+            .filter(|q| !q.is_empty())
+            .map(|q| {
+                let (k, v) = q.split_once('=').unwrap();
+                (k.to_string(), json!(v))
+            })
+            .collect();
+        let (status, got) = ask(
+            &s.app,
+            json!({ "pack": ROCKET, "path": path, "params": params }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{key}");
+        assert_eq!(got, want, "{key}");
+    }
+}
+
+#[tokio::test]
 async fn questions_with_no_answer_say_so() {
     let s = setup().await;
     for (path, params) in [

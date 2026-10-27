@@ -45,6 +45,27 @@ export async function storeReport(storage: Storage, prefix: string, gzipped: Uin
   return { index, bytes };
 }
 
+/** The Windows whose screens every Build works out ahead and stores with its Report. */
+export const SCREEN_WINDOWS = ["all", "1y", "90d"];
+
+const SCREENS = new Set(["/api/overview", "/api/activity", "/api/people", "/api/map"]);
+
+/** Whether a question, without its `top`, is one of the screens a Build stores with its Report: the stats, or the overview, activity, people or top of the map of a stored Window. */
+export function isStoredScreen(path: string, params: Record<string, unknown>): boolean {
+  const asked = Object.keys(params).filter((k) => k !== "top");
+  if (path === "/api/stats") return asked.length === 0;
+  return SCREENS.has(path) && asked.length === 1 && asked[0] === "window" && SCREEN_WINDOWS.includes(String(params.window));
+}
+
+/** Stores answers a Build worked out ahead with its Report, one R2 object per answer, read back by `readEntry`. */
+export async function storeEntries(storage: Storage, prefix: string, data: Record<string, unknown>): Promise<number> {
+  const writes: [string, Uint8Array][] = Object.entries(data).map(([k, value]) => [entryKey(prefix, k), gz(value)]);
+  for (let i = 0; i < writes.length; i += 16) {
+    await Promise.all(writes.slice(i, i + 16).map(([key, body]) => storage.put(key, body, { type: "application/json", encoding: "gzip" })));
+  }
+  return writes.length;
+}
+
 const cache = new LRUCache<string, { value: unknown }>({ maxSize: 256 * 1024 * 1024 });
 
 async function readJson<T>(storage: Storage, key: string): Promise<T | null> {

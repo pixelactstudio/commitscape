@@ -2,7 +2,7 @@ import { brotliDecompressSync, gunzipSync, gzipSync } from "node:zlib";
 import { eq } from "drizzle-orm";
 import { describe, expect, test } from "vitest";
 import { key, limited, OVERVIEW_TOP, topOf, type People, type Params } from "@commitscape/data";
-import { now, schema, seedIndex, sha256, storeReport, type SeedIndex } from "@commitscape/server";
+import { now, schema, seedIndex, sha256, storeEntries, storeReport, type SeedIndex } from "@commitscape/server";
 import { fakeEngine, packed, testDeps, viewer, type Asked } from "#/test/deps";
 import { forgetPack, packOf, wholeDays } from "./answers";
 import { NoPack } from "./engine-service";
@@ -65,6 +65,24 @@ describe("a Report's answers as plain JSON", () => {
     expect((await reportAnswer(deps, viewer(), "acme", "rocket", overview, 1)).cacheControl).toBe("public, max-age=60");
     expect((await reportAnswer(deps, viewer(), "acme", "rocket", overview, null)).packed).toBe(sent.packed);
     expect(engine.asked).toHaveLength(1);
+  });
+
+  test("a Build stored with its Report are sent without asking the engine service, cut the same way and kept for good when pinned; other questions still ask it", async () => {
+    const { deps, engine } = await stored();
+    await deps.db.insert(repositories).values({ id: "acme/stored", owner: "acme", name: "stored", githubId: 3, status: "ok", factsAt: now(), reportKey: "reports/gh/acme/stored/b2", reportAt: 900 });
+    await packed(deps.db, await seedIndex(deps.db, "acme/stored", seed));
+    await storeEntries(deps.storage, "reports/gh/acme/stored/b2", { [overview]: { window: "all", commits: 9 }, [key("/api/people", { window: "all" })]: people });
+    const sent = await reportAnswer(deps, viewer(), "acme", "stored", key("/api/overview", { window: "all", top: OVERVIEW_TOP }), 900);
+    expect(sent.cacheControl).toBe("public, max-age=31536000, immutable");
+    expect(await brotliJson(sent)).toEqual({ window: "all", commits: 9 });
+    expect(await reportEntry(deps, viewer(), "acme", "stored", overview)).toEqual({ window: "all", commits: 9 });
+    const cut = (await brotliJson(await reportAnswer(deps, viewer(), "acme", "stored", key("/api/people", { window: "all", top: 1 }), 900))) as People & { count: number };
+    expect([cut.people.length, cut.count]).toEqual([1, 2]);
+    expect((await reportAnswer(deps, viewer(), "acme", "stored", key("/api/overview", { window: "all", top: OVERVIEW_TOP }), 900, sent.etag)).packed).toBeNull();
+    expect(engine.asked).toEqual([]);
+    expect(await reportEntry(deps, viewer(), "acme", "stored", key("/api/overview", { window: "30d" }))).toEqual({ window: "30d", commits: 3 });
+    expect(await reportEntry(deps, viewer(), "acme", "stored", key("/api/activity", { window: "all" }))).toBeNull();
+    expect(engine.asked.map((a) => a.body.path)).toEqual(["/api/overview", "/api/activity"]);
   });
 
   test("answer an ETag they gave with no body, whatever params the answer does not depend on, and another once the pack is another", async () => {
