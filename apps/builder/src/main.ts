@@ -27,7 +27,8 @@ import { configOf, loadEnv, type Config } from "./config";
 import { inQueueSpan, log, monitored, startTelemetry } from "./telemetry";
 import { cacheDir, inUse, prune, sweep } from "./disk";
 import { runJob } from "./job";
-import { jobLimitOf, run, sharingEngine } from "./run";
+import { admitting } from "./admission";
+import { jobLimitOf, run } from "./run";
 import { pullsToken, readPulls } from "./pulls";
 import { budgetOf, runSurvival } from "./survival";
 import { queueRebuilds } from "./rebuild";
@@ -126,10 +127,10 @@ async function work() {
   const tidyTimed = timed("builder-tidy", TIDY_MINUTES, tidy);
   const tier = cfg.state ? { storage, keys: stateKeys(cfg.state.secret), db, log } : null;
   const saveState = tier ? (repoId: string, root: string) => saveRepoState(tier, repoId, root) : undefined;
-  const ctx = { db, pool, storage, cfg, app, run, github, tokenSecret: env.TOKEN_SECRET, log, telemetry, queuePulls, queueCounts, queueBuild, ...(saveState ? { saveState } : {}) };
-  const buildCtx = { ...ctx, run: sharingEngine(run, [cfg.bin, cfg.atlas.command], cfg.engineSlots) };
+  const engine = admitting(run, [cfg.bin, cfg.atlas.command], cfg.engineMemoryMb);
+  const ctx = { db, pool, storage, cfg, app, run: engine, github, tokenSecret: env.TOKEN_SECRET, log, telemetry, queuePulls, queueCounts, queueBuild, ...(saveState ? { saveState } : {}) };
   const building = (queue: string, job: { id: string; data: BuildJob }) =>
-    inQueueSpan(job, queue, () => runJob(job.data.buildId, buildCtx, job.data.attempt ?? 1, { ...(job.data.userId ? { userId: job.data.userId } : {}), ...(job.data.more ? { more: job.data.more } : {}) }));
+    inQueueSpan(job, queue, () => runJob(job.data.buildId, ctx, job.data.attempt ?? 1, { ...(job.data.userId ? { userId: job.data.userId } : {}), ...(job.data.more ? { more: job.data.more } : {}) }));
   await reapTimed();
   await tidyTimed();
   const reaper = setInterval(() => void reapTimed(), REAP_MINUTES * 60_000);

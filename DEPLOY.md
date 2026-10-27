@@ -194,17 +194,17 @@ Optional, with their defaults:
 
 | Variable | Default | What |
 |---|---|---|
-| `CONCURRENCY` | 1 | Builds at a time, for repositories under `LARGE_REPOSITORY_MB`. Their clones, GitHub reads and Postgres loads overlap; their runs of the engine share `ENGINE_SLOTS` |
-| `ENGINE_SLOTS` | 1 | Runs of the engine at once across every Build, small and large; the rest wait their turn. Surviving Lines has its own. With one slot, let the engine use every core (leave `COMMITSCAPE_THREADS` unset) |
+| `CONCURRENCY` | 1 | Builds at a time, for repositories under `LARGE_REPOSITORY_MB`. Their clones, GitHub reads and Postgres loads overlap; their runs of the engine share `ENGINE_MEMORY_MB` |
+| `ENGINE_MEMORY_MB` | 1200 | Memory the runs of the engine may take at once, across every Build and count of Surviving Lines: each run waits, in the order it asked, until its estimate fits beside the others (a warm build of linux about 230 MB, a cold one about 340, everyone's Surviving Lines about 450, react's about 50 to 200); a run larger than this runs alone. 1200 fits a 3 GiB container with the Builder, git and Postgres loads beside it |
 | `BULK_COMMIT_FILES` | 50 | A commit changing more files than this is a Bulk Commit: left out of Churn, Ownership, Change Coupling and Lines Changed, and passed through by Surviving Lines. A lean clone fetches no file versions for commits changing more than twice as many paths |
 | `COMMITSCAPE_THREADS` | every core, up to 16 | Threads one run of the engine may use |
 | `ENGINE_NICE` | 10 | The engine runs at this lower priority (0 to 19), so git, the database and the Builder stay responsive |
 | `LINES_BUDGET_SECONDS` | 120 | How long a Build's line pass may count Lines Changed, the Mainline first, newest first. Lines show once the Mainline's are counted; the commits left are counted by a quiet Build queued a minute later (three at most), and by the next Build |
 | `MORE_LINES_BUDGET_SECONDS` | 600 | How long such a quiet Build may count, kept two minutes inside `TIME_LIMIT_SECONDS`: nobody waits for it, so it counts what is left in one go and publishes once |
-| `ATLAS_QUALITY` | 5 | The brotli quality the Builder packs each pack's Universe Atlas with, 1 to 11. On linux 5 takes 4.8 CPU-s for a 7.8 MB map and 11 takes 35 CPU-s for 6.6 MB; the Atlas is made once per pack, in a process of its own that waits for an engine slot |
+| `ATLAS_QUALITY` | 5 | The brotli quality the Builder packs each pack's Universe Atlas with, 1 to 11. On linux 5 takes 4.8 CPU-s for a 7.8 MB map and 11 takes 35 CPU-s for 6.6 MB; the Atlas is made once per pack, in a process of its own that waits for its share of `ENGINE_MEMORY_MB` |
 | `LARGE_REPOSITORY_MB` | 1500 | Repositories larger than this, by GitHub's size, are built in a lane of their own |
 | `LARGE_CONCURRENCY` | 1 | Builds at a time in that lane |
-| `MAX_REPOSITORY_MB` | none | Unset, every repository is cloned, however big; set, larger repositories are refused. Measured on 2 cores (2026-10-27): vercel/next.js (2.6 GB of git, 50,110 commits) clones in 291 s with 163 CPU-s and 0.6 GB, and its first Build counts every line in 19 s with 525 MB; linux (6.6 GB) needs about 1 GB to receive and 1.1 GB for its first Build, and its clone can pass the default `CLONE_TIME_LIMIT_SECONDS`. With `ENGINE_SLOTS` at 1 under a 3 GiB cap, 4000 takes next.js-sized repositories with room to spare; go higher only with a longer clone limit and the disk for one full clone of that size |
+| `MAX_REPOSITORY_MB` | none | Unset, every repository is cloned, however big; set, larger repositories are refused. Measured on 2 cores (2026-10-27): vercel/next.js (2.6 GB of git, 50,110 commits) clones in 291 s with 163 CPU-s and 0.6 GB, and its first Build counts every line in 19 s with 525 MB; linux (6.6 GB) needs about 1 GB to receive and 1.1 GB for its first Build, and its clone can pass the default `CLONE_TIME_LIMIT_SECONDS`. With `ENGINE_MEMORY_MB` at 1200 under a 3 GiB cap, 4000 takes next.js-sized repositories with room to spare; go higher only with a longer clone limit and the disk for one full clone of that size |
 | `TIME_LIMIT_SECONDS` | 900 | How long one run of the binary may take on a Build's first attempt, the clone not included. One that runs out is queued again, each attempt given twice the time, four attempts in all |
 | `CLONE_TIME_LIMIT_SECONDS` | 1800 | How long a clone or fetch may take on the first attempt, doubled with each attempt |
 | `LOGINS_ASKED` | 300 | At most this many commit authors a Build asks GitHub for the login of, a hundred to a GraphQL request; each commit's answer is kept for a year, so a rebuild asks only for new ones |
@@ -498,12 +498,15 @@ this order:
    reads in place. It adds `/v1/commits/search` and matches words in
    `/v1/commits/under`.
 2. Deploy the Builder. Its migrations add `repositories.checked_at`, the
-   `repo_states` table and `stored_indexes.build_format`. From then on it
-   ends a Build early when the head has not moved, makes each pack's Atlas
-   and standard screens itself, counts everyone's Surviving Lines once per
-   new Report, and moves a repository to a lean clone once its lines and
-   Surviving Lines are counted. The first Build of each repository makes
-   its commit graph and its Index's columns once (linux: 2.6 s and 13 s).
+   `repo_states` table and `stored_indexes.build_format`. It no longer
+   reads `ENGINE_SLOTS`, which can go: `ENGINE_MEMORY_MB` (1200) takes its
+   place, and every run of the engine, counts of Surviving Lines too, waits
+   for its share. From then on it ends a Build early when the head has not
+   moved, makes each pack's Atlas and standard screens itself, counts
+   everyone's Surviving Lines once per new Report, and moves a repository
+   to a lean clone once its lines and Surviving Lines are counted. The
+   first Build of each repository makes its commit graph and its Index's
+   columns once (linux: 2.6 s and 13 s).
 3. To keep Repo States in R2 as well, set `STATE_KEY` on the Builder (a
    secret of 32 characters or more, kept only there, never changed after)
    before or with this deploy. Without it the States live on its disk only.

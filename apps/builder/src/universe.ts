@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import { brotliCompress, constants } from "node:zlib";
 import { atlasOf, encodeAtlas, encodeNames, type AtlasCommitRow, type AtlasFileRow, type AtlasPersonRow, type AtlasRows } from "@commitscape/data/universe";
 import { atlasKey, type Storage } from "@commitscape/server";
+import { peakMb } from "./admission";
 import type { AtlasSettings } from "./config";
 import type { Runner } from "./run";
 
@@ -58,10 +59,11 @@ export async function writeAtlas(rows: string, dir: string, quality: number): Pr
 }
 
 /** Makes the Atlas of a Build's pack from the rows `commitscape build` wrote beside it, in a process of its own that takes an engine slot, and stores it where the Site reads it first, so the Site never makes it. False when the Build wrote no rows; throws when the Atlas could not be made. Either way the Site makes it as before. */
-export async function storeAtlas(run: Runner, atlas: AtlasSettings, storage: Storage, made: { si: number; pack: string; dir: string; timeoutMs: number; nice?: number }): Promise<boolean> {
+export async function storeAtlas(run: Runner, atlas: AtlasSettings, storage: Storage, made: { si: number; pack: string; dir: string; timeoutMs: number; nice?: number; commits?: number }): Promise<boolean> {
   const rows = join(made.dir, ROWS);
   if (!existsSync(rows)) return false;
-  const ran = await run(atlas.command, [...atlas.args, "atlas", rows, made.dir, String(atlas.quality)], {}, made.timeoutMs, made.nice === undefined ? {} : { nice: made.nice });
+  const memoryMb = peakMb("atlas", { commits: made.commits ?? 0, sizeKb: 0 });
+  const ran = await run(atlas.command, [...atlas.args, "atlas", rows, made.dir, String(atlas.quality)], {}, made.timeoutMs, { ...(made.nice === undefined ? {} : { nice: made.nice }), memoryMb });
   if (ran.code !== 0) throw new Error(ran.timedOut ? "making the Atlas took too long" : `making the Atlas failed: ${ran.stderr.trim().split("\n").at(-1) ?? ""}`);
   for (const part of ["map", "names"] as const) {
     await storage.put(atlasKey(made.si, made.pack, part), await readFile(join(made.dir, `${part}.bin.br`)), { type: "application/octet-stream", encoding: "br" });

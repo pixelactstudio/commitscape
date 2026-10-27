@@ -65,7 +65,7 @@ type Captured = [string, Who, Record<string, unknown>];
 
 async function context(db: Db, over: Partial<JobContext> = {}, built: FakeBuild | ((args: string[]) => FakeBuild) = {}): Promise<JobContext & { storage: ReturnType<typeof memoryStorage>; captured: Captured[] }> {
   const work = await mkdtemp(join(tmpdir(), "builder-"));
-  const cfg: Config = { bin: "commitscape", threads: undefined, linesBudget: 120, nice: 10, work, concurrency: 1, maxMb: undefined, timeLimit: 60, cloneLimit: 120, largeMb: 1500, largeConcurrency: 1, logins: 300, diskGb: 20, cacheGb: 5, engineSlots: 1, bulkFiles: 50, moreLinesBudget: 600, gitBase: undefined };
+  const cfg: Config = { bin: "commitscape", threads: undefined, linesBudget: 120, nice: 10, work, concurrency: 1, maxMb: undefined, timeLimit: 60, cloneLimit: 120, largeMb: 1500, largeConcurrency: 1, logins: 300, diskGb: 20, cacheGb: 5, engineMemoryMb: 1200, bulkFiles: 50, moreLinesBudget: 600, gitBase: undefined };
   const captured: Captured[] = [];
   const telemetry: Telemetry = { capture: (event, who, properties) => void captured.push([event, who, properties]), stop: async () => {} };
   return {

@@ -140,7 +140,7 @@ queued ones whose job was lost.
 - A Report's standard screens (the stats, and the Overview, Activity,
   People and top of the Map of all history, the last year and the last 90
   days) are worked out once per head: the Builder runs `commitscape screens`
-  on the pack, in a process of its own that takes an engine slot, and
+  on the pack, in a process of its own that waits for its share of `ENGINE_MEMORY_MB`, and
   stores each answer under the Report's prefix in R2 before publishing it
   (`apps/builder/src/screens.ts`). The Site sends those first, kept for good
   when the request is pinned to the Report, with ETags from the Report's
@@ -165,7 +165,7 @@ queued ones whose job was lost.
   commits, a pull request's insight and the Universe's rows come from the
   engine service. The Universe's Atlas is made by the Builder from the
   rows `build` writes beside the pack (`universe.jsonl`), in a process of
-  its own that takes an engine slot (`node builder.mjs atlas`), and stored
+  its own that waits for its share of `ENGINE_MEMORY_MB` (`node builder.mjs atlas`), and stored
   in R2 before the pack is published; the Site sends those bytes, and makes
   the Atlas from the engine service's rows only for a pack the Builder did
   not make one for. Branches, tags and pull requests are rows; file text is

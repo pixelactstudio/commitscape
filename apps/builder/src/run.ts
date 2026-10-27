@@ -6,11 +6,13 @@ import { join } from "node:path";
 import type { BuildFailure, BuildStep } from "@commitscape/data";
 import { appendable, type LiveIndex, type Loaded } from "@commitscape/server";
 import { readSignatures, writeAccountsFile, type Signature } from "./accounts";
+import { peakMb } from "./admission";
 import { cloneUrl, ensureClone, gitEnv, locked, missingIn, tipsOf, type Cloned } from "./clone";
 import type { Config } from "./config";
 import { cacheFor, holdingCache, privateDir, repoDir, scratchDir } from "./disk";
 import { readBuilt, readEvents, type Built } from "./engine";
 import { prefetch } from "./lean";
+import { hasCache } from "./state";
 import { engineSpans, Phases } from "./telemetry";
 
 export type BuildTarget = {
@@ -65,7 +67,7 @@ export function jobLimitOf(cfg: Config, attempt = 1): number {
 
 export type Ran = { code: number | null; stderr: string; timedOut: boolean; stdout?: string };
 
-export type RunOptions = { nice?: number; input?: string; maxStdout?: number };
+export type RunOptions = { nice?: number; input?: string; maxStdout?: number; memoryMb?: number };
 
 const PASSED = ["PATH", "HOME", "USER", "LANG", "LC_ALL", "TMPDIR", "TEMP", "TMP", "SYSTEMROOT", "PATHEXT", "USERPROFILE", "SSL_CERT_FILE", "SSL_CERT_DIR"];
 export function passed(): NodeJS.ProcessEnv {
@@ -83,28 +85,6 @@ function lowered(pid: number, nice: number): boolean {
 
 /** Runs a command with only safe environment variables, at a lower priority when `nice` is given, killing it and its children after `timeoutMs`. */
 export type Runner = (cmd: string, args: string[], env: NodeJS.ProcessEnv, timeoutMs: number, opts?: RunOptions) => Promise<Ran>;
-
-/** A runner through which at most `slots` runs of the engine (`bin`, and any other heavy command named) go at once, the rest waiting in the order they asked; every other command (git, the network) runs at once. A run's time limit starts when it gets its slot. */
-export function sharingEngine(runner: Runner, bin: string | string[], slots: number): Runner {
-  const heavy = new Set(typeof bin === "string" ? [bin] : bin);
-  let free = Math.max(1, Math.floor(slots));
-  const waiting: (() => void)[] = [];
-  const take = () => (free > 0 ? ((free -= 1), Promise.resolve()) : new Promise<void>((r) => waiting.push(r)));
-  const give = () => {
-    const next = waiting.shift();
-    if (next) next();
-    else free += 1;
-  };
-  return async (cmd, args, env, timeoutMs, opts) => {
-    if (!heavy.has(cmd)) return runner(cmd, args, env, timeoutMs, opts);
-    await take();
-    try {
-      return await runner(cmd, args, env, timeoutMs, opts);
-    } finally {
-      give();
-    }
-  };
-}
 
 export function run(cmd: string, args: string[], env: NodeJS.ProcessEnv, timeoutMs: number, opts: RunOptions = {}): Promise<Ran> {
   return new Promise((resolve) => {
@@ -216,6 +196,8 @@ export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<
     await rm(out, { recursive: true, force: true });
     await rm(events, { force: true });
     const before = await deps.index.live();
+    const kind = (await hasCache(cacheRoot)) ? "build" : "cold";
+    const memoryMb = peakMb(kind, { commits: before?.commits ?? 0, sizeKb: req.sizeKb });
     const args = ["build", ...(phase === "quick" ? ["--no-lines"] : ["--lines-budget", String(linesBudgetOf(cfg, binLimit, !!req.more))]), "--offline", "--max-changeset-size", String(cfg.bulkFiles), ...cache, "--events", events, "--out", out];
     if (accounts) args.push("--accounts", accounts);
     if (appendable(before)) {
@@ -226,7 +208,7 @@ export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<
     args.push("--", dir);
     const t = Date.now();
     const ran = await phases.time(`build ${phase}`, "engine", async () => {
-      const done = await cached(cfg.bin, args, engineEnv, binLimit * 1000, { nice: cfg.nice });
+      const done = await cached(cfg.bin, args, engineEnv, binLimit * 1000, { nice: cfg.nice, memoryMb });
       engineSpans(await readEvents(events));
       return done;
     });
@@ -249,7 +231,8 @@ export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<
     await restoring;
     const events = join(scratch, "signatures.events");
     const signatures = await phases.time("signatures", "engine", async () => {
-      const found = await readSignatures(cached, { bin: cfg.bin, dir, scratch, cache, env: engineEnv, timeoutMs: binLimit * 1000, nice: cfg.nice, events, ...(deps.log ? { log: deps.log } : {}) });
+      const sized = { commits: (await deps.index.live())?.commits ?? 0, sizeKb: req.sizeKb };
+      const found = await readSignatures(cached, { bin: cfg.bin, dir, scratch, cache, env: engineEnv, timeoutMs: binLimit * 1000, nice: cfg.nice, memoryMb: peakMb("signatures", sized), events, ...(deps.log ? { log: deps.log } : {}) });
       engineSpans(await readEvents(events));
       return found;
     });

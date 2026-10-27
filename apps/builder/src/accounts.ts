@@ -95,12 +95,12 @@ export async function accountsFor(
 /** Runs `commitscape signatures` on a clone and reads what it wrote, deleting the file at once; null when it could not. */
 export async function readSignatures(
   run: typeof runCommand,
-  how: { bin: string; dir: string; scratch: string; cache?: string[]; env: NodeJS.ProcessEnv; timeoutMs: number; nice?: number; events?: string; log?: (line: string) => void },
+  how: { bin: string; dir: string; scratch: string; cache?: string[]; env: NodeJS.ProcessEnv; timeoutMs: number; nice?: number; memoryMb?: number; events?: string; log?: (line: string) => void },
 ): Promise<Signature[] | null> {
   const file = join(how.scratch, "signatures.json");
   try {
     const args = ["signatures", ...(how.cache ?? []), ...(how.events ? ["--events", how.events] : []), "--out", file, "--", how.dir];
-    const ran = await run(how.bin, args, how.env, how.timeoutMs, how.nice === undefined ? {} : { nice: how.nice });
+    const ran = await run(how.bin, args, how.env, how.timeoutMs, { ...(how.nice === undefined ? {} : { nice: how.nice }), ...(how.memoryMb === undefined ? {} : { memoryMb: how.memoryMb }) });
     if (ran.code !== 0) {
       how.log?.(`signatures: ${ran.timedOut ? "timed out" : (ran.stderr.trim().split("\n").at(-1) ?? "failed")}`);
       return null;
@@ -124,7 +124,7 @@ export async function writeAccountsFile(scratch: string, accounts: Record<string
 /** Runs `commitscape signatures` on a clone, resolves the logins, and writes accounts.json into `scratch` for commitscape's `--accounts`; null when it could not. */
 export async function writeAccounts(
   run: typeof runCommand,
-  how: { bin: string; dir: string; scratch: string; cache?: string[]; env: NodeJS.ProcessEnv; timeoutMs: number; nice?: number; log?: (line: string) => void },
+  how: { bin: string; dir: string; scratch: string; cache?: string[]; env: NodeJS.ProcessEnv; timeoutMs: number; nice?: number; memoryMb?: number; log?: (line: string) => void },
   resolve: (signatures: Signature[]) => Promise<Record<string, string>>,
 ): Promise<string | null> {
   const signatures = await readSignatures(run, how);

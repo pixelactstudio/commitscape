@@ -10,7 +10,7 @@ import type { Config } from "./config";
 import { cacheDir, cacheFor, holdingCache, prune, repoDir } from "./disk";
 import { readEvents } from "./engine";
 import { flagOf, writeBuilt, type FakeBuild } from "./fake";
-import { build, BUILD_ATTEMPTS, cloneLimitOf, run, sharingEngine, timeLimitOf, type BuildTarget, type Deps, type Made, type Ran, type RunOptions } from "./run";
+import { build, BUILD_ATTEMPTS, cloneLimitOf, run, timeLimitOf, type BuildTarget, type Deps, type Made, type Ran, type RunOptions } from "./run";
 
 const cfg = (work: string, over: Partial<Config> = {}): Config => ({
   bin: "commitscape",
@@ -27,7 +27,7 @@ const cfg = (work: string, over: Partial<Config> = {}): Config => ({
   logins: 300,
   diskGb: 20,
   cacheGb: 5,
-  engineSlots: 1, bulkFiles: 50,
+  engineMemoryMb: 1200, bulkFiles: 50,
   moreLinesBudget: 600,
   gitBase: undefined,
   ...over,
@@ -78,7 +78,7 @@ function fake(answer: (call: Call) => Ran | Promise<Ran> = () => ok, built: Fake
       load: async (dir): Promise<Loaded> => {
         const m = await readManifest(dir);
         loads.push({ full: m.full, lines: m.lines_mainline });
-        index.live = { id: 1, lineage: m.lineage, kept: true, frontier: m.frontier, lines: m.lines_mainline, linesLeft: m.lines_left, head: m.head, pack: null, mark: m.mark, buildFormat: null };
+        index.live = { id: 1, lineage: m.lineage, kept: true, frontier: m.frontier, lines: m.lines_mainline, linesLeft: m.lines_left, head: m.head, pack: null, mark: m.mark, buildFormat: null, commits: m.total };
         return { si: 1, full: m.full, commits: m.commits, total: m.total, mainline: 0, lines: 0, seconds: 0 };
       },
     },
@@ -154,7 +154,7 @@ test("a State is saved or brought back only while no engine run reads or writes 
 
 test("a repository ready to be lean is read from a blobless clone without files, fetching only what its Build reads, and its full clone is let go", async () => {
   const work = await mkdtemp(join(tmpdir(), "builder-"));
-  const live: LiveIndex = { id: 1, lineage: "7", kept: true, frontier: ["f".repeat(40)], lines: true, linesLeft: 0, head: "f".repeat(40), pack: "p", mark: null, buildFormat: null };
+  const live: LiveIndex = { id: 1, lineage: "7", kept: true, frontier: ["f".repeat(40)], lines: true, linesLeft: 0, head: "f".repeat(40), pack: "p", mark: null, buildFormat: null, commits: 0 };
   const f = fake(() => ok, {}, live);
   const asked: string[][] = [];
   f.deps.prefetch = async (dir, _env, frontier) => {
@@ -243,7 +243,7 @@ test("a warm Build brings the kept clone up to date and goes straight to the ful
   const work = await mkdtemp(join(tmpdir(), "builder-"));
   const full = join(work, "repos", "acme", "rocket", "full");
   await mkdir(join(full, ".git"), { recursive: true });
-  const f = fake(() => ok, {}, { id: 1, lineage: "7", kept: true, frontier: ["b".repeat(40)], lines: true, linesLeft: 0, head: "b".repeat(40), pack: "packs/acme/rocket/1/b-lines.pack", mark: null, buildFormat: null });
+  const f = fake(() => ok, {}, { id: 1, lineage: "7", kept: true, frontier: ["b".repeat(40)], lines: true, linesLeft: 0, head: "b".repeat(40), pack: "packs/acme/rocket/1/b-lines.pack", mark: null, buildFormat: null, commits: 0 });
   const outcome = await build(req(), cfg(work), f.deps);
   expect(outcome).toMatchObject({ published: "full", kind: "warm" });
   expect(commands(f.calls)).toEqual(["git rev-parse", "git fetch", "git reset", "signatures", "build"]);
@@ -259,7 +259,7 @@ test("a warm Build brings the kept clone up to date and goes straight to the ful
 
 test("a cold Build of a repository whose Stored Index has lines skips the quick phase, and so does one whose Report has them", async () => {
   const work = await mkdtemp(join(tmpdir(), "builder-"));
-  const f = fake(() => ok, {}, { id: 1, lineage: "7", kept: true, frontier: ["b".repeat(40)], lines: true, linesLeft: 3, head: "b".repeat(40), pack: null, mark: null, buildFormat: null });
+  const f = fake(() => ok, {}, { id: 1, lineage: "7", kept: true, frontier: ["b".repeat(40)], lines: true, linesLeft: 3, head: "b".repeat(40), pack: null, mark: null, buildFormat: null, commits: 0 });
   expect(await build(req(), cfg(work), f.deps)).toMatchObject({ published: "full", kind: "cold" });
   expect(commands(f.calls)).toEqual(["git clone", "git commit-graph", "signatures", "build"]);
   expect(f.published).toEqual(["full"]);
@@ -591,48 +591,6 @@ test("caches are pruned on their own budget, least recently used first", async (
   }
   expect(await prune(work, 1500, [], "caches")).toEqual([join(work, "caches", "acme", "old")]);
   expect(await readdir(join(work, "caches", "acme"))).toEqual(["new"]);
-});
-
-test("runs of the engine share its slots in the order they asked, while every other command runs at once", async () => {
-  const order: string[] = [];
-  const open: (() => void)[] = [];
-  const slow = async (cmd: string, args: string[]): Promise<Ran> => {
-    order.push(`start ${cmd} ${args[0]}`);
-    await new Promise<void>((r) => open.push(r));
-    order.push(`end ${cmd} ${args[0]}`);
-    return { code: args[0] === "fails" ? 1 : 0, stderr: "", timedOut: false };
-  };
-  const shared = sharingEngine(slow, "commitscape", 1);
-  const runs = [shared("commitscape", ["a"], {}, 1000), shared("commitscape", ["fails"], {}, 1000), shared("git", ["clone"], {}, 1000), shared("commitscape", ["c"], {}, 1000)];
-  await new Promise((r) => setTimeout(r, 10));
-  expect([...order].sort()).toEqual(["start commitscape a", "start git clone"]);
-  for (let i = 0; i < 4; i++) {
-    open.shift()?.();
-    await new Promise((r) => setTimeout(r, 10));
-  }
-  expect((await Promise.all(runs)).map((r) => r.code)).toEqual([0, 1, 0, 0]);
-  expect(order.filter((o) => o.includes("commitscape"))).toEqual(["start commitscape a", "end commitscape a", "start commitscape fails", "end commitscape fails", "start commitscape c", "end commitscape c"]);
-});
-
-test("the Atlas shares the engine's slot, so it never runs beside a run of the engine", async () => {
-  const order: string[] = [];
-  const open: (() => void)[] = [];
-  const slow = async (cmd: string): Promise<Ran> => {
-    order.push(`start ${cmd}`);
-    await new Promise<void>((r) => open.push(r));
-    order.push(`end ${cmd}`);
-    return { code: 0, stderr: "", timedOut: false };
-  };
-  const shared = sharingEngine(slow, ["commitscape", "node"], 1);
-  const runs = [shared("commitscape", [], {}, 1000), shared("node", ["builder.mjs", "atlas"], {}, 1000)];
-  await new Promise((r) => setTimeout(r, 10));
-  expect(order).toEqual(["start commitscape"]);
-  for (let i = 0; i < 2; i++) {
-    open.shift()?.();
-    await new Promise((r) => setTimeout(r, 10));
-  }
-  await Promise.all(runs);
-  expect(order).toEqual(["start commitscape", "end commitscape", "start node", "end node"]);
 });
 
 test("a command's output is kept up to a megabyte, or as much as the caller asks for", async () => {

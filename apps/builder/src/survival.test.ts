@@ -32,7 +32,7 @@ async function setup(run: (cmd: string, args: string[], env: NodeJS.ProcessEnv, 
     await mkdir(join(args.at(-1) ?? "", ".git"), { recursive: true });
     return { code: 0, stderr: "", timedOut: false };
   };
-  const ctx = { db, storage: memoryStorage(), cfg: { bin: "commitscape", threads: undefined, linesBudget: 120, nice: 10, work, concurrency: 1, maxMb: undefined, timeLimit: 60, cloneLimit: 120, largeMb: 1500, largeConcurrency: 1, logins: 300, diskGb: 20, cacheGb: 5, engineSlots: 1, bulkFiles: 50, moreLinesBudget: 600, gitBase: undefined }, app: null, run: cloning, github: { api: "http://github.test", token: "t", fetcher: (async () => Response.json({ data: { repository: { c0: { author: { user: { login: "ada" } } } } } })) as unknown as typeof fetch }, log: () => {}, queueCounts: async (job: SurvivalJob) => void queued.push(job), budget: 60 } as JobContext & { budget: number };
+  const ctx = { db, storage: memoryStorage(), cfg: { bin: "commitscape", threads: undefined, linesBudget: 120, nice: 10, work, concurrency: 1, maxMb: undefined, timeLimit: 60, cloneLimit: 120, largeMb: 1500, largeConcurrency: 1, logins: 300, diskGb: 20, cacheGb: 5, engineMemoryMb: 1200, bulkFiles: 50, moreLinesBudget: 600, gitBase: undefined }, app: null, run: cloning, github: { api: "http://github.test", token: "t", fetcher: (async () => Response.json({ data: { repository: { c0: { author: { user: { login: "ada" } } } } } })) as unknown as typeof fetch }, log: () => {}, queueCounts: async (job: SurvivalJob) => void queued.push(job), budget: 60 } as JobContext & { budget: number };
   return { db, ctx };
 }
 

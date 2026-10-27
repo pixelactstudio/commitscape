@@ -2,9 +2,10 @@ import { existsSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
-import { installationToken, now, randomId, schema, type SurvivalJob } from "@commitscape/server";
+import { installationToken, liveIndex, now, randomId, schema, type SurvivalJob } from "@commitscape/server";
 import { cloneUrl, ensureClone, gitEnv, locked } from "./clone";
 import { accountsFor, writeAccounts } from "./accounts";
+import { peakMb } from "./admission";
 import { cacheFor, holding, holdingCache, privateDir, repoDir, scratchDir } from "./disk";
 import { fetchBlobs, historyBlobs } from "./lean";
 import type { JobContext } from "./job";
@@ -84,11 +85,12 @@ export async function runSurvival(job: SurvivalJob, ctx: JobContext & { budget: 
     const cache = ["--cache-dir", cacheRoot, "--cache-key", repo.id];
     const cached: typeof ctx.run = (cmd, args, env, timeoutMs, opts) => holdingCache(cacheRoot, () => ctx.run(cmd, args, env, timeoutMs, opts));
     const engineEnv = { ...env, ...(cfg.threads ? { COMMITSCAPE_THREADS: String(cfg.threads) } : {}) };
-    const accounts = await writeAccounts(cached, { bin: cfg.bin, dir: full, scratch, cache, env: engineEnv, timeoutMs: cfg.timeLimit * 1000, nice: cfg.nice, log: ctx.log }, async (signatures) => (await accountsFor(db, gh, { owner: repo.owner, name: repo.name, scope }, signatures, cfg.logins)).accounts);
+    const sized = { commits: (await liveIndex(db, repo.id))?.commits ?? 0, sizeKb: repo.sizeKb ?? 0 };
+    const accounts = await writeAccounts(cached, { bin: cfg.bin, dir: full, scratch, cache, env: engineEnv, timeoutMs: cfg.timeLimit * 1000, nice: cfg.nice, memoryMb: peakMb("signatures", sized), log: ctx.log }, async (signatures) => (await accountsFor(db, gh, { owner: repo.owner, name: repo.name, scope }, signatures, cfg.logins)).accounts);
     const args = ["surviving", "--everyone", "--budget-seconds", String(budget), ...cache, "--offline", "--max-changeset-size", String(cfg.bulkFiles)];
     if (accounts) args.push("--accounts", accounts);
     args.push("--", full);
-    ran = await cached(cfg.bin, args, engineEnv, (budget + cfg.timeLimit) * 1000, { nice: cfg.nice, maxStdout: EVERYONE_BYTES });
+    ran = await cached(cfg.bin, args, engineEnv, (budget + cfg.timeLimit) * 1000, { nice: cfg.nice, maxStdout: EVERYONE_BYTES, memoryMb: peakMb("surviving", sized) });
     const save = ctx.saveState;
     if (save && !repo.isPrivate && ran.code === 0) await holdingCache(cacheRoot, () => save(repo.id, cacheRoot)).catch((e: unknown) => ctx.log(`state of ${repo.id} not saved: ${(e as Error).message}`));
   } finally {

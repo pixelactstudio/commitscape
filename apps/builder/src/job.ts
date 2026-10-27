@@ -294,7 +294,7 @@ async function publishBuild(ctx: JobContext, phases: Phases, buildId: string, ma
   const atlas = ctx.cfg.atlas;
   if (atlas) {
     await phases
-      .time(`atlas ${made.phase}`, "atlas", () => storeAtlas(ctx.run, atlas, storage, { si, pack, dir: made.dir, timeoutMs: timeLimitOf(ctx.cfg) * 1000, nice: ctx.cfg.nice }))
+      .time(`atlas ${made.phase}`, "atlas", () => storeAtlas(ctx.run, atlas, storage, { si, pack, dir: made.dir, timeoutMs: timeLimitOf(ctx.cfg) * 1000, nice: ctx.cfg.nice, commits: made.manifest.total }))
       .catch((e: unknown) => ctx.log(`atlas of ${named.id}: ${(e as Error).message}, so the Site makes it`));
   }
   const lines = made.phase === "full" && made.manifest.lines_mainline;
@@ -302,7 +302,7 @@ async function publishBuild(ctx: JobContext, phases: Phases, buildId: string, ma
   const prefix = same && named.reportKey ? named.reportKey : reportPrefix(named.id, made.phase === "full" ? buildId : `${buildId}-quick`);
   await phases
     .time(`screens ${made.phase}`, "screens", () =>
-      storeScreens(ctx.run, storage, { bin: ctx.cfg.bin, pack: made.pack, dir: made.dir, prefix, env: ctx.cfg.threads ? { COMMITSCAPE_THREADS: String(ctx.cfg.threads) } : {}, timeoutMs: timeLimitOf(ctx.cfg) * 1000, nice: ctx.cfg.nice }),
+      storeScreens(ctx.run, storage, { bin: ctx.cfg.bin, pack: made.pack, dir: made.dir, prefix, env: ctx.cfg.threads ? { COMMITSCAPE_THREADS: String(ctx.cfg.threads) } : {}, timeoutMs: timeLimitOf(ctx.cfg) * 1000, nice: ctx.cfg.nice, commits: made.manifest.total }),
     )
     .catch((e: unknown) => ctx.log(`screens of ${named.id}: ${(e as Error).message}, so the engine service answers them`));
   const { stats, people } = made.summary;
