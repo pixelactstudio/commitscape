@@ -47,24 +47,6 @@ export type GitTree = {
 
 export type GitCoupling = { v: typeof GIT_FORMAT; of: Record<string, number[]> };
 
-export type GitLogPerson = { id: number; name: string; login: string | null; colour: number | null; bot: boolean };
-
-export type GitLog = {
-  v: typeof GIT_FORMAT;
-  anchor: number;
-  people: GitLogPerson[];
-  folders: string[];
-  folder: number[];
-  names: string[];
-  lines: number[];
-  alive: number[];
-  gaps: number[];
-  who: number[];
-  kept: number[];
-  sizes: number[];
-  files: number[];
-};
-
 export type GitBranch = {
   name: string;
   sha: string;

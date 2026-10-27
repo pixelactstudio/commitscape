@@ -1,6 +1,5 @@
 import { limited, topOf, withoutTop } from "./asked";
 import { listPager, type CommitPage, type CommitQuery, type Finder } from "./commits";
-import type { GitLog } from "./git";
 import type { CommitList, Meta } from "./types";
 
 export type Params = Record<string, string | number | null | undefined>;
@@ -15,7 +14,6 @@ export interface DataSource {
   readonly meta: Meta;
   readonly ranges?: boolean;
   readonly atlas?: string;
-  log?(): Promise<GitLog>;
   get<T>(path: string, params?: Params): Promise<T>;
   commits(query: CommitQuery, cursor?: string): Promise<CommitPage>;
 }

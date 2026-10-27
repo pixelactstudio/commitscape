@@ -144,8 +144,10 @@ queued ones whose job was lost.
   answers from R2 until `node builder.mjs rebuild` has it built again.
 - The Commits screen asks `GET /api/reports/<owner>/<repo>/commits` for 50
   rows at a time: `q`, `person`, `kind`, `from`, `to`, `cursor`, `limit`,
-  read from `index_commits` and cached by ETag. Commits under a folder ask
-  the engine service which commits, then read their rows from Postgres.
+  read from `index_commits` and cached by ETag. A search by words, and
+  commits under a folder, ask the engine service which commits (it holds
+  every subject and matches the words as Postgres did), then read only
+  that page's rows from Postgres.
 - The Code window's tree, coupling, story and history, a folder's newest
   commits, a pull request's insight and the Universe's rows come from the
   engine service. The Universe's Atlas is made by the Builder from the

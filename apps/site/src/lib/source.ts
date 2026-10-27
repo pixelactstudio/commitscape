@@ -1,4 +1,4 @@
-import { key, NOT_IN_REPORT, type CommitPage, type DataSource, type GitLog, type Meta } from "@commitscape/data";
+import { key, NOT_IN_REPORT, type CommitPage, type DataSource, type Meta } from "@commitscape/data";
 import { getReportEntry } from "#/functions/repos";
 
 async function read<T>(url: string, fallback: string): Promise<T> {
@@ -14,7 +14,7 @@ export function siteSource(owner: string, repo: string, at: number, meta: Meta, 
     id: `gh:${owner}/${repo}@${at}`.toLowerCase(),
     meta,
     ranges,
-    ...(ranges ? { log: () => read<GitLog>(`${base}/git/log.json?v=${at}`, "The history could not be read."), atlas: `${base}/atlas?v=${at}` } : {}),
+    ...(ranges ? { atlas: `${base}/atlas?v=${at}` } : {}),
     async get<T>(path: string, params = {}) {
       const asked = key(path, params);
       if (typeof window === "undefined") {

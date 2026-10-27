@@ -35,7 +35,6 @@ export type EngineService = {
   answerText(pack: string, path: string, params: Params): Promise<string | null>;
   answer<T>(pack: string, path: string, params: Params): Promise<T | null>;
   treeText(pack: string, blobs: Record<string, Blob>, of: TreeOf): Promise<string>;
-  logText(pack: string): Promise<string>;
   couplingText(pack: string): Promise<string>;
   pathHistory(pack: string, path: string): Promise<PathHistory>;
   folderLast(pack: string, path: string): Promise<FolderLast>;
@@ -68,7 +67,6 @@ export function engineOver(post: Post): EngineService {
       return found === null ? null : (JSON.parse(found) as T);
     },
     treeText: (pack, blobs, of) => text("/v1/git/tree", { pack, blobs, of }),
-    logText: (pack) => text("/v1/git/log", { pack }),
     couplingText: (pack) => text("/v1/git/coupling", { pack }),
     pathHistory: (pack, path) => json("/v1/git/path-history", { pack, path }),
     folderLast: (pack, path) => json("/v1/git/folder-last", { pack, path }),
