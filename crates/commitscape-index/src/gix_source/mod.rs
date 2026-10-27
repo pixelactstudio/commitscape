@@ -88,6 +88,13 @@ impl GixRepo {
         gix::ObjectId::try_from(id.0.as_slice()).ok()
     }
 
+    /// Whether this is a partial clone, whose missing objects its remote promises.
+    pub fn is_partial(&self) -> bool {
+        let config = self.repo.config_snapshot();
+        config.string("extensions.partialClone").is_some()
+            || config.boolean("remote.origin.promisor") == Some(true)
+    }
+
     /// Every commit reachable from the given ones, or None when one of them is not in this repository.
     pub fn ancestors(
         &self,

@@ -124,6 +124,39 @@ test("a Build brings its State back before the engine first runs and keeps it af
   }
 });
 
+test("a repository ready to be lean is read from a blobless clone without files, fetching only what its Build reads, and its full clone is let go", async () => {
+  const work = await mkdtemp(join(tmpdir(), "builder-"));
+  const live: LiveIndex = { id: 1, lineage: "7", kept: true, frontier: ["f".repeat(40)], lines: true, linesLeft: 0, head: "f".repeat(40), pack: "p", mark: null };
+  const f = fake(() => ok, {}, live);
+  const asked: string[][] = [];
+  f.deps.prefetch = async (dir, _env, frontier) => {
+    asked.push([dir, ...frontier]);
+    return 3;
+  };
+  const home = join(work, "repos", "acme", "rocket");
+  await mkdir(join(home, "full", ".git"), { recursive: true });
+  const outcome = await build(req({ lean: true, hasLines: true }), cfg(work), f.deps);
+  expect(outcome).toMatchObject({ published: "full" });
+  const clone = f.calls.find((c) => c.cmd === "git" && c.args[0] === "clone");
+  expect(clone?.args).toEqual(expect.arrayContaining(["--filter=blob:none", "--no-checkout"]));
+  expect(clone?.args.at(-1)).toBe(join(home, ".lean.cloning"));
+  expect(asked).toEqual([[join(home, "lean"), "f".repeat(40)]]);
+  expect(builds(f.calls).map((c) => c.args.at(-1))).toEqual([join(home, "lean")]);
+  expect(existsSync(join(home, "full"))).toBe(false);
+  expect(existsSync(join(home, "lean", ".git"))).toBe(true);
+});
+
+test("a retry, or a repository not ready, reads the full clone as before", async () => {
+  const work = await mkdtemp(join(tmpdir(), "builder-"));
+  const f = fake();
+  f.deps.prefetch = async () => {
+    throw new Error("not expected");
+  };
+  await build(req({ lean: true, attempt: 2 }), cfg(work), f.deps);
+  await build(req({ id: "build-0002" }), cfg(work), f.deps);
+  expect(f.calls.filter((c) => c.cmd === "git" && c.args[0] === "clone").every((c) => !c.args.includes("--no-checkout"))).toBe(true);
+});
+
 test("git's failures in the Site's words", () => {
   expect(failure("remote: Repository not found.\nfatal: repository 'https://github.com/a/b.git/' not found")).toBe("not_found");
   expect(failure("fatal: could not read Username for 'https://github.com': terminal prompts disabled")).toBe("private");

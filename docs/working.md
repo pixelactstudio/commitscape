@@ -50,6 +50,22 @@ to a repository the App is installed on, the nightly seeds and
    for a public repository and fetched next time. A warm Build (a kept
    clone, or a Stored Index that already has its lines) fetches or clones
    once and runs one `build`.
+   Once a public repository's Lines Changed and its Report's Surviving
+   Lines are all counted, its Builds read a lean clone instead
+   (`WORK_DIR/repos/<owner>/<name>/lean`): blobless and without files
+   written out, fetched with `--filter=blob:none`, so only new commits and
+   trees arrive. Before the engine runs, the Builder lists the file
+   versions the Build reads that the clone lacks (every file at HEAD, and
+   both sides of each change in the commits past the last export's
+   frontier, Bulk Commits left out) and fetches them by id in requests of
+   20,000; the full clone is then deleted. A version still missing leaves
+   its commit's lines to count later, never an error. git data reads the
+   same clone: git fetches what `diff` and `merge-tree` need itself. The
+   count of Surviving Lines fetches every version of the files changed
+   since its last count the same way, and fetches any other it meets as
+   blame walks. A retry reads the full clone. linux, 19 days behind:
+   36 MB of commits and trees and 105 MB of file versions, against 214 MB
+   fetched in full; the kept clone is 2.4 GB instead of 6.6 GB.
 3. **Finds logins.** `commitscape signatures` lists each author address with
    its newest commit. A noreply address gives the login; for the others the
    Builder asks GitHub's GraphQL API who made those commits, a hundred to a

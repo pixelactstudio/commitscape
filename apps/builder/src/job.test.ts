@@ -353,6 +353,27 @@ test("a Build goes on when the head moved, when the Report is not whole, or for 
   }
 });
 
+test("a Build reads a blobless clone once its lines and its Report's Surviving Lines are all counted, and a full one before", async () => {
+  const head = "c".repeat(40);
+  for (const [label, status, lean] of [["counted", "counted", true], ["still counting", "queued", false], ["never counted", null, false]] as const) {
+    const db = await database();
+    const clones: string[][] = [];
+    const base = tools();
+    const ctx = await context(db, {
+      prefetch: async () => 0,
+      run: async (cmd, args) => {
+        if (cmd === "git" && args[0] === "clone") clones.push(args);
+        return base(cmd, args);
+      },
+    });
+    await wholeReport(db, "acme/rocket", head, { reportAt: now() - 8 * 24 * 3600 });
+    if (status) await db.insert(surviving).values({ repoId: "acme/rocket", reportKey: "reports/gh/acme/rocket/b0", personId: 1, status, askedAt: 1 });
+    await db.insert(builds).values({ id: "b1", repoId: "acme/rocket", state: "queued", requestedAt: 1 });
+    await runJob("b1", ctx);
+    expect([label, clones.some((c) => c.includes("--no-checkout"))]).toEqual([label, lean]);
+  }
+});
+
 test("seeds are kept under the name GitHub's search gives, and a row under an older name moves there", async () => {
   const db = await database();
   const storage = memoryStorage();

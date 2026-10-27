@@ -104,8 +104,15 @@ pub fn run(args: SurvivingArgs) -> anyhow::Result<()> {
         let kept = repo_dir(&options, &index.repo).map(|d| d.join("ownership"));
         let previous = kept.as_deref().and_then(Ownership::read);
         let deadline = started.checked_add(budget);
-        let mut ownership = survival.own(&threads, previous, deadline)?;
-        let everyone = survival.everyone(&repo, &mut ownership)?;
+        let (ownership, everyone) = if args.partial || repo.is_partial() {
+            let mut ownership = survival.own(&fetching, previous, deadline)?;
+            let everyone = survival.everyone(&fetching.local(), &mut ownership)?;
+            (ownership, everyone)
+        } else {
+            let mut ownership = survival.own(&threads, previous, deadline)?;
+            let everyone = survival.everyone(&repo, &mut ownership)?;
+            (ownership, everyone)
+        };
         if let Some(path) = kept.as_deref() {
             ownership.write(path)?;
         }
@@ -163,7 +170,7 @@ pub fn run(args: SurvivingArgs) -> anyhow::Result<()> {
             });
             continue;
         };
-        let survived = if args.partial {
+        let survived = if args.partial || repo.is_partial() {
             survival.person(&fetching, author, budget)?
         } else {
             survival.person(&threads, author, budget)?

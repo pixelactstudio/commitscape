@@ -10,6 +10,7 @@ import { cloneUrl, ensureClone, gitEnv, locked, missingIn, tipsOf, type Cloned }
 import type { Config } from "./config";
 import { cacheFor, privateDir, repoDir, scratchDir } from "./disk";
 import { readBuilt, readEvents, type Built } from "./engine";
+import { prefetch } from "./lean";
 import { engineSpans, Phases } from "./telemetry";
 
 export type BuildTarget = {
@@ -24,6 +25,7 @@ export type BuildTarget = {
   attempt?: number;
   hasLines?: boolean;
   more?: boolean;
+  lean?: boolean;
 };
 
 export type Phase = "quick" | "full";
@@ -152,6 +154,7 @@ export type StateStore = { restore: (root: string) => Promise<{ restored: boolea
 export type Deps = {
   run: typeof run;
   state?: StateStore;
+  prefetch?: typeof prefetch;
   progress: (step: BuildStep) => Promise<void>;
   accounts: (signatures: Signature[]) => Promise<Record<string, string>>;
   index: IndexStore;
@@ -182,7 +185,8 @@ export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<
   const binLimit = timeLimitOf(cfg, attempt);
   const cloneLimit = cloneLimitOf(cfg, attempt) * 1000;
   const home = req.private ? privateDir(cfg, req.id) : repoDir(cfg, req.owner, req.name);
-  const full = join(home, "full");
+  const lean = !req.private && !!req.lean && attempt === 1;
+  const full = join(home, lean ? "lean" : "full");
   const scratch = scratchDir(cfg, req.id);
   const quick = join(scratch, "quick");
   const env = gitEnv(req.token);
@@ -253,7 +257,15 @@ export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<
     }
   };
 
-  const fullClone = () => locked(full, () => ensureClone(deps.run, { url, dir: full, blobless: false, env, timeoutMs: cloneLimit }));
+  const leanClone = async (): Promise<Cloned> => {
+    const c = await ensureClone(deps.run, { url, dir: full, blobless: true, checkout: false, env, timeoutMs: cloneLimit });
+    if (!c.ok) return c;
+    const live = await deps.index.live();
+    const fetched = await (deps.prefetch ?? prefetch)(full, env, live?.frontier ?? [], cloneLimit);
+    deps.log?.(`clone of ${req.owner}/${req.name}: blobless, ${fetched} file versions fetched for this Build`);
+    return c;
+  };
+  const fullClone = () => locked(full, () => (lean ? leanClone() : ensureClone(deps.run, { url, dir: full, blobless: false, env, timeoutMs: cloneLimit })));
 
   const caughtUp = async () => {
     const missing = await missingIn(deps.run, full, await tipsOf(deps.run, quick, env, CHECK_MS), env, CHECK_MS);
@@ -343,6 +355,7 @@ export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<
         .catch((e: unknown) => deps.log?.(`state of ${req.owner}/${req.name} not saved: ${(e as Error).message}`));
     }
     const published: Phase | null = fullMade ? "full" : quickMade ? "quick" : null;
+    if (f.ok && lean && fullMade) await rm(join(home, "full"), { recursive: true, force: true });
     if (f.ok) return { published, seconds: seconds(), resumable: false, kind: phases.kind, made };
     resumable = f.reason === "timed_out" && attempt < BUILD_ATTEMPTS;
     return { published, seconds: seconds(), failure: { reason: f.reason, ...(f.detail ? { detail: f.detail } : {}) }, resumable, kind: phases.kind, made };

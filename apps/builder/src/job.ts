@@ -57,6 +57,7 @@ export type JobContext = {
   queuePulls?: (repoId: string) => Promise<void>;
   queueCounts?: (job: SurvivalJob) => Promise<void>;
   saveState?: (repoId: string, root: string) => Promise<unknown>;
+  prefetch?: Deps["prefetch"];
   queueBuild?: (job: BuildJob & { attempt: number }, priority: number, startAfter?: number) => Promise<void>;
 };
 
@@ -162,6 +163,7 @@ async function claimedJob(buildId: string, ctx: JobContext, attempt: number, ask
           attempt,
           hasLines: !!repo.reportKey && repo.reportLines !== false,
           more: more > 0,
+          lean: await leanReady(db, repo),
         },
         ctx.cfg,
         {
@@ -180,6 +182,7 @@ async function claimedJob(buildId: string, ctx: JobContext, attempt: number, ask
             return got.accounts;
           },
           publish,
+          ...(ctx.prefetch ? { prefetch: ctx.prefetch } : {}),
           ...(stateTier ? { state: { restore: (root: string) => restoreState(stateTier, repo.id, root), save: (root: string) => saveState(stateTier, repo.id, root) } } : {}),
           index: {
             live: async () => liveIndex(db, await currentId()),
@@ -236,6 +239,18 @@ async function keptUnchanged(ctx: JobContext, repo: typeof repositories.$inferSe
   if (!unchanged(repo, live, head)) return false;
   await ctx.db.update(repositories).set({ checkedAt: now() }).where(eq(repositories.id, repo.id));
   return true;
+}
+
+/** Whether a public repository's Builds may read a blobless clone, fetching only the file versions they read: its Lines Changed are all counted and its Report's Surviving Lines are, so no Build or count needs the whole history's files again. */
+async function leanReady(db: Db, repo: typeof repositories.$inferSelect): Promise<boolean> {
+  if (repo.isPrivate || !repo.reportKey || repo.reportLines !== true) return false;
+  const live = await liveIndex(db, repo.id);
+  if (!live?.lines || (live.linesLeft ?? 0) > 0) return false;
+  const counts = await db
+    .select({ status: surviving.status })
+    .from(surviving)
+    .where(and(eq(surviving.repoId, repo.id), eq(surviving.reportKey, repo.reportKey)));
+  return counts.some((c) => c.status === "counted") && !counts.some((c) => c.status === "queued" || c.status === "over_budget");
 }
 
 async function queueMoreLines(ctx: JobContext, repoId: string, more: number): Promise<void> {

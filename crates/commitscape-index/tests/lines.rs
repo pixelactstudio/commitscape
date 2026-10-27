@@ -315,3 +315,66 @@ fn the_log_names_what_was_counted_after_a_mark_and_refuses_a_mark_it_does_not_be
     };
     assert_eq!(store.since(Some(past)).1, None);
 }
+
+fn git(dir: &std::path::Path, args: &[&str]) -> String {
+    let out = std::process::Command::new("git")
+        .current_dir(dir)
+        .args(args)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .env("GIT_AUTHOR_NAME", "Alice Example")
+        .env("GIT_AUTHOR_EMAIL", "alice@example.com")
+        .env("GIT_COMMITTER_NAME", "Alice Example")
+        .env("GIT_COMMITTER_EMAIL", "alice@example.com")
+        .output()
+        .expect("running git");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8(out.stdout).expect("UTF-8")
+}
+
+#[test]
+fn a_file_version_missing_from_the_clone_leaves_its_commit_for_later_and_counts_the_rest() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let root = dir.path();
+    git(root, &["init", "-q", "-b", "main"]);
+    for (i, (file, text)) in [
+        ("a.rs", "1\n2\n"),
+        ("b.rs", "x\n"),
+        ("b.rs", "x\ny\n"),
+        ("a.rs", "1\n2\n3\n"),
+    ]
+    .iter()
+    .enumerate()
+    {
+        std::fs::write(root.join(file), text).expect("writing");
+        git(root, &["add", file]);
+        let when = format!("@{} +0000", 1_700_000_000 + i * 86_400);
+        let out = std::process::Command::new("git")
+            .current_dir(root)
+            .args(["commit", "-q", "-m", "change"])
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_AUTHOR_NAME", "Alice Example")
+            .env("GIT_AUTHOR_EMAIL", "alice@example.com")
+            .env("GIT_COMMITTER_NAME", "Alice Example")
+            .env("GIT_COMMITTER_EMAIL", "alice@example.com")
+            .env("GIT_AUTHOR_DATE", &when)
+            .env("GIT_COMMITTER_DATE", &when)
+            .output()
+            .expect("committing");
+        assert!(out.status.success());
+    }
+    let gone = git(root, &["rev-parse", "HEAD~2:b.rs"]);
+    let gone = gone.trim();
+    std::fs::remove_file(root.join(".git/objects").join(&gone[..2]).join(&gone[2..]))
+        .expect("removing the blob");
+    let repo = commitscape_index::GixRepo::open(root).expect("opening");
+    let idx = index_from_scratch(&repo).expect("indexing");
+    let pass = line_pass(&repo, &idx, &LinePlan::default(), None, &mut |_, _| {})
+        .expect("a missing file version is no error");
+    assert_eq!((pass.counted, pass.left), (2, 2));
+    assert_eq!(pass.settled, vec![true, false, false, true]);
+}

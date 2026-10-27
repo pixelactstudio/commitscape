@@ -49,11 +49,12 @@ export function locked<T>(key: string, fn: () => Promise<T>): Promise<T> {
 
 const lastLine = (text: string) => text.trim().split("\n").at(-1);
 
-/** Brings a kept clone up to date, or clones the repository afresh beside `dir` and moves it there once whole; `blobless` leaves old file contents on GitHub. */
+/** Brings a kept clone up to date, or clones the repository afresh beside `dir` and moves it there once whole; `blobless` leaves old file contents on GitHub, and `checkout: false` writes no files out, only moving the branch, so a blobless clone fetches none. */
 export async function ensureClone(
   run: typeof runCommand,
-  how: { url: string; dir: string; blobless: boolean; env: NodeJS.ProcessEnv; timeoutMs: number },
+  how: { url: string; dir: string; blobless: boolean; env: NodeJS.ProcessEnv; timeoutMs: number; checkout?: boolean },
 ): Promise<Cloned> {
+  const checkout = how.checkout ?? true;
   const started = Date.now();
   const left = () => Math.max(1000, how.timeoutMs - (Date.now() - started));
   const seconds = () => Math.round((Date.now() - started) / 100) / 10;
@@ -64,7 +65,7 @@ export async function ensureClone(
     for (const args of [
       ["rev-parse", "--quiet", "--verify", "HEAD"],
       ["fetch", "--quiet", "--prune", "--tags", "origin"],
-      ["reset", "--quiet", "--hard", "origin/HEAD"],
+      ["reset", "--quiet", checkout ? "--hard" : "--soft", "origin/HEAD"],
     ]) {
       const ran = await run("git", args, inside, left());
       if (ran.timedOut) return timedOut;
@@ -79,13 +80,13 @@ export async function ensureClone(
   const temp = join(parent, `.${basename(how.dir)}.cloning`);
   await mkdir(parent, { recursive: true });
   await rm(temp, { recursive: true, force: true });
-  const args = ["clone", "--quiet", ...(how.blobless ? ["--filter=blob:none"] : []), "--", how.url, temp];
+  const args = ["clone", "--quiet", ...(how.blobless ? ["--filter=blob:none"] : []), ...(checkout ? [] : ["--no-checkout"]), "--", how.url, temp];
   const ran = await run("git", args, { ...how.env, GIT_CEILING_DIRECTORIES: parent }, left());
   if (ran.timedOut || ran.code !== 0) {
     await rm(temp, { recursive: true, force: true });
     return ran.timedOut ? timedOut : { ok: false, reason: failure(ran.stderr), detail: lastLine(ran.stderr) };
   }
-  if (!how.blobless) await run("git", ["commit-graph", "write", "--reachable", "--no-progress"], { ...how.env, GIT_DIR: join(temp, ".git") }, left());
+  if (!how.blobless || !checkout) await run("git", ["commit-graph", "write", "--reachable", "--no-progress"], { ...how.env, GIT_DIR: join(temp, ".git") }, left());
   await rm(how.dir, { recursive: true, force: true });
   await rename(temp, how.dir);
   return { ok: true, fresh: true, seconds: seconds() };

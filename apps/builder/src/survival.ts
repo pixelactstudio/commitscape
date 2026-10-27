@@ -1,11 +1,12 @@
 import { existsSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { installationToken, now, randomId, schema, type SurvivalJob } from "@commitscape/server";
 import { cloneUrl, ensureClone, gitEnv, locked } from "./clone";
 import { accountsFor, writeAccounts } from "./accounts";
 import { cacheFor, holding, privateDir, repoDir, scratchDir } from "./disk";
+import { fetchBlobs, historyBlobs } from "./lean";
 import type { JobContext } from "./job";
 import { NAME, type Ran } from "./run";
 
@@ -57,12 +58,15 @@ export async function runSurvival(job: SurvivalJob, ctx: JobContext & { budget: 
   const key = `surviving-${randomId()}`;
   const scratch = scratchDir(cfg, key);
   const home = repo.isPrivate ? privateDir(cfg, key) : repoDir(cfg, repo.owner, repo.name);
-  const full = join(home, "full");
+  const lean = join(home, "lean");
+  const leaned = !repo.isPrivate && existsSync(join(lean, ".git"));
+  const full = leaned ? lean : join(home, "full");
   const env = gitEnv(token);
   const started = Date.now();
   let ran: Ran;
   holding.add(key);
   try {
+    if (leaned) await prefetch(ctx, repo.id, lean, env);
     const cloned = existsSync(join(full, ".git"))
       ? ({ ok: true } as const)
       : await locked(full, () => ensureClone(ctx.run, { url: cloneUrl(cfg, repo.owner, repo.name), dir: full, blobless: false, env, timeoutMs: cfg.cloneLimit * 1000 }));
@@ -121,4 +125,22 @@ export async function runSurvival(job: SurvivalJob, ctx: JobContext & { budget: 
   }
   const counted = new Set(answer.people.map((p) => p.id));
   await mark("failed", job.personIds.filter((id) => !counted.has(id)));
+}
+
+async function prefetch(ctx: JobContext, repoId: string, dir: string, env: NodeJS.ProcessEnv): Promise<void> {
+  const [last] = await ctx.db
+    .select({ head: surviving.head })
+    .from(surviving)
+    .where(and(eq(surviving.repoId, repoId), eq(surviving.status, "counted"), isNotNull(surviving.head)))
+    .orderBy(desc(surviving.countedAt))
+    .limit(1);
+  if (!last?.head) return;
+  const g = { dir, env, deadline: Date.now() + ctx.cfg.cloneLimit * 1000 };
+  try {
+    const wanted = await historyBlobs(g, last.head);
+    await fetchBlobs(g, wanted);
+    ctx.log(`surviving ${repoId}: ${wanted.length} file versions fetched into the blobless clone`);
+  } catch (e) {
+    ctx.log(`surviving ${repoId}: file versions not fetched ahead, so blame fetches them as it goes: ${(e as Error).message}`);
+  }
 }
