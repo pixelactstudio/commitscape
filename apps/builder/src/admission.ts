@@ -23,7 +23,7 @@ export function peakMb(kind: EngineRun, repo: Sized): number {
   return Math.ceil(mb);
 }
 
-/** A runner through which runs of the engine (`heavy` commands) start only while the memory they say they take (`memoryMb`, else 256) fits in `budgetMb` beside the runs already going, in the order they asked: a run larger than the budget waits until nothing else runs, then runs alone. Every other command (git, the network) runs at once. A run's time limit starts when it is let in. */
+/** A runner through which runs of the engine (`heavy` commands), and any other command that says the memory it takes, start only while that memory (`memoryMb`, else 256) fits in `budgetMb` beside the runs already going, in the order they asked: a run larger than the budget waits until nothing else runs, then runs alone. Every other command runs at once. A run's time limit starts when it is let in. */
 export function admitting(runner: Runner, heavy: string[], budgetMb: number): Runner {
   const commands = new Set(heavy);
   let used = 0;
@@ -40,7 +40,7 @@ export function admitting(runner: Runner, heavy: string[], budgetMb: number): Ru
     }
   };
   return async (cmd: string, args: string[], env: NodeJS.ProcessEnv, timeoutMs: number, opts?: RunOptions) => {
-    if (!commands.has(cmd)) return runner(cmd, args, env, timeoutMs, opts);
+    if (!commands.has(cmd) && opts?.memoryMb === undefined) return runner(cmd, args, env, timeoutMs, opts);
     const need = Math.min(Math.max(1, opts?.memoryMb ?? UNKNOWN_MB), budgetMb);
     await new Promise<void>((start) => {
       waiting.push({ need, start });

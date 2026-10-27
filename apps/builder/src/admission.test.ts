@@ -57,6 +57,17 @@ test("the Atlas waits in the same line as the engine, and a run that says nothin
   await Promise.all(runs);
 });
 
+test("any other command that says the memory it takes waits in the same line", async () => {
+  const g = gate(300);
+  const runs = [g.ask("commitscape", "build", 250), g.ask("git", "repack", 100), g.ask("git", "status")];
+  await g.tick();
+  expect([...g.order].sort()).toEqual(["start build", "start status"]);
+  await g.finish("build");
+  expect(g.order.at(-1)).toBe("start repack");
+  for (const name of ["repack", "status"]) await g.finish(name);
+  await Promise.all(runs);
+});
+
 test("an estimate is above every peak measured on linux and react", () => {
   const linux = { commits: 1_501_892, sizeKb: 5_800_000 };
   const react = { commits: 21_722, sizeKb: 1_100_000 };

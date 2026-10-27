@@ -30,6 +30,7 @@ import { runJob } from "./job";
 import { admitting } from "./admission";
 import { jobLimitOf, run } from "./run";
 import { pullsToken, readPulls } from "./pulls";
+import { repackClones } from "./repack";
 import { budgetOf, runSurvival } from "./survival";
 import { queueRebuilds } from "./rebuild";
 import { forgetStates, saveState as saveRepoState, stateKeys } from "./state";
@@ -104,6 +105,7 @@ async function work() {
     const lane = await laneOf(db, cfg, job.buildId);
     await sendBuild(lane?.queue ?? BUILD_QUEUE, { queuedAt: Date.now(), ...job }, priority, startAfter);
   };
+  const engine = admitting(run, [cfg.bin, cfg.atlas.command], cfg.engineMemoryMb);
   let forgotAt = 0;
   const tidy = async () => {
     for (const p of await sweep(db, cfg).catch(() => [])) log(`swept ${p}`);
@@ -112,6 +114,7 @@ async function work() {
     const caches = await inUse(db, cfg, cacheDir).catch(() => null);
     const days = cfg.state ? cfg.state.diskDays * 86_400_000 : undefined;
     if (caches) for (const p of await prune(cfg.work, cfg.cacheGb * 1024 ** 3, caches, "caches", days)) log(`pruned ${p}`);
+    for (const p of await repackClones(engine, cfg.work, cfg.cloneLimit * 1000).catch(() => [])) log(`repacked ${p}`);
     if (cfg.state && Date.now() - forgotAt > 86_400_000) {
       forgotAt = Date.now();
       const gone = await forgetStates({ storage, db }, cfg.state.keepDays).catch((e: unknown) => (log(`states not forgotten: ${(e as Error).message}`), []));
@@ -127,7 +130,6 @@ async function work() {
   const tidyTimed = timed("builder-tidy", TIDY_MINUTES, tidy);
   const tier = cfg.state ? { storage, keys: stateKeys(cfg.state.secret), db, log } : null;
   const saveState = tier ? (repoId: string, root: string) => saveRepoState(tier, repoId, root) : undefined;
-  const engine = admitting(run, [cfg.bin, cfg.atlas.command], cfg.engineMemoryMb);
   const ctx = { db, pool, storage, cfg, app, run: engine, github, tokenSecret: env.TOKEN_SECRET, log, telemetry, queuePulls, queueCounts, queueBuild, ...(saveState ? { saveState } : {}) };
   const building = (queue: string, job: { id: string; data: BuildJob }) =>
     inQueueSpan(job, queue, () => runJob(job.data.buildId, ctx, job.data.attempt ?? 1, { ...(job.data.userId ? { userId: job.data.userId } : {}), ...(job.data.more ? { more: job.data.more } : {}) }));

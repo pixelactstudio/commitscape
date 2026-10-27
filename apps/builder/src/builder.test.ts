@@ -451,7 +451,7 @@ test("a Connected Repository is cloned with its token in git's environment only,
   expect(header).toMatch(/^GIT_CONFIG_KEY_\d$/);
   const value = clone?.env[header.replace("KEY", "VALUE")] ?? "";
   expect(Buffer.from(value.replace("AUTHORIZATION: basic ", ""), "base64").toString()).toBe("x-access-token:ghs_abc");
-  expect(clone?.env.GIT_CONFIG_COUNT).toBe("3");
+  expect(clone?.env.GIT_CONFIG_COUNT).toBe("5");
   expect(f.calls.every((c) => !c.args.join(" ").includes("ghs_abc"))).toBe(true);
   expect(builds(f.calls).at(-1)?.args.at(-1)).toBe(join(work, "private", "build-0001", "full"));
   expect(await readdir(join(work, "private"))).toEqual([]);

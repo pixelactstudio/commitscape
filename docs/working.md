@@ -66,6 +66,13 @@ to a repository the App is installed on, the nightly seeds and
    blame walks. A retry reads the full clone. linux, 19 days behind:
    36 MB of commits and trees and 105 MB of file versions, against 214 MB
    fetched in full; the kept clone is 2.4 GB instead of 6.6 GB.
+   git's own upkeep is off for every git the Builder runs (`gc.auto=0`,
+   `maintenance.auto=false`), so no fetch repacks a clone in the middle of
+   a Build. Instead tidy merges the small packs of any kept clone holding
+   more than 16 into one, as `git repack --geometric=2` would (git 2.39
+   refuses that in a blobless clone): one thread, a 64 MB delta window,
+   holding the clone's lock and let in by `ENGINE_MEMORY_MB`, the largest
+   pack never rewritten.
 3. **Finds logins.** `commitscape signatures` lists each author address with
    its newest commit. A noreply address gives the login; for the others the
    Builder asks GitHub's GraphQL API who made those commits, a hundred to a

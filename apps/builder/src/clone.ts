@@ -12,6 +12,8 @@ export function gitEnv(token: string | null): NodeJS.ProcessEnv {
   const config: [string, string][] = [
     ["fetch.writeCommitGraph", "true"],
     ["core.commitGraph", "true"],
+    ["gc.auto", "0"],
+    ["maintenance.auto", "false"],
   ];
   if (token) config.push(["http.https://github.com/.extraheader", `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`]);
   const env: NodeJS.ProcessEnv = { GIT_TERMINAL_PROMPT: "0", GIT_CONFIG_COUNT: String(config.length) };

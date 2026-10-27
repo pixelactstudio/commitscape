@@ -16,7 +16,7 @@ export class Late extends Error {
   }
 }
 
-const ARGS = ["--no-pager", "-c", "core.quotepath=off", "-c", "gc.auto=0", "-c", "log.showSignature=false"];
+const ARGS = ["--no-pager", "-c", "core.quotepath=off", "-c", "gc.auto=0", "-c", "maintenance.auto=false", "-c", "log.showSignature=false"];
 
 const left = (g: Git, ms?: number) => Math.max(0, Math.min(g.deadline - Date.now(), ms ?? Infinity));
 
