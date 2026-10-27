@@ -434,7 +434,10 @@ impl Stored {
             };
             let mut places = Vec::with_capacity(found.len());
             for (id, time) in found {
-                places.push(place_of(index, id, time).unwrap_or(NONE));
+                let Some(at) = place_of(index, id, time) else {
+                    return Ok(None);
+                };
+                places.push(at);
             }
             new_parents.insert(p as u32, places);
         }

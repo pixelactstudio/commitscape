@@ -607,6 +607,14 @@ test("the Atlas shares the engine's slot, so it never runs beside a run of the e
   expect(order).toEqual(["start commitscape", "end commitscape", "start node", "end node"]);
 });
 
+test("a command's output is kept up to a megabyte, or as much as the caller asks for", async () => {
+  const big = ["-c", "head -c 3000000 /dev/zero | tr '\\0' a"];
+  const kept = await run("sh", big, {}, 10_000);
+  expect(kept.stdout?.length).toBeGreaterThanOrEqual(1_000_000);
+  expect(kept.stdout?.length).toBeLessThan(3_000_000);
+  expect((await run("sh", big, {}, 10_000, { maxStdout: 4_000_000 })).stdout?.length).toBe(3_000_000);
+});
+
 test("a command past its time is stopped with everything it started", async () => {
   const started = Date.now();
   const ran = await run("sh", ["-c", "sleep 30 & sleep 30"], {}, 300);

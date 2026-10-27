@@ -14,6 +14,8 @@ const { repositories, surviving } = schema;
 
 export const SURVIVING_BUDGET_MAX = 4 * 3600;
 
+const EVERYONE_BYTES = 256 << 20;
+
 /** How long each person may take in one count of Surviving Lines: the budget, doubled for each attempt after the first, up to four hours. */
 export function budgetOf(base: number, attempt = 0): number {
   return Math.min(base * 2 ** Math.max(attempt, 0), Math.max(base, SURVIVING_BUDGET_MAX));
@@ -84,7 +86,7 @@ export async function runSurvival(job: SurvivalJob, ctx: JobContext & { budget: 
     const args = ["surviving", "--everyone", "--budget-seconds", String(budget), ...cache, "--offline"];
     if (accounts) args.push("--accounts", accounts);
     args.push("--", full);
-    ran = await ctx.run(cfg.bin, args, engineEnv, (budget + cfg.timeLimit) * 1000, { nice: cfg.nice });
+    ran = await ctx.run(cfg.bin, args, engineEnv, (budget + cfg.timeLimit) * 1000, { nice: cfg.nice, maxStdout: EVERYONE_BYTES });
     if (!repo.isPrivate && ran.code === 0) await ctx.saveState?.(repo.id, cache[1] ?? "").catch((e: unknown) => ctx.log(`state of ${repo.id} not saved: ${(e as Error).message}`));
   } finally {
     await rm(scratch, { recursive: true, force: true });

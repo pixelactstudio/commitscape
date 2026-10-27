@@ -65,7 +65,7 @@ export function jobLimitOf(cfg: Config, attempt = 1): number {
 
 export type Ran = { code: number | null; stderr: string; timedOut: boolean; stdout?: string };
 
-export type RunOptions = { nice?: number; input?: string };
+export type RunOptions = { nice?: number; input?: string; maxStdout?: number };
 
 const PASSED = ["PATH", "HOME", "USER", "LANG", "LC_ALL", "TMPDIR", "TEMP", "TMP", "SYSTEMROOT", "PATHEXT", "USERPROFILE", "SSL_CERT_FILE", "SSL_CERT_DIR"];
 export function passed(): NodeJS.ProcessEnv {
@@ -111,9 +111,13 @@ export function run(cmd: string, args: string[], env: NodeJS.ProcessEnv, timeout
     const child = spawn(cmd, args, { env: { ...passed(), ...env }, stdio: [opts.input === undefined ? "ignore" : "pipe", "pipe", "pipe"], detached: true });
     if (opts.nice !== undefined && child.pid) lowered(child.pid, opts.nice);
     let stderr = "";
-    let stdout = "";
+    const most = opts.maxStdout ?? 1_000_000;
+    const chunks: Buffer[] = [];
+    let held = 0;
     child.stdout?.on("data", (d: Buffer) => {
-      if (stdout.length < 1_000_000) stdout += d.toString();
+      if (held >= most) return;
+      chunks.push(d);
+      held += d.length;
     });
     let timedOut = false;
     let settled = false;
@@ -121,7 +125,7 @@ export function run(cmd: string, args: string[], env: NodeJS.ProcessEnv, timeout
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      resolve({ code, stderr, timedOut, stdout });
+      resolve({ code, stderr, timedOut, stdout: Buffer.concat(chunks).toString() });
     };
     child.stderr?.on("data", (d: Buffer) => {
       stderr = (stderr + d.toString()).slice(-4000);
