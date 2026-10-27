@@ -480,6 +480,30 @@ needs. In this order:
    and Universe say they are read at the next Build.
 5. Set up the landing page (section 7).
 
+## Upgrading to the Repo State
+
+The release that keeps each repository's Repo State (ADR-0030) deploys in
+the usual order, and works without new settings. In this order:
+
+1. Deploy the Builder. Its migrations add `repositories.checked_at` and
+   the `repo_states` table. From then on it ends a Build early when the
+   head has not moved, makes each pack's Atlas itself, counts everyone's
+   Surviving Lines once per new Report, and moves a repository to a lean
+   clone once its lines and Surviving Lines are counted. The first Build of
+   each repository makes its commit graph once (linux: 2.6 s).
+2. To keep Repo States in R2 as well, set `STATE_KEY` on the Builder (a
+   secret of 32 characters or more, kept only there, never changed after)
+   before or with this deploy. Without it the States live on its disk only.
+3. Deploy the engine service: it adds `/v1/commits/search` and matches
+   words in `/v1/commits/under`.
+4. Deploy the Site: it searches the Commit List's words through the engine
+   service, counts a Report found unchanged as current, and no longer
+   serves `git/log.json`.
+5. Seeds' Surviving Lines rows of older Reports stay; each repository's
+   next Report gets everyone's. The first count of a large repository
+   (linux: about 45 minutes of both cores, in budgeted runs) shows
+   "counting" until it is whole.
+
 ## Moving to a new R2 bucket
 
 A bucket's location cannot change, so moving to another location is a new

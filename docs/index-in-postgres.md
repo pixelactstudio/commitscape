@@ -12,8 +12,11 @@ the Commit List and its search, a person's commits on a day, branches,
 tags, pull requests and the files at HEAD. Every screen's answer comes from
 the engine service, from the pack each Build writes beside the rows, and
 the Site holds no Stored Index in memory. The four daily summary tables were
-dropped with export format 3: nothing read them. What else differs from the
-plan below:
+dropped with export format 3: nothing read them. Since 2026-10-27 a search
+of the Commit List by its words asks the engine service which commits match
+(it holds every subject), and reads only that page's rows from Postgres; the
+whole-table scan is left for a Report with no pack. What else differs from
+the plan below:
 
 - **Phase 2** worked the answers out in TypeScript from the Stored Index held
   in memory, a port of the engine's `Analysis`, rather than in SQL. Since the
