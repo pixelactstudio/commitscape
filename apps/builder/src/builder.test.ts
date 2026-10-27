@@ -7,6 +7,7 @@ import { expect, test } from "vitest";
 import { readManifest, type LiveIndex, type Loaded } from "@commitscape/server";
 import { ensureClone, failure, gitEnv } from "./clone";
 import type { Config } from "./config";
+import { peakMb } from "./admission";
 import { cacheDir, cacheFor, holdingRepo, prune, repoDir, scratchDir } from "./disk";
 import { readEvents } from "./engine";
 import { flagOf, writeBuilt, type FakeBuild } from "./fake";
@@ -550,6 +551,24 @@ test("the least recently used repository folders go first when the disk budget i
   expect(await prune(work, 2500)).toEqual([join(work, "repos", "acme", "old")]);
   expect(await prune(work, 5000)).toEqual([]);
   expect(await prune(work, 1500, [join(work, "repos", "acme", "mid")])).toEqual([join(work, "repos", "acme", "new")]);
+});
+
+test("a Build whose cache has no column file for its generation yet asks the memory gate for what writing it takes", async () => {
+  const work = await mkdtemp(join(tmpdir(), "builder-"));
+  const cache = join(cacheDir(cfg(work), "acme", "rocket"), "key-0123");
+  await mkdir(cache, { recursive: true });
+  await writeFile(join(cache, "index.current"), "00000000000000aa\n");
+  const sized = { commits: 1_500_000, sizeKb: 10 * 1024 };
+  const asked = async (live: LiveIndex | null) => {
+    const f = fake(() => ok, {}, live);
+    await build(req(), cfg(work), f.deps);
+    return builds(f.calls).map((c) => c.opts.memoryMb);
+  };
+  const live = { id: 1, lineage: "7", kept: true, frontier: ["a".repeat(40)], lines: true, linesLeft: 0, head: "a".repeat(40), pack: "p", mark: null, buildFormat: 2, commits: 1_500_000 };
+  expect(await asked(live)).toContain(peakMb("columns", sized));
+  await writeFile(join(cache, "00000000000000aa.cols"), "");
+  expect(await asked(live)).not.toContain(peakMb("columns", sized));
+  expect(peakMb("columns", sized)).toBeGreaterThanOrEqual(498);
 });
 
 test("a repository a job holds is never pruned, its clone or its cache, and two prunes at once each keep their own record of sizes", async () => {

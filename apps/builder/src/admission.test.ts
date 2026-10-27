@@ -101,6 +101,7 @@ test("an estimate is above every peak measured on linux and react", () => {
   const measured: [Parameters<typeof peakMb>[0], typeof linux, number][] = [
     ["build", linux, 170],
     ["build", react, 38],
+    ["columns", linux, 498],
     ["cold", linux, 248],
     ["cold", react, 158],
     ["surviving", linux, 199],

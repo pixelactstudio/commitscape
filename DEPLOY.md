@@ -545,7 +545,8 @@ this order:
    everyone's Surviving Lines once per new Report, and moves a repository
    to a lean clone once its lines and Surviving Lines are counted. The
    first Build of each repository makes its commit graph and its Index's
-   columns once (linux: 2.6 s and 13 s).
+   columns once (linux: 2.6 s and 13 s, up to 498 MB, which
+   `ENGINE_MEMORY_MB` reserves for it as such).
 3. To keep Repo States in R2 as well, set `STATE_KEY` on the Builder (a
    secret of 32 characters or more, kept only there, never changed after)
    before or with this deploy. Without it the States live on its disk only.

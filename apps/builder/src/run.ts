@@ -12,7 +12,7 @@ import type { Config } from "./config";
 import { cacheFor, holdingRepo, lineStoreOf, privateDir, repoDir, scratchDir } from "./disk";
 import { readBuilt, readEvents, type Built } from "./engine";
 import { prefetch } from "./lean";
-import { hasCache } from "./state";
+import { hasCache, writesColumns } from "./state";
 import { engineSpans, Phases } from "./telemetry";
 
 export type BuildTarget = {
@@ -195,7 +195,7 @@ export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<
     await rm(out, { recursive: true, force: true });
     await rm(events, { force: true });
     const before = await deps.index.live();
-    const kind = (await hasCache(cacheRoot)) ? "build" : "cold";
+    const kind = !(await hasCache(cacheRoot)) ? "cold" : (await writesColumns(cacheRoot)) ? "columns" : "build";
     const memoryMb = peakMb(kind, { commits: before?.commits ?? 0, sizeKb: req.sizeKb });
     const args = ["build", ...(phase === "quick" ? ["--no-lines"] : ["--lines-budget", String(linesBudgetOf(cfg, binLimit, !!req.more))]), "--offline", "--max-changeset-size", String(cfg.bulkFiles), ...cache(), "--events", events, "--out", out];
     if (accounts) args.push("--accounts", accounts);

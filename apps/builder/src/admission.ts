@@ -1,19 +1,20 @@
 import type { RunOptions, Runner } from "./run";
 
 /** What an engine run does, as far as its memory goes. */
-export type EngineRun = "build" | "cold" | "signatures" | "surviving" | "screens" | "atlas" | "clone" | "blobless" | "fetch";
+export type EngineRun = "build" | "columns" | "cold" | "signatures" | "surviving" | "screens" | "atlas" | "clone" | "blobless" | "fetch";
 
 /** What is known of a repository before a run starts: its commits from its live Stored Index (0 when it has none) and its size on GitHub. */
 export type Sized = { commits: number; sizeKb: number };
 
 const UNKNOWN_MB = 256;
 
-/** About how many MB of memory an engine run takes at its peak, a little over what was measured on two threads (2026-10-27: linux, 1.5M commits, and facebook/react, 22k): a warm build 94–170 MB on linux and 9–38 on react, a cold one 248 and 158, everyone's Surviving Lines 199 and 121, the standard screens 191, the Atlas 98 and 13. A cold run knows no commit count yet, so it goes by the repository's size, as git's runs do: a whole clone (react: 82 to 92 MB for a 150 MB pack, `git index-pack` holding every object it receives), a blobless one (commits and trees only) and a fetch into a kept clone. */
+/** About how many MB of memory an engine run takes at its peak, a little over what was measured on two threads (2026-10-27: linux, 1.5M commits, and facebook/react, 22k): a warm build 94–170 MB on linux and 9–38 on react, the first one that writes the Index's column file 498 on linux, a cold one 248 and 158, everyone's Surviving Lines 199 and 121, the standard screens 191, the Atlas 98 and 13. A cold run knows no commit count yet, so it goes by the repository's size, as git's runs do: a whole clone (react: 82 to 92 MB for a 150 MB pack, `git index-pack` holding every object it receives), a blobless one (commits and trees only) and a fetch into a kept clone. */
 export function peakMb(kind: EngineRun, repo: Sized): number {
   const thousands = repo.commits / 1000;
   const sizeMb = repo.sizeKb / 1024;
   const mb = {
     build: 48 + 0.12 * thousands,
+    columns: 64 + 0.3 * thousands,
     cold: Math.max(170 + 0.03 * sizeMb, 64 + 0.15 * thousands),
     signatures: 32 + 0.04 * thousands,
     surviving: Math.max(130, 64 + 0.13 * thousands),

@@ -155,6 +155,15 @@ export async function hasCache(root: string): Promise<boolean> {
   return false;
 }
 
+/** Whether a cache under `root` has no column file for its current generation yet, so the next engine run writes it whole (linux: 498 MB, once after the upgrade that brought column files). */
+export async function writesColumns(root: string): Promise<boolean> {
+  for (const entry of await readdir(root).catch(() => [])) {
+    const current = (await readFile(join(root, entry, POINTER), "utf8").catch(() => "")).trim();
+    if (current && !existsSync(join(root, entry, `${current}.cols`))) return true;
+  }
+  return false;
+}
+
 export type Saved = { files: number; chunks: number; uploaded: number; bytes: number; sent: number; deleted: number };
 
 /** Keeps a repository's engine cache in R2 as sealed chunks cut and named by their content, uploading only the chunks R2 does not hold yet (an append or an insertion uploads the chunks around it), then the manifest naming them, then deletes the chunks no manifest names any more. A file unchanged since the last save is not read again; files of a cache generation other than the current one, and files being written, are left out. */
