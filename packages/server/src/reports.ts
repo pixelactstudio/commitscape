@@ -87,14 +87,27 @@ export async function storeEntries(storage: Storage, prefix: string, data: Recor
 
 const cache = new LRUCache<string, Buffer>({ maxSize: 256 * 1024 * 1024, sizeCalculation: (bytes) => Math.max(1, bytes.length) });
 
-async function readJson<T>(storage: Storage, key: string): Promise<T | null> {
+const reading = new Map<string, Promise<Buffer | null>>();
+
+function bytesOf(storage: Storage, key: string): Promise<Buffer | null> {
   const hit = cache.get(key);
-  if (hit) return JSON.parse(hit.toString("utf8")) as T;
-  const object = await storage.get(key);
-  if (!object) return null;
-  const bytes = object.encoding === "gzip" ? await gunzipAsync(object.body) : Buffer.from(object.body);
-  cache.set(key, bytes);
-  return JSON.parse(bytes.toString("utf8")) as T;
+  if (hit) return Promise.resolve(hit);
+  const already = reading.get(key);
+  if (already) return already;
+  const read = (async () => {
+    const object = await storage.get(key);
+    if (!object) return null;
+    const bytes = object.encoding === "gzip" ? await gunzipAsync(object.body) : Buffer.from(object.body);
+    cache.set(key, bytes);
+    return bytes;
+  })().finally(() => reading.delete(key));
+  reading.set(key, read);
+  return read;
+}
+
+async function readJson<T>(storage: Storage, key: string): Promise<T | null> {
+  const bytes = await bytesOf(storage, key);
+  return bytes ? (JSON.parse(bytes.toString("utf8")) as T) : null;
 }
 
 /** A stored Report's meta, stats and the answers it holds. */

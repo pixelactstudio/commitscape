@@ -38,4 +38,19 @@ describe("screens stored with a Report", () => {
     expect(await readEntry(storage, "reports/gh/2/b", "/api/overview?window=all")).toEqual({ commits: 3, people: [{ id: 1 }] });
     expect(gets).toBe(1);
   });
+
+  it("asked for at once by several readers are read from the bucket once", async () => {
+    const storage = memoryStorage();
+    await storeEntries(storage, "reports/gh/3/b", { "/api/stats?": { commits: 9 } });
+    let gets = 0;
+    const get = storage.get.bind(storage);
+    storage.get = async (key) => {
+      gets += 1;
+      await new Promise((r) => setTimeout(r, 20));
+      return get(key);
+    };
+    const all = await Promise.all([1, 2, 3].map(() => readEntry(storage, "reports/gh/3/b", "/api/stats?")));
+    expect(all).toEqual([{ commits: 9 }, { commits: 9 }, { commits: 9 }]);
+    expect(gets).toBe(1);
+  });
 });
