@@ -21,9 +21,9 @@ const COMMIT_BATCH: usize = 16;
 const PAIR_BATCH: usize = 32;
 const FIRST_SEGMENT: usize = 1_024;
 const LARGEST_SEGMENT: usize = 16_384;
-const TREE_OBJECT_CACHE_BYTES: usize = 16 * 1024 * 1024;
-const TREE_DELTA_CACHE_BYTES: usize = 32 * 1024 * 1024;
-const BLOB_DELTA_CACHE_BYTES: usize = 48 * 1024 * 1024;
+const TREE_OBJECT_CACHE_BYTES: usize = 1024 * 1024;
+const TREE_DELTA_CACHE_BYTES: usize = 2 * 1024 * 1024;
+const BLOB_DELTA_CACHE_BYTES: usize = 3 * 1024 * 1024;
 const RECENT_BLOBS: usize = 4;
 
 pub(super) fn count(

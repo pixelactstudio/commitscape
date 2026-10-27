@@ -24,9 +24,9 @@ mod lines;
 mod tree_diff;
 mod walk;
 
-const OBJECT_CACHE_BYTES: usize = 64 * 1024 * 1024;
+const OBJECT_CACHE_BYTES: usize = 4 * 1024 * 1024;
 
-const DELTA_CACHE_BYTES: usize = 128 * 1024 * 1024;
+const DELTA_CACHE_BYTES: usize = 8 * 1024 * 1024;
 
 fn with_delta_cache(repo: &mut gix::Repository) {
     repo.objects.set_pack_cache(|| {

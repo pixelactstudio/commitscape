@@ -14,9 +14,9 @@ use crate::source::{CommitSink, Indexed, RawChange, RawCommit, WalkStats};
 
 const BATCH: usize = 64;
 
-const THREAD_OBJECT_CACHE_BYTES: usize = 16 * 1024 * 1024;
+const THREAD_OBJECT_CACHE_BYTES: usize = 1024 * 1024;
 
-const THREAD_DELTA_CACHE_BYTES: usize = 48 * 1024 * 1024;
+const THREAD_DELTA_CACHE_BYTES: usize = 3 * 1024 * 1024;
 
 const PROGRESS_EVERY: u64 = 4096;
 
