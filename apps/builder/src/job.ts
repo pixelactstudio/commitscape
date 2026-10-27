@@ -7,6 +7,7 @@ import {
   liveIndex,
   LOADED,
   loadExport,
+  makeLive,
   now,
   PRIORITY,
   randomId,
@@ -25,7 +26,6 @@ import {
 } from "@commitscape/server";
 import type { BuildFailure, Meta } from "@commitscape/data";
 import { accountsFor } from "./accounts";
-import { replaceIndex } from "./atlas";
 import { storeScreens } from "./screens";
 import { cloneUrl, gitEnv, remoteRefs, type RemoteRefs } from "./clone";
 import type { Config } from "./config";
@@ -193,11 +193,7 @@ async function claimedJob(buildId: string, ctx: JobContext, attempt: number, ask
           ...(stateTier ? { state: { restore: (root: string) => restoreState(stateTier, repo.id, root), save: (root: string) => saveState(stateTier, repo.id, root) } } : {}),
           index: {
             live: async () => liveIndex(db, await currentId()),
-            load: async (dir: string) => {
-              const id = await currentId();
-              const before = await liveIndex(db, id);
-              return replaceIndex(ctx.storage, before, () => load(id, dir));
-            },
+            load: async (dir: string) => load(await currentId(), dir),
           },
           ...(gitCfg ? { git: (dir: string, env: NodeJS.ProcessEnv) => buildGitData({ db, storage: ctx.storage, cfg: gitCfg, repoId: repo.id, buildId, dir, env, log, private: repo.isPrivate }).then(() => undefined) } : {}),
         },
@@ -329,6 +325,7 @@ async function publishBuild(ctx: JobContext, phases: Phases, buildId: string, ma
     if (!current) return null;
     const [index] = await tx.select({ pack: storedIndexes.pack }).from(storedIndexes).where(eq(storedIndexes.id, si));
     await tx.update(storedIndexes).set({ pack, buildFormat: BUILD_FORMAT }).where(eq(storedIndexes.id, si));
+    const dropped = await makeLive(tx, current.id, si);
     await tx
       .update(repositories)
       .set({
@@ -361,7 +358,7 @@ async function publishBuild(ctx: JobContext, phases: Phases, buildId: string, ma
     await tx.delete(repoPeople).where(eq(repoPeople.repoId, current.id));
     for (let i = 0; i < rows.length; i += 1000) await tx.insert(repoPeople).values(rows.slice(i, i + 1000));
     await tx.execute(sql`SELECT pg_notify(${LOADED}, ${String(si)})`);
-    return { current, replaced: index?.pack ?? null };
+    return { current, replaced: index?.pack ?? null, dropped };
   });
   if (!target) {
     await storage.delete([pack]).catch(() => undefined);
@@ -372,6 +369,10 @@ async function publishBuild(ctx: JobContext, phases: Phases, buildId: string, ma
   if (target.replaced && target.replaced !== pack) {
     await storage.delete([target.replaced]).catch(() => undefined);
     for (const beside of besidePack(si, target.replaced)) await storage.deletePrefix(beside).catch(() => undefined);
+  }
+  for (const old of target.dropped) {
+    if (old.pack) await storage.delete([old.pack, screensKey(old.pack)]).catch(() => undefined);
+    await storage.deletePrefix(`atlas/${old.id}/`).catch(() => undefined);
   }
   if (target.current.reportKey && target.current.reportKey !== prefix) await storage.deletePrefix(`${target.current.reportKey}/`).catch(() => undefined);
   return { id: target.current.id, prefix, people, fresh: target.current.reportKey !== prefix };

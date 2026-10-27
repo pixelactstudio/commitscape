@@ -10,7 +10,7 @@ import { afterAll, describe, expect, test } from "vitest";
 import { createDb, runMigrations, type Db } from "./db/client";
 import * as schema from "./db/schema";
 import { indexCommitLines, indexCommits, indexFiles, indexFolders, indexPeople, repositories, storedIndexes } from "./db/schema";
-import { appendable, EXPORT_FORMAT, listenForLoads, liveIndex, loadExport, type ExportManifest } from "./stored-index";
+import { appendable, EXPORT_FORMAT, listenForLoads, liveIndex, loadExport, makeLive, type ExportManifest } from "./stored-index";
 
 const url = process.env.TEST_DATABASE_URL;
 const migrations = fileURLToPath(new URL("../drizzle", import.meta.url));
@@ -111,11 +111,13 @@ describe.skipIf(!url)("loading an export into Postgres", async () => {
       .where(eq(indexCommits.si, si))
       .orderBy(asc(indexCommits.at));
 
-  test("a full export becomes the live Stored Index, with each commit's Mainline", async () => {
+  test("a full export is loaded beside the live Stored Index and becomes live only when published, with each commit's Mainline", async () => {
     await fresh();
     const dir = writeExport({}, [{ n: 1, at: 86_400, signature: 0, files: [0, 1], added: [3, 4] }, { n: 2, at: 2 * 86_400, signature: 1, files: [0], added: [5], flags: 8, arrival: 3 * 86_400 }], { releases: { "v1.0": hex(2) } });
     const loaded = await loadExport(pool, repo, dir);
     expect(loaded).toMatchObject({ full: true, total: 2, mainline: 0, lines: 0 });
+    expect(await liveIndex(db, repo)).toBeNull();
+    expect(await db.transaction((tx) => makeLive(tx, repo, loaded.si))).toEqual([]);
     const live = await liveIndex(db, repo);
     expect(live).toMatchObject({ id: loaded.si, lineage: "7", lines: true, kept: true, mark: "full mark" });
     expect(await db.select({ person: indexPeople.person, login: indexPeople.login }).from(indexPeople).where(eq(indexPeople.si, loaded.si))).toHaveLength(2);
@@ -155,6 +157,7 @@ describe.skipIf(!url)("loading an export into Postgres", async () => {
   test("lines counted after a quick load are filled in on the same Stored Index, and show once the Mainline's are all counted", async () => {
     await fresh();
     const quick = await loadExport(pool, repo, writeExport({ lines: false, lines_counted: 0, lines_mainline: false, lines_left: null }, [{ n: 1, at: 86_400, signature: 0, files: [0], added: null }, { n: 2, at: 2 * 86_400, signature: 0, files: [0, 1], added: null }]));
+    await makeLive(db, repo, quick.si);
     expect(await liveIndex(db, repo)).toMatchObject({ id: quick.si, lines: false, linesLeft: null });
     const partly = await loadExport(pool, repo, writeExport({ full: false, lines: false, lines_counted: 1, lines_mainline: false, lines_left: 1, total: 2 }, [], { lines: [{ n: 2, added: [7, 8] }] }));
     expect(partly).toMatchObject({ si: quick.si, commits: 0, lines: 1 });
@@ -169,10 +172,14 @@ describe.skipIf(!url)("loading an export into Postgres", async () => {
     expect(await db.select().from(storedIndexes).where(eq(storedIndexes.repoId, repo))).toHaveLength(1);
   });
 
-  test("a full export from another lineage replaces the old Stored Index and its rows", async () => {
+  test("a full export from another lineage replaces the old Stored Index and its rows once published, not before", async () => {
     const before = await liveIndex(db, repo);
+    await db.update(storedIndexes).set({ pack: "packs/old.pack" }).where(eq(storedIndexes.id, before?.id ?? -1));
     const loaded = await loadExport(pool, repo, writeExport({ lineage: "8" }, [{ n: 5, at: 86_400, signature: 0, files: [0], added: [1] }]));
     expect(loaded.si).not.toBe(before?.id);
+    expect((await liveIndex(db, repo))?.id).toBe(before?.id);
+    expect(await db.transaction((tx) => makeLive(tx, repo, loaded.si))).toEqual([{ id: before?.id, pack: "packs/old.pack" }]);
+    expect((await liveIndex(db, repo))?.id).toBe(loaded.si);
     expect(await db.select().from(storedIndexes).where(eq(storedIndexes.repoId, repo))).toHaveLength(1);
     expect(await db.select().from(indexCommits).where(and(eq(indexCommits.si, before?.id ?? -1)))).toHaveLength(0);
     expect(await db.select().from(indexCommitLines).where(eq(indexCommitLines.si, before?.id ?? -1))).toHaveLength(0);

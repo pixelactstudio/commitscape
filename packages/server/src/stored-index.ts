@@ -2,7 +2,7 @@ import { createReadStream, existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
-import { count, eq, sql, type SQL } from "drizzle-orm";
+import { and, count, eq, ne, sql, type SQL } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import { from as copyFrom } from "pg-copy-streams";
@@ -79,7 +79,7 @@ export function appendable(live: LiveIndex | null): live is LiveIndex {
   return live !== null && live.kept && live.frontier.length > 0;
 }
 
-/** Loads what `commitscape export` wrote into Postgres in one transaction, as a new Stored Index, or appended to the live one with its Mainline brought up to date and the Lines Changed counted since filled in. Its lines show once the Mainline's are all counted; how many commits still wait is kept beside. */
+/** Loads what `commitscape export` wrote into Postgres in one transaction, as a new Stored Index that is not live until `makeLive` publishes it, or appended to the live one with its Mainline brought up to date and the Lines Changed counted since filled in. Its lines show once the Mainline's are all counted; how many commits still wait is kept beside. */
 export async function loadExport(pool: pg.Pool, repoId: string, dir: string): Promise<Loaded> {
   const started = Date.now();
   const manifest = await readManifest(dir);
@@ -108,7 +108,7 @@ export async function loadExport(pool: pg.Pool, repoId: string, dir: string): Pr
         lines: manifest.lines_mainline,
         linesLeft: manifest.lines_left,
         commits,
-        state: "live",
+        state: manifest.full ? "ready" : "live",
         loadedAt: sql`greatest(${now()}, coalesce(${storedIndexes.loadedAt}, 0) + 1)`,
         anchor: manifest.anchor,
         options: { max_changeset_size: manifest.max_changeset_size, coupling_support: manifest.coupling_support, ownership_min_commits: manifest.ownership_min_commits },
@@ -116,8 +116,6 @@ export async function loadExport(pool: pg.Pool, repoId: string, dir: string): Pr
         mark: manifest.mark,
       })
       .where(eq(storedIndexes.id, si));
-    await db.update(repositories).set({ indexId: si }).where(eq(repositories.id, repoId));
-    if (manifest.full) await db.execute(sql`DELETE FROM stored_indexes WHERE repo_id = ${repoId} AND id <> ${si}`);
     await client.query("SELECT pg_notify($1, $2)", [LOADED, String(si)]);
     await client.query("COMMIT");
     if (manifest.full) await client.query("ANALYZE index_commits").catch(() => undefined);
@@ -128,6 +126,20 @@ export async function loadExport(pool: pg.Pool, repoId: string, dir: string): Pr
   } finally {
     client.release();
   }
+}
+
+type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
+
+/** Makes a loaded Stored Index the repository's live one, inside the transaction that publishes its pack: points the repository at it and deletes the repository's other Stored Indexes with their rows. Returns what those were and the packs they had, for their R2 objects to be deleted once the transaction has committed. */
+export async function makeLive(tx: Db | Tx, repoId: string, si: number): Promise<{ id: number; pack: string | null }[]> {
+  const others = await tx
+    .select({ id: storedIndexes.id, pack: storedIndexes.pack })
+    .from(storedIndexes)
+    .where(and(eq(storedIndexes.repoId, repoId), ne(storedIndexes.id, si)));
+  await tx.update(storedIndexes).set({ state: "live" }).where(eq(storedIndexes.id, si));
+  await tx.update(repositories).set({ indexId: si }).where(eq(repositories.id, repoId));
+  if (others.length > 0) await tx.delete(storedIndexes).where(and(eq(storedIndexes.repoId, repoId), ne(storedIndexes.id, si)));
+  return others;
 }
 
 async function target(db: Db, repoId: string, manifest: ExportManifest): Promise<number> {

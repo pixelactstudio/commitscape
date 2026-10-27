@@ -86,11 +86,17 @@ to a repository the App is installed on, the nightly seeds and
 4. **Publishes the first Report.** `commitscape build --no-lines` on the
    quick clone writes the export, `meta.json` and `pack.bin`. `loadExport`
    copies the rows into a new Stored Index
-   ([ADR-0027](./adr/0027-the-index-is-kept-in-postgres.md)), the pack goes
-   to `packs/<repo>/<stored index>/<head>-<build>-quick.pack` in R2, and one
-   transaction records the pack's key on `stored_indexes.pack`, the Report's
-   meta and stats on the repository, and its people in `repo_people`. The
-   repository's Report shows at once, its Lines Changed marked as counting.
+   ([ADR-0027](./adr/0027-the-index-is-kept-in-postgres.md)), which is not
+   live yet, the pack goes to
+   `packs/<repo>/<stored index>/<head>-<build>-quick.pack` in R2, and one
+   transaction records the pack's key on `stored_indexes.pack`, makes that
+   Stored Index the repository's live one (`makeLive`: `index_id` moves to it
+   and every other Stored Index of the repository is deleted), and writes
+   the Report's meta and stats on the repository and its people in
+   `repo_people`. The old packs, screens and Atlases are deleted from R2
+   only once that transaction has committed, so a publish that fails leaves
+   the old Report served whole. The repository's Report shows at once, its
+   Lines Changed marked as counting.
 5. **Counts Lines Changed.** On the full clone, with the same `--cache-key`
    (the repository's id), so the history is not walked again, `commitscape
    build --lines-budget <LINES_BUDGET_SECONDS> --after <frontier> --lineage

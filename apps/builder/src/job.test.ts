@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
-import { and, eq, ne } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { expect, test } from "vitest";
@@ -43,16 +43,14 @@ function tools(built: FakeBuild | ((args: string[]) => FakeBuild) = {}, then: (c
 function loader(db: Db) {
   return async (repoId: string, dir: string): Promise<Loaded> => {
     const m = await readManifest(dir);
-    const fields = { lineage: m.lineage, kept: m.kept, head: m.head, frontier: m.frontier, lines: m.lines_mainline, linesLeft: m.lines_left, commits: m.total, state: "live", loadedAt: now() };
+    const fields = { lineage: m.lineage, kept: m.kept, head: m.head, frontier: m.frontier, lines: m.lines_mainline, linesLeft: m.lines_left, commits: m.total, loadedAt: now() };
     let si: number;
     if (m.full) {
       const [row] = await db
         .insert(storedIndexes)
-        .values({ repoId, builtAt: now(), ...fields })
+        .values({ repoId, builtAt: now(), state: "ready", ...fields })
         .returning({ id: storedIndexes.id });
       si = row?.id ?? 0;
-      await db.delete(storedIndexes).where(and(eq(storedIndexes.repoId, repoId), ne(storedIndexes.id, si)));
-      await db.update(repositories).set({ indexId: si }).where(eq(repositories.id, repoId));
     } else {
       const [repo] = await db.select({ indexId: repositories.indexId }).from(repositories).where(eq(repositories.id, repoId));
       si = repo?.indexId ?? 0;
@@ -114,6 +112,38 @@ test("a Build publishes its Stored Index: the pack in R2 and on the Stored Index
   expect(ctx.captured.at(-1)?.[1]).toEqual({ userId: undefined, repo: "acme/rocket" });
   expect(ctx.captured.at(-1)?.[2]).toMatchObject({ kind: "cold", commits: 3, lines_left: 0 });
   expect(Object.keys(ctx.captured.at(-1)?.[2] ?? {})).toEqual(expect.arrayContaining(["seconds_clone_full", "seconds_build_full", "seconds_load_full", "seconds_upload_full", "seconds_publish_full"]));
+});
+
+test("a full Build whose publish fails leaves the old Report served, and the next one replaces it whole", async () => {
+  const db = await database();
+  const head = "c".repeat(40);
+  await wholeReport(db, "acme/rocket", head, { reportAt: now() - 8 * 24 * 3600 });
+  await db.update(storedIndexes).set({ kept: false });
+  const [old] = await db.select().from(storedIndexes);
+  const oldPack = old?.pack ?? "";
+  const ctx = await context(db);
+  await ctx.storage.put(oldPack, "the old pack", { type: "application/octet-stream" });
+  const put = ctx.storage.put.bind(ctx.storage);
+  ctx.storage.put = async (key, body, options) => {
+    if (key.startsWith("packs/") && key !== oldPack) throw new Error("R2 is down");
+    return put(key, body, options);
+  };
+  await db.insert(builds).values({ id: "b1", repoId: "acme/rocket", state: "queued", requestedAt: 1 });
+  await runJob("b1", ctx);
+  expect(await db.select({ state: builds.state }).from(builds)).toEqual([{ state: "failed" }]);
+  expect((await repoRow(db))?.indexId).toBe(old?.id);
+  expect((await repoRow(db))?.reportKey).toBe("reports/gh/acme/rocket/b0");
+  const live = await db.select({ id: storedIndexes.id, pack: storedIndexes.pack }).from(storedIndexes).where(eq(storedIndexes.state, "live"));
+  expect(live).toEqual([{ id: old?.id, pack: oldPack }]);
+  expect(packs(ctx)).toEqual([oldPack]);
+  ctx.storage.put = put;
+  await db.insert(builds).values({ id: "b2", repoId: "acme/rocket", state: "queued", requestedAt: 2 });
+  await runJob("b2", ctx);
+  const rows = await db.select({ id: storedIndexes.id, state: storedIndexes.state, pack: storedIndexes.pack }).from(storedIndexes);
+  expect(rows).toHaveLength(1);
+  expect(rows[0]?.state).toBe("live");
+  expect((await repoRow(db))?.indexId).toBe(rows[0]?.id);
+  expect(packs(ctx)).toEqual([rows[0]?.pack]);
 });
 
 test("a Build makes its pack's Atlas in a process of its own, under the engine's slot, and stores it before the pack is published, so the Site never makes it", async () => {
