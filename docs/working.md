@@ -112,13 +112,16 @@ to a repository the App is installed on, the nightly seeds and
    person of it marked counting meanwhile. It reuses the full clone and the
    same accounts, so person ids match, and works out the head's Ownership
    of lines: kept in the cache as `ownership` (runs of lines per file, with
-   the commit each came from), a later head along the first-parent line
+   the commit each came from, read in place; the renames found on the way
+   beside it in `ownership.moves`), a later head along the first-parent line
    keeps every file no first-parent commit since changed and blames only
    the rest, stopping wherever a walk reaches the earlier head. Everyone's
    Surviving Lines are then a sum over it. Ownership not whole within the
    budget is kept and the count is queued again with twice the budget; a
    person asked for on the Site gets the same count for everyone. react:
-   1,997 people in 18.5 s from nothing, 0.3 s for a head 20 commits on.
+   1,997 people in 16.4 s from nothing, 0.3 s for a head 20 commits on;
+   linux: 31,000 people in 18 minutes from nothing, 5 minutes for a head
+   17,000 commits on.
 
 Every publish sends `pg_notify`, so the Site forgets the old pack key and
 warms the new pack in the engine service. If the full phase fails after the
@@ -134,14 +137,24 @@ queued ones whose job was lost.
 - Every page needs a signed-in person, except the sign-in page, `/privacy`,
   Shared Reports and shared Proof of Work; Cards, webhooks and
   `/api/health` answer anyone (`apps/site/src/server/gate.ts`).
-- A screen's answer, for any dates, comes from the engine service
+- A Report's standard screens (the stats, and the Overview, Activity,
+  People and top of the Map of all history, the last year and the last 90
+  days) are worked out once per head: the Builder runs `commitscape screens`
+  on the pack, in a process of its own that takes an engine slot, and
+  stores each answer under the Report's prefix in R2 before publishing it
+  (`apps/builder/src/screens.ts`). The Site sends those first, kept for good
+  when the request is pinned to the Report, with ETags from the Report's
+  key (`storedScreen` in `apps/site/src/server/repos.ts`).
+- Any other screen's answer, for any dates, comes from the engine service
   (`apps/site/src/server/engine-service.ts`), asked with the key of the
   repository's pack (`stored_indexes.pack`, remembered for ten seconds).
-  The engine service fetches the pack from R2 once and keeps it on disk and
-  decoded in memory, and keeps its answers. The Site keeps only the answers
-  it sent, packed with brotli, and its ETags come from the pack key. A
-  repository whose Stored Index has no pack yet reads its old Report's
-  answers from R2 until `node builder.mjs rebuild` has it built again.
+  The engine service fetches the pack from R2 once, unpacks it on its disk
+  with its columns laid out to be read in place (pack format 3; packs of
+  format 2 are decoded into memory as before), and keeps its answers. The
+  Site keeps only the answers it sent, packed with brotli, and its ETags
+  come from the pack key. A repository whose Stored Index has no pack yet
+  reads its old Report's answers from R2 until `node builder.mjs rebuild`
+  has it built again.
 - The Commits screen asks `GET /api/reports/<owner>/<repo>/commits` for 50
   rows at a time: `q`, `person`, `kind`, `from`, `to`, `cursor`, `limit`,
   read from `index_commits` and cached by ETag. A search by words, and
@@ -192,7 +205,15 @@ Mainline that moved and the Lines Changed counted since. Beside the Index
 the cache keeps its commit graph (`graph`: each commit's parents by place,
 and the Mainline of the head it was last worked out for); a Build brings it
 up to date from the commits added since, so the Mainline and the commits
-the frontier reaches come from memory instead of from walking git. `--anchor SECONDS` ends every Window there
+the frontier reaches come from memory instead of from walking git. Each
+generation of the cache also keeps the Index's long arrays (commits,
+changes, subjects, and which commits' Lines Changed are settled) in a
+column file (`<generation>.cols`), laid out to be mapped and read in place:
+a warm Build reads it without decoding, a Build with new commits streams
+the old file and the new commits into the next one, and the line pass
+counts only the commits not settled and writes them back in place.
+`commitscape screens PACK --out FILE` works out a pack's standard screens
+as one JSON object. `--anchor SECONDS` ends every Window there
 instead of now, so the output comes out the same every time.
 `COMMITSCAPE_SITE` points `share` at another Site.
 

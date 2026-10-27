@@ -268,8 +268,8 @@ Optional, with their defaults:
 
 | Variable | Default | What |
 |---|---|---|
-| `PACK_DISK_GB` | 10 | Packs kept on the volume; past this, the least recently used are deleted. Fractions are allowed |
-| `PACK_MEMORY_MB` | 512 | Packs kept decoded in memory, the least recently used first to go (facebook/react's is about 17 MB). Its answers are kept besides, up to 128 MB |
+| `PACK_DISK_GB` | 10 | Packs kept on the volume; past this, the least recently used are deleted. Fractions are allowed. A pack is kept unpacked, its columns laid out to be read in place, about 2.6 times its size in R2 (linux: 107 MB in R2, 275 MB unpacked) |
+| `PACK_MEMORY_MB` | 512 | Packs kept open in memory, the least recently used first to go. Only what a pack keeps on the heap counts, not the columns read in place from the volume (linux: about 52 MB, facebook/react: a few MB). Its answers are kept besides, up to 128 MB |
 | `COMMITSCAPE_THREADS` | every core, up to 16 | Threads working out answers, and answers worked out at once |
 | `PORT` | 4100 | The port it listens on |
 | `PACK_DIR` | `/data/packs` | Where packs are kept on disk |
@@ -448,7 +448,9 @@ record proxied, the Site reads the visitor's address from
 
 When a release is made, the Docker images workflow pushes `latest` and
 `vX.Y.Z` and then calls a Dokploy deploy webhook for each application, in
-this order: Builder, engine service, Site. In each application's
+this order: engine service, Builder, Site. The engine service goes first
+because it reads every pack format a Builder of the same or an earlier
+release writes. In each application's
 Deployments tab in Dokploy, copy its webhook URL into this repository's
 secrets on GitHub:
 
@@ -482,27 +484,36 @@ needs. In this order:
 
 ## Upgrading to the Repo State
 
-The release that keeps each repository's Repo State (ADR-0030) deploys in
-the usual order, and works without new settings. In this order:
+The release that keeps each repository's Repo State (ADR-0030) works
+without new settings, and deploys the engine service first: its Builder
+writes packs of a new format (3) that only this engine service reads. In
+this order:
 
-1. Deploy the Builder. Its migrations add `repositories.checked_at` and
+1. Deploy the engine service. It reads packs of both formats; the old ones
+   it decodes as before, the new ones it unpacks once on its volume and
+   reads in place. It adds `/v1/commits/search` and matches words in
+   `/v1/commits/under`.
+2. Deploy the Builder. Its migrations add `repositories.checked_at` and
    the `repo_states` table. From then on it ends a Build early when the
-   head has not moved, makes each pack's Atlas itself, counts everyone's
-   Surviving Lines once per new Report, and moves a repository to a lean
-   clone once its lines and Surviving Lines are counted. The first Build of
-   each repository makes its commit graph once (linux: 2.6 s).
-2. To keep Repo States in R2 as well, set `STATE_KEY` on the Builder (a
+   head has not moved, makes each pack's Atlas and standard screens itself,
+   counts everyone's Surviving Lines once per new Report, and moves a
+   repository to a lean clone once its lines and Surviving Lines are
+   counted. The first Build of each repository makes its commit graph and
+   its Index's columns once (linux: 2.6 s and 13 s).
+3. To keep Repo States in R2 as well, set `STATE_KEY` on the Builder (a
    secret of 32 characters or more, kept only there, never changed after)
    before or with this deploy. Without it the States live on its disk only.
-3. Deploy the engine service: it adds `/v1/commits/search` and matches
-   words in `/v1/commits/under`.
-4. Deploy the Site: it searches the Commit List's words through the engine
-   service, counts a Report found unchanged as current, and no longer
-   serves `git/log.json`.
+4. Deploy the Site: it sends a Report's standard screens (the stats, and
+   the overview, activity, people and top of the map of all history, the
+   last year and the last 90 days) from what the Builder stored with it,
+   asks the engine service for the rest, searches the Commit List's words
+   through the engine service, counts a Report found unchanged as current,
+   and no longer serves `git/log.json`. Reports published before ask the
+   engine service as before until their next Build.
 5. Seeds' Surviving Lines rows of older Reports stay; each repository's
    next Report gets everyone's. The first count of a large repository
-   (linux: about 45 minutes of both cores, in budgeted runs) shows
-   "counting" until it is whole.
+   (linux: about 20 minutes of both cores) shows "counting" until it is
+   whole.
 
 ## Moving to a new R2 bucket
 

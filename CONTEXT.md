@@ -49,7 +49,7 @@ A repository's Index as the Site keeps it, in Postgres: every commit with its Ch
 _Avoid_: index tables, commit store.
 
 **Pack**:
-A repository's Index at one head as the engine service reads it, with its people already resolved to their GitHub logins and colours, its Mainline, and no email address. Each publish of a Build writes a new one, which never changes; the Stored Index names the current one.
+A repository's Index at one head as the engine service reads it, with its people already resolved to their GitHub logins and colours, its Mainline, and no email address. Each publish of a Build writes a new one, which never changes; the Stored Index names the current one. Compressed in R2; the engine service unpacks it once onto its disk and reads its columns in place.
 _Avoid_: snapshot, bundle, cache, export.
 
 **Mainline**:
@@ -135,7 +135,7 @@ A Card placed in a README or elsewhere by its address, served from a stored copy
 _Avoid_: badge, widget, stats image.
 
 **Report**:
-A repository's story told screen by screen (the Overview, Activity, People, a person, the Map, a file) for a Window. On the Site the engine service answers each screen from the repository's Pack, for any Window, and its Commit List is rows in the Stored Index. A Shared Report carries every screen's answer for its Windows, written ahead of time on someone's machine, and answers only what it was written with.
+A repository's story told screen by screen (the Overview, Activity, People, a person, the Map, a file) for a Window. On the Site the standard screens of the Windows all, 1y and 90d are worked out from the repository's Pack once per head and stored with the Report; the engine service answers every other screen from the Pack, for any dates, and its Commit List is rows in the Stored Index. A Shared Report carries every screen's answer for its Windows, written ahead of time on someone's machine, and answers only what it was written with.
 _Avoid_: export, snapshot, dump.
 
 **Shared Report**:

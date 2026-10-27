@@ -10,8 +10,11 @@ Every phase is built, and [ADR-0028](./adr/0028-the-engine-service-answers-from-
 changed where answers come from. The Stored Index is now for row lookups:
 the Commit List and its search, a person's commits on a day, branches,
 tags, pull requests and the files at HEAD. Every screen's answer comes from
-the engine service, from the pack each Build writes beside the rows, and
-the Site holds no Stored Index in memory. The four daily summary tables were
+the pack each Build writes beside the rows, and the Site holds no Stored
+Index in memory: since 2026-10-27 a Report's standard screens (all, 1y and
+90d) are worked out from the pack once per head and stored in R2 with the
+Report, and the engine service answers the rest, reading the pack's
+columns in place. The four daily summary tables were
 dropped with export format 3: nothing read them. Since 2026-10-27 a search
 of the Commit List by its words asks the engine service which commits match
 (it holds every subject), and reads only that page's rows from Postgres; the
