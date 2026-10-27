@@ -14,9 +14,63 @@ const unzstd = promisify(zstdDecompress);
 
 export const CHUNK_BYTES = 8 << 20;
 
+const LEAST_BYTES = 512 << 10;
+
+const CUT_BITS = 21;
+
 const LOCAL = "state.json";
-const SKIPPED = new Set(["index.lock", "index.load", "graph", "graph.writing", "blame", LOCAL]);
+const SKIPPED = new Set(["index.lock", "index.load", "graph", "graph.writing", "blame", "merging.part", LOCAL]);
 const POINTER = "index.current";
+const GENERATION = /^([0-9a-f]{16})\.(cols|head)$/;
+const PASSING = /\.(tmp|writing|part|runs)$|^building\./;
+
+const GEAR = (() => {
+  const table = new Uint32Array(256);
+  let x = 0x9e3779b9;
+  for (let i = 0; i < 256; i++) {
+    x = (x + 0x6d2b79f5) >>> 0;
+    let z = x;
+    z = Math.imul(z ^ (z >>> 15), z | 1);
+    z ^= z + Math.imul(z ^ (z >>> 7), z | 61);
+    table[i] = (z ^ (z >>> 14)) >>> 0;
+  }
+  return table;
+})();
+
+function cutAt(buf: Buffer, have: number): number {
+  if (have <= LEAST_BYTES) return have;
+  const limit = Math.min(have, CHUNK_BYTES);
+  let h = 0;
+  for (let i = LEAST_BYTES; i < limit; i++) {
+    h = ((h << 1) + (GEAR[buf[i] ?? 0] ?? 0)) >>> 0;
+    if (h >>> (32 - CUT_BITS) === 0) return i + 1;
+  }
+  return limit;
+}
+
+/** A file cut where its content says, between 512 KB and 8 MB, about 2.5 MB apart: bytes inserted or removed change only the chunks around them. */
+async function* chunksOf(path: string): AsyncGenerator<Buffer> {
+  const handle = await open(path, "r");
+  try {
+    const buf = Buffer.alloc(2 * CHUNK_BYTES);
+    let have = 0;
+    let done = false;
+    for (;;) {
+      while (!done && have < CHUNK_BYTES) {
+        const { bytesRead } = await handle.read(buf, have, buf.length - have, null);
+        if (bytesRead === 0) done = true;
+        else have += bytesRead;
+      }
+      if (have === 0) return;
+      const end = cutAt(buf, have);
+      yield Buffer.from(buf.subarray(0, end));
+      buf.copy(buf, 0, end, have);
+      have -= end;
+    }
+  } finally {
+    await handle.close();
+  }
+}
 const DAY = 24 * 3600;
 
 type Entry = { path: string; size: number; mtime: number; chunks: string[] };
@@ -54,8 +108,11 @@ async function unseal(keys: StateKeys, bytes: Uint8Array): Promise<Buffer> {
 async function files(root: string): Promise<string[]> {
   const out: string[] = [];
   const walk = async (dir: string) => {
+    const current = (await readFile(join(dir, POINTER), "utf8").catch(() => "")).trim();
     for (const entry of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
-      if (SKIPPED.has(entry.name) || entry.name.endsWith(".tmp")) continue;
+      if (SKIPPED.has(entry.name) || PASSING.test(entry.name)) continue;
+      const generation = GENERATION.exec(entry.name)?.[1];
+      if (generation && current && generation !== current) continue;
       const path = join(dir, entry.name);
       if (entry.isDirectory()) await walk(path);
       else if (entry.isFile()) out.push(path);
@@ -83,7 +140,7 @@ export async function hasCache(root: string): Promise<boolean> {
 
 export type Saved = { files: number; chunks: number; uploaded: number; bytes: number; sent: number; deleted: number };
 
-/** Keeps a repository's engine cache in R2 as sealed chunks named by their content, uploading only the chunks R2 does not hold yet (an append to a file uploads its new tail), then the manifest naming them, then deletes the chunks no manifest names any more. A file unchanged since the last save is not read again. */
+/** Keeps a repository's engine cache in R2 as sealed chunks cut and named by their content, uploading only the chunks R2 does not hold yet (an append or an insertion uploads the chunks around it), then the manifest naming them, then deletes the chunks no manifest names any more. A file unchanged since the last save is not read again; files of a cache generation other than the current one, and files being written, are left out. */
 export async function saveState(tier: StateTier, repoId: string, root: string, at = now()): Promise<Saved> {
   const prefix = statePrefix(repoId);
   const before = await readLocal(root);
@@ -103,29 +160,19 @@ export async function saveState(tier: StateTier, repoId: string, root: string, a
       bytes += was.size;
       continue;
     }
-    const handle = await open(path, "r");
     const chunks: string[] = [];
     let size = 0;
-    try {
-      const buffer = Buffer.alloc(CHUNK_BYTES);
-      for (;;) {
-        const { bytesRead } = await handle.read(buffer, 0, CHUNK_BYTES, size);
-        if (bytesRead === 0) break;
-        const chunk = buffer.subarray(0, bytesRead);
-        const name = nameOf(tier.keys, chunk);
-        if (!held.has(name)) {
-          const body = await seal(tier.keys, chunk);
-          await tier.storage.put(prefix + name, body, { type: "application/octet-stream" });
-          held.add(name);
-          uploaded++;
-          sent += body.byteLength;
-        }
-        chunks.push(name);
-        size += bytesRead;
-        if (bytesRead < CHUNK_BYTES) break;
+    for await (const chunk of chunksOf(path)) {
+      const name = nameOf(tier.keys, chunk);
+      if (!held.has(name)) {
+        const body = await seal(tier.keys, chunk);
+        await tier.storage.put(prefix + name, body, { type: "application/octet-stream" });
+        held.add(name);
+        uploaded++;
+        sent += body.byteLength;
       }
-    } finally {
-      await handle.close();
+      chunks.push(name);
+      size += chunk.byteLength;
     }
     entries.push({ path: rel, size, mtime: s.mtimeMs, chunks });
     bytes += size;

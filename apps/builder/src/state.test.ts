@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { appendFile, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -65,6 +66,39 @@ test("a later save uploads only the chunks R2 does not hold, and deletes the one
   expect(again.sent).toBeLessThan(1024);
   const now = new Set(storage.objects.keys());
   expect([...now].filter((k) => !first.has(k))).toHaveLength(1);
+});
+
+test("bytes inserted into a large file upload only the chunks around them, and it comes back the same", async () => {
+  const storage = memoryStorage();
+  const root = await cache();
+  const columns = join(root, "key-0123456789abcdef", "00000000000000aa.cols");
+  const whole = randomBytes(24 << 20);
+  await writeFile(columns, whole);
+  const first = await saveState({ storage, keys }, "acme/rocket", root);
+  expect(first.chunks).toBeGreaterThan(8);
+  const inserted = Buffer.concat([whole.subarray(0, 10 << 20), randomBytes(4096), whole.subarray(10 << 20)]);
+  await writeFile(columns, inserted);
+  const again = await saveState({ storage, keys }, "acme/rocket", root);
+  expect(again.uploaded).toBeLessThanOrEqual(2);
+  expect(again.sent).toBeLessThan(CHUNK_BYTES * 2);
+  const into = join(await mkdtemp(join(tmpdir(), "state-")), "rocket");
+  expect((await restoreState({ storage, keys }, "acme/rocket", into)).restored).toBe(true);
+  expect((await read(into, "00000000000000aa.cols")).equals(inserted)).toBe(true);
+});
+
+test("files of another cache generation, and files being written, are not kept", async () => {
+  const storage = memoryStorage();
+  const root = await cache();
+  const dir = join(root, "key-0123456789abcdef");
+  for (const name of ["00000000000000ab.cols", "00000000000000ab.head", "00000000000000aa.cols.writing", "ownership.runs", "building.changes", "merging.part"]) await writeFile(join(dir, name), "passing");
+  await writeFile(join(dir, "00000000000000aa.cols"), "current columns");
+  const saved = await saveState({ storage, keys }, "acme/rocket", root);
+  expect(saved.files).toBe(5);
+  const into = join(await mkdtemp(join(tmpdir(), "state-")), "rocket");
+  await restoreState({ storage, keys }, "acme/rocket", into);
+  expect((await read(into, "00000000000000aa.cols")).toString()).toBe("current columns");
+  await expect(read(into, "00000000000000ab.cols")).rejects.toThrow();
+  await expect(read(into, "ownership.runs")).rejects.toThrow();
 });
 
 test("a State whose chunk was changed or lost is not restored, and nothing is left half in place", async () => {
