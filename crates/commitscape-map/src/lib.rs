@@ -4,8 +4,9 @@ use std::marker::PhantomData;
 use std::mem::{align_of, size_of};
 
 use commitscape_core::{Record, Slab};
-use memmap2::{MmapMut, MmapOptions};
+use memmap2::MmapMut;
 
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
 const LARGE_BLOCK: i32 = 1 << 20;
 
 /// Has the C allocator map every block of a megabyte or more on its own and give it back to the system when freed, and give back free memory past a megabyte at the top of its heap. glibc otherwise raises the size it maps blocks at each time a large one is freed, so a long run reading file versions of many sizes on several threads keeps hundreds of MB it no longer uses. Does nothing where the allocator is not glibc's.
@@ -27,7 +28,81 @@ pub fn release_free_memory() {
     }
 }
 
-/// Records read in place from a stretch of a file mapped copy-on-write: the pages are the file's until one is written, which then becomes the process's own and never reaches the file.
+/// Fills `buf` from `file` at `offset`. Windows moves the file's position doing so, so a caller that also reads the same handle in sequence seeks first.
+pub fn read_exact_at(file: &std::fs::File, buf: &mut [u8], offset: u64) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::FileExt::read_exact_at(file, buf, offset)
+    }
+    #[cfg(windows)]
+    {
+        let mut done = 0usize;
+        while done < buf.len() {
+            let rest = buf.get_mut(done..).unwrap_or_default();
+            let n = std::os::windows::fs::FileExt::seek_read(file, rest, offset + done as u64)?;
+            if n == 0 {
+                return Err(std::io::ErrorKind::UnexpectedEof.into());
+            }
+            done += n;
+        }
+        Ok(())
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        use std::io::{Read, Seek, SeekFrom};
+        let mut f = file;
+        f.seek(SeekFrom::Start(offset))?;
+        f.read_exact(buf)
+    }
+}
+
+/// Writes all of `buf` into `file` at `offset`. Windows moves the file's position doing so, so a caller that also writes the same handle in sequence seeks first.
+pub fn write_all_at(file: &std::fs::File, buf: &[u8], offset: u64) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::FileExt::write_all_at(file, buf, offset)
+    }
+    #[cfg(windows)]
+    {
+        let mut done = 0usize;
+        while done < buf.len() {
+            let rest = buf.get(done..).unwrap_or_default();
+            let n = std::os::windows::fs::FileExt::seek_write(file, rest, offset + done as u64)?;
+            if n == 0 {
+                return Err(std::io::ErrorKind::WriteZero.into());
+            }
+            done += n;
+        }
+        Ok(())
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        use std::io::{Seek, SeekFrom, Write};
+        let mut f = file;
+        f.seek(SeekFrom::Start(offset))?;
+        f.write_all(buf)
+    }
+}
+
+#[cfg(not(windows))]
+#[allow(unsafe_code)]
+fn stretch(file: &File, offset: u64, bytes: usize) -> io::Result<MmapMut> {
+    unsafe {
+        memmap2::MmapOptions::new()
+            .offset(offset)
+            .len(bytes)
+            .map_copy(file)
+    }
+}
+
+#[cfg(windows)]
+fn stretch(file: &File, offset: u64, bytes: usize) -> io::Result<MmapMut> {
+    let mut map = MmapMut::map_anon(bytes)?;
+    read_exact_at(file, &mut map, offset)?;
+    Ok(map)
+}
+
+/// Records read in place from a stretch of a file mapped copy-on-write: the pages are the file's until one is written, which then becomes the process's own and never reaches the file. On Windows, which neither renames nor deletes a file while a view of it is mapped, the stretch is read into memory instead.
 pub struct Records<T: Record> {
     map: Option<MmapMut>,
     len: usize,
@@ -40,7 +115,6 @@ fn invalid(why: &str) -> io::Error {
 
 impl<T: Record> Records<T> {
     /// Maps `len` records of `file` from `offset`, which is a multiple of the page size, after checking every record is one: a kind byte outside its kinds, or a record of another size, refuses the whole stretch.
-    #[allow(unsafe_code)]
     pub fn open(file: &File, offset: u64, len: usize) -> io::Result<Records<T>> {
         if size_of::<T>() != T::SIZE {
             return Err(invalid("a record's size differs from its layout"));
@@ -55,12 +129,7 @@ impl<T: Record> Records<T> {
         let bytes = len
             .checked_mul(T::SIZE)
             .ok_or_else(|| invalid("too many records"))?;
-        let map = unsafe {
-            MmapOptions::new()
-                .offset(offset)
-                .len(bytes)
-                .map_copy(file)?
-        };
+        let map = stretch(file, offset, bytes)?;
         if map.as_ptr().align_offset(align_of::<T>()) != 0 {
             return Err(invalid("records are not aligned"));
         }
@@ -135,6 +204,27 @@ mod tests {
         SignatureId,
     };
     use std::io::{Seek, SeekFrom, Write};
+
+    #[test]
+    fn bytes_written_at_an_offset_read_back_from_it_and_nothing_past_the_end_reads() {
+        let dir = tempfile::tempdir().expect("a folder");
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(dir.path().join("f"))
+            .expect("a file");
+        write_all_at(&file, b"world", 6).expect("written");
+        write_all_at(&file, b"hello ", 0).expect("written");
+        let mut back = [0u8; 11];
+        read_exact_at(&file, &mut back, 0).expect("read");
+        assert_eq!(&back, b"hello world");
+        let mut middle = [0u8; 3];
+        read_exact_at(&file, &mut middle, 4).expect("read");
+        assert_eq!(&middle, b"o w");
+        assert!(read_exact_at(&file, &mut [0u8; 4], 9).is_err());
+    }
 
     const PAGE: u64 = 4096;
 

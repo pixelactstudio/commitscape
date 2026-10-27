@@ -612,7 +612,6 @@ fn read(path: &Path) -> Option<Stored> {
 }
 
 fn put<T: Record>(file: &std::fs::File, at: u64, values: &[T]) -> std::io::Result<()> {
-    use std::os::unix::fs::FileExt;
     let mut buf = vec![0u8; T::SIZE * 65_536];
     let mut offset = at;
     for chunk in values.chunks(65_536) {
@@ -620,14 +619,13 @@ fn put<T: Record>(file: &std::fs::File, at: u64, values: &[T]) -> std::io::Resul
             v.write_to(slot);
         }
         let bytes = buf.get(..chunk.len() * T::SIZE).unwrap_or(&[]);
-        file.write_all_at(bytes, offset)?;
+        commitscape_map::write_all_at(file, bytes, offset)?;
         offset += bytes.len() as u64;
     }
     Ok(())
 }
 
 fn write(path: &Path, graph: &CommitGraph, index: &Index) -> std::io::Result<()> {
-    use std::os::unix::fs::FileExt;
     let n = graph.hashes.len() as u64;
     let m = graph.parents.len() as u64;
     let line = graph.line.as_ref();
@@ -654,7 +652,7 @@ fn write(path: &Path, graph: &CommitGraph, index: &Index) -> std::io::Result<()>
     );
     header.push(u8::from(line.is_some()));
     header.extend_from_slice(&line.map_or([0; 20], |l| l.head.0));
-    file.write_all_at(&header, 0)?;
+    commitscape_map::write_all_at(&file, &header, 0)?;
     file.set_len(end.max(PAGE))?;
     file.sync_data()?;
     drop(file);

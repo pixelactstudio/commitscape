@@ -1,6 +1,5 @@
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
-use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
 
 use commitscape_core::{Column, CommitFlags, CommitMeta, FileChange, Index, Record};
@@ -113,7 +112,7 @@ impl Sink {
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
-        self.file.write_all_at(&self.pending, self.at)?;
+        commitscape_map::write_all_at(&self.file, &self.pending, self.at)?;
         self.at += self.pending.len() as u64;
         self.pending.clear();
         Ok(())
@@ -166,9 +165,13 @@ fn write_trailer(
     tail.extend_from_slice(&len.to_le_bytes());
     tail.extend_from_slice(&(masking.skipped.len() as u64).to_le_bytes());
     tail.extend_from_slice(&MAGIC);
-    file.write_all_at(&MAGIC, 0)?;
-    file.write_all_at(&tail, at)?;
-    file.set_len(at + tail.len() as u64)
+    commitscape_map::write_all_at(file, &MAGIC, 0)?;
+    commitscape_map::write_all_at(file, &tail, at)?;
+    let end = at + tail.len() as u64;
+    if file.metadata()?.len() == end {
+        return Ok(());
+    }
+    file.set_len(end)
 }
 
 fn clean(commit: &CommitMeta) -> CommitMeta {
@@ -374,7 +377,7 @@ impl Kept {
         let sealed = size
             .checked_sub(MAGIC.len() as u64)
             .ok_or_else(|| std::io::Error::other("too short"))?;
-        file.write_all_at(&[0; MAGIC.len()], sealed)?;
+        commitscape_map::write_all_at(&file, &[0; MAGIC.len()], sealed)?;
         file.sync_data()?;
         let [_, ch, _, st] = self.sections;
         let mut buf = Vec::new();
@@ -393,11 +396,13 @@ impl Kept {
                     change.write_to(slot);
                 }
             }
-            file.write_all_at(
+            commitscape_map::write_all_at(
+                &file,
                 &buf,
                 ch.0 + u64::from(c.changes_start) * FileChange::SIZE as u64,
             )?;
-            file.write_all_at(
+            commitscape_map::write_all_at(
+                &file,
                 &[self.settled.get(i).copied().unwrap_or(0)],
                 st.0 + i as u64,
             )?;

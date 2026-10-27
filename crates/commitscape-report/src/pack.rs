@@ -1,6 +1,5 @@
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
-use std::os::unix::fs::FileExt;
 use std::path::Path;
 
 use commitscape_core::{Column, CommitMeta, FileChange, Index, Record};
@@ -305,12 +304,13 @@ fn table(bytes: &[u8]) -> Result<Vec<(u64, u64, u64)>, PackError> {
 fn footer(file: &File) -> Result<Vec<(u64, u64, u64)>, PackError> {
     let size = file.metadata()?.len();
     let mut head = vec![0u8; MAGIC.len()];
-    file.read_exact_at(&mut head, 0)?;
+    commitscape_map::read_exact_at(file, &mut head, 0)?;
     if head != MAGIC {
         return Err(PackError::NotAPack);
     }
     let mut tail = vec![0u8; TAIL];
-    file.read_exact_at(
+    commitscape_map::read_exact_at(
+        file,
         &mut tail,
         size.checked_sub(TAIL as u64).ok_or(PackError::NotAPack)?,
     )?;
@@ -389,7 +389,7 @@ fn read_pack_2(rest: &[u8]) -> Result<Pack, PackError> {
 pub fn unpack(from: &Path, to: &Path) -> Result<u64, PackError> {
     let file = File::open(from)?;
     let mut head = vec![0u8; MAGIC.len().max(MAGIC_2.len())];
-    file.read_exact_at(&mut head, 0)?;
+    commitscape_map::read_exact_at(&file, &mut head, 0)?;
     if head.starts_with(MAGIC_2) {
         return Err(PackError::Format(2));
     }
@@ -409,7 +409,7 @@ pub fn unpack(from: &Path, to: &Path) -> Result<u64, PackError> {
             if n == 0 {
                 break;
             }
-            out.write_all_at(buf.get(..n).unwrap_or(&[]), at + written)?;
+            commitscape_map::write_all_at(&out, buf.get(..n).unwrap_or(&[]), at + written)?;
             written += n as u64;
         }
         if written != raw {
@@ -426,7 +426,7 @@ pub fn unpack(from: &Path, to: &Path) -> Result<u64, PackError> {
         header.extend_from_slice(&offset.to_le_bytes());
         header.extend_from_slice(&len.to_le_bytes());
     }
-    out.write_all_at(&header, 0)?;
+    commitscape_map::write_all_at(&out, &header, 0)?;
     out.set_len(at.max(PAGE))?;
     out.sync_data()?;
     drop(out);
@@ -438,7 +438,7 @@ pub fn unpack(from: &Path, to: &Path) -> Result<u64, PackError> {
 pub fn open_unpacked(path: &Path) -> Result<Pack, PackError> {
     let file = File::open(path)?;
     let mut header = vec![0u8; UNPACKED.len() + 16 * SECTIONS];
-    file.read_exact_at(&mut header, 0)?;
+    commitscape_map::read_exact_at(&file, &mut header, 0)?;
     if header.get(..UNPACKED.len()) != Some(UNPACKED.as_slice()) {
         return Err(PackError::NotAPack);
     }
@@ -456,7 +456,7 @@ pub fn open_unpacked(path: &Path) -> Result<Pack, PackError> {
         ));
     };
     let mut bytes = vec![0u8; rest.1];
-    file.read_exact_at(&mut bytes, rest.0)?;
+    commitscape_map::read_exact_at(&file, &mut bytes, rest.0)?;
     let mut pack = decoded_rest(&bytes)?;
     drop(bytes);
     pack.index.commits = column(Records::<CommitMeta>::open(
@@ -471,7 +471,7 @@ pub fn open_unpacked(path: &Path) -> Result<Pack, PackError> {
     ))?;
     pack.index.subjects = column(Records::<u8>::open(&file, subjects.0, subjects.1))?;
     let mut times = vec![0u8; arrival.1];
-    file.read_exact_at(&mut times, arrival.0)?;
+    commitscape_map::read_exact_at(&file, &mut times, arrival.0)?;
     pack.arrival = arrivals(&times);
     Ok(pack)
 }
