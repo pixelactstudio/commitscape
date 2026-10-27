@@ -19,6 +19,7 @@ path = "src/main.rs"
 [dependencies]
 axum = { version = "0.8.9", default-features = false, features = ["http1", "json", "matched-path", "tokio"] }
 commitscape-core.workspace = true
+commitscape-map.workspace = true
 commitscape-metrics.workspace = true
 commitscape-report.workspace = true
 rayon = "1.12.0"

@@ -22,6 +22,7 @@ fn healthy() -> ExitCode {
 }
 
 fn main() -> ExitCode {
+    commitscape_map::release_large_blocks();
     if std::env::args().nth(1).as_deref() == Some("health") {
         return healthy();
     }

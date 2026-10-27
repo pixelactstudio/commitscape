@@ -425,6 +425,7 @@ dependencies = [
  "commitscape-core",
  "commitscape-forge",
  "commitscape-index",
+ "commitscape-map",
  "commitscape-metrics",
  "commitscape-report",
  "flate2",
@@ -457,6 +458,7 @@ dependencies = [
  "bincode",
  "commitscape-core",
  "commitscape-index",
+ "commitscape-map",
  "commitscape-metrics",
  "commitscape-report",
  "flate2",
@@ -508,6 +510,7 @@ name = "commitscape-map"
 version = "0.4.0"
 dependencies = [
  "commitscape-core",
+ "libc",
  "memmap2",
  "tempfile",
 ]

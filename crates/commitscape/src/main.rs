@@ -238,6 +238,7 @@ fn counted_as(command: Option<&Command>) -> Option<&'static str> {
 }
 
 fn main() -> ExitCode {
+    commitscape_map::release_large_blocks();
     let cli = Cli::parse();
     let _ = rayon::ThreadPoolBuilder::new()
         .num_threads(commitscape_index::threads(usize::MAX))

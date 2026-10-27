@@ -6,6 +6,18 @@ use std::mem::{align_of, size_of};
 use commitscape_core::{Record, Slab};
 use memmap2::{MmapMut, MmapOptions};
 
+const LARGE_BLOCK: i32 = 1 << 20;
+
+/// Has the C allocator map every block of a megabyte or more on its own and give it back to the system when freed, and give back free memory past a megabyte at the top of its heap. glibc otherwise raises the size it maps blocks at each time a large one is freed, so a long run reading file versions of many sizes on several threads keeps hundreds of MB it no longer uses. Does nothing where the allocator is not glibc's.
+pub fn release_large_blocks() {
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    #[allow(unsafe_code)]
+    unsafe {
+        libc::mallopt(libc::M_MMAP_THRESHOLD, LARGE_BLOCK);
+        libc::mallopt(libc::M_TRIM_THRESHOLD, LARGE_BLOCK);
+    }
+}
+
 /// Records read in place from a stretch of a file mapped copy-on-write: the pages are the file's until one is written, which then becomes the process's own and never reaches the file.
 pub struct Records<T: Record> {
     map: Option<MmapMut>,
