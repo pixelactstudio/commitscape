@@ -280,3 +280,308 @@ fn releases(pack: &Pack) -> Vec<(String, i64)> {
         })
         .collect()
 }
+
+const ATLAS_MAGIC: i64 = 0x4153_4331;
+const ATLAS_VERSION: i64 = 1;
+const ROLE: u8 = 7;
+const ALIVE: u8 = 8;
+const GENERATED: u8 = 16;
+const LOCKFILE: u8 = 32;
+const BULK: u8 = 1;
+const ON_FIRST_PARENT: u8 = 2;
+
+/// The Universe's Atlas of a pack: its map and its file names, uncompressed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Atlas {
+    pub map: Vec<u8>,
+    pub names: Vec<u8>,
+}
+
+#[derive(Default)]
+struct Writer(Vec<u8>);
+
+impl Writer {
+    fn byte(&mut self, v: u8) {
+        self.0.push(v);
+    }
+
+    fn uint(&mut self, v: i64) -> std::io::Result<()> {
+        let mut n = u64::try_from(v)
+            .map_err(|_| std::io::Error::other(format!("not a whole number: {v}")))?;
+        while n >= 0x80 {
+            self.0.push((n % 0x80) as u8 | 0x80);
+            n /= 0x80;
+        }
+        self.0.push(n as u8);
+        Ok(())
+    }
+
+    fn int(&mut self, v: i64) -> std::io::Result<()> {
+        self.uint(if v < 0 { -2 * v - 1 } else { 2 * v })
+    }
+
+    fn text(&mut self, s: &str) -> std::io::Result<()> {
+        self.uint(s.len() as i64)?;
+        self.0.extend_from_slice(s.as_bytes());
+        Ok(())
+    }
+}
+
+fn after_slash(path: &str) -> &str {
+    path.rfind('/')
+        .map_or(path, |cut| path.get(cut + 1..).unwrap_or(""))
+}
+
+struct Folders {
+    at: HashMap<String, i64>,
+    parent: Vec<i64>,
+    names: Vec<String>,
+}
+
+impl Folders {
+    fn new() -> Self {
+        Folders {
+            at: HashMap::from([(String::new(), 0)]),
+            parent: vec![-1],
+            names: vec![String::new()],
+        }
+    }
+
+    fn of(&mut self, path: &str) -> i64 {
+        let Some(cut) = path.rfind('/') else {
+            return 0;
+        };
+        let dir = path.get(..cut).unwrap_or("");
+        if let Some(&found) = self.at.get(dir) {
+            return found;
+        }
+        let parent = self.of(dir);
+        let id = self.names.len() as i64;
+        self.parent.push(parent);
+        self.names.push(after_slash(dir).to_string());
+        self.at.insert(dir.to_string(), id);
+        id
+    }
+}
+
+/// The Universe's Atlas of a pack, byte for byte as the Site's `encodeAtlas(atlasOf(rows))` and `encodeNames` write it from the rows `write_rows` gives: files numbered in the order they first changed, folders from their paths, people by how many commits they made. Each column is a pass over the pack's commits, so nothing but the files, people and the bytes is held.
+pub fn atlas(pack: &Pack) -> std::io::Result<Atlas> {
+    let index = &pack.index;
+    let Header {
+        mainline,
+        newest,
+        picked,
+    } = header(pack);
+    let files = files(pack);
+    let people = people(pack);
+    let mut releases = releases(pack);
+    let commit = |at: u32| index.commits.get(at as usize);
+    let picked: Vec<u32> = picked
+        .into_iter()
+        .filter(|&at| commit(at).is_some())
+        .collect();
+    let person_of =
+        |c: &commitscape_core::CommitMeta| index.author_of(c).map_or(-1, |p| i64::from(p.0));
+
+    let mut order = vec![u32::MAX; files.len()];
+    let mut ordered: Vec<u32> = Vec::new();
+    let mut commits_by: HashMap<i64, u64> = HashMap::new();
+    for &at in &picked {
+        let Some(c) = commit(at) else { continue };
+        for ch in index.changes_of(c) {
+            let Some(slot) = order.get_mut(ch.file.idx()) else {
+                continue;
+            };
+            if *slot == u32::MAX {
+                *slot = ordered.len() as u32;
+                ordered.push(ch.file.0);
+            }
+        }
+        let person = person_of(c);
+        if person >= 0 {
+            *commits_by.entry(person).or_default() += 1;
+        }
+    }
+    for f in &files {
+        if let Some(slot) = order.get_mut(f.file as usize) {
+            if f.alive && *slot == u32::MAX {
+                *slot = ordered.len() as u32;
+                ordered.push(f.file);
+            }
+        }
+    }
+
+    let known: HashMap<i64, &PersonRow> = people.iter().map(|p| (i64::from(p.id), p)).collect();
+    let mut ranked: Vec<(i64, u64)> = commits_by
+        .into_iter()
+        .filter(|(id, _)| known.contains_key(id))
+        .collect();
+    ranked.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    let person_index: HashMap<i64, i64> = ranked
+        .iter()
+        .enumerate()
+        .map(|(i, (id, _))| (*id, i as i64))
+        .collect();
+
+    let origin = picked
+        .first()
+        .map_or(newest, |&at| arrived(pack, mainline, at as usize));
+    let mut w = Writer::default();
+    w.uint(ATLAS_MAGIC)?;
+    w.uint(ATLAS_VERSION)?;
+    w.uint(i64::from(mainline))?;
+    w.uint(origin)?;
+    w.uint((origin.max(newest) - origin).max(0))?;
+
+    w.uint(ranked.len() as i64)?;
+    for (id, _) in &ranked {
+        w.uint(*id)?;
+    }
+    let ranked_people: Vec<&PersonRow> = ranked
+        .iter()
+        .filter_map(|(id, _)| known.get(id).copied())
+        .collect();
+    for p in &ranked_people {
+        w.byte(u8::from(p.bot));
+    }
+    for p in &ranked_people {
+        w.text(&p.name)?;
+    }
+    for p in &ranked_people {
+        w.text(p.login.as_deref().unwrap_or(""))?;
+    }
+
+    let mut folders = Folders::new();
+    let mut languages: Vec<&str> = Vec::new();
+    let mut language_at: HashMap<&str, i64> = HashMap::new();
+    let mut folder_of = Vec::with_capacity(ordered.len());
+    let mut info = Vec::with_capacity(ordered.len());
+    let mut language = Vec::with_capacity(ordered.len());
+    let mut lines = Vec::with_capacity(ordered.len());
+    for &file in &ordered {
+        let Some(f) = files.get(file as usize) else {
+            continue;
+        };
+        folder_of.push(folders.of(&f.path));
+        info.push(
+            (f.role & ROLE)
+                | if f.alive { ALIVE } else { 0 }
+                | if f.generated { GENERATED } else { 0 }
+                | if f.lockfile { LOCKFILE } else { 0 },
+        );
+        language.push(match f.language {
+            Some(l) => *language_at.entry(l).or_insert_with(|| {
+                languages.push(l);
+                languages.len() as i64
+            }),
+            None => 0,
+        });
+        lines.push(match (f.alive, f.lines) {
+            (true, Some(n)) => i64::from(n),
+            _ => -1,
+        });
+    }
+    w.uint(folders.parent.len() as i64)?;
+    for (i, parent) in folders.parent.iter().enumerate().skip(1) {
+        w.uint(i as i64 - parent)?;
+    }
+    for name in folders.names.iter().skip(1) {
+        w.text(name)?;
+    }
+    w.uint(languages.len() as i64)?;
+    for l in &languages {
+        w.text(l)?;
+    }
+    w.uint(ordered.len() as i64)?;
+    let mut prev = 0;
+    for &v in &folder_of {
+        w.int(v - prev)?;
+        prev = v;
+    }
+    for &b in &info {
+        w.byte(b);
+    }
+    for &l in &language {
+        w.uint(l)?;
+    }
+    for &n in &lines {
+        w.uint(n + 1)?;
+    }
+
+    w.uint(picked.len() as i64)?;
+    let mut last = origin;
+    for &at in &picked {
+        let t = arrived(pack, mainline, at as usize);
+        w.uint((t - last).max(0))?;
+        last = last.max(t);
+    }
+    for &at in &picked {
+        let person = commit(at).map_or(-1, person_of);
+        let i = if person >= 0 {
+            person_index.get(&person).copied().unwrap_or(-1)
+        } else {
+            -1
+        };
+        w.uint(i + 1)?;
+    }
+    for &at in &picked {
+        let bulk = commit(at).is_some_and(|c| c.flags.contains(CommitFlags::BULK));
+        let first = pack.mainline.get(at as usize).copied().unwrap_or(0) & FIRST_PARENT != 0;
+        w.byte(if bulk { BULK } else { 0 } | if first { ON_FIRST_PARENT } else { 0 });
+    }
+    let counted = |at: u32| {
+        commit(at).map_or(0, |c| {
+            index
+                .changes_of(c)
+                .iter()
+                .filter(|ch| order.get(ch.file.idx()).is_some_and(|&o| o != u32::MAX))
+                .count()
+        })
+    };
+    for &at in &picked {
+        w.uint(counted(at) as i64)?;
+    }
+    let mut kinds: Vec<u8> = Vec::new();
+    for &at in &picked {
+        let Some(c) = commit(at) else { continue };
+        let mut before = 0i64;
+        for ch in index.changes_of(c) {
+            let Some(&id) = order.get(ch.file.idx()).filter(|&&o| o != u32::MAX) else {
+                continue;
+            };
+            w.int(i64::from(id) - before)?;
+            before = i64::from(id);
+            kinds.push((ch.kind as u8).min(3));
+        }
+    }
+    for four in kinds.chunks(4) {
+        let mut b = 0u8;
+        for (k, kind) in four.iter().enumerate() {
+            b |= (kind & 3) << (k * 2);
+        }
+        w.byte(b);
+    }
+
+    releases.sort_by_key(|r| r.1);
+    w.uint(releases.len() as i64)?;
+    for (name, _) in &releases {
+        w.text(name)?;
+    }
+    for (_, t) in &releases {
+        w.uint((t - origin).max(0))?;
+    }
+
+    let mut names = Writer::default();
+    names.uint(ordered.len() as i64)?;
+    for &file in &ordered {
+        names.text(
+            files
+                .get(file as usize)
+                .map_or("", |f| after_slash(&f.path)),
+        )?;
+    }
+    Ok(Atlas {
+        map: w.0,
+        names: names.0,
+    })
+}

@@ -304,7 +304,7 @@ async function publishBuild(ctx: JobContext, phases: Phases, buildId: string, ma
   const atlas = ctx.cfg.atlas;
   if (atlas) {
     await phases
-      .time(`atlas ${made.phase}`, "atlas", () => storeAtlas(ctx.run, atlas, storage, { si, pack, dir: made.dir, timeoutMs: timeLimitOf(ctx.cfg) * 1000, nice: ctx.cfg.nice, commits: made.manifest.total }))
+      .time(`atlas ${made.phase}`, "atlas", () => storeAtlas(ctx.run, storage, { bin: ctx.cfg.bin, quality: atlas.quality, si, pack, file: made.pack, dir: made.dir, timeoutMs: timeLimitOf(ctx.cfg) * 1000, nice: ctx.cfg.nice, commits: made.manifest.total }))
       .catch((e: unknown) => ctx.log(`atlas of ${named.id}: ${(e as Error).message}, so the Site makes it`));
   }
   const lines = made.phase === "full" && made.manifest.lines_mainline;

@@ -117,7 +117,7 @@ export type Config = {
 
 export type StateSettings = { secret: string; diskDays: number; keepDays: number };
 
-export type AtlasSettings = { command: string; args: string[]; quality: number };
+export type AtlasSettings = { quality: number };
 
 export function configOf(env: Env): Config {
   return {

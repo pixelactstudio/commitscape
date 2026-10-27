@@ -21,6 +21,7 @@ path = "src/main.rs"
 [dependencies]
 aes-gcm = "0.11.1"
 anyhow = "1.0.104"
+brotli = "9"
 clap = { version = "4.6.6", features = ["derive"] }
 commitscape-core.workspace = true
 commitscape-forge.workspace = true

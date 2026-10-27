@@ -10,12 +10,11 @@ import { expect, test } from "vitest";
 import { atlasKey, BUILD_FORMAT, lendToken, memoryStorage, now, PRIORITY, readManifest, schema, settleRepository, type BuildJob, type Db, type Loaded, type Queue, type SurvivalJob } from "@commitscape/server";
 import type { Config } from "./config";
 import { cacheDir, inUse, sweep } from "./disk";
-import { fakePerson, flagOf, writeBuilt, type FakeBuild } from "./fake";
+import { fakePerson, flagOf, writeAtlasMade, writeBuilt, type FakeBuild } from "./fake";
 import { MORE_LINES_AFTER, MORE_LINES_MAX, runJob, type JobAsked, type JobContext } from "./job";
 import { BUILD_ATTEMPTS, type Ran } from "./run";
 import { refsOf } from "./clone";
 import { headsOf, queueSeeds, type Named } from "./seeds";
-import { writeAtlas } from "./universe";
 import type { Telemetry, Who } from "./telemetry";
 
 const { builds, repoPeople, repositories, storedIndexes, surviving } = schema;
@@ -36,6 +35,7 @@ function tools(built: FakeBuild | ((args: string[]) => FakeBuild) = {}, then: (c
     if (cmd === "git" && args[0] === "clone") await mkdir(join(args.at(-1) ?? "", ".git"), { recursive: true });
     if (args[0] === "signatures") await writeFile(flagOf(args, "--out") ?? "", "[]");
     if (args[0] === "build") await writeBuilt(args, typeof built === "function" ? built(args) : built);
+    if (args[0] === "atlas") await writeAtlasMade(args);
     return ran;
   };
 }
@@ -122,16 +122,11 @@ test("a Build makes its pack's Atlas in a process of its own, under the engine's
   const base = tools();
   const ctx = await context(db, {
     run: async (cmd, args) => {
-      if (cmd === "node-for-atlas") {
-        order.push("atlas");
-        const [, , rows = "", dir = "", quality = ""] = args;
-        await writeAtlas(rows, dir, Number(quality));
-        return ok;
-      }
+      if (args[0] === "atlas") order.push(`atlas of ${args[1]?.endsWith("pack.bin") ? "the pack" : args[1]}`);
       return base(cmd, args);
     },
   });
-  ctx.cfg = { ...ctx.cfg, atlas: { command: "node-for-atlas", args: ["builder.mjs"], quality: 5 } };
+  ctx.cfg = { ...ctx.cfg, atlas: { quality: 5 } };
   const put = ctx.storage.put.bind(ctx.storage);
   ctx.storage.put = async (key, body, options) => {
     if (key.startsWith("atlas/")) {
@@ -148,15 +143,15 @@ test("a Build makes its pack's Atlas in a process of its own, under the engine's
   expect(si?.buildFormat).toBe(BUILD_FORMAT);
   expect(ctx.storage.objects.has(atlasKey(si?.id ?? 0, si?.pack ?? "", "map"))).toBe(true);
   expect(ctx.storage.objects.has(atlasKey(si?.id ?? 0, si?.pack ?? "", "names"))).toBe(true);
-  expect(order).toEqual(["atlas", "map.bin.br before the publish", "names.bin.br before the publish"]);
+  expect(order).toEqual(["atlas of the pack", "map.bin.br before the publish", "names.bin.br before the publish"]);
   expect(Object.keys(ctx.captured.at(-1)?.[2] ?? {})).toContain("seconds_atlas_full");
 });
 
 test("a Build whose Atlas fails is still published, and the Site makes the Atlas", async () => {
   const db = await database();
   const base = tools();
-  const ctx = await context(db, { run: async (cmd, args) => (cmd === "node-for-atlas" ? { code: 1, stderr: "killed", timedOut: false } : base(cmd, args)) });
-  ctx.cfg = { ...ctx.cfg, atlas: { command: "node-for-atlas", args: [], quality: 5 } };
+  const ctx = await context(db, { run: async (cmd, args) => (args[0] === "atlas" ? { code: 1, stderr: "killed", timedOut: false } : base(cmd, args)) });
+  ctx.cfg = { ...ctx.cfg, atlas: { quality: 5 } };
   await db.insert(repositories).values({ id: "acme/rocket", owner: "acme", name: "rocket", sizeKb: 10, reportKey: "reports/gh/acme/rocket/old", reportLines: true });
   await db.insert(builds).values({ id: "b1", repoId: "acme/rocket", state: "queued", requestedAt: 1 });
   await runJob("b1", ctx);

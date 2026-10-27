@@ -189,11 +189,13 @@ queued ones whose job was lost.
 - The Code window's tree, coupling, story and history, a folder's newest
   commits, a pull request's insight and the Universe's rows come from the
   engine service. The Universe's Atlas is made by the Builder from the
-  rows `build` writes beside the pack (`universe.jsonl`), in a process of
-  its own that waits for its share of `ENGINE_MEMORY_MB` (`node builder.mjs atlas`), and stored
-  in R2 before the pack is published; the Site sends those bytes, and makes
-  the Atlas from the engine service's rows only for a pack the Builder did
-  not make one for. Branches, tags and pull requests are rows; file text is
+  pack with `commitscape atlas`, in a process of its own that waits for
+  its share of `ENGINE_MEMORY_MB` (linux: 98 MB, 2.9 s), and stored in R2
+  before the pack is published; the Site sends those bytes. A test checks
+  it is byte for byte what the Site's own encoder makes, on every fixture
+  (and by hand on react and linux). The Site makes the Atlas from the
+  engine service's rows only for a pack the Builder did not make one for,
+  a path kept for this release only. Branches, tags and pull requests are rows; file text is
   in R2.
 - A Shared Report is one locked file. The browser downloads it, decrypts it
   with the key after the `#`, and pages its Commit List itself; the Site
@@ -214,8 +216,8 @@ Builder's and the tests'. `build` writes, from one reading of the history,
 the export (the Index as Postgres `COPY` files, export format 4, with each
 commit's Mainline and Main Arrival), the pack the engine service answers
 from (`pack.bin`, no email addresses in it), the Report's meta, stats and
-people (`meta.json`) and the rows the Universe's Atlas is made from
-(`universe.jsonl`, one commit, file or person a line). `export` writes only the `COPY` files, and `report`
+people (`meta.json`). `atlas PACK --out DIR` writes the pack's Universe
+Atlas (`map.bin.br`, `names.bin.br`). `export` writes only the `COPY` files, and `report`
 the whole Report as gzipped JSON, which `share` locks and uploads.
 `--accounts FILE` (`{"<email>": "<login>"}`) joins identities on those
 logins. `--lines-budget SECONDS` stops the line pass after that long (the

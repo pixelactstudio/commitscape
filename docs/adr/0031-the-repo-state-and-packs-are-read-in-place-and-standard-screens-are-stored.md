@@ -18,6 +18,7 @@ The owner's target is a Build and an engine service that fit in about 250 MB, id
 - **git's caches are small:** 1 to 8 MB per handle and thread. Speed is the same within noise, except a cold walk of linux (10% more wall time, the same CPU).
 - **The C allocator gives memory back:** the CLI and the engine service have glibc map every block of 1 MB or more on its own and trim its heap past 1 MB, and the blame walk hands its freed memory back when it ends. glibc otherwise keeps raising the size it maps blocks at and keeps hundreds of MB a long run no longer uses. musl builds are left as they are.
 - **Packs are of format 3:** the bincode of everything but the long columns, then each column as zlib of its fixed records, compressed in R2 (3% larger than format 2). The engine service unpacks a pack once, streaming, into a page-aligned file on its volume and maps it; format 2 packs are still decoded. The engine service deploys before the Builder.
+- **The Atlas is made in Rust from the pack.** `commitscape atlas` encodes the Universe's Atlas column by column from a pack read in place and packs it with brotli; a test checks it is byte for byte what the Site's TypeScript encoder makes from the same rows. The Builder no longer writes `universe.jsonl` or runs Node for it.
 - **Standard screens are stored per head.** After publishing a pack, the Builder runs `commitscape screens` in a process of its own under an engine slot and stores the stats and the overview, activity, people and top of the map of all, 1y and 90d under the Report's prefix. The Site sends those first and asks the engine service only for the rest. A test checks every stored screen is the engine's own answer.
 
 ## Considered
@@ -32,4 +33,4 @@ The owner's target is a Build and an engine service that fit in about 250 MB, id
 - The first Build of each repository after the upgrade writes its column file once (linux 13 s, 498 MB).
 - The engine service's volume holds packs unpacked, about 2.6 times their R2 size; `PACK_DISK_GB` counts them so.
 - A Report published before this release asks the engine service for its standard screens until its next Build.
-- Nothing the Builder runs on linux goes above 256 MB of anonymous memory. The engine service's Universe rows (asked only for a pack the Builder made no Atlas for) still take about 450 MB.
+- Nothing the Builder runs on linux goes above 256 MB of anonymous memory: the Atlas takes 98 MB and 2.9 s (it was 635 MB in Node, from 170 MB of rows `build` wrote). The engine service's Universe rows (asked only for a pack the Builder made no Atlas for) still take about 450 MB.

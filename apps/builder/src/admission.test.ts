@@ -79,7 +79,8 @@ test("an estimate is above every peak measured on linux and react", () => {
     ["surviving", linux, 199],
     ["surviving", react, 121],
     ["screens", linux, 191],
-    ["atlas", linux, 635],
+    ["atlas", linux, 98],
+    ["atlas", react, 13],
   ];
   for (const [kind, repo, peak] of measured) {
     const estimate = peakMb(kind, repo);

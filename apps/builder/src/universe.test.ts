@@ -1,86 +1,74 @@
+import { execFileSync } from "node:child_process";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { brotliDecompressSync } from "node:zlib";
-import { expect, test } from "vitest";
-import { atlasOf, encodeAtlas, encodeNames, type AtlasRows } from "@commitscape/data/universe";
+import { describe, expect, test } from "vitest";
+import { atlasOf, encodeAtlas, encodeNames, type AtlasCommitRow, type AtlasFileRow, type AtlasPersonRow, type AtlasRows } from "@commitscape/data/universe";
 import { atlasKey, memoryStorage } from "@commitscape/server";
-import { atlasFrom, readRows, storeAtlas, writeAtlas } from "./universe";
+import { writeAtlasMade } from "./fake";
+import { storeAtlas } from "./universe";
 
-const rows: AtlasRows = {
-  mainline: true,
-  newest: 300,
-  releases: [["v1", 200]],
-  commits: [
-    { time: 100, person: 0, bulk: false, firstParent: true, files: [0, 1], changes: [0, 0] },
-    { time: 200, person: 1, bulk: false, firstParent: false, files: [1], changes: [1] },
-    { time: 300, person: 0, bulk: true, firstParent: true, files: [2], changes: [0] },
-  ],
-  files: [
-    { file: 0, path: "src/a.rs", alive: true, role: 0, language: "Rust", generated: false, lockfile: false, lines: 12 },
-    { file: 1, path: "README.md", alive: true, role: 1, language: "Markdown", generated: false, lockfile: false, lines: 3 },
-    { file: 2, path: "old/gone.txt", alive: false, role: 0, language: null, generated: false, lockfile: false, lines: null },
-  ],
-  people: [
-    { id: 0, name: "Ada", login: "ada", bot: false },
-    { id: 1, name: "Bob", login: null, bot: false },
-  ],
-};
+const root = fileURLToPath(new URL("../../..", import.meta.url));
+const bin = join(root, "target/release/commitscape");
+const fixtures = join(root, "fixtures");
 
-async function written(): Promise<{ dir: string; file: string }> {
-  const dir = await mkdtemp(join(tmpdir(), "universe-"));
-  const file = join(dir, "universe.jsonl");
-  const head = { mainline: rows.mainline, newest: rows.newest, releases: rows.releases, commits: rows.commits.length, files: rows.files.length, people: rows.people.length };
-  await writeFile(file, [head, ...rows.commits, ...rows.files, ...rows.people].map((r) => JSON.stringify(r)).join("\n") + "\n");
-  return { dir, file };
+function readRows(file: string): AtlasRows {
+  const [head = "", ...lines] = readFileSync(file, "utf8").split("\n").filter(Boolean);
+  const counts = JSON.parse(head) as { mainline: boolean; newest: number; releases: [string, number][]; commits: number; files: number; people: number };
+  const rows = lines.map((l) => JSON.parse(l) as unknown);
+  return {
+    mainline: counts.mainline,
+    newest: counts.newest,
+    releases: counts.releases,
+    commits: rows.slice(0, counts.commits) as AtlasCommitRow[],
+    files: rows.slice(counts.commits, counts.commits + counts.files) as AtlasFileRow[],
+    people: rows.slice(counts.commits + counts.files) as AtlasPersonRow[],
+  };
 }
 
-test("the rows a Build wrote one per line read back as the rows the Atlas is made from", async () => {
-  const { file } = await written();
-  expect(await readRows(file)).toEqual(rows);
-});
-
-test("rows that end early are refused", async () => {
-  const { dir } = await written();
-  const short = join(dir, "short.jsonl");
-  await writeFile(short, `${JSON.stringify({ mainline: true, newest: 1, releases: [], commits: 2, files: 0, people: 0 })}\n${JSON.stringify(rows.commits[0])}\n`);
-  await expect(readRows(short)).rejects.toThrow("ended before its rows did");
-});
-
-test("the Atlas made from the rows is the one the Site makes, packed with brotli", async () => {
-  const { file } = await written();
-  const { atlas, names } = atlasOf(rows);
-  const made = await atlasFrom(file, 5);
-  expect(new Uint8Array(brotliDecompressSync(made.map))).toEqual(encodeAtlas(atlas));
-  expect(new Uint8Array(brotliDecompressSync(made.names))).toEqual(encodeNames(names));
-});
-
-test("a Build's Atlas is made in a process of its own and stored where the Site reads it first", async () => {
-  const { dir } = await written();
+test("a Build's Atlas is made from its pack by commitscape and stored where the Site reads it first", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "universe-"));
   const storage = memoryStorage();
   const asked: string[][] = [];
   const run = async (cmd: string, args: string[]) => {
     asked.push([cmd, ...args]);
-    const [, , rowsFile = "", into = "", quality = ""] = args;
-    await writeAtlas(rowsFile, into, Number(quality));
+    await writeAtlasMade(args);
     return { code: 0, stderr: "", timedOut: false };
   };
   const pack = "packs/acme/rocket/7/abc-b1-lines.pack";
-  expect(await storeAtlas(run, { command: "node", args: ["builder.mjs"], quality: 5 }, storage, { si: 7, pack, dir, timeoutMs: 1000 })).toBe(true);
-  expect(asked).toEqual([["node", "builder.mjs", "atlas", join(dir, "universe.jsonl"), dir, "5"]]);
+  await storeAtlas(run, storage, { bin: "commitscape", quality: 5, si: 7, pack, file: join(dir, "pack.bin"), dir, timeoutMs: 1000 });
+  expect(asked).toEqual([["commitscape", "atlas", join(dir, "pack.bin"), "--out", join(dir, "atlas"), "--quality", "5"]]);
   const map = storage.objects.get(atlasKey(7, pack, "map"));
   expect(map?.encoding).toBe("br");
-  expect(new Uint8Array(brotliDecompressSync(map?.body ?? new Uint8Array()))).toEqual(encodeAtlas(atlasOf(rows).atlas));
+  expect(brotliDecompressSync(map?.body ?? new Uint8Array()).toString()).toBe(`map of ${join(dir, "pack.bin")}`);
   expect(storage.objects.has(atlasKey(7, pack, "names"))).toBe(true);
 });
 
-test("a Build that wrote no rows makes no Atlas, and one that fails says why", async () => {
+test("an Atlas that fails says why and stores nothing", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "universe-"));
   const storage = memoryStorage();
-  const empty = await mkdtemp(join(tmpdir(), "universe-"));
   const failing = async () => ({ code: 1, stderr: "out of memory\n", timedOut: false });
-  const atlas = { command: "node", args: ["builder.mjs"], quality: 5 };
-  expect(await storeAtlas(failing, atlas, storage, { si: 1, pack: "p", dir: empty, timeoutMs: 1000 })).toBe(false);
-  const { dir } = await written();
-  await expect(storeAtlas(failing, atlas, storage, { si: 1, pack: "p", dir, timeoutMs: 1000 })).rejects.toThrow("making the Atlas failed: out of memory");
+  await expect(storeAtlas(failing, storage, { bin: "commitscape", quality: 5, si: 1, pack: "p", file: join(dir, "pack.bin"), dir, timeoutMs: 1000 })).rejects.toThrow("making the Atlas failed: out of memory");
   expect(storage.objects.size).toBe(0);
+});
+
+const why = !existsSync(bin) ? "build the binary first: cargo build --release -p commitscape" : !existsSync(join(fixtures, "crafted/.git")) ? "build the fixtures first: cargo xtask fixtures --force" : null;
+const repos = why ? [] : readdirSync(fixtures).filter((name) => name !== "empty" && existsSync(join(fixtures, name, ".git")));
+
+describe.skipIf(why !== null)(`the Atlas commitscape makes from a pack is the Site's own, byte for byte${why ? ` (skipped: ${why})` : ""}`, () => {
+  test.each(repos)("%s", async (name) => {
+    const dir = await mkdtemp(join(tmpdir(), "atlas-"));
+    const env = { ...process.env, COMMITSCAPE_TELEMETRY: "0" };
+    execFileSync(bin, ["build", "--offline", "--no-cache", "--out", join(dir, "out"), join(fixtures, name)], { env, stdio: "ignore" });
+    execFileSync(bin, ["atlas", join(dir, "out", "pack.bin"), "--out", join(dir, "atlas"), "--raw"], { env, stdio: "ignore" });
+    const { atlas, names } = atlasOf(readRows(join(dir, "atlas", "universe.jsonl")));
+    const map = readFileSync(join(dir, "atlas", "map.bin"));
+    expect(Buffer.from(encodeAtlas(atlas)).equals(map)).toBe(true);
+    expect(Buffer.from(encodeNames(names)).equals(readFileSync(join(dir, "atlas", "names.bin")))).toBe(true);
+    expect(brotliDecompressSync(readFileSync(join(dir, "atlas", "map.bin.br"))).equals(map)).toBe(true);
+    await writeFile(join(dir, "done"), "");
+  });
 });

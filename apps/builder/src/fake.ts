@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { brotliCompressSync } from "node:zlib";
 import { EXPORT_FORMAT, type ExportManifest } from "@commitscape/server";
 import type { Summary, SummaryPerson } from "./engine";
 
@@ -8,6 +9,14 @@ export type FakeBuild = { head?: string; frontier?: string[]; left?: number; mai
 export const flagOf = (args: string[], name: string) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined);
 
 export const fakePerson = (id: number, login: string | null, commits: number): SummaryPerson => ({ person_id: id, name: `P${id}`, login, commits, lines_added: 10 * id, lines_removed: id, first: 1, last: 2 });
+
+/** Writes what `commitscape atlas` would into its `--out` folder: a map and names packed with brotli. */
+export async function writeAtlasMade(args: string[]): Promise<void> {
+  const out = flagOf(args, "--out") ?? "";
+  await mkdir(out, { recursive: true });
+  await writeFile(join(out, "map.bin.br"), brotliCompressSync(Buffer.from(`map of ${args[1] ?? ""}`)));
+  await writeFile(join(out, "names.bin.br"), brotliCompressSync(Buffer.from("names")));
+}
 
 /** Writes what `commitscape build` would into its `--out` folder, for tests of the Builder without the engine. */
 export async function writeBuilt(args: string[], over: FakeBuild = {}): Promise<void> {
@@ -48,13 +57,6 @@ export async function writeBuilt(args: string[], over: FakeBuild = {}): Promise<
   await writeFile(join(out, "manifest.json"), JSON.stringify(manifest));
   await writeFile(join(out, "meta.json"), JSON.stringify(summary));
   await writeFile(join(out, "pack.bin"), `pack ${noLines ? "quick" : "lines"} ${head}`);
-  const universe = [
-    { mainline: true, newest: 2, releases: [], commits: 1, files: 1, people: 1 },
-    { time: 2, person: 1, bulk: false, firstParent: true, files: [0], changes: [0] },
-    { file: 0, path: "src/a.rs", alive: true, role: 0, language: "Rust", generated: false, lockfile: false, lines: 40 },
-    { id: 1, name: "P1", login: "ada", bot: false },
-  ];
-  await writeFile(join(out, "universe.jsonl"), `${universe.map((r) => JSON.stringify(r)).join("\n")}\n`);
   const events = flagOf(args, "--events");
   if (events) {
     const now = Date.now();

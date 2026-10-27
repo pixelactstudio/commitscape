@@ -1,3 +1,4 @@
+mod atlas;
 mod build;
 mod clone;
 mod events;
@@ -86,6 +87,10 @@ enum Command {
     /// year and the last 90 days, and the stats, as one JSON object.
     #[command(hide = true)]
     Screens(screens::ScreensArgs),
+    /// Make the Universe's Atlas of a pack a Build wrote: its map and its
+    /// file names, packed with brotli as the Site sends them.
+    #[command(hide = true)]
+    Atlas(atlas::AtlasArgs),
 }
 
 #[derive(Args)]
@@ -232,7 +237,11 @@ fn counted_as(command: Option<&Command>) -> Option<&'static str> {
         Some(Command::Surviving(_)) => Some("surviving"),
         Some(Command::Report(_)) => Some("report"),
         Some(
-            Command::Signatures(_) | Command::Export(_) | Command::Build(_) | Command::Screens(_),
+            Command::Signatures(_)
+            | Command::Export(_)
+            | Command::Build(_)
+            | Command::Screens(_)
+            | Command::Atlas(_),
         ) => None,
     }
 }
@@ -271,6 +280,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         Some(Command::Export(args)) => build::export(args),
         Some(Command::Build(args)) => build::build(args),
         Some(Command::Screens(args)) => screens::run(args),
+        Some(Command::Atlas(args)) => atlas::run(args),
         None => share::run(cli.share),
     }
 }

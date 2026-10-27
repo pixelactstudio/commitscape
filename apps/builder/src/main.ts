@@ -35,15 +35,9 @@ import { repackClones } from "./repack";
 import { budgetOf, runSurvival } from "./survival";
 import { queueRebuilds } from "./rebuild";
 import { forgetStates, saveState as saveRepoState, stateKeys } from "./state";
-import { writeAtlas } from "./universe";
 import { headsOf, queueSeeds, seedConfig, seedList } from "./seeds";
 
 const command = process.argv[2] ?? "work";
-if (command === "atlas") {
-  const [rows = "", dir = "", quality = ""] = process.argv.slice(3);
-  await writeAtlas(rows, dir, Number(quality));
-  process.exit(0);
-}
 
 const env = loadEnv();
 const telemetry = startTelemetry({
@@ -54,7 +48,7 @@ const telemetry = startTelemetry({
   posthogHost: env.POSTHOG_HOST,
   analyticsSecret: env.TOKEN_SECRET,
 });
-const cfg = { ...configOf(env), atlas: { command: process.execPath, args: [process.argv[1] ?? "builder.mjs"], quality: env.ATLAS_QUALITY } };
+const cfg = { ...configOf(env), atlas: { quality: env.ATLAS_QUALITY } };
 const storage = s3Storage({
   endpoint: env.S3_ENDPOINT,
   bucket: env.S3_BUCKET,
@@ -114,7 +108,7 @@ async function work() {
     const lane = await laneOf(db, cfg, job.buildId);
     await sendBuild(lane?.queue ?? BUILD_QUEUE, { queuedAt: Date.now(), ...job }, priority, startAfter);
   };
-  const engine = admitting(run, [cfg.bin, cfg.atlas.command], cfg.engineMemoryMb);
+  const engine = admitting(run, [cfg.bin], cfg.engineMemoryMb);
   let forgotAt = 0;
   const tidy = async () => {
     for (const p of await sweep(db, cfg).catch(() => [])) log(`swept ${p}`);
@@ -232,6 +226,6 @@ if (command === "migrate") {
 } else if (command === "work") {
   await work();
 } else {
-  console.error(`unknown command ${command}: work, seed, rebuild, cleanup, migrate or atlas`);
+  console.error(`unknown command ${command}: work, seed, rebuild, cleanup or migrate`);
   process.exit(2);
 }
