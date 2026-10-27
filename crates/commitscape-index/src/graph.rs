@@ -1,7 +1,7 @@
-use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
-use commitscape_core::{Index, Oid};
+use commitscape_core::{Column, Index, Oid, Record};
+use commitscape_map::Records;
 use foldhash::{HashMap, HashMapExt, HashSet};
 use tracing::field::Empty;
 use xxhash_rust::xxh3::{xxh3_64, Xxh3};
@@ -11,14 +11,16 @@ use crate::mainline::{Mainline, FIRST_PARENT, REACHABLE};
 use crate::source::RepoSource;
 
 const FILE: &str = "graph";
-const MAGIC: [u8; 8] = *b"CSGRAPH\x01";
+const MAGIC: [u8; 8] = *b"CSGRAPH\x02";
+const PAGE: u64 = 4096;
+const HEADER: usize = 69;
 const NONE: u32 = u32::MAX;
 const UPDATE_MAX: usize = 50_000;
 
 struct Line {
     head: Oid,
-    bits: Vec<u8>,
-    by: Vec<u32>,
+    bits: Column<u8>,
+    by: Column<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -30,9 +32,9 @@ pub enum Kept {
 
 pub struct CommitGraph {
     lineage: u64,
-    hashes: Vec<u32>,
-    ends: Vec<u32>,
-    parents: Vec<u32>,
+    hashes: Column<u32>,
+    ends: Column<u32>,
+    parents: Column<u32>,
     line: Option<Line>,
     path: Option<PathBuf>,
     changed: bool,
@@ -136,9 +138,14 @@ impl CommitGraph {
         }
         Ok(CommitGraph {
             lineage,
-            hashes: index.commits.iter().map(|c| short(&c.id)).collect(),
-            ends,
-            parents,
+            hashes: index
+                .commits
+                .iter()
+                .map(|c| short(&c.id))
+                .collect::<Vec<_>>()
+                .into(),
+            ends: ends.into(),
+            parents: parents.into(),
             line: None,
             path: None,
             changed: true,
@@ -287,7 +294,7 @@ impl CommitGraph {
             None => {
                 touched.clear();
                 let (bits, by) = self.whole_line(h);
-                (bits, by, None)
+                (bits.into(), by.into(), None)
             }
         };
         span.record("walked", touched.len());
@@ -378,9 +385,9 @@ impl CommitGraph {
 struct Stored {
     lineage: u64,
     ids: u64,
-    hashes: Vec<u32>,
-    ends: Vec<u32>,
-    parents: Vec<u32>,
+    hashes: Column<u32>,
+    ends: Column<u32>,
+    parents: Column<u32>,
     line: Option<Line>,
 }
 
@@ -488,15 +495,20 @@ impl Stored {
             }
             Line {
                 head: l.head,
-                bits,
-                by,
+                bits: bits.into(),
+                by: by.into(),
             }
         });
         Ok(Some(CommitGraph {
             lineage: self.lineage,
-            hashes: index.commits.iter().map(|c| short(&c.id)).collect(),
-            ends,
-            parents,
+            hashes: index
+                .commits
+                .iter()
+                .map(|c| short(&c.id))
+                .collect::<Vec<_>>()
+                .into(),
+            ends: ends.into(),
+            parents: parents.into(),
             line,
             path: None,
             changed: true,
@@ -505,52 +517,86 @@ impl Stored {
     }
 }
 
-fn u32s(bytes: &[u8]) -> Vec<u32> {
-    bytes
-        .as_chunks::<4>()
-        .0
-        .iter()
-        .map(|b| u32::from_le_bytes(*b))
-        .collect()
+fn aligned(at: u64) -> u64 {
+    at.div_ceil(PAGE) * PAGE
 }
 
-fn take<'a>(rest: &mut &'a [u8], len: usize) -> Option<&'a [u8]> {
-    let (head, tail) = rest.split_at_checked(len)?;
-    *rest = tail;
-    Some(head)
+fn layout(n: u64, m: u64, line: bool) -> [(u64, u64, u64); 5] {
+    let mut at = PAGE;
+    let mut out = [(0, 0, 0); 5];
+    let line = u64::from(line);
+    for (slot, (count, size)) in
+        out.iter_mut()
+            .zip([(n, 4), (n, 4), (m, 4), (n * line, 1), (n * line, 4)])
+    {
+        *slot = (at, count, size);
+        at = aligned(at + count * size);
+    }
+    out
 }
 
-fn take_u64(rest: &mut &[u8]) -> Option<u64> {
-    Some(u64::from_le_bytes(take(rest, 8)?.try_into().ok()?))
+fn summed<T: Record>(h: &mut Xxh3, values: &[T]) {
+    let mut buf = vec![0u8; T::SIZE * 16_384];
+    for chunk in values.chunks(16_384) {
+        for (v, slot) in chunk.iter().zip(buf.chunks_mut(T::SIZE)) {
+            v.write_to(slot);
+        }
+        h.update(buf.get(..chunk.len() * T::SIZE).unwrap_or(&[]));
+    }
+}
+
+fn checksum(hashes: &[u32], ends: &[u32], parents: &[u32], line: Option<&Line>) -> u64 {
+    let mut h = Xxh3::new();
+    summed(&mut h, hashes);
+    summed(&mut h, ends);
+    summed(&mut h, parents);
+    if let Some(l) = line {
+        h.update(&l.head.0);
+        h.update(&l.bits);
+        summed(&mut h, &l.by);
+    }
+    h.digest()
+}
+
+fn header_u64(header: &[u8], at: usize) -> Option<u64> {
+    Some(u64::from_le_bytes(header.get(at..at + 8)?.try_into().ok()?))
 }
 
 fn read(path: &Path) -> Option<Stored> {
-    let bytes = std::fs::read(path).ok()?;
-    let (body, sum) = bytes.split_at_checked(bytes.len().checked_sub(8)?)?;
-    if xxh3_64(body).to_le_bytes() != sum {
+    use std::io::Read as _;
+    let mut file = std::fs::File::open(path).ok()?;
+    let mut header = [0u8; HEADER];
+    file.read_exact(&mut header).ok()?;
+    if header.get(..8)? != MAGIC {
         return None;
     }
-    let mut rest = body;
-    if take(&mut rest, 8)? != MAGIC {
+    let lineage = header_u64(&header, 8)?;
+    let ids = header_u64(&header, 16)?;
+    let n = header_u64(&header, 24)?;
+    let m = header_u64(&header, 32)?;
+    let sum = header_u64(&header, 40)?;
+    let has_line = *header.get(48)? == 1;
+    let head = Oid::from_bytes(header.get(49..69)?)?;
+    let [h, e, p, b, y] = layout(n, m, has_line);
+    let size = |x: u64| usize::try_from(x).ok();
+    let hashes = Column::mapped(Box::new(Records::<u32>::open(&file, h.0, size(h.1)?).ok()?));
+    let ends = Column::mapped(Box::new(Records::<u32>::open(&file, e.0, size(e.1)?).ok()?));
+    let parents = Column::mapped(Box::new(Records::<u32>::open(&file, p.0, size(p.1)?).ok()?));
+    let line = has_line
+        .then(|| {
+            Some(Line {
+                head,
+                bits: Column::mapped(Box::new(Records::<u8>::open(&file, b.0, size(b.1)?).ok()?)),
+                by: Column::mapped(Box::new(Records::<u32>::open(&file, y.0, size(y.1)?).ok()?)),
+            })
+        })
+        .flatten();
+    if has_line && line.is_none() {
         return None;
     }
-    let lineage = take_u64(&mut rest)?;
-    let ids = take_u64(&mut rest)?;
-    let n = usize::try_from(take_u64(&mut rest)?).ok()?;
-    let m = usize::try_from(take_u64(&mut rest)?).ok()?;
-    let hashes = u32s(take(&mut rest, n.checked_mul(4)?)?);
-    let ends = u32s(take(&mut rest, n.checked_mul(4)?)?);
-    let parents = u32s(take(&mut rest, m.checked_mul(4)?)?);
-    let line = match take(&mut rest, 1)?.first()? {
-        0 => None,
-        _ => {
-            let head = Oid::from_bytes(take(&mut rest, 20)?)?;
-            let bits = take(&mut rest, n)?.to_vec();
-            let by = u32s(take(&mut rest, n.checked_mul(4)?)?);
-            Some(Line { head, bits, by })
-        }
-    };
-    if !rest.is_empty() || ends.last().is_some_and(|&e| e as usize != m) {
+    if ends.last().is_some_and(|&x| u64::from(x) != m)
+        || checksum(&hashes, &ends, &parents, line.as_ref()) != sum
+    {
         return None;
     }
     Some(Stored {
@@ -563,36 +609,52 @@ fn read(path: &Path) -> Option<Stored> {
     })
 }
 
+fn put<T: Record>(file: &std::fs::File, at: u64, values: &[T]) -> std::io::Result<()> {
+    use std::os::unix::fs::FileExt;
+    let mut buf = vec![0u8; T::SIZE * 65_536];
+    let mut offset = at;
+    for chunk in values.chunks(65_536) {
+        for (v, slot) in chunk.iter().zip(buf.chunks_mut(T::SIZE)) {
+            v.write_to(slot);
+        }
+        let bytes = buf.get(..chunk.len() * T::SIZE).unwrap_or(&[]);
+        file.write_all_at(bytes, offset)?;
+        offset += bytes.len() as u64;
+    }
+    Ok(())
+}
+
 fn write(path: &Path, graph: &CommitGraph, index: &Index) -> std::io::Result<()> {
-    let n = graph.hashes.len();
-    let mut out: Vec<u8> = Vec::with_capacity(48 + n * 13 + graph.parents.len() * 4 + 30);
-    out.extend_from_slice(&MAGIC);
-    out.extend_from_slice(&graph.lineage.to_le_bytes());
-    out.extend_from_slice(&ids_hash(index.commits.iter().map(|c| &c.id)).to_le_bytes());
-    out.extend_from_slice(&(n as u64).to_le_bytes());
-    out.extend_from_slice(&(graph.parents.len() as u64).to_le_bytes());
-    for v in [&graph.hashes, &graph.ends, &graph.parents] {
-        for x in v.iter() {
-            out.extend_from_slice(&x.to_le_bytes());
-        }
-    }
-    match &graph.line {
-        Some(l) => {
-            out.push(1);
-            out.extend_from_slice(&l.head.0);
-            out.extend_from_slice(&l.bits);
-            for x in &l.by {
-                out.extend_from_slice(&x.to_le_bytes());
-            }
-        }
-        None => out.push(0),
-    }
-    let sum = xxh3_64(&out);
-    out.extend_from_slice(&sum.to_le_bytes());
+    use std::os::unix::fs::FileExt;
+    let n = graph.hashes.len() as u64;
+    let m = graph.parents.len() as u64;
+    let line = graph.line.as_ref();
+    let [h, e, p, b, y] = layout(n, m, line.is_some());
     let temp = path.with_extension("writing");
-    {
-        let mut f = std::fs::File::create(&temp)?;
-        f.write_all(&out)?;
+    let file = std::fs::File::create(&temp)?;
+    put(&file, h.0, &graph.hashes)?;
+    put(&file, e.0, &graph.ends)?;
+    put(&file, p.0, &graph.parents)?;
+    let mut end = aligned(p.0 + m * 4);
+    if let Some(l) = line {
+        put(&file, b.0, &l.bits)?;
+        put(&file, y.0, &l.by)?;
+        end = aligned(y.0 + n * 4);
     }
+    let mut header = Vec::with_capacity(HEADER);
+    header.extend_from_slice(&MAGIC);
+    header.extend_from_slice(&graph.lineage.to_le_bytes());
+    header.extend_from_slice(&ids_hash(index.commits.iter().map(|c| &c.id)).to_le_bytes());
+    header.extend_from_slice(&n.to_le_bytes());
+    header.extend_from_slice(&m.to_le_bytes());
+    header.extend_from_slice(
+        &checksum(&graph.hashes, &graph.ends, &graph.parents, line).to_le_bytes(),
+    );
+    header.push(u8::from(line.is_some()));
+    header.extend_from_slice(&line.map_or([0; 20], |l| l.head.0));
+    file.write_all_at(&header, 0)?;
+    file.set_len(end.max(PAGE))?;
+    file.sync_data()?;
+    drop(file);
     std::fs::rename(&temp, path)
 }

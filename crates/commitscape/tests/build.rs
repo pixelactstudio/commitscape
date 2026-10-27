@@ -473,3 +473,179 @@ fn a_build_after_the_mark_the_site_holds_writes_only_what_changed_since() {
     assert_eq!(resent["mainline_rows"], 7);
     assert_eq!(resent["lines_rows"], counted["lines_rows"]);
 }
+
+fn committed(repo: &Path, files: &[(&str, &str)], when: u64) {
+    for (path, text) in files {
+        std::fs::write(repo.join(path), text).expect("a file");
+    }
+    let date = format!("@{when} +0000");
+    for args in [
+        vec!["add", "-A"],
+        vec!["commit", "-q", "-m", "fix: a change"],
+    ] {
+        let out = Command::new("git")
+            .current_dir(repo)
+            .args(&args)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_AUTHOR_NAME", "Ada")
+            .env("GIT_AUTHOR_EMAIL", "ada@example.com")
+            .env("GIT_COMMITTER_NAME", "Ada")
+            .env("GIT_COMMITTER_EMAIL", "ada@example.com")
+            .env("GIT_AUTHOR_DATE", &date)
+            .env("GIT_COMMITTER_DATE", &date)
+            .output()
+            .expect("git");
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+}
+
+fn outputs(dir: &Path) -> Vec<(String, Vec<u8>)> {
+    let mut files: Vec<(String, Vec<u8>)> = std::fs::read_dir(dir)
+        .expect("an output folder")
+        .flatten()
+        .map(|e| {
+            (
+                e.file_name().to_string_lossy().into_owned(),
+                std::fs::read(e.path()).expect("an output"),
+            )
+        })
+        .collect();
+    files.sort();
+    files
+}
+
+fn copied(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).expect("a folder");
+    for entry in std::fs::read_dir(from).expect("a folder").flatten() {
+        let target = to.join(entry.file_name());
+        if entry.path().is_dir() {
+            copied(&entry.path(), &target);
+        } else {
+            std::fs::copy(entry.path(), target).expect("a copy");
+        }
+    }
+}
+
+fn kept_files(cache: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for dir in std::fs::read_dir(cache).into_iter().flatten().flatten() {
+        for f in std::fs::read_dir(dir.path())
+            .into_iter()
+            .flatten()
+            .flatten()
+        {
+            if f.file_name().to_string_lossy().ends_with(".cols") {
+                out.push(f.path());
+            }
+        }
+    }
+    out
+}
+
+#[test]
+fn builds_from_the_kept_columns_write_what_builds_from_the_cache_write_warm_and_after_new_commits()
+{
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let repo = dir.path().join("repo");
+    std::fs::create_dir(&repo).expect("a repository folder");
+    git(&[
+        "-C",
+        repo.to_str().expect("a path"),
+        "init",
+        "-q",
+        "-b",
+        "main",
+    ]);
+    committed(
+        &repo,
+        &[("a.rs", "1\n2\n3\n"), ("b.md", "x\n")],
+        1_700_000_000,
+    );
+    committed(&repo, &[("a.rs", "1\ntwo\n3\n4\n")], 1_700_086_400);
+    let run = |cache: &Path, name: &str, fresh: bool| -> (Vec<(String, Vec<u8>)>, Vec<Value>) {
+        if fresh {
+            for f in kept_files(cache) {
+                std::fs::remove_file(f).expect("removing kept columns");
+            }
+        }
+        let out = dir.path().join(name);
+        let events_file = dir.path().join(format!("{name}.events"));
+        commitscape(
+            &[
+                "build",
+                "--offline",
+                "--anchor",
+                "1800000000",
+                "--cache-key",
+                "acme/kept",
+            ],
+            &[
+                Path::new("--cache-dir"),
+                cache,
+                Path::new("--events"),
+                &events_file,
+                Path::new("--out"),
+                &out,
+                &repo,
+            ],
+        );
+        (outputs(&out), events(&events_file))
+    };
+    let kept = dir.path().join("kept");
+    let plain = dir.path().join("plain");
+    for (step, more) in [
+        (0, None),
+        (1, None),
+        (2, Some((1_700_172_800, "c\n"))),
+        (3, Some((1_700_259_200, "c\nd\n"))),
+        (4, None),
+        (5, Some((1_700_345_600, "// @generated\nc\nd\n"))),
+        (6, None),
+        (7, Some((1_700_432_000, "c\nd\ne\n"))),
+        (8, None),
+    ] {
+        if let Some((when, c)) = more {
+            committed(
+                &repo,
+                &[("a.rs", &format!("1\ntwo\n3\n4\n{when}\n")), ("c.rs", c)],
+                when,
+            );
+        }
+        let _ = std::fs::remove_dir_all(&plain);
+        if kept.exists() {
+            copied(&kept, &plain);
+        }
+        let (with, events_with) = run(&kept, &format!("kept{step}"), false);
+        if step == 0 {
+            assert_eq!(field(&events_with, "line_pass", "kept"), Value::Null);
+            continue;
+        }
+        let (without, _) = run(&plain, &format!("plain{step}"), true);
+        assert_eq!(
+            with.iter().map(|f| &f.0).collect::<Vec<_>>(),
+            without.iter().map(|f| &f.0).collect::<Vec<_>>()
+        );
+        for ((name, a), (_, b)) in with.iter().zip(&without) {
+            assert!(a == b, "step {step}: {name} differs");
+        }
+        assert_eq!(
+            kept_files(&kept).len().min(1),
+            1,
+            "step {step}: columns kept"
+        );
+        let from_kept = field(&events_with, "line_pass", "kept");
+        assert_eq!(
+            from_kept,
+            if step == 0 {
+                Value::Null
+            } else {
+                Value::Bool(true)
+            },
+            "step {step}"
+        );
+    }
+}

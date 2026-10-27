@@ -1,0 +1,25 @@
+[package]
+name = "commitscape-map"
+description = "Reads commitscape's column files in place: the one place that maps memory."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+indexing_slicing = "warn"
+
+[dependencies]
+commitscape-core.workspace = true
+memmap2 = "0.9.11"
+
+[dev-dependencies]
+tempfile = "3"

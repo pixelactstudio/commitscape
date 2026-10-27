@@ -1,8 +1,8 @@
 use std::ops::ControlFlow;
 
 use commitscape_core::{
-    ChangeKind, CommitFlags, CommitKind, CommitMeta, FileChange, FileHistory, HistorySpan, Index,
-    Oid, PathEvent, PathId, PathTable, RepoIdentity, Signature, SignatureId,
+    ChangeKind, Column, CommitFlags, CommitKind, CommitMeta, FileChange, FileHistory, HistorySpan,
+    Index, Oid, PathEvent, PathId, PathTable, RepoIdentity, Signature, SignatureId,
 };
 
 use crate::hash_index::HashIndex;
@@ -39,6 +39,14 @@ fn signature_hash(name: &[u8], email: &[u8]) -> u64 {
     h.update(email);
     h.digest()
 }
+
+pub type Merge<'a> = dyn FnMut(
+        &Index,
+        &[CommitMeta],
+        &[FileChange],
+        &[u8],
+    ) -> Option<(Column<CommitMeta>, Column<FileChange>, Column<u8>)>
+    + 'a;
 
 pub struct IndexBuilder {
     rules: IdentityRules,
@@ -145,11 +153,17 @@ impl IndexBuilder {
         id
     }
 
-    pub fn finish(
+    pub fn finish(self, repo: RepoIdentity, frontier: Vec<Oid>, history_truncated: bool) -> Index {
+        self.finish_merging(repo, frontier, history_truncated, &mut |_, _, _, _| None)
+    }
+
+    /// Finishes as `finish` does, handing the earlier Index and the new commits, changes and subjects to `merge` first: what it returns become the Index's columns, and when it returns none they are merged in memory.
+    pub fn finish_merging(
         mut self,
         repo: RepoIdentity,
         frontier: Vec<Oid>,
         history_truncated: bool,
+        merge: &mut Merge<'_>,
     ) -> Index {
         self.commits.sort_by_key(|c| (c.time, c.id.0));
 
@@ -222,7 +236,14 @@ impl IndexBuilder {
         let added = HistorySpan::of(&commits);
         let mut index = match self.base.take() {
             Some(mut base) => {
-                merge_history(&mut base, commits, changes, subjects);
+                match merge(&base, &commits, &changes, &subjects) {
+                    Some((c, ch, s)) => {
+                        base.commits = c;
+                        base.changes = ch;
+                        base.subjects = s;
+                    }
+                    None => merge_history(&mut base, commits, changes, subjects),
+                }
                 base.span = base.span.joined(added);
                 base.history_truncated = history_truncated;
                 base

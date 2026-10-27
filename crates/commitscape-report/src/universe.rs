@@ -55,34 +55,50 @@ pub struct Rows {
 struct Header {
     mainline: bool,
     newest: i64,
-    picked: Vec<(i64, usize)>,
+    picked: Vec<u32>,
+}
+
+fn arrived(pack: &Pack, mainline: bool, at: usize) -> i64 {
+    let time = pack.index.commits.get(at).map_or(0, |c| c.time);
+    if mainline {
+        pack.arrival.get(at).copied().flatten().unwrap_or(time)
+    } else {
+        time
+    }
 }
 
 fn header(pack: &Pack) -> Header {
     let index = &pack.index;
     let bits = |at: usize| pack.mainline.get(at).copied().unwrap_or(0);
-    let arrival = |at: usize| pack.arrival.get(at).copied().flatten();
     let mainline = (0..index.commits.len()).any(|at| bits(at) & REACHABLE != 0);
-    let mut picked: Vec<(i64, i64, Oid, usize)> = index
+    let mut picked: Vec<u32> = index
         .commits
         .iter()
         .enumerate()
         .filter(|(at, c)| !c.is_merge() && (!mainline || bits(*at) & REACHABLE != 0))
-        .map(|(at, c)| {
-            let t = if mainline {
-                arrival(at).unwrap_or(c.time)
-            } else {
-                c.time
-            };
-            (t, c.time, c.id, at)
-        })
+        .map(|(at, _)| at as u32)
         .collect();
-    picked.sort_unstable();
-    let newest = picked.iter().map(|p| p.0).max().unwrap_or(0).max(0);
+    let key = |&at: &u32| {
+        let at = at as usize;
+        let c = index.commits.get(at);
+        (
+            arrived(pack, mainline, at),
+            c.map_or(0, |c| c.time),
+            c.map_or([0; 20], |c| c.id.0),
+            at,
+        )
+    };
+    picked.sort_unstable_by_key(key);
+    let newest = picked
+        .iter()
+        .map(|&at| arrived(pack, mainline, at as usize))
+        .max()
+        .unwrap_or(0)
+        .max(0);
     Header {
         mainline,
         newest,
-        picked: picked.into_iter().map(|(t, _, _, at)| (t, at)).collect(),
+        picked,
     }
 }
 
@@ -112,7 +128,7 @@ pub fn rows(pack: &Pack) -> Rows {
         newest,
         commits: picked
             .into_iter()
-            .filter_map(|(t, at)| commit_row(pack, t, at))
+            .filter_map(|at| commit_row(pack, arrived(pack, mainline, at as usize), at as usize))
             .collect(),
         files: files(pack),
         people: people(pack),
@@ -155,8 +171,9 @@ pub fn write_rows(pack: &Pack, out: &mut impl Write) -> std::io::Result<()> {
             people: people.len(),
         },
     )?;
-    for (t, at) in picked {
-        let row = commit_row(pack, t, at)
+    for at in picked {
+        let at = at as usize;
+        let row = commit_row(pack, arrived(pack, mainline, at), at)
             .ok_or_else(|| std::io::Error::other("a commit the pack does not hold"))?;
         line(out, &row)?;
     }

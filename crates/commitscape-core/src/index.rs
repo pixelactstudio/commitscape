@@ -57,6 +57,10 @@ impl From<WireChange> for FileChange {
 }
 
 impl FileChange {
+    pub const COUNTED_AT: usize = std::mem::offset_of!(FileChange, counted);
+    pub const ADDED_AT: usize = std::mem::offset_of!(FileChange, added);
+    pub const REMOVED_AT: usize = std::mem::offset_of!(FileChange, removed);
+
     pub fn new(file: FileId, kind: ChangeKind, lines: Option<LineDelta>) -> FileChange {
         let mut c = FileChange {
             file,

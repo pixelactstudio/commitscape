@@ -1,4 +1,5 @@
 mod blame_store;
+pub mod cols;
 mod format;
 mod identity_store;
 mod line_store;
@@ -75,6 +76,14 @@ pub struct Loaded {
     pub freshness: Freshness,
     pub lineage: u64,
     pub kept: bool,
+    pub columns: Columns,
+}
+
+/// Where the Index's columns are kept beside the cache: the folder and the generation they belong to, and the kept columns when the Index was read from them.
+#[derive(Default)]
+pub struct Columns {
+    pub at: Option<(PathBuf, u64)>,
+    pub kept: Option<cols::Kept>,
 }
 
 /// Loads a repository's Index from the cache, reading only the history that is new.
@@ -171,6 +180,7 @@ fn uncached<S: RepoSource>(
         },
         lineage: format::new_generation(),
         kept: false,
+        columns: Columns::default(),
     })
 }
 
@@ -249,19 +259,23 @@ fn rebuild<S: RepoSource>(
         ctx.mailmap_fingerprint,
         classify,
     );
-    let kept = format::write(format::Writing {
+    let written = format::write(format::Writing {
         head,
         previous: None,
         fresh: format::encode_blocks(&index.commits, &index.changes, &index.subjects),
         new_ids: SortedIds::run_of(index.commits.iter().map(|c| c.id)),
         dir: ctx.dir,
     })
-    .is_ok();
+    .ok();
     Ok(Loaded {
         index,
         freshness: Freshness::Built { reason },
         lineage,
-        kept,
+        kept: written.is_some(),
+        columns: Columns {
+            at: written.map(|g| (ctx.dir.to_path_buf(), g)),
+            kept: None,
+        },
     })
 }
 
@@ -283,12 +297,24 @@ fn index_from(head: Head, decoded: format::Decoded) -> Index {
     }
 }
 
+fn counts(blocks: &[BlockEntry]) -> (usize, usize) {
+    blocks.iter().fold((0, 0), |(c, ch), b| {
+        (c + b.commits as usize, ch + b.changes as usize)
+    })
+}
+
 fn warm(
     ctx: &Context<'_>,
     head: Head,
     changed_rules: Option<&IdentityRules>,
 ) -> Result<Loaded, Unusable> {
-    let decoded = format::read_blocks(ctx.dir, &head.data_file, &head.blocks)?;
+    let generation = head.generation;
+    let found = cols::read(ctx.dir, generation, counts(&head.blocks));
+    let decoded = if found.is_some() {
+        format::Decoded::default()
+    } else {
+        format::read_blocks(ctx.dir, &head.data_file, &head.blocks)?
+    };
     let previous = changed_rules.map(|_| PreviousParts {
         data_file: head.data_file.clone(),
         blocks: head.blocks.clone(),
@@ -299,11 +325,18 @@ fn warm(
     let lineage = head.lineage;
 
     let mut index = index_from(head, decoded);
+    let mut kept = found.map(|((commits, changes, subjects), kept)| {
+        index.commits = commits;
+        index.changes = changes;
+        index.subjects = subjects;
+        kept
+    });
     index.repo = ctx.identity.clone();
+    let mut at = Some((ctx.dir.to_path_buf(), generation));
     if let (Some(rules), Some(previous)) = (changed_rules, previous) {
         reresolve_authors(&mut index, rules);
         if let Ok(ids) = previous.ids {
-            let _ = format::write(format::Writing {
+            let written = format::write(format::Writing {
                 head: format::head_of(
                     &index,
                     lineage,
@@ -321,6 +354,12 @@ fn warm(
                 new_ids: Vec::new(),
                 dir: ctx.dir,
             });
+            at = written.ok().map(|g| (ctx.dir.to_path_buf(), g));
+            if let (Some(k), Some((_, g))) = (kept.as_mut(), at.as_ref()) {
+                if k.link_as(ctx.dir, *g).is_err() {
+                    kept = None;
+                }
+            }
         }
     }
     Ok(Loaded {
@@ -328,6 +367,7 @@ fn warm(
         freshness: Freshness::Warm,
         lineage,
         kept: true,
+        columns: Columns { at, kept },
     })
 }
 
@@ -359,11 +399,22 @@ fn resume<S: RepoSource>(
         Ok(ids) => ids,
         Err(_) => return rebuild(source, ctx, RebuildReason::Unreadable, progress),
     };
-    let decoded = match format::read_blocks(ctx.dir, &data_file, &old_blocks) {
-        Ok(d) => d,
-        Err(_) => return rebuild(source, ctx, RebuildReason::Unreadable, progress),
+    let found = cols::read(ctx.dir, head.generation, counts(&old_blocks));
+    let decoded = if found.is_some() {
+        format::Decoded::default()
+    } else {
+        match format::read_blocks(ctx.dir, &data_file, &old_blocks) {
+            Ok(d) => d,
+            Err(_) => return rebuild(source, ctx, RebuildReason::Unreadable, progress),
+        }
     };
-    let base = index_from(head, decoded);
+    let mut base = index_from(head, decoded);
+    let mut kept = found.map(|((commits, changes, subjects), kept)| {
+        base.commits = commits;
+        base.changes = changes;
+        base.subjects = subjects;
+        kept
+    });
 
     let mut builder = IndexBuilder::resume(base, ctx.rules(source)?);
     let stats = source.walk_history(
@@ -377,7 +428,32 @@ fn resume<S: RepoSource>(
     let changed_from = builder.oldest_pending_time().map(Month::of);
 
     let new_ids = SortedIds::run_of(builder.added_ids().into_iter());
-    let mut index = builder.finish(ctx.identity.clone(), tips, stats.history_truncated);
+    let mut merged: Option<cols::Kept> = None;
+    let mut index = match kept.take() {
+        Some(base_kept) => {
+            let dir = ctx.dir;
+            builder.finish_merging(
+                ctx.identity.clone(),
+                tips,
+                stats.history_truncated,
+                &mut |base, commits, changes, subjects| {
+                    let (columns, k) = cols::merge(
+                        dir,
+                        base,
+                        &base_kept.settled,
+                        &base_kept.masking,
+                        commits,
+                        changes,
+                        subjects,
+                    )
+                    .ok()?;
+                    merged = Some(k);
+                    Some(columns)
+                },
+            )
+        }
+        None => builder.finish(ctx.identity.clone(), tips, stats.history_truncated),
+    };
 
     let head_commit = source.head_commit()?;
     if head_commit != index.head_commit || reclassify {
@@ -414,7 +490,7 @@ fn resume<S: RepoSource>(
         }
         None => (Vec::new(), old_blocks.clone()),
     };
-    let kept = format::write(format::Writing {
+    let written = format::write(format::Writing {
         head: format::head_of(
             &index,
             lineage,
@@ -432,12 +508,21 @@ fn resume<S: RepoSource>(
         new_ids,
         dir: ctx.dir,
     })
-    .is_ok();
+    .ok();
+    if let (Some(k), Some(g)) = (merged.as_mut(), written) {
+        if k.settle_as(ctx.dir, g).is_err() {
+            merged = None;
+        }
+    }
     Ok(Loaded {
         index,
         freshness: Freshness::Updated { added },
         lineage,
-        kept,
+        kept: written.is_some(),
+        columns: Columns {
+            at: written.map(|g| (ctx.dir.to_path_buf(), g)),
+            kept: merged.filter(|_| written.is_some()),
+        },
     })
 }
 

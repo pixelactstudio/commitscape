@@ -4,6 +4,7 @@ members = [
     "crates/commitscape-core",
     "crates/commitscape-forge",
     "crates/commitscape-index",
+    "crates/commitscape-map",
     "crates/commitscape-metrics",
     "crates/commitscape-report",
     "crates/commitscape",
@@ -23,6 +24,7 @@ homepage = "https://github.com/pixelactstudio/commitscape"
 commitscape-core = { path = "crates/commitscape-core", version = "0.4.0" }
 commitscape-forge = { path = "crates/commitscape-forge", version = "0.4.0" }
 commitscape-index = { path = "crates/commitscape-index", version = "0.4.0" }
+commitscape-map = { path = "crates/commitscape-map", version = "0.4.0" }
 commitscape-metrics = { path = "crates/commitscape-metrics", version = "0.4.0" }
 commitscape-report = { path = "crates/commitscape-report", version = "0.4.0" }
 

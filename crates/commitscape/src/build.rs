@@ -16,7 +16,7 @@ use tracing::field::Empty;
 
 use crate::mark::{fingerprint, Mark};
 use crate::{
-    commit_link, count_lines_into, events, read_accounts, repo_name, with_accounts, Common,
+    commit_link, count_lines_kept, events, read_accounts, repo_name, with_accounts, Common,
     LineCount, ProgressLine, RunArgs,
 };
 
@@ -124,10 +124,10 @@ fn read(args: &ExportArgs) -> anyhow::Result<Read> {
     let lines = if args.no_lines {
         None
     } else {
-        Some(count_lines_into(
+        Some(count_lines_kept(
             &repo,
             &options,
-            &mut loaded.index,
+            &mut loaded,
             args.common.metrics(),
             args.run.budget(),
             Some(mainline.bits.clone()),

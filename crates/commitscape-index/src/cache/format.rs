@@ -417,7 +417,7 @@ fn lock(dir: &Path) -> std::io::Result<WriteLock> {
     Ok(WriteLock(f))
 }
 
-pub(super) fn write(w: Writing<'_>) -> std::io::Result<(String, Vec<BlockEntry>)> {
+pub(super) fn write(w: Writing<'_>) -> std::io::Result<u64> {
     std::fs::create_dir_all(w.dir)?;
     let _lock = lock(w.dir)?;
     let mut head = w.head;
@@ -494,7 +494,7 @@ pub(super) fn write(w: Writing<'_>) -> std::io::Result<(String, Vec<BlockEntry>)
     drop(out);
 
     swap_to(w.dir, head.generation, &head.data_file)?;
-    Ok((head.data_file, head.blocks))
+    Ok(head.generation)
 }
 
 fn append(out: &mut impl std::io::Write, at: &mut u64, bytes: &[u8]) -> std::io::Result<Extent> {
@@ -545,7 +545,15 @@ fn swap_to(dir: &Path, generation: u64, data_file: &str) -> std::io::Result<()> 
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().into_owned();
-            let stale = (name.ends_with(".head") && !keep_head(&name))
+            let keep_cols = |name: &str| {
+                [Some(generation), previous]
+                    .into_iter()
+                    .flatten()
+                    .any(|g| name == format!("{g:016x}.cols"))
+            };
+            let stale = (name.ends_with(".cols") && !keep_cols(&name))
+                || name.ends_with(".cols.writing")
+                || (name.ends_with(".head") && !keep_head(&name))
                 || (name.ends_with(".data") && !keep_data(&name))
                 || name.ends_with(".tmp");
             if stale {

@@ -49,33 +49,54 @@ impl LineStore {
         counted
     }
 
-    /// Where the store's log ends now, and the commits counted into it after `mark`, an earlier end: `None` when the log no longer begins with what `mark` covered.
-    pub fn since(&self, mark: Option<LogMark>) -> (LogMark, Option<Vec<Oid>>) {
-        let bytes = std::fs::read(self.path()).unwrap_or_default();
-        let from = mark.map_or(0, |m| m.len);
-        let mut after = Vec::new();
-        let mut whole = 0usize;
-        if let Some(mut rest) = bytes.strip_prefix(MAGIC) {
-            whole = MAGIC.len();
-            while let Some((id, _, next)) = record(rest) {
-                if whole as u64 >= from {
-                    after.push(id);
-                }
-                whole += rest.len() - next.len();
-                rest = next;
-            }
+    /// The lines kept for the commits in `wanted` only, read through the log a piece at a time without holding the rest.
+    pub fn read_some(&self, wanted: &std::collections::HashSet<Oid>) -> Counted {
+        let mut out = Counted::new();
+        if wanted.is_empty() {
+            return out;
         }
-        let hash_of = |len: u64| {
-            usize::try_from(len)
-                .ok()
-                .and_then(|n| bytes.get(..n.min(whole)).filter(|b| b.len() == n))
-                .map(xxh3_64)
+        let _ = each_record(&self.path(), &mut |id, deltas, _| {
+            if wanted.contains(&id) {
+                out.insert(id, deltas);
+            }
+        });
+        out
+    }
+
+    /// Where the store's log ends now, and the commits counted into it after `mark`, an earlier end: `None` when the log no longer begins with what `mark` covered. The log is read a piece at a time.
+    pub fn since(&self, mark: Option<LogMark>) -> (LogMark, Option<Vec<Oid>>) {
+        let from = mark.map_or(0, |m| m.len);
+        let empty = xxh3_64(&[]);
+        let mut after = Vec::new();
+        let mut hasher = xxhash_rust::xxh3::Xxh3::new();
+        hasher.update(MAGIC);
+        let mut whole = MAGIC.len() as u64;
+        let mut at_mark = match from {
+            0 => Some(empty),
+            n if n == whole => Some(hasher.digest()),
+            _ => None,
         };
-        let now = LogMark {
-            len: whole as u64,
-            hash: hash_of(whole as u64).unwrap_or_default(),
+        let read = each_record(&self.path(), &mut |id, _, raw| {
+            if mark.is_some() && whole >= from {
+                after.push(id);
+            }
+            hasher.update(raw);
+            whole += raw.len() as u64;
+            if whole == from {
+                at_mark = Some(hasher.digest());
+            }
+        });
+        let now = match read {
+            Some(()) => LogMark {
+                len: whole,
+                hash: hasher.digest(),
+            },
+            None => LogMark {
+                len: 0,
+                hash: empty,
+            },
         };
-        let held = mark.filter(|m| hash_of(m.len) == Some(m.hash));
+        let held = mark.filter(|m| m.len <= now.len && at_mark == Some(m.hash));
         (now, held.map(|_| after))
     }
 
@@ -176,4 +197,45 @@ pub(super) fn read_leb128(bytes: &[u8]) -> Option<(u64, &[u8])> {
         }
     }
     None
+}
+
+type Visit<'a> = dyn FnMut(Oid, Vec<Option<LineDelta>>, &[u8]) + 'a;
+
+fn each_record(path: &Path, visit: &mut Visit<'_>) -> Option<()> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(path).ok()?;
+    let mut buf: Vec<u8> = Vec::with_capacity(1 << 20);
+    let mut chunk = vec![0u8; 1 << 20];
+    let mut started = false;
+    let mut eof = false;
+    loop {
+        if !eof && buf.len() < 1 << 19 {
+            let n = file.read(&mut chunk).ok()?;
+            eof = n == 0;
+            buf.extend_from_slice(chunk.get(..n).unwrap_or(&[]));
+        }
+        if !started {
+            if buf.len() < MAGIC.len() && !eof {
+                continue;
+            }
+            if !buf.starts_with(MAGIC) {
+                return None;
+            }
+            buf.drain(..MAGIC.len());
+            started = true;
+        }
+        let mut used = 0usize;
+        while let Some((id, deltas, rest)) = buf.get(used..).and_then(record) {
+            let len = buf.len() - used - rest.len();
+            visit(id, deltas, buf.get(used..used + len).unwrap_or(&[]));
+            used += len;
+            if !eof && buf.len() - used < 1 << 16 {
+                break;
+            }
+        }
+        buf.drain(..used);
+        if eof && (used == 0 || buf.is_empty()) {
+            return Some(());
+        }
+    }
 }

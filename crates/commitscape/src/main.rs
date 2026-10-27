@@ -18,7 +18,9 @@ use std::time::Duration;
 use clap::{Args, Parser, Subcommand};
 use commitscape_core::Index;
 use commitscape_forge::Remote;
+use commitscape_index::cache::cols::{self, Masking};
 use commitscape_index::identity::Account;
+use commitscape_index::lines::{line_pass_kept, remask};
 use commitscape_index::RepoSource;
 use commitscape_index::{
     default_cache_root, line_pass, load, reresolve_authors, CacheOptions, GixRepo, IdentityRules,
@@ -394,6 +396,88 @@ pub(crate) fn count_lines_into(
         settled: std::mem::take(&mut pass.settled),
     };
     pass.apply(index);
+    if count.left > 0 {
+        eprintln!(
+            "lines not counted yet for {} commits: the next run carries on",
+            grouped(count.left)
+        );
+    }
+    Ok(count)
+}
+
+/// Counts Lines Changed as `count_lines_into` does, from the Index's kept columns when they were read and counted with the same masking: only the commits they do not hold settled are read from the line store or counted, and only those are written back. Otherwise every commit's lines are put in as before and the columns are written whole for the cache's generation.
+pub(crate) fn count_lines_kept(
+    repo: &GixRepo,
+    options: &CacheOptions,
+    loaded: &mut commitscape_index::Loaded,
+    metrics: Options,
+    budget: Option<Duration>,
+    mainline: Option<Vec<u8>>,
+) -> anyhow::Result<LineCount> {
+    let index = &mut loaded.index;
+    let plan = LinePlan {
+        skip_commits: index.commits.iter().map(|c| metrics.is_bulk(c)).collect(),
+        skip_files: commitscape_metrics::skipped_files(index),
+        mainline,
+        budget,
+    };
+    let masking = Masking {
+        bulk: metrics.max_changeset_size,
+        skipped: plan.skip_files.clone(),
+    };
+    let store = LineStore::for_repo(options, &index.repo);
+    let mut meter = ProgressLine::new();
+    let kept = loaded.columns.kept.as_mut().and_then(|k| {
+        let flipped = k.masking.flips(&masking)?;
+        Some((k, flipped))
+    });
+    let count = match kept {
+        Some((kept, flipped)) => {
+            let remasked = remask(index, &plan, store.as_ref(), &flipped, &kept.settled);
+            let (mut pass, newly) = line_pass_kept(
+                repo,
+                index,
+                &plan,
+                store.as_ref(),
+                &mut kept.settled,
+                &mut |done, total| meter.lines(done, total),
+            )?;
+            meter.clear();
+            let count = LineCount {
+                counted: pass.counted,
+                left: pass.left,
+                settled: std::mem::take(&mut pass.settled),
+            };
+            pass.apply(index);
+            let mut written = newly;
+            written.extend(remasked);
+            written.sort_unstable();
+            written.dedup();
+            if let Err(e) = kept.save(index, &written, &masking) {
+                tracing::warn!("the kept columns were not brought up to date: {e}");
+            }
+            count
+        }
+        None => {
+            let mut pass = line_pass(repo, index, &plan, store.as_ref(), &mut |done, total| {
+                meter.lines(done, total)
+            })?;
+            meter.clear();
+            let count = LineCount {
+                counted: pass.counted,
+                left: pass.left,
+                settled: std::mem::take(&mut pass.settled),
+            };
+            pass.apply(index);
+            if let Some((dir, generation)) = loaded.columns.at.as_ref() {
+                let marks: Vec<u8> = count.settled.iter().map(|&s| u8::from(s)).collect();
+                if let Err(e) = cols::write(dir, *generation, index, &marks, &masking) {
+                    tracing::warn!("the Index's columns were not kept: {e}");
+                }
+            }
+            count
+        }
+    };
     if count.left > 0 {
         eprintln!(
             "lines not counted yet for {} commits: the next run carries on",
