@@ -87,6 +87,18 @@ describe("the Atlas", () => {
     expect(deps.engine.asked).toEqual([]);
   });
 
+  test("of a Build's quick pack is never made by the Site: the full pack brings it", async () => {
+    const deps = await stored();
+    const quick = await packed(deps.db, deps.si, "packs/acme/rocket/1/head-b2-quick.pack");
+    expect(await warmAtlas(deps, deps.si, quick)).toBe(false);
+    const asked = await atlasFile(deps, viewer(), "acme", "rocket", "map", null).then(
+      () => null,
+      (e: SiteError) => [e.status, e.message],
+    );
+    expect(asked).toEqual([404, "The Universe is drawn once this Build has read the whole history."]);
+    expect(deps.engine.asked).toEqual([]);
+  });
+
   test("is made ahead of its first visitor, and what the Stored Index's earlier packs left in storage is deleted", async () => {
     const deps = await stored();
     await deps.storage.put(`atlas/${deps.si}/0000000000000000/map.bin.br`, "old", { type: "application/octet-stream" });

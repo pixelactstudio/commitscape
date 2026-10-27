@@ -12,6 +12,7 @@ import {
   randomId,
   reportPrefix,
   schema,
+  packKey,
   screensPrefix,
   sha256,
   type BuildJob,
@@ -298,11 +299,11 @@ async function publishBuild(ctx: JobContext, phases: Phases, buildId: string, ma
   if (!named) return null;
   if (made.phase === "quick" && named.reportKey && named.reportLines !== false) return null;
   const si = made.loaded.si;
-  const pack = `packs/${named.id}/${si}/${made.manifest.head ?? "empty"}-${buildId}-${made.phase === "quick" ? "quick" : "lines"}.pack`;
+  const pack = packKey(named.id, si, made.manifest.head ?? null, buildId, made.phase === "quick");
   const body = await readFile(made.pack);
   await phases.time(`upload ${made.phase}`, "http.client", () => storage.put(pack, body, { type: "application/octet-stream" }));
   const atlas = ctx.cfg.atlas;
-  if (atlas) {
+  if (atlas && made.phase === "full") {
     await phases
       .time(`atlas ${made.phase}`, "atlas", () => storeAtlas(ctx.run, storage, { bin: ctx.cfg.bin, quality: atlas.quality, si, pack, file: made.pack, dir: made.dir, timeoutMs: timeLimitOf(ctx.cfg) * 1000, nice: ctx.cfg.nice, commits: made.manifest.total }))
       .catch((e: unknown) => ctx.log(`atlas of ${named.id}: ${(e as Error).message}, so the Site makes it`));
@@ -310,11 +311,13 @@ async function publishBuild(ctx: JobContext, phases: Phases, buildId: string, ma
   const lines = made.phase === "full" && made.manifest.lines_mainline;
   const same = made.phase === "full" && named.reportLines === true && !made.loaded.full && made.before?.id === si && made.before.head === made.manifest.head;
   const prefix = same && named.reportKey ? named.reportKey : reportPrefix(named.id, made.phase === "full" ? buildId : `${buildId}-quick`);
-  await phases
-    .time(`screens ${made.phase}`, "screens", () =>
-      storeScreens(ctx.run, storage, { bin: ctx.cfg.bin, pack: made.pack, dir: made.dir, prefix: screensPrefix(si, pack), env: ctx.cfg.threads ? { COMMITSCAPE_THREADS: String(ctx.cfg.threads) } : {}, timeoutMs: timeLimitOf(ctx.cfg) * 1000, nice: ctx.cfg.nice, commits: made.manifest.total }),
-    )
-    .catch((e: unknown) => ctx.log(`screens of ${named.id}: ${(e as Error).message}, so the engine service answers them`));
+  if (made.phase === "full") {
+    await phases
+      .time(`screens ${made.phase}`, "screens", () =>
+        storeScreens(ctx.run, storage, { bin: ctx.cfg.bin, pack: made.pack, dir: made.dir, prefix: screensPrefix(si, pack), env: ctx.cfg.threads ? { COMMITSCAPE_THREADS: String(ctx.cfg.threads) } : {}, timeoutMs: timeLimitOf(ctx.cfg) * 1000, nice: ctx.cfg.nice, commits: made.manifest.total }),
+      )
+      .catch((e: unknown) => ctx.log(`screens of ${named.id}: ${(e as Error).message}, so the engine service answers them`));
+  }
   const { stats, people } = made.summary;
   const meta: Meta = { ...made.summary.meta, lines: lines ? "counted" : continuing ? "counting" : "off" };
   const target = await db.transaction(async (tx) => {

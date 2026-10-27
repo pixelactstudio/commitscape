@@ -21,6 +21,14 @@ export type AtlasPart = "map" | "names";
 export function atlasKey(si: number, pack: string, part: AtlasPart): string {
   return `atlas/${si}/${sha256(pack).slice(0, 16)}/${part}.bin.br`;
 }
+/** Where a Build's pack is kept: under its repository and Stored Index, named by its head and Build, and marked when it is the quick one, published without lines before the whole history is read. */
+export function packKey(repoId: string, si: number, head: string | null, buildId: string, quick: boolean): string {
+  return `packs/${repoId}/${si}/${head ?? "empty"}-${buildId}-${quick ? "quick" : "lines"}.pack`;
+}
+
+/** Whether a pack is a Build's quick one, which has no Atlas or stored screens of its own: the full one that follows brings them. */
+export const isQuickPack = (pack: string) => pack.endsWith("-quick.pack");
+
 /** Where the standard screens of a Stored Index's pack are kept: named by the pack, so a pack published again at the same head never serves the screens of the one before. */
 export function screensPrefix(si: number, pack: string): string {
   return `screens/${si}/${sha256(pack).slice(0, 16)}`;

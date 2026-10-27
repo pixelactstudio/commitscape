@@ -189,6 +189,22 @@ test("a repository with no Report gets the quick Stored Index without lines whil
   expect(ctx.captured.every((c) => c[1].userId === "u1")).toBe(true);
 });
 
+test("only the full publish makes its pack's Atlas and stores its screens; the quick one leaves them to it", async () => {
+  const db = await database();
+  const ctx = await context(db);
+  const made: string[] = [];
+  ctx.run = tools({}, async (_cmd, args) => {
+    if (args[0] === "atlas" || args[0] === "screens") made.push(`${args[0]} of ${args[1]?.includes("quick") ? "quick" : "full"}`);
+    return ok;
+  });
+  ctx.cfg = { ...ctx.cfg, atlas: { quality: 5 } };
+  await db.insert(repositories).values({ id: "acme/rocket", owner: "acme", name: "rocket", sizeKb: 10 });
+  await db.insert(builds).values({ id: "b1", repoId: "acme/rocket", state: "queued", requestedAt: 1 });
+  await runJob("b1", ctx);
+  expect(ctx.captured.map((c) => c[0])).toEqual(["build started", "build quick published", "build done"]);
+  expect(made).toEqual(["atlas of full", "screens of full"]);
+});
+
 test("a full build that fails leaves the quick Stored Index published, says why, and stops saying lines are being counted", async () => {
   const db = await database();
   const ctx = await context(db);

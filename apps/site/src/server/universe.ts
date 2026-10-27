@@ -2,7 +2,7 @@ import "@tanstack/react-start/server-only";
 import { promisify } from "node:util";
 import { brotliCompress, brotliDecompress, constants, gzip } from "node:zlib";
 import { atlasOf, encodeAtlas, encodeNames } from "@commitscape/data/universe";
-import { atlasKey, sha256, type AtlasPart, type Storage } from "@commitscape/server";
+import { atlasKey, isQuickPack, sha256, type AtlasPart, type Storage } from "@commitscape/server";
 import { withPack } from "./answers";
 import type { EngineService } from "./engine-service";
 import { SiteError } from "./http";
@@ -15,6 +15,7 @@ const gzipAsync = promisify(gzip);
 export type { AtlasPart };
 
 const NO_HISTORY = "This repository's history is read at its next Build.";
+const NOT_YET = "The Universe is drawn once this Build has read the whole history.";
 const YEAR = 31_536_000;
 const KEPT = 6;
 const QUICK = 5;
@@ -56,6 +57,7 @@ function repack(storage: Storage, si: number, pack: string, raw: Record<AtlasPar
 async function make({ storage, engine }: Making, si: number, pack: string): Promise<Built> {
   const [map, names] = await Promise.all([storage.get(keyOf(si, pack, "map")).catch(() => null), storage.get(keyOf(si, pack, "names")).catch(() => null)]);
   if (map && names) return { map: { br: map.body, gzip: null }, names: { br: names.body, gzip: null }, kept: Promise.resolve() };
+  if (isQuickPack(pack)) throw new SiteError(404, NOT_YET);
   const { atlas, names: named } = atlasOf(await engine.universeRows(pack));
   const raw = { map: encodeAtlas(atlas), names: encodeNames(named) };
   const [mapBr, namesBr] = await Promise.all([brotli(raw.map, QUICK), brotli(raw.names, QUICK)]);
@@ -84,6 +86,7 @@ export function atlasOfPack(making: Making, si: number, pack: string): Promise<B
 
 /** Makes the Atlas of a Stored Index's pack ahead of its first visitor, and deletes what its earlier packs left in storage. */
 export async function warmAtlas(making: Making, si: number, pack: string): Promise<boolean> {
+  if (isQuickPack(pack)) return false;
   await (await atlasOfPack(making, si, pack)).kept;
   const kept = `atlas/${si}/${versionOf(pack)}/`;
   const stale = ((await making.storage.keys?.(`atlas/${si}/`)) ?? []).filter((k) => !k.startsWith(kept));
