@@ -252,7 +252,11 @@ fn main() -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("commitscape: {e:#}");
-            ExitCode::FAILURE
+            if e.downcast_ref::<surviving::HeadMoved>().is_some() {
+                ExitCode::from(3)
+            } else {
+                ExitCode::FAILURE
+            }
         }
     }
 }

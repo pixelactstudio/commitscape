@@ -7,9 +7,9 @@ import type { BuildFailure, BuildStep } from "@commitscape/data";
 import { appendable, type LiveIndex, type Loaded } from "@commitscape/server";
 import { readSignatures, writeAccountsFile, type Signature } from "./accounts";
 import { peakMb } from "./admission";
-import { cloneUrl, ensureClone, gitEnv, locked, missingIn, tipsOf, type Cloned } from "./clone";
+import { cloneUrl, ensureClone, gitEnv, missingIn, tipsOf, type Cloned } from "./clone";
 import type { Config } from "./config";
-import { cacheFor, holdingCache, lineStoreOf, privateDir, repoDir, scratchDir } from "./disk";
+import { cacheFor, holdingRepo, lineStoreOf, privateDir, repoDir, scratchDir } from "./disk";
 import { readBuilt, readEvents, type Built } from "./engine";
 import { prefetch } from "./lean";
 import { hasCache } from "./state";
@@ -177,13 +177,11 @@ export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<
   const env = gitEnv(req.token);
   const engineEnv: NodeJS.ProcessEnv = { ...env, ...(cfg.threads ? { COMMITSCAPE_THREADS: String(cfg.threads) } : {}) };
   const url = cloneUrl(cfg, req.owner, req.name);
-  const cacheRoot = await cacheFor(cfg, { isPrivate: !!req.private, owner: req.owner, name: req.name, home });
-  const cache = ["--cache-dir", cacheRoot, "--cache-key", req.repo];
-  const cached: typeof deps.run = (cmd, args, env, timeoutMs, opts) => holdingCache(cacheRoot, () => deps.run(cmd, args, env, timeoutMs, opts));
+  let cacheRoot = "";
+  const cache = () => ["--cache-dir", cacheRoot, "--cache-key", req.repo];
   const state = req.private ? undefined : deps.state;
   let restoring: Promise<unknown> = Promise.resolve();
-  const warm = existsSync(join(full, ".git"));
-  phases.kind = warm ? "warm" : "cold";
+  let warm = false;
   const seconds = () => Math.round((Date.now() - started) / 100) / 10;
   let resumable = false;
   let quickMade: Made | null = null;
@@ -199,9 +197,9 @@ export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<
     const before = await deps.index.live();
     const kind = (await hasCache(cacheRoot)) ? "build" : "cold";
     const memoryMb = peakMb(kind, { commits: before?.commits ?? 0, sizeKb: req.sizeKb });
-    const args = ["build", ...(phase === "quick" ? ["--no-lines"] : ["--lines-budget", String(linesBudgetOf(cfg, binLimit, !!req.more))]), "--offline", "--max-changeset-size", String(cfg.bulkFiles), ...cache, "--events", events, "--out", out];
+    const args = ["build", ...(phase === "quick" ? ["--no-lines"] : ["--lines-budget", String(linesBudgetOf(cfg, binLimit, !!req.more))]), "--offline", "--max-changeset-size", String(cfg.bulkFiles), ...cache(), "--events", events, "--out", out];
     if (accounts) args.push("--accounts", accounts);
-    const seed = phase === "full" && req.forkOf ? await lineStoreOf(cfg, req.forkOf) : null;
+    const seed = phase === "full" && req.forkOf ? await lineStoreOf(cfg, req.forkOf, join(scratch, "lines-from")) : null;
     if (seed) args.push("--lines-from", seed);
     if (appendable(before)) {
       const frontier = join(scratch, `${phase}.frontier`);
@@ -211,7 +209,7 @@ export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<
     args.push("--", dir);
     const t = Date.now();
     const ran = await phases.time(`build ${phase}`, "engine", async () => {
-      const done = await cached(cfg.bin, args, engineEnv, binLimit * 1000, { nice: cfg.nice, memoryMb });
+      const done = await deps.run(cfg.bin, args, engineEnv, binLimit * 1000, { nice: cfg.nice, memoryMb });
       engineSpans(await readEvents(events));
       return done;
     });
@@ -235,7 +233,7 @@ export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<
     const events = join(scratch, "signatures.events");
     const signatures = await phases.time("signatures", "engine", async () => {
       const sized = { commits: (await deps.index.live())?.commits ?? 0, sizeKb: req.sizeKb };
-      const found = await readSignatures(cached, { bin: cfg.bin, dir, scratch, cache, env: engineEnv, timeoutMs: binLimit * 1000, nice: cfg.nice, memoryMb: peakMb("signatures", sized), events, ...(deps.log ? { log: deps.log } : {}) });
+      const found = await readSignatures(deps.run, { bin: cfg.bin, dir, scratch, cache: cache(), env: engineEnv, timeoutMs: binLimit * 1000, nice: cfg.nice, memoryMb: peakMb("signatures", sized), events, ...(deps.log ? { log: deps.log } : {}) });
       engineSpans(await readEvents(events));
       return found;
     });
@@ -256,7 +254,7 @@ export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<
     deps.log?.(`clone of ${req.owner}/${req.name}: blobless, ${fetched} file versions fetched for this Build`);
     return c;
   };
-  const fullClone = () => locked(full, () => (lean ? leanClone() : ensureClone(deps.run, { url, dir: full, blobless: false, env, timeoutMs: cloneLimit })));
+  const fullClone = () => (lean ? leanClone() : ensureClone(deps.run, { url, dir: full, blobless: false, env, timeoutMs: cloneLimit }));
 
   const caughtUp = async () => {
     const missing = await missingIn(deps.run, full, await tipsOf(deps.run, quick, env, CHECK_MS), env, CHECK_MS);
@@ -267,94 +265,99 @@ export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<
 
   const guarded = (fn: () => Promise<Step>): Promise<Step> => fn().catch((e: unknown) => ({ ok: false, reason: "error", detail: (e as Error).message }));
 
-  try {
-    await rm(scratch, { recursive: true, force: true });
-    await mkdir(scratch, { recursive: true });
-    await mkdir(home, { recursive: true });
-    await utimes(home, new Date(), new Date());
-    if (state) {
-      restoring = phases
-        .time("restore state", "state", () => holdingCache(cacheRoot, () => state.restore(cacheRoot)))
-        .then((r) => r.restored && deps.log?.(`state of ${req.owner}/${req.name}: restored ${Math.round(r.bytes / 1e6)} MB from R2`))
-        .catch((e: unknown) => deps.log?.(`state of ${req.owner}/${req.name} not restored: ${(e as Error).message}`));
-    }
-    const live = await deps.index.live();
-    const quickWanted = attempt === 1 && !warm && !req.hasLines && !live?.lines;
-    await deps.progress("cloning");
-    const fullDone = phases.time("clone full", "git.clone", fullClone).catch((e: unknown): Cloned => ({ ok: false, reason: "error", detail: (e as Error).message }));
-    void fullDone.then(() => {
-      fullCloned = true;
-    });
-    const quickDone: Promise<Cloned | null> = quickWanted
-      ? phases.time("clone quick", "git.clone", () => ensureClone(deps.run, { url, dir: quick, blobless: true, env, timeoutMs: cloneLimit })).catch((e: unknown): Cloned => ({ ok: false, reason: "error", detail: (e as Error).message }))
-      : Promise.resolve(null);
-    const firstClone = new Promise<string | null>((resolve) => {
-      let waiting = quickWanted ? 2 : 1;
-      const settle = (dir: string | null) => {
-        if (dir) resolve(dir);
-        else if (--waiting === 0) resolve(null);
-      };
-      void quickDone.then((c) => c && settle(c.ok ? quick : null));
-      void fullDone.then((c) => settle(c.ok ? full : null));
-    });
-    const accounts = firstClone.then((d) => (d ? accountsFrom(d) : null));
+  return holdingRepo(home, async () => {
+    try {
+      cacheRoot = await cacheFor(cfg, { isPrivate: !!req.private, owner: req.owner, name: req.name, home });
+      warm = existsSync(join(full, ".git"));
+      phases.kind = warm ? "warm" : "cold";
+      await rm(scratch, { recursive: true, force: true });
+      await mkdir(scratch, { recursive: true });
+      await mkdir(home, { recursive: true });
+      await utimes(home, new Date(), new Date());
+      if (state) {
+        restoring = phases
+          .time("restore state", "state", () => state.restore(cacheRoot))
+          .then((r) => r.restored && deps.log?.(`state of ${req.owner}/${req.name}: restored ${Math.round(r.bytes / 1e6)} MB from R2`))
+          .catch((e: unknown) => deps.log?.(`state of ${req.owner}/${req.name} not restored: ${(e as Error).message}`));
+      }
+      const live = await deps.index.live();
+      const quickWanted = attempt === 1 && !warm && !req.hasLines && !live?.lines;
+      await deps.progress("cloning");
+      const fullDone = phases.time("clone full", "git.clone", fullClone).catch((e: unknown): Cloned => ({ ok: false, reason: "error", detail: (e as Error).message }));
+      void fullDone.then(() => {
+        fullCloned = true;
+      });
+      const quickDone: Promise<Cloned | null> = quickWanted
+        ? phases.time("clone quick", "git.clone", () => ensureClone(deps.run, { url, dir: quick, blobless: true, env, timeoutMs: cloneLimit })).catch((e: unknown): Cloned => ({ ok: false, reason: "error", detail: (e as Error).message }))
+        : Promise.resolve(null);
+      const firstClone = new Promise<string | null>((resolve) => {
+        let waiting = quickWanted ? 2 : 1;
+        const settle = (dir: string | null) => {
+          if (dir) resolve(dir);
+          else if (--waiting === 0) resolve(null);
+        };
+        void quickDone.then((c) => c && settle(c.ok ? quick : null));
+        void fullDone.then((c) => settle(c.ok ? full : null));
+      });
+      const accounts = firstClone.then((d) => (d ? accountsFrom(d) : null));
 
-    const quickPhase = guarded(async () => {
-      const c = await quickDone;
-      if (!c) return { ok: false, reason: "error", detail: "no quick phase" };
-      if (!c.ok) return failed(c);
-      const file = await accounts;
-      await deps.progress("reading");
-      const done = await engine("quick", quick, file);
-      if (!done.ok) return done;
-      await deps.progress("uploading");
-      if (await phases.time("publish quick", "publish", () => deps.publish(done.made))) quickMade = done.made;
-      await deps.progress(fullCloned ? "reading" : "cloning");
-      return { ok: true };
-    });
-
-    const fullPhase = guarded(async () => {
-      const c = await fullDone;
-      if (!c.ok) return failed(c);
-      deps.log?.(`clone of ${req.owner}/${req.name}: ${c.fresh ? "cloned" : "brought up to date"} in ${c.seconds} s`);
-      if ((await quickDone)?.ok) await caughtUp();
-      const git = deps.git;
-      const gitData =
-        git && !req.more
-          ? phases.time("git data", "git", () => git(full, env)).catch((e: unknown) => deps.log?.(`git data of ${req.owner}/${req.name}: ${(e as Error).message}`))
-          : Promise.resolve();
-      try {
-        await quickPhase;
+      const quickPhase = guarded(async () => {
+        const c = await quickDone;
+        if (!c) return { ok: false, reason: "error", detail: "no quick phase" };
+        if (!c.ok) return failed(c);
         const file = await accounts;
         await deps.progress("reading");
-        const done = await engine("full", full, file);
+        const done = await engine("quick", quick, file);
         if (!done.ok) return done;
         await deps.progress("uploading");
-        if (await phases.time("publish full", "publish", () => deps.publish(done.made))) fullMade = done.made;
+        if (await phases.time("publish quick", "publish", () => deps.publish(done.made))) quickMade = done.made;
+        await deps.progress(fullCloned ? "reading" : "cloning");
         return { ok: true };
-      } finally {
-        await gitData;
-      }
-    });
+      });
 
-    const [, f] = await Promise.all([quickPhase, fullPhase]);
-    const made = fullMade ?? quickMade;
-    if (state && made) {
-      await phases
-        .time("save state", "state", () => holdingCache(cacheRoot, () => state.save(cacheRoot)))
-        .then((s) => deps.log?.(`state of ${req.owner}/${req.name}: ${s.uploaded} new chunks, ${Math.round(s.sent / 1e6)} MB sent, ${Math.round(s.bytes / 1e6)} MB kept`))
-        .catch((e: unknown) => deps.log?.(`state of ${req.owner}/${req.name} not saved: ${(e as Error).message}`));
+      const fullPhase = guarded(async () => {
+        const c = await fullDone;
+        if (!c.ok) return failed(c);
+        deps.log?.(`clone of ${req.owner}/${req.name}: ${c.fresh ? "cloned" : "brought up to date"} in ${c.seconds} s`);
+        if ((await quickDone)?.ok) await caughtUp();
+        const git = deps.git;
+        const gitData =
+          git && !req.more
+            ? phases.time("git data", "git", () => git(full, env)).catch((e: unknown) => deps.log?.(`git data of ${req.owner}/${req.name}: ${(e as Error).message}`))
+            : Promise.resolve();
+        try {
+          await quickPhase;
+          const file = await accounts;
+          await deps.progress("reading");
+          const done = await engine("full", full, file);
+          if (!done.ok) return done;
+          await deps.progress("uploading");
+          if (await phases.time("publish full", "publish", () => deps.publish(done.made))) fullMade = done.made;
+          return { ok: true };
+        } finally {
+          await gitData;
+        }
+      });
+
+      const [, f] = await Promise.all([quickPhase, fullPhase]);
+      const made = fullMade ?? quickMade;
+      if (state && made) {
+        await phases
+          .time("save state", "state", () => state.save(cacheRoot))
+          .then((s) => deps.log?.(`state of ${req.owner}/${req.name}: ${s.uploaded} new chunks, ${Math.round(s.sent / 1e6)} MB sent, ${Math.round(s.bytes / 1e6)} MB kept`))
+          .catch((e: unknown) => deps.log?.(`state of ${req.owner}/${req.name} not saved: ${(e as Error).message}`));
+      }
+      const published: Phase | null = fullMade ? "full" : quickMade ? "quick" : null;
+      if (f.ok && lean && fullMade) await rm(join(home, "full"), { recursive: true, force: true });
+      if (f.ok) return { published, seconds: seconds(), resumable: false, kind: phases.kind, made };
+      resumable = f.reason === "timed_out" && attempt < BUILD_ATTEMPTS;
+      return { published, seconds: seconds(), failure: { reason: f.reason, ...(f.detail ? { detail: f.detail } : {}) }, resumable, kind: phases.kind, made };
+    } catch (e) {
+      return { published: null, seconds: seconds(), failure: { reason: "error", detail: (e as Error).message }, resumable: false, kind: phases.kind, made: null };
+    } finally {
+      await rm(scratch, { recursive: true, force: true });
+      if (req.private && !resumable) await rm(home, { recursive: true, force: true });
+      else await utimes(home, new Date(), new Date()).catch(() => undefined);
     }
-    const published: Phase | null = fullMade ? "full" : quickMade ? "quick" : null;
-    if (f.ok && lean && fullMade) await rm(join(home, "full"), { recursive: true, force: true });
-    if (f.ok) return { published, seconds: seconds(), resumable: false, kind: phases.kind, made };
-    resumable = f.reason === "timed_out" && attempt < BUILD_ATTEMPTS;
-    return { published, seconds: seconds(), failure: { reason: f.reason, ...(f.detail ? { detail: f.detail } : {}) }, resumable, kind: phases.kind, made };
-  } catch (e) {
-    return { published: null, seconds: seconds(), failure: { reason: "error", detail: (e as Error).message }, resumable: false, kind: phases.kind, made: null };
-  } finally {
-    await rm(scratch, { recursive: true, force: true });
-    if (req.private && !resumable) await rm(home, { recursive: true, force: true });
-    else await utimes(home, new Date(), new Date()).catch(() => undefined);
-  }
+  });
 }

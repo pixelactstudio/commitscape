@@ -7,7 +7,7 @@ import { expect, test } from "vitest";
 import { readManifest, type LiveIndex, type Loaded } from "@commitscape/server";
 import { ensureClone, failure, gitEnv } from "./clone";
 import type { Config } from "./config";
-import { cacheDir, cacheFor, holdingCache, prune, repoDir } from "./disk";
+import { cacheDir, cacheFor, holdingRepo, prune, repoDir, scratchDir } from "./disk";
 import { readEvents } from "./engine";
 import { flagOf, writeBuilt, type FakeBuild } from "./fake";
 import { build, BUILD_ATTEMPTS, cloneLimitOf, run, timeLimitOf, type BuildTarget, type Deps, type Made, type Ran, type RunOptions } from "./run";
@@ -124,7 +124,7 @@ test("a Build brings its State back before the engine first runs and keeps it af
   }
 });
 
-test("a State is saved or brought back only while no engine run reads or writes its cache, from this job or another", async () => {
+test("a State is saved or brought back only while nothing else holds its repository, from this job or another", async () => {
   const work = await mkdtemp(join(tmpdir(), "builder-"));
   let busy = 0;
   const seen: number[] = [];
@@ -142,10 +142,10 @@ test("a State is saved or brought back only while no engine run reads or writes 
     return { uploaded: 0, sent: 0, bytes: 0 };
   };
   f.deps.state = { restore: async () => ({ restored: false, bytes: 0 }), save: holdSave };
-  const root = cacheDir(cfg(work), "acme", "rocket");
+  const home = repoDir(cfg(work), "acme", "rocket");
   const building = build(req(), cfg(work), f.deps);
   await pause(20);
-  const elsewhere = [holdingCache(root, holdSave), pause(60).then(() => holdingCache(root, holdSave))];
+  const elsewhere = [holdingRepo(home, holdSave), pause(60).then(() => holdingRepo(home, holdSave))];
   await Promise.all([building, ...elsewhere]);
   expect(builds(f.calls)).toHaveLength(2);
   expect(seen).toHaveLength(6);
@@ -158,9 +158,15 @@ test("a fork's count of lines starts from the line store its parent's cache hold
   await mkdir(parent, { recursive: true });
   await writeFile(join(parent, "lines"), "commitscape lines 1\n");
   const seeded = (calls: Call[]) => builds(calls).map((c) => flagOf(c.args, "--lines-from") ?? null);
-  const fork = fake();
+  const copied: string[] = [];
+  const fork = fake(async (c) => {
+    const from = flagOf(c.args, "--lines-from");
+    if (from) copied.push(await readFile(from, "utf8"));
+    return ok;
+  });
   await build(req({ forkOf: "upstream/rocket" }), cfg(work), fork.deps);
-  expect(seeded(fork.calls)).toEqual([null, join(parent, "lines")]);
+  expect(seeded(fork.calls)).toEqual([null, join(scratchDir(cfg(work), "build-0001"), "lines-from")]);
+  expect(copied).toEqual(["commitscape lines 1\n"]);
   for (const forkOf of ["upstream/missing", "../caches/x", null]) {
     const other = fake();
     await build(req({ forkOf }), cfg(work), other.deps);

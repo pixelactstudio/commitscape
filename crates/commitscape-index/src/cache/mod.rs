@@ -7,6 +7,7 @@ mod location;
 
 use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, Weak};
 
 use commitscape_core::{Index, Month, RepoIdentity};
 
@@ -77,6 +78,7 @@ pub struct Loaded {
     pub lineage: u64,
     pub kept: bool,
     pub columns: Columns,
+    held: Option<Arc<LoadLock>>,
 }
 
 /// Where the Index's columns are kept beside the cache: the folder and the generation they belong to, and the kept columns when the Index was read from them.
@@ -120,7 +122,20 @@ fn load_index<S: RepoSource>(
     let Some(dir) = repo_dir(options, &identity) else {
         return uncached(source, identity, progress);
     };
-    let _loading = lock_loading(&dir);
+    let held = lock_loading(&dir);
+    let mut loaded = load_held(source, options, &dir, identity, progress)?;
+    loaded.held = held;
+    Ok(loaded)
+}
+
+fn load_held<S: RepoSource>(
+    source: &S,
+    options: &CacheOptions,
+    dir: &Path,
+    identity: RepoIdentity,
+    progress: &mut dyn FnMut(Progress),
+) -> Result<Loaded, S::Error> {
+    let dir = dir.to_path_buf();
     let keyed = options.key.is_some();
     let fingerprint = source.refs_fingerprint()?;
     let store = IdentityStore::in_dir(&dir);
@@ -181,6 +196,7 @@ fn uncached<S: RepoSource>(
         lineage: format::new_generation(),
         kept: false,
         columns: Columns::default(),
+        held: None,
     })
 }
 
@@ -192,7 +208,18 @@ impl Drop for LoadLock {
     }
 }
 
-fn lock_loading(dir: &Path) -> Option<LoadLock> {
+static HELD: Mutex<Vec<(PathBuf, Weak<LoadLock>)>> = Mutex::new(Vec::new());
+
+fn lock_loading(dir: &Path) -> Option<Arc<LoadLock>> {
+    let held_here = |held: &mut Vec<(PathBuf, Weak<LoadLock>)>| {
+        held.retain(|(_, lock)| lock.strong_count() > 0);
+        held.iter()
+            .find(|(at, _)| at == dir)
+            .and_then(|(_, lock)| lock.upgrade())
+    };
+    if let Some(lock) = HELD.lock().ok().as_mut().and_then(|h| held_here(h)) {
+        return Some(lock);
+    }
     std::fs::create_dir_all(dir).ok()?;
     let file = std::fs::OpenOptions::new()
         .create(true)
@@ -201,7 +228,11 @@ fn lock_loading(dir: &Path) -> Option<LoadLock> {
         .open(dir.join(LOAD_LOCK))
         .ok()?;
     file.lock().ok()?;
-    Some(LoadLock(file))
+    let lock = Arc::new(LoadLock(file));
+    if let Ok(mut held) = HELD.lock() {
+        held.push((dir.to_path_buf(), Arc::downgrade(&lock)));
+    }
+    Some(lock)
 }
 
 struct Context<'a> {
@@ -295,6 +326,7 @@ fn rebuild<S: RepoSource>(
             at: written.map(|g| (ctx.dir.to_path_buf(), g)),
             kept: None,
         },
+        held: None,
     })
 }
 
@@ -387,6 +419,7 @@ fn warm(
         lineage,
         kept: true,
         columns: Columns { at, kept },
+        held: None,
     })
 }
 
@@ -542,6 +575,7 @@ fn resume<S: RepoSource>(
             at: written.map(|g| (ctx.dir.to_path_buf(), g)),
             kept: merged.filter(|_| written.is_some()),
         },
+        held: None,
     })
 }
 

@@ -332,6 +332,7 @@ async function publishBuild(ctx: JobContext, phases: Phases, buildId: string, ma
       .update(repositories)
       .set({
         reportKey: prefix,
+        reportHead: made.manifest.head ?? null,
         reportAt: now(),
         reportBytes: body.length,
         reportLines: lines,

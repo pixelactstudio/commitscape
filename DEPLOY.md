@@ -161,6 +161,10 @@ one):
 | Provider | Docker, image `ghcr.io/pixelactstudio/commitscape-builder:latest` |
 | Registry | None: the image is public |
 
+Run one Builder per database: a second one stops at once (a Postgres
+advisory lock), so deploy it stop-first, never with an overlapping
+update, and give it one replica.
+
 In Advanced, Volumes, add a volume named `commitscape-builder-work` with
 mount path `/work`. It keeps clones and the engine's caches between Builds,
 so the next Build of a repository only fetches and reads what is new. A
@@ -497,7 +501,9 @@ this order:
    it decodes as before, the new ones it unpacks once on its volume and
    reads in place. It adds `/v1/commits/search` and matches words in
    `/v1/commits/under`.
-2. Deploy the Builder. Its migrations add `repositories.checked_at`, the
+2. Deploy the Builder, stopping the old one first: a Builder that finds
+   another running against the database stops. Its migrations add
+   `repositories.checked_at`, `repositories.report_head`, the
    `repo_states` table and `stored_indexes.build_format`. It no longer
    reads `ENGINE_SLOTS`, which can go: `ENGINE_MEMORY_MB` (1200) takes its
    place, and every run of the engine, counts of Surviving Lines too, waits

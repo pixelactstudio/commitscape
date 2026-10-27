@@ -57,9 +57,34 @@ pub struct SurvivingArgs {
     #[arg(long, value_name = "FILE")]
     accounts: Option<PathBuf>,
 
+    /// The commit the repository's head must be: the run stops with exit
+    /// code 3 when it is another, so a count is never kept for a head it was
+    /// not asked about.
+    #[arg(long, value_name = "COMMIT", hide = true)]
+    head: Option<String>,
+
     #[command(flatten)]
     common: Common,
 }
+
+/// The repository's head is not the commit the count was asked for.
+#[derive(Debug)]
+pub struct HeadMoved {
+    asked: String,
+    found: String,
+}
+
+impl std::fmt::Display for HeadMoved {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "the repository's head is {}, not {}",
+            self.found, self.asked
+        )
+    }
+}
+
+impl std::error::Error for HeadMoved {}
 
 /// Counts the asked-for people's Surviving Lines and prints them, with the lines each added, as one JSON document.
 pub fn run(args: SurvivingArgs) -> anyhow::Result<()> {
@@ -71,6 +96,16 @@ pub fn run(args: SurvivingArgs) -> anyhow::Result<()> {
         repo_source(&args.repo, args.partial, &options, args.common.offline)?
     };
     let repo = GixRepo::open(&path)?;
+    if let Some(asked) = args.head.as_deref() {
+        let found = repo.head_commit()?.map(|h| h.to_hex()).unwrap_or_default();
+        if !found.eq_ignore_ascii_case(asked) {
+            return Err(HeadMoved {
+                asked: asked.to_string(),
+                found,
+            }
+            .into());
+        }
+    }
     let mut meter = ProgressLine::new();
     let mut loaded = load(&repo, &options, &mut |p| meter.show(p))?;
     meter.clear();

@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { readdir, rm, stat, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { locked } from "./clone";
+import { dirname, join } from "node:path";
+import { holdingRepo } from "./disk";
 import type { Runner } from "./run";
 
 const MOST_PACKS = 16;
@@ -76,7 +76,7 @@ export async function repackClones(run: Runner, work: string, timeoutMs: number,
   const done: string[] = [];
   for (const dir of await keptClones(work)) {
     if ((await packsOf(join(dir, ".git", "objects", "pack"))).length <= most) continue;
-    if (await locked(dir, () => repackClone(run, dir, timeoutMs))) done.push(dir);
+    if (await holdingRepo(dirname(dir), () => repackClone(run, dir, timeoutMs))) done.push(dir);
   }
   return done;
 }

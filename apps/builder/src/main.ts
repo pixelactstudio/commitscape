@@ -7,6 +7,7 @@ import {
   buildKey,
   cleanup,
   createDb,
+  holdBuilderLock,
   PRIORITY,
   PULLS_QUEUE,
   reapBuilds,
@@ -82,6 +83,14 @@ async function laneOf(db: Db, config: Config, buildId: string): Promise<{ queue:
 }
 
 async function work() {
+  const one = await holdBuilderLock(env.DATABASE_URL, (e) => {
+    log(`the connection holding the Builder's lock was lost (${e.message}), so this Builder stops`);
+    process.exit(1);
+  });
+  if (!one.held) {
+    log("another Builder is running against this database, so this one stops");
+    process.exit(1);
+  }
   await runMigrations(env.DATABASE_URL, env.MIGRATIONS_DIR);
   const { db, pool } = createDb(env.DATABASE_URL, cfg.concurrency + cfg.largeConcurrency + 3);
   const boss = await startQueue(env.DATABASE_URL, { worker: true, expireInSeconds: Math.min(LONGEST_JOB_SECONDS, jobLimitOf(cfg, 1)) });

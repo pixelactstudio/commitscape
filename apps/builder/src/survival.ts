@@ -3,10 +3,10 @@ import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { installationToken, liveIndex, now, randomId, schema, type SurvivalJob } from "@commitscape/server";
-import { cloneUrl, ensureClone, gitEnv, locked } from "./clone";
+import { cloneUrl, ensureClone, gitEnv } from "./clone";
 import { accountsFor, writeAccounts } from "./accounts";
 import { peakMb } from "./admission";
-import { cacheFor, holding, holdingCache, privateDir, repoDir, scratchDir } from "./disk";
+import { cacheFor, holding, holdingRepo, privateDir, repoDir, scratchDir } from "./disk";
 import { fetchBlobs, historyBlobs } from "./lean";
 import type { JobContext } from "./job";
 import { NAME, type Ran } from "./run";
@@ -16,6 +16,7 @@ const { repositories, surviving } = schema;
 export const SURVIVING_BUDGET_MAX = 4 * 3600;
 
 const EVERYONE_BYTES = 256 << 20;
+const HEAD_MOVED = 3;
 
 /** How long each person may take in one count of Surviving Lines: the budget, doubled for each attempt after the first, up to four hours. */
 export function budgetOf(base: number, attempt = 0): number {
@@ -66,39 +67,50 @@ export async function runSurvival(job: SurvivalJob, ctx: JobContext & { budget: 
   const full = leaned ? lean : join(home, "full");
   const env = gitEnv(token);
   const started = Date.now();
-  let ran: Ran;
-  holding.add(key);
-  try {
-    if (leaned) await prefetch(ctx, repo.id, lean, env);
-    const cloned = existsSync(join(full, ".git"))
-      ? ({ ok: true } as const)
-      : await locked(full, () => ensureClone(ctx.run, { url: cloneUrl(cfg, repo.owner, repo.name), dir: full, blobless: false, env, timeoutMs: cfg.cloneLimit * 1000 }));
-    if (!cloned.ok) {
-      ctx.log(`surviving ${job.repoId}: clone ${cloned.reason}`);
-      await mark("failed", job.personIds);
-      return;
+  const held = await holdingRepo(home, async (): Promise<{ ran: Ran; head: string | null } | "stale" | "failed"> => {
+    const [current] = await db.select({ reportKey: repositories.reportKey, reportHead: repositories.reportHead }).from(repositories).where(eq(repositories.id, job.repoId));
+    if (current?.reportKey !== job.reportKey) return "stale";
+    holding.add(key);
+    try {
+      if (leaned) await prefetch(ctx, repo.id, lean, env);
+      const cloned = existsSync(join(full, ".git")) ? ({ ok: true } as const) : await ensureClone(ctx.run, { url: cloneUrl(cfg, repo.owner, repo.name), dir: full, blobless: false, env, timeoutMs: cfg.cloneLimit * 1000 });
+      if (!cloned.ok) {
+        ctx.log(`surviving ${job.repoId}: clone ${cloned.reason}`);
+        return "failed";
+      }
+      await mkdir(scratch, { recursive: true });
+      const gh = { ...ctx.github, token: token ?? ctx.github.token };
+      const scope = repo.isPrivate ? repo.id : "public";
+      const cacheRoot = await cacheFor(cfg, { isPrivate: repo.isPrivate, owner: repo.owner, name: repo.name, home });
+      const cache = ["--cache-dir", cacheRoot, "--cache-key", repo.id];
+      const engineEnv = { ...env, ...(cfg.threads ? { COMMITSCAPE_THREADS: String(cfg.threads) } : {}) };
+      const sized = { commits: (await liveIndex(db, repo.id))?.commits ?? 0, sizeKb: repo.sizeKb ?? 0 };
+      const accounts = await writeAccounts(ctx.run, { bin: cfg.bin, dir: full, scratch, cache, env: engineEnv, timeoutMs: cfg.timeLimit * 1000, nice: cfg.nice, memoryMb: peakMb("signatures", sized), log: ctx.log }, async (signatures) => (await accountsFor(db, gh, { owner: repo.owner, name: repo.name, scope }, signatures, cfg.logins)).accounts);
+      const args = ["surviving", "--everyone", "--budget-seconds", String(budget), ...cache, "--offline", "--max-changeset-size", String(cfg.bulkFiles)];
+      if (current.reportHead) args.push("--head", current.reportHead);
+      if (accounts) args.push("--accounts", accounts);
+      args.push("--", full);
+      const ran = await ctx.run(cfg.bin, args, engineEnv, (budget + cfg.timeLimit) * 1000, { nice: cfg.nice, maxStdout: EVERYONE_BYTES, memoryMb: peakMb("surviving", sized) });
+      if (ran.code === HEAD_MOVED) {
+        ctx.log(`surviving ${job.repoId}: the clone's head is not the Report's, so nothing is counted for it`);
+        return "stale";
+      }
+      const save = ctx.saveState;
+      if (save && !repo.isPrivate && ran.code === 0) await save(repo.id, cacheRoot).catch((e: unknown) => ctx.log(`state of ${repo.id} not saved: ${(e as Error).message}`));
+      return { ran, head: current.reportHead };
+    } finally {
+      await rm(scratch, { recursive: true, force: true });
+      if (repo.isPrivate) await rm(home, { recursive: true, force: true });
+      holding.delete(key);
     }
-    await mkdir(scratch, { recursive: true });
-    const gh = { ...ctx.github, token: token ?? ctx.github.token };
-    const scope = repo.isPrivate ? repo.id : "public";
-    const cacheRoot = await cacheFor(cfg, { isPrivate: repo.isPrivate, owner: repo.owner, name: repo.name, home });
-    const cache = ["--cache-dir", cacheRoot, "--cache-key", repo.id];
-    const cached: typeof ctx.run = (cmd, args, env, timeoutMs, opts) => holdingCache(cacheRoot, () => ctx.run(cmd, args, env, timeoutMs, opts));
-    const engineEnv = { ...env, ...(cfg.threads ? { COMMITSCAPE_THREADS: String(cfg.threads) } : {}) };
-    const sized = { commits: (await liveIndex(db, repo.id))?.commits ?? 0, sizeKb: repo.sizeKb ?? 0 };
-    const accounts = await writeAccounts(cached, { bin: cfg.bin, dir: full, scratch, cache, env: engineEnv, timeoutMs: cfg.timeLimit * 1000, nice: cfg.nice, memoryMb: peakMb("signatures", sized), log: ctx.log }, async (signatures) => (await accountsFor(db, gh, { owner: repo.owner, name: repo.name, scope }, signatures, cfg.logins)).accounts);
-    const args = ["surviving", "--everyone", "--budget-seconds", String(budget), ...cache, "--offline", "--max-changeset-size", String(cfg.bulkFiles)];
-    if (accounts) args.push("--accounts", accounts);
-    args.push("--", full);
-    ran = await cached(cfg.bin, args, engineEnv, (budget + cfg.timeLimit) * 1000, { nice: cfg.nice, maxStdout: EVERYONE_BYTES, memoryMb: peakMb("surviving", sized) });
-    const save = ctx.saveState;
-    if (save && !repo.isPrivate && ran.code === 0) await holdingCache(cacheRoot, () => save(repo.id, cacheRoot)).catch((e: unknown) => ctx.log(`state of ${repo.id} not saved: ${(e as Error).message}`));
-  } finally {
-    await rm(scratch, { recursive: true, force: true });
-    if (repo.isPrivate) await rm(home, { recursive: true, force: true });
-    holding.delete(key);
+  });
+  if (held === "stale" || held === "failed") {
+    await mark(held, job.personIds);
+    return;
   }
-  const answer = ran.code === 0 ? survivingOf(ran.stdout ?? "") : null;
+  const { ran } = held;
+  const parsed = ran.code === 0 ? survivingOf(ran.stdout ?? "") : null;
+  const answer = parsed && held.head && parsed.head !== held.head ? null : parsed;
   ctx.log(`surviving ${job.repoId}: ${answer ? (answer.complete ? `${answer.people.length} people counted` : "ownership not whole yet") : ran.timedOut ? "timed out" : "failed"} in ${((Date.now() - started) / 1000).toFixed(1)} s, budget ${budget} s`);
   const again = async () => {
     if (budget >= budgetOf(ctx.budget, attempt + 1) || !ctx.queueCounts) {

@@ -92,6 +92,7 @@ export const repositories = pgTable(
     factsAt: seconds("facts_at"),
     sizeKb: integer("size_kb"),
     reportKey: text("report_key"),
+    reportHead: text("report_head"),
     reportAt: seconds("report_at"),
     reportBytes: integer("report_bytes"),
     reportLines: boolean("report_lines"),

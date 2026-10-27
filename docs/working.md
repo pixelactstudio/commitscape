@@ -71,7 +71,7 @@ to a repository the App is installed on, the nightly seeds and
    a Build. Instead tidy merges the small packs of any kept clone holding
    more than 16 into one, as `git repack --geometric=2` would (git 2.39
    refuses that in a blobless clone): one thread, a 64 MB delta window,
-   holding the clone's lock and let in by `ENGINE_MEMORY_MB`, the largest
+   holding its repository and let in by `ENGINE_MEMORY_MB`, the largest
    pack never rewritten.
 3. **Finds logins.** `commitscape signatures` lists each author address with
    its newest commit. A noreply address gives the login; for the others the
@@ -128,7 +128,21 @@ to a repository the App is installed on, the nightly seeds and
    person asked for on the Site gets the same count for everyone. react:
    1,997 people in 16.4 s from nothing, 0.3 s for a head 20 commits on;
    linux: 31,000 people in 17 minutes and 198 MB from nothing, 5 minutes
-   and 199 MB for a head 17,000 commits on.
+   and 199 MB for a head 17,000 commits on. The count is asked for the
+   Report's head (`repositories.report_head`, `--head`): a clone at
+   another head stops it with exit code 3 and nothing is recorded, and a
+   count that waited while a Build published another Report counts
+   nothing.
+
+A Build, a count of Surviving Lines and a repack of a clone each hold their
+repository (its kept clones and its cache) from start to end, so none of
+them reads a clone or cache another is changing; each waits for its share
+of `ENGINE_MEMORY_MB` only while holding it. A fork's first Build copies
+its parent's line store while holding the parent. commitscape itself holds
+the cache's `index.load` lock from loading the cache until it exits, since
+it rewrites mapped files in place. A Builder holds a Postgres advisory lock
+while it runs, and a second one against the same database stops at once:
+its locks, its share of memory and its record of disk use are its own.
 
 Every publish sends `pg_notify`, so the Site forgets the old pack key and
 warms the new pack in the engine service. If the full phase fails after the

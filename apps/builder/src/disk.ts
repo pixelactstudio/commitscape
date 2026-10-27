@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir, readdir, readFile, rename, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readdir, readFile, rename, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { and, eq, gt, inArray, or } from "drizzle-orm";
 import { now, schema, type Db } from "@commitscape/server";
@@ -34,21 +34,25 @@ export async function cacheFor(cfg: Config, repo: { isPrivate: boolean; owner: s
   return dir;
 }
 
-/** The line store a public repository's kept cache holds, such as a fork's parent's, for a fork's first count of lines to start from; null when there is none on this disk. */
-export async function lineStoreOf(cfg: Config, repo: string): Promise<string | null> {
+/** A copy at `into` of the line store a public repository's kept cache holds, such as a fork's parent's, for a fork's first count of lines to start from, made while holding that repository; null when there is none on this disk. */
+export async function lineStoreOf(cfg: Config, repo: string, into: string): Promise<string | null> {
   const [owner = "", name = "", ...rest] = repo.split("/");
   if (rest.length > 0 || !REPO_PART.test(owner) || !REPO_PART.test(name) || name === "." || name === "..") return null;
-  const root = cacheDir(cfg, owner, name);
-  for (const entry of await readdir(root, { withFileTypes: true }).catch(() => [])) {
-    const lines = join(root, entry.name, "lines");
-    if (entry.isDirectory() && existsSync(lines)) return lines;
-  }
-  return null;
+  return holdingRepo(repoDir(cfg, owner, name), async () => {
+    const root = cacheDir(cfg, owner, name);
+    for (const entry of await readdir(root, { withFileTypes: true }).catch(() => [])) {
+      const lines = join(root, entry.name, "lines");
+      if (!entry.isDirectory() || !existsSync(lines)) continue;
+      await copyFile(lines, into);
+      return into;
+    }
+    return null;
+  });
 }
 
-/** Runs `fn` holding a cache folder: an engine run reading or writing it, and its State being saved or brought back, never overlap. Take it before an engine slot, never while holding one. */
-export function holdingCache<T>(root: string, fn: () => Promise<T>): Promise<T> {
-  return locked(`cache:${root}`, fn);
+/** Runs `fn` holding a repository, named by its folder: its kept clones and its cache. A Build, a count of Surviving Lines and a repack of one of its clones never overlap, and each waits for the memory a run takes only while holding it, never the other way round. */
+export function holdingRepo<T>(home: string, fn: () => Promise<T>): Promise<T> {
+  return locked(`repo:${home}`, fn);
 }
 
 /** Where a private repository's clone and cache live while one job uses them. */

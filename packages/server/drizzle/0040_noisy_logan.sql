@@ -1,0 +1,1 @@
+ALTER TABLE "repositories" ADD COLUMN "report_head" text;

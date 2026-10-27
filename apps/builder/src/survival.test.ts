@@ -7,7 +7,7 @@ import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { expect, test } from "vitest";
 import { memoryStorage, schema, type Db, type SurvivalJob } from "@commitscape/server";
-import { holdingCache } from "./disk";
+import { holdingRepo } from "./disk";
 import type { JobContext } from "./job";
 import type { Ran } from "./run";
 import { budgetOf, runSurvival, SURVIVING_BUDGET_MAX } from "./survival";
@@ -68,22 +68,61 @@ test("a count is everyone's, whoever asked: each person's answer is recorded at 
   expect(await oldestOf(db, 4)).toBeNull();
 });
 
-test("a count waits while another job holds the repository's cache, and saves its State holding it too", async () => {
+test("a count waits while another job holds the repository, and saves its State holding it too", async () => {
   const order: string[] = [];
   const { ctx } = await setup(async (_cmd, args) => {
     order.push(args[0] ?? "");
     return { code: 0, stderr: "", timedOut: false, stdout: everyone([alice, bob]) };
   });
-  const root = join(ctx.cfg.work, "caches", "acme", "rocket");
+  const home = join(ctx.cfg.work, "repos", "acme", "rocket");
   ctx.saveState = async () => void order.push("save");
   const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
-  const other = holdingCache(root, async () => {
+  const other = holdingRepo(home, async () => {
     order.push("other starts");
     await pause(80);
     order.push("other ends");
   });
   await Promise.all([other, runSurvival({ repoId: "acme/rocket", reportKey: "r/b1", personIds: [3] }, ctx)]);
   expect(order).toEqual(["other starts", "other ends", "surviving", "save"]);
+});
+
+test("a count is asked for the Report's head, and one whose clone is at another records nothing", async () => {
+  const asked: string[][] = [];
+  const { db, ctx } = await setup(
+    async (_cmd, args) => {
+      asked.push(args);
+      return { code: 3, stderr: "commitscape: the repository's head is b, not c\n", timedOut: false };
+    },
+    { reportHead: "c".repeat(40) },
+  );
+  await runSurvival({ repoId: "acme/rocket", reportKey: "r/b1", personIds: [3, 4], everyone: true }, ctx);
+  expect(asked.map((a) => a[a.indexOf("--head") + 1])).toEqual(["c".repeat(40)]);
+  expect((await rows(db)).map((r) => r[1])).toEqual(["stale", "stale"]);
+});
+
+test("a count that comes back for another head than the Report's records nothing", async () => {
+  const { db, ctx } = await setup(async () => ({ code: 0, stderr: "", timedOut: false, stdout: everyone([alice, bob]) }), { reportHead: "c".repeat(40) });
+  await runSurvival({ repoId: "acme/rocket", reportKey: "r/b1", personIds: [3, 4], everyone: true }, ctx);
+  expect((await rows(db)).map((r) => [r[1], r[2]])).toEqual([
+    ["failed", null],
+    ["failed", null],
+  ]);
+});
+
+test("a count that waited while a Build published another Report counts nothing", async () => {
+  const asked: string[][] = [];
+  const { db, ctx } = await setup(async (_cmd, args) => {
+    asked.push(args);
+    return { code: 0, stderr: "", timedOut: false, stdout: everyone([alice, bob]) };
+  });
+  const home = join(ctx.cfg.work, "repos", "acme", "rocket");
+  const building = holdingRepo(home, async () => {
+    await new Promise((r) => setTimeout(r, 50));
+    await db.update(repositories).set({ reportKey: "r/b2" });
+  });
+  await Promise.all([building, runSurvival({ repoId: "acme/rocket", reportKey: "r/b1", personIds: [3, 4], everyone: true }, ctx)]);
+  expect(asked.filter((a) => a[0] === "surviving")).toEqual([]);
+  expect((await rows(db)).map((r) => r[1])).toEqual(["stale", "stale"]);
 });
 
 test("a count that fails on a blobless clone is never recorded, and is made again from a full clone", async () => {
