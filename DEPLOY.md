@@ -193,6 +193,7 @@ Optional, with their defaults:
 |---|---|---|
 | `CONCURRENCY` | 1 | Builds at a time, for repositories under `LARGE_REPOSITORY_MB`. Their clones, GitHub reads and Postgres loads overlap; their runs of the engine share `ENGINE_SLOTS` |
 | `ENGINE_SLOTS` | 1 | Runs of the engine at once across every Build, small and large; the rest wait their turn. Surviving Lines has its own. With one slot, let the engine use every core (leave `COMMITSCAPE_THREADS` unset) |
+| `BULK_COMMIT_FILES` | 50 | A commit changing more files than this is a Bulk Commit: left out of Churn, Ownership, Change Coupling and Lines Changed, and passed through by Surviving Lines. A lean clone fetches no file versions for commits changing more than twice as many paths |
 | `COMMITSCAPE_THREADS` | every core, up to 16 | Threads one run of the engine may use |
 | `ENGINE_NICE` | 10 | The engine runs at this lower priority (0 to 19), so git, the database and the Builder stay responsive |
 | `LINES_BUDGET_SECONDS` | 120 | How long a Build's line pass may count Lines Changed, the Mainline first, newest first. Lines show once the Mainline's are counted; the commits left are counted by a quiet Build queued a minute later (three at most), and by the next Build |

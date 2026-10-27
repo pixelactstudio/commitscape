@@ -216,7 +216,7 @@ export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<
     await rm(out, { recursive: true, force: true });
     await rm(events, { force: true });
     const before = await deps.index.live();
-    const args = ["build", ...(phase === "quick" ? ["--no-lines"] : ["--lines-budget", String(linesBudgetOf(cfg, binLimit, !!req.more))]), "--offline", ...cache, "--events", events, "--out", out];
+    const args = ["build", ...(phase === "quick" ? ["--no-lines"] : ["--lines-budget", String(linesBudgetOf(cfg, binLimit, !!req.more))]), "--offline", "--max-changeset-size", String(cfg.bulkFiles), ...cache, "--events", events, "--out", out];
     if (accounts) args.push("--accounts", accounts);
     if (appendable(before)) {
       const frontier = join(scratch, `${phase}.frontier`);
@@ -266,7 +266,7 @@ export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<
     const c = await ensureClone(deps.run, { url, dir: full, blobless: true, checkout: false, env, timeoutMs: cloneLimit });
     if (!c.ok) return c;
     const live = await deps.index.live();
-    const fetched = await (deps.prefetch ?? prefetch)(full, env, live?.frontier ?? [], cloneLimit);
+    const fetched = await (deps.prefetch ?? prefetch)(full, env, live?.frontier ?? [], cloneLimit, cfg.bulkFiles);
     deps.log?.(`clone of ${req.owner}/${req.name}: blobless, ${fetched} file versions fetched for this Build`);
     return c;
   };

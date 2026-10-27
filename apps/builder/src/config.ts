@@ -31,6 +31,7 @@ export function loadEnv(runtimeEnv: Record<string, string | undefined> = process
       DISK_BUDGET_GB: positive(20),
       CACHE_BUDGET_GB: positive(5),
       ENGINE_SLOTS: z.coerce.number().int().positive().default(1),
+      BULK_COMMIT_FILES: positive(50),
       ATLAS_QUALITY: z.coerce.number().int().min(1).max(11).default(5),
       STATE_KEY: z.string().min(32).optional(),
       STATE_DISK_DAYS: positive(7),
@@ -106,6 +107,7 @@ export type Config = {
   diskGb: number;
   cacheGb: number;
   engineSlots: number;
+  bulkFiles: number;
   moreLinesBudget: number;
   gitBase: string | undefined;
   git?: GitSettings | undefined;
@@ -134,6 +136,7 @@ export function configOf(env: Env): Config {
     diskGb: env.DISK_BUDGET_GB,
     cacheGb: env.CACHE_BUDGET_GB,
     engineSlots: env.ENGINE_SLOTS,
+    bulkFiles: env.BULK_COMMIT_FILES,
     moreLinesBudget: env.MORE_LINES_BUDGET_SECONDS,
     gitBase: env.GIT_BASE,
     state: env.STATE_KEY ? { secret: env.STATE_KEY, diskDays: env.STATE_DISK_DAYS, keepDays: env.STATE_KEEP_DAYS } : undefined,

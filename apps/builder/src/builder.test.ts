@@ -27,7 +27,7 @@ const cfg = (work: string, over: Partial<Config> = {}): Config => ({
   logins: 300,
   diskGb: 20,
   cacheGb: 5,
-  engineSlots: 1,
+  engineSlots: 1, bulkFiles: 50,
   moreLinesBudget: 600,
   gitBase: undefined,
   ...over,

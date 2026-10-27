@@ -649,3 +649,92 @@ fn builds_from_the_kept_columns_write_what_builds_from_the_cache_write_warm_and_
         );
     }
 }
+
+type LinesOf = std::collections::HashMap<String, Vec<Option<(u32, u32)>>>;
+
+fn lines_of(out: &Path) -> LinesOf {
+    let pack = read_pack(&std::fs::read(out.join("pack.bin")).expect("a pack")).expect("read");
+    pack.index
+        .commits
+        .iter()
+        .map(|c| {
+            let lines = pack
+                .index
+                .changes_of(c)
+                .iter()
+                .map(|ch| ch.lines().map(|d| (d.added, d.removed)))
+                .collect();
+            (c.id.to_hex(), lines)
+        })
+        .collect()
+}
+
+#[test]
+fn a_blobless_clone_counts_only_the_lines_it_can_read_and_a_full_clone_fills_in_the_rest() {
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let origin = format!("file://{}", fixture("lines").display());
+    let lean = dir.path().join("lean");
+    let full = dir.path().join("full");
+    git(&[
+        "clone",
+        "--quiet",
+        "--filter=blob:none",
+        "--no-checkout",
+        "--upload-pack",
+        "git -c uploadpack.allowFilter=true upload-pack",
+        &origin,
+        lean.to_str().unwrap_or("lean"),
+    ]);
+    git(&[
+        "-C",
+        lean.to_str().unwrap_or("lean"),
+        "checkout",
+        "-q",
+        "HEAD",
+        "--",
+        ".",
+    ]);
+    git(&["clone", "--quiet", &origin, full.to_str().unwrap_or("full")]);
+    let build = |cache: &str, repo: &Path, out: &str| -> PathBuf {
+        let out = dir.path().join(out);
+        commitscape(
+            &[
+                "build",
+                "--offline",
+                "--lines-budget",
+                "600",
+                "--anchor",
+                "1800000000",
+                "--cache-key",
+                "acme/rocket",
+                "--cache-dir",
+            ],
+            &[&dir.path().join(cache), Path::new("--out"), &out, repo],
+        );
+        out
+    };
+    let lean_out = build("a", &lean, "lean-out");
+    let full_out = build("b", &full, "full-out");
+    let filled_out = build("a", &full, "filled-out");
+    assert!(json(&lean_out.join("manifest.json"))["lines_left"].as_u64() > Some(0));
+    assert_eq!(json(&filled_out.join("manifest.json"))["lines_left"], 0);
+    let (lean, whole, filled) = (
+        lines_of(&lean_out),
+        lines_of(&full_out),
+        lines_of(&filled_out),
+    );
+    let mut left = 0;
+    for (id, counted) in &lean {
+        let want = whole.get(id).expect("the same commits");
+        if counted.iter().all(Option::is_none) && want.iter().any(Option::is_some) {
+            left += 1;
+            continue;
+        }
+        assert_eq!(
+            counted, want,
+            "{id}: counted from the blobless clone as the full clone counts it"
+        );
+    }
+    assert!(left > 0);
+    assert_eq!(filled, whole);
+}

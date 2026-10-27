@@ -9,7 +9,7 @@ export type BuildTrace = { sentryTrace: string; baggage: string };
 
 export type BuildJob = { buildId: string; repoId?: string; attempt?: number; trace?: BuildTrace; queuedAt?: number; userId?: string; more?: number };
 
-export type SurvivalJob = { repoId: string; reportKey: string; personIds: number[]; attempt?: number; everyone?: boolean };
+export type SurvivalJob = { repoId: string; reportKey: string; personIds: number[]; attempt?: number; everyone?: boolean; full?: boolean };
 
 export type PullsJob = { repoId: string };
 

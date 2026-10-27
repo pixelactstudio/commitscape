@@ -32,7 +32,7 @@ async function setup(run: (cmd: string, args: string[], env: NodeJS.ProcessEnv, 
     await mkdir(join(args.at(-1) ?? "", ".git"), { recursive: true });
     return { code: 0, stderr: "", timedOut: false };
   };
-  const ctx = { db, storage: memoryStorage(), cfg: { bin: "commitscape", threads: undefined, linesBudget: 120, nice: 10, work, concurrency: 1, maxMb: undefined, timeLimit: 60, cloneLimit: 120, largeMb: 1500, largeConcurrency: 1, logins: 300, diskGb: 20, cacheGb: 5, engineSlots: 1, moreLinesBudget: 600, gitBase: undefined }, app: null, run: cloning, github: { api: "http://github.test", token: "t", fetcher: (async () => Response.json({ data: { repository: { c0: { author: { user: { login: "ada" } } } } } })) as unknown as typeof fetch }, log: () => {}, queueCounts: async (job: SurvivalJob) => void queued.push(job), budget: 60 } as JobContext & { budget: number };
+  const ctx = { db, storage: memoryStorage(), cfg: { bin: "commitscape", threads: undefined, linesBudget: 120, nice: 10, work, concurrency: 1, maxMb: undefined, timeLimit: 60, cloneLimit: 120, largeMb: 1500, largeConcurrency: 1, logins: 300, diskGb: 20, cacheGb: 5, engineSlots: 1, bulkFiles: 50, moreLinesBudget: 600, gitBase: undefined }, app: null, run: cloning, github: { api: "http://github.test", token: "t", fetcher: (async () => Response.json({ data: { repository: { c0: { author: { user: { login: "ada" } } } } } })) as unknown as typeof fetch }, log: () => {}, queueCounts: async (job: SurvivalJob) => void queued.push(job), budget: 60 } as JobContext & { budget: number };
   return { db, ctx };
 }
 
@@ -55,7 +55,7 @@ test("a count is everyone's, whoever asked: each person's answer is recorded at 
   await runSurvival({ repoId: "acme/rocket", reportKey: "r/b1", personIds: [3] }, ctx);
   const home = join(ctx.cfg.work, "repos", "acme", "rocket");
   const accounts = asked[asked.indexOf("--accounts") + 1] ?? "";
-  expect(asked).toEqual(["surviving", "--everyone", "--budget-seconds", "60", "--cache-dir", join(ctx.cfg.work, "caches", "acme", "rocket"), "--cache-key", "acme/rocket", "--offline", "--accounts", accounts, "--", join(home, "full")]);
+  expect(asked).toEqual(["surviving", "--everyone", "--budget-seconds", "60", "--cache-dir", join(ctx.cfg.work, "caches", "acme", "rocket"), "--cache-key", "acme/rocket", "--offline", "--max-changeset-size", "50", "--accounts", accounts, "--", join(home, "full")]);
   expect(accounts.startsWith(join(ctx.cfg.work, "jobs", "surviving-"))).toBe(true);
   expect(seen).toEqual([{ "ada@example.com": "ada" }]);
   expect(await readdir(join(ctx.cfg.work, "jobs"))).toEqual([]);
@@ -84,6 +84,36 @@ test("a count waits while another job holds the repository's cache, and saves it
   });
   await Promise.all([other, runSurvival({ repoId: "acme/rocket", reportKey: "r/b1", personIds: [3] }, ctx)]);
   expect(order).toEqual(["other starts", "other ends", "surviving", "save"]);
+});
+
+test("a count that fails on a blobless clone is never recorded, and is made again from a full clone", async () => {
+  const queued: SurvivalJob[] = [];
+  const dirs: string[] = [];
+  const clones: string[] = [];
+  const { db, ctx } = await setup(
+    async (_cmd, args) => {
+      const dir = args.at(-1) ?? "";
+      dirs.push(dir);
+      return dir.endsWith("lean") ? { code: 1, stderr: "commitscape: could not fetch file contents 20a3 from the remote\n", timedOut: false } : { code: 0, stderr: "", timedOut: false, stdout: everyone([alice, bob]) };
+    },
+    {},
+    queued,
+    clones,
+  );
+  const home = join(ctx.cfg.work, "repos", "acme", "rocket");
+  await mkdir(join(home, "lean", ".git"), { recursive: true });
+  const job = { repoId: "acme/rocket", reportKey: "r/b1", personIds: [3], everyone: true };
+  await runSurvival(job, ctx);
+  expect(dirs).toEqual([join(home, "lean")]);
+  expect(queued).toEqual([{ ...job, full: true }]);
+  expect((await rows(db)).map((r) => r[1])).toEqual(["queued", "queued"]);
+  await runSurvival(queued[0] ?? job, ctx);
+  expect(dirs.at(-1)).toBe(join(home, "full"));
+  expect(clones).toEqual([join(home, ".full.cloning")]);
+  expect((await rows(db)).map((r) => [r[0], r[1], r[2]])).toEqual([
+    [3, "counted", 75],
+    [4, "counted", 0],
+  ]);
 });
 
 test("ownership not whole within the budget is asked again for everyone with twice the budget, and its rows stay counting; past four hours they are over budget", async () => {

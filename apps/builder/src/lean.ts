@@ -5,8 +5,6 @@ const FETCHED_AT_ONCE = 20_000;
 const PATHS_AT_ONCE = 500;
 const MAX_OUT = 512 << 20;
 
-export const BULK_RAW = 100;
-
 const blobOf = (mode: string, oid: string) => (mode !== "160000" && mode !== "000000" && !ZERO.test(oid) ? oid : null);
 
 async function lines(g: Git, args: string[], input?: string): Promise<string[]> {
@@ -22,8 +20,9 @@ export async function missingBlobs(g: Git, oids: string[]): Promise<string[]> {
   return out.flatMap((l) => (l.endsWith(" missing") ? [l.slice(0, -" missing".length)] : []));
 }
 
-/** The file versions a Build of a blobless clone reads that it does not hold: every file at HEAD, which the head pass reads, and both sides of each file the commits since `frontier` changed, which the line pass reads, leaving out commits that change more than `bulk` paths (they are Bulk Commits, never counted). */
-export async function neededBlobs(g: Git, frontier: string[], bulk = BULK_RAW): Promise<string[]> {
+/** The file versions a Build of a blobless clone reads that it does not hold: every file at HEAD, which the head pass reads, and both sides of each file the commits since `frontier` changed, which the line pass reads, leaving out commits that change more than twice `bulkFiles` paths. Those are Bulk Commits, never counted: without renames paired, a commit of `bulkFiles` changes shows at most twice as many paths. */
+export async function neededBlobs(g: Git, frontier: string[], bulkFiles: number): Promise<string[]> {
+  const bulk = 2 * bulkFiles;
   const wanted = new Set<string>();
   for (const l of await lines(g, ["ls-tree", "-r", "--full-tree", "HEAD"])) {
     const [mode = "", , oid = ""] = l.split("\t")[0]?.split(" ") ?? [];
@@ -74,9 +73,9 @@ export async function fetchBlobs(g: Git, oids: string[]): Promise<void> {
 }
 
 /** Fetches into a blobless clone the file versions its Build reads that it lacks, and says how many. */
-export async function prefetch(dir: string, env: NodeJS.ProcessEnv, frontier: string[], timeoutMs: number): Promise<number> {
+export async function prefetch(dir: string, env: NodeJS.ProcessEnv, frontier: string[], timeoutMs: number, bulkFiles: number): Promise<number> {
   const g = { dir, env, deadline: Date.now() + timeoutMs };
-  const needed = await neededBlobs(g, frontier);
+  const needed = await neededBlobs(g, frontier, bulkFiles);
   await fetchBlobs(g, needed);
   return needed.length;
 }

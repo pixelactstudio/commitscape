@@ -61,7 +61,7 @@ export async function runSurvival(job: SurvivalJob, ctx: JobContext & { budget: 
   const scratch = scratchDir(cfg, key);
   const home = repo.isPrivate ? privateDir(cfg, key) : repoDir(cfg, repo.owner, repo.name);
   const lean = join(home, "lean");
-  const leaned = !repo.isPrivate && existsSync(join(lean, ".git"));
+  const leaned = !repo.isPrivate && !job.full && existsSync(join(lean, ".git"));
   const full = leaned ? lean : join(home, "full");
   const env = gitEnv(token);
   const started = Date.now();
@@ -85,7 +85,7 @@ export async function runSurvival(job: SurvivalJob, ctx: JobContext & { budget: 
     const cached: typeof ctx.run = (cmd, args, env, timeoutMs, opts) => holdingCache(cacheRoot, () => ctx.run(cmd, args, env, timeoutMs, opts));
     const engineEnv = { ...env, ...(cfg.threads ? { COMMITSCAPE_THREADS: String(cfg.threads) } : {}) };
     const accounts = await writeAccounts(cached, { bin: cfg.bin, dir: full, scratch, cache, env: engineEnv, timeoutMs: cfg.timeLimit * 1000, nice: cfg.nice, log: ctx.log }, async (signatures) => (await accountsFor(db, gh, { owner: repo.owner, name: repo.name, scope }, signatures, cfg.logins)).accounts);
-    const args = ["surviving", "--everyone", "--budget-seconds", String(budget), ...cache, "--offline"];
+    const args = ["surviving", "--everyone", "--budget-seconds", String(budget), ...cache, "--offline", "--max-changeset-size", String(cfg.bulkFiles)];
     if (accounts) args.push("--accounts", accounts);
     args.push("--", full);
     ran = await cached(cfg.bin, args, engineEnv, (budget + cfg.timeLimit) * 1000, { nice: cfg.nice, maxStdout: EVERYONE_BYTES });
@@ -110,7 +110,13 @@ export async function runSurvival(job: SurvivalJob, ctx: JobContext & { budget: 
   };
   if (!answer) {
     if (ran.timedOut) await again();
-    else await mark("failed", job.personIds);
+    else if (leaned && ctx.queueCounts) {
+      ctx.log(`surviving ${job.repoId}: the blobless clone lacked what blame read, so it is counted again from a full clone`);
+      await ctx.queueCounts({ ...job, full: true }).catch(async (e: unknown) => {
+        ctx.log(`surviving ${job.repoId} not queued again: ${(e as Error).message}`);
+        await mark("failed", job.personIds);
+      });
+    } else await mark("failed", job.personIds);
     return;
   }
   if (!answer.complete) {
@@ -146,6 +152,6 @@ async function prefetch(ctx: JobContext, repoId: string, dir: string, env: NodeJ
     await fetchBlobs(g, wanted);
     ctx.log(`surviving ${repoId}: ${wanted.length} file versions fetched into the blobless clone`);
   } catch (e) {
-    ctx.log(`surviving ${repoId}: file versions not fetched ahead, so blame fetches them as it goes: ${(e as Error).message}`);
+    ctx.log(`surviving ${repoId}: file versions not fetched ahead, so a count that lacks one is made again from a full clone: ${(e as Error).message}`);
   }
 }

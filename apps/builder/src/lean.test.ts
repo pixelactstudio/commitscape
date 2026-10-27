@@ -23,12 +23,12 @@ test("a blobless clone without files fetches only the versions a Build reads: HE
   r.commit(bulk, "a reformat", "Ada", 3);
   expect((await ensureClone(run, { url, dir: r.clone, blobless: true, checkout: false, env, timeoutMs: 60_000 })).ok).toBe(true);
   const at = (rev: string) => r.sh(r.origin, "rev-parse", rev).trim();
-  const needed = await neededBlobs(g, [first]);
+  const needed = await neededBlobs(g, [first], 50);
   expect(new Set(needed)).toEqual(new Set([at("HEAD:a.rs"), at("HEAD~1:a.rs"), at("HEAD~2:a.rs"), at("HEAD:b.rs"), at(`${first}:old.rs`), ...Object.keys(bulk).map((p) => at(`HEAD:${p}`))]));
   expect(needed).not.toContain(at(`${first}~1:a.rs`));
   await fetchBlobs(g, needed);
   expect(await missingBlobs(g, needed)).toEqual([]);
-  expect(await neededBlobs(g, [at("HEAD")])).toEqual([]);
+  expect(await neededBlobs(g, [at("HEAD")], 50)).toEqual([]);
 
   const history = await historyBlobs(g, first);
   expect(history).toEqual([at(`${first}~1:a.rs`)]);
