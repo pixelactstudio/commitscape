@@ -6,12 +6,10 @@ import {
   cachedGet,
   currentAt,
   installationOf,
-  isStoredScreen,
   now,
   PRIORITY,
   queueBuild,
   readEntry,
-  screensPrefix,
   readIndex,
   reportIndexOf,
   REPORT_FOR,
@@ -31,7 +29,7 @@ import { lendToken } from "@commitscape/server";
 import { apiOf, askGitHub, GITHUB_TTL, type GitHubConfig } from "./github";
 import { SiteError } from "./http";
 import { allow, RANGE_LIMIT } from "./limits";
-import { askedKey, isKept, isRange, keptEntry, keptText, packedOf, withPack, wholeDays, type Kept } from "./answers";
+import { askedKey, isKept, isRange, keptEntry, keptText, packedOf, withPack, wholeDays } from "./answers";
 import { answerTimed } from "./telemetry";
 import type { EngineService } from "./engine-service";
 import { jsonOf, type Packed } from "./packed";
@@ -335,23 +333,6 @@ const fromReport = (deps: Deps, reportKey: string, asked: ReturnType<typeof aske
   return found === null ? null : limited(asked.path, topOf(asked.params), found);
 };
 
-const unstored = new Set<string>();
-const UNSTORED_MAX = 50_000;
-
-/** A standard screen a Build stored beside a pack, when the question is one and it is there: read once per pack and question, and kept; a pack it stored none for is asked once. */
-async function storedScreen(deps: Deps, si: number | null, pack: string, asked: ReturnType<typeof askedKey>, browser = false): Promise<Kept | null> {
-  if (si === null || !isStoredScreen(asked.path, asked.params)) return null;
-  const prefix = screensPrefix(si, pack);
-  const at = `${prefix}#${keyOf(asked.path, withoutTop(asked.params))}`;
-  if (unstored.has(at)) return null;
-  const kept = await keptEntry(`${prefix}#${asked.key}`, fromReport(deps, prefix, asked), browser);
-  if (!kept) {
-    if (unstored.size >= UNSTORED_MAX) unstored.clear();
-    unstored.add(at);
-  }
-  return kept;
-}
-
 /** One answer of a pack as JSON packed to send, asked of the engine service once per pack and question; a range of dates not asked before counts against the address's limit. Null when there is no such answer. */
 function packedAnswer(deps: Deps, viewer: Viewer, pack: string, asked: ReturnType<typeof askedKey>): Promise<Packed | null> {
   const kept = `${pack}#${asked.key}`;
@@ -371,23 +352,10 @@ export async function reportEntry(deps: Deps, viewer: Viewer, owner: string, nam
   const started = performance.now();
   const row = await readable(deps, viewer, owner, name);
   const asked = questionOf(key);
-  const found = await withPack(
-    deps.db,
-    row.indexId,
-    async (pack) => {
-      const stored = await storedScreen(deps, row.indexId, pack, asked);
-      return stored ? { stored, packed: null } : { stored: null, packed: await packedAnswer(deps, viewer, pack, asked) };
-    },
-    row.reportAt,
-  );
+  const found = await withPack(deps.db, row.indexId, (pack) => packedAnswer(deps, viewer, pack, asked), row.reportAt);
   if (found) {
-    const { stored, packed } = found.value;
-    if (stored) {
-      answerTimed(asked.path, "stored", performance.now() - started);
-      return stored.value;
-    }
-    if (packed === null) return null;
-    const value = await jsonOf(packed);
+    if (found.value === null) return null;
+    const value = await jsonOf(found.value);
     answerTimed(asked.path, "engine", performance.now() - started);
     return value;
   }
@@ -412,8 +380,6 @@ export async function reportAnswer(deps: Deps, viewer: Viewer, owner: string, na
     async (pack) => {
       const etag = tagOf(pack);
       if (matches(seen, etag)) return { packed: null, etag, from: "unchanged" as const };
-      const stored = await storedScreen(deps, row.indexId, pack, asked, true);
-      if (stored) return { packed: await packedOf(stored), etag, from: "stored" as const };
       const made = await packedAnswer(deps, viewer, pack, asked);
       if (!made) throw new SiteError(404, NOT_IN_REPORT);
       return { packed: made, etag, from: "engine" as const };

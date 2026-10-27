@@ -197,11 +197,19 @@ impl Engine {
             Some(hit) => Some(hit),
             None => {
                 let held = self.pack(pack).await?;
-                let (at, ask) = (path.clone(), uncut);
-                self.made(whole_key, held, move |held| {
-                    serde_json::to_vec(&answer::whole(held, &at, &ask)?).ok()
-                })
-                .await?
+                match held.screens.get(&params::key(&path, &uncut)) {
+                    Some(stored) => {
+                        self.keep(whole_key, stored.clone());
+                        Some(stored.clone())
+                    }
+                    None => {
+                        let (at, ask) = (path.clone(), uncut);
+                        self.made(whole_key, held, move |held| {
+                            serde_json::to_vec(&answer::whole(held, &at, &ask)?).ok()
+                        })
+                        .await?
+                    }
+                }
             }
         };
         let Some(whole) = whole else {

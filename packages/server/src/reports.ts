@@ -21,6 +21,7 @@ export type AtlasPart = "map" | "names";
 export function atlasKey(si: number, pack: string, part: AtlasPart): string {
   return `atlas/${si}/${sha256(pack).slice(0, 16)}/${part}.bin.br`;
 }
+
 /** Where a Build's pack is kept: under its repository and Stored Index, named by its head and Build, and marked when it is the quick one, published without lines before the whole history is read. */
 export function packKey(repoId: string, si: number, head: string | null, buildId: string, quick: boolean): string {
   return `packs/${repoId}/${si}/${head ?? "empty"}-${buildId}-${quick ? "quick" : "lines"}.pack`;
@@ -29,15 +30,12 @@ export function packKey(repoId: string, si: number, head: string | null, buildId
 /** Whether a pack is a Build's quick one, which has no Atlas or stored screens of its own: the full one that follows brings them. */
 export const isQuickPack = (pack: string) => pack.endsWith("-quick.pack");
 
-/** Where the standard screens of a Stored Index's pack are kept: named by the pack, so a pack published again at the same head never serves the screens of the one before. */
-export function screensPrefix(si: number, pack: string): string {
-  return `screens/${si}/${sha256(pack).slice(0, 16)}`;
-}
+/** Where the standard screens a Build worked out ahead are kept: beside its pack, as one gzipped JSON object of answers under the keys the Site asks them by, which the engine service fetches with the pack and answers from. */
+export const screensKey = (pack: string) => `${pack}.screens`;
 
-/** Where everything kept beside a Stored Index's pack is, its Atlas and its screens, for deleting with the pack. */
+/** What is kept beside a Stored Index's pack, its Atlas and its screens, as prefixes to delete with the pack. */
 export function besidePack(si: number, pack: string): string[] {
-  const named = sha256(pack).slice(0, 16);
-  return [`atlas/${si}/${named}/`, `screens/${si}/${named}/`];
+  return [`atlas/${si}/${sha256(pack).slice(0, 16)}/`, screensKey(pack)];
 }
 
 const entryKey = (prefix: string, key: string) => `${prefix}/e/${sha256(key).slice(0, 32)}.json`;
@@ -62,27 +60,6 @@ export async function storeReport(storage: Storage, prefix: string, gzipped: Uin
     );
   }
   return { index, bytes };
-}
-
-/** The Windows whose screens every Build works out ahead and stores with its Report. */
-export const SCREEN_WINDOWS = ["all", "1y", "90d"];
-
-const SCREENS = new Set(["/api/overview", "/api/activity", "/api/people", "/api/map"]);
-
-/** Whether a question, without its `top`, is one of the screens a Build stores with its Report: the stats, or the overview, activity, people or top of the map of a stored Window. */
-export function isStoredScreen(path: string, params: Record<string, unknown>): boolean {
-  const asked = Object.keys(params).filter((k) => k !== "top");
-  if (path === "/api/stats") return asked.length === 0;
-  return SCREENS.has(path) && asked.length === 1 && asked[0] === "window" && SCREEN_WINDOWS.includes(String(params.window));
-}
-
-/** Stores answers a Build worked out ahead with its Report, one R2 object per answer, read back by `readEntry`. */
-export async function storeEntries(storage: Storage, prefix: string, data: Record<string, unknown>): Promise<number> {
-  const writes: [string, Uint8Array][] = Object.entries(data).map(([k, value]) => [entryKey(prefix, k), gz(value)]);
-  for (let i = 0; i < writes.length; i += 16) {
-    await Promise.all(writes.slice(i, i + 16).map(([key, body]) => storage.put(key, body, { type: "application/json", encoding: "gzip" })));
-  }
-  return writes.length;
 }
 
 const cache = new LRUCache<string, Buffer>({ maxSize: 256 * 1024 * 1024, sizeCalculation: (bytes) => Math.max(1, bytes.length) });

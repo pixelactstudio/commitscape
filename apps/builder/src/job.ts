@@ -13,7 +13,7 @@ import {
   reportPrefix,
   schema,
   packKey,
-  screensPrefix,
+  screensKey,
   sha256,
   type BuildJob,
   type Db,
@@ -314,7 +314,7 @@ async function publishBuild(ctx: JobContext, phases: Phases, buildId: string, ma
   if (made.phase === "full") {
     await phases
       .time(`screens ${made.phase}`, "screens", () =>
-        storeScreens(ctx.run, storage, { bin: ctx.cfg.bin, pack: made.pack, dir: made.dir, prefix: screensPrefix(si, pack), env: ctx.cfg.threads ? { COMMITSCAPE_THREADS: String(ctx.cfg.threads) } : {}, timeoutMs: timeLimitOf(ctx.cfg) * 1000, nice: ctx.cfg.nice, commits: made.manifest.total }),
+        storeScreens(ctx.run, storage, { bin: ctx.cfg.bin, pack: made.pack, dir: made.dir, key: screensKey(pack), env: ctx.cfg.threads ? { COMMITSCAPE_THREADS: String(ctx.cfg.threads) } : {}, timeoutMs: timeLimitOf(ctx.cfg) * 1000, nice: ctx.cfg.nice, commits: made.manifest.total }),
       )
       .catch((e: unknown) => ctx.log(`screens of ${named.id}: ${(e as Error).message}, so the engine service answers them`));
   }

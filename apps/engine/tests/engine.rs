@@ -881,3 +881,49 @@ async fn packs_are_fetched_from_s3_with_a_signed_get() {
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert_eq!(engine.packs.held().fetches, 1);
 }
+
+#[tokio::test]
+async fn a_packs_standard_screens_are_answered_from_what_its_build_stored_beside_it() {
+    let s = setup().await;
+    let stored = json!({
+        "/api/overview?window=all": { "window": "all", "stored": true },
+        "/api/people?window=all": { "window": "all", "people": [{ "person": { "id": 1 } }, { "person": { "id": 2 } }], "bots": [], "suspects": [] },
+    });
+    let mut z = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    std::io::Write::write_all(&mut z, stored.to_string().as_bytes()).unwrap();
+    std::fs::write(
+        s.source.join(format!("{ROCKET}.screens")),
+        z.finish().unwrap(),
+    )
+    .unwrap();
+    let (status, overview) = ask(
+        &s.app,
+        json!({ "pack": ROCKET, "path": "/api/overview", "params": { "window": "all", "top": 8 } }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(overview["stored"], json!(true));
+    let (_, people) = ask(
+        &s.app,
+        json!({ "pack": ROCKET, "path": "/api/people", "params": { "window": "all", "top": 1 } }),
+    )
+    .await;
+    assert_eq!(people["people"].as_array().map(Vec::len), Some(1));
+    assert_eq!(people["count"], json!(2));
+    let (_, worked_out) = ask(
+        &s.app,
+        json!({ "pack": ROCKET, "path": "/api/overview", "params": { "window": "1y" } }),
+    )
+    .await;
+    assert_eq!(worked_out["stored"], Value::Null);
+    let (_, other) = ask(
+        &s.app,
+        json!({ "pack": OTHER, "path": "/api/overview", "params": { "window": "all" } }),
+    )
+    .await;
+    assert_eq!(other["stored"], Value::Null);
+    assert!(std::fs::read_dir(&s.cache)
+        .unwrap()
+        .flatten()
+        .any(|e| e.file_name().to_string_lossy().ends_with(".screens")));
+}

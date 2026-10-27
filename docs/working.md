@@ -164,13 +164,15 @@ queued ones whose job was lost.
   `/api/health` answer anyone (`apps/site/src/server/gate.ts`).
 - A Report's standard screens (the stats, and the Overview, Activity,
   People and top of the Map of all history, the last year and the last 90
-  days) are worked out once per head: the Builder runs `commitscape screens`
-  on the pack, in a process of its own that waits for its share of `ENGINE_MEMORY_MB`, and
-  stores each answer under the Report's prefix in R2 before publishing it
-  (`apps/builder/src/screens.ts`). The Site sends those first, kept for good
-  when the request is pinned to the Report, with ETags from the Report's
-  key (`storedScreen` in `apps/site/src/server/repos.ts`).
-- Any other screen's answer, for any dates, comes from the engine service
+  days) are worked out once per pack: the Builder runs `commitscape screens`
+  on the full pack, in a process of its own that waits for its share of
+  `ENGINE_MEMORY_MB`, and stores them beside the pack in R2 as one gzipped
+  object (`<pack>.screens`) before publishing it
+  (`apps/builder/src/screens.ts`). The engine service fetches that object
+  with the pack, keeps it on its volume, and answers those questions from
+  it without working them out (cut by `top` like any answer); the Site
+  asks for them as for any other, with the pack's ETag.
+- Every screen's answer, for any dates, comes from the engine service
   (`apps/site/src/server/engine-service.ts`), asked with the key of the
   repository's pack (`stored_indexes.pack`, remembered for ten seconds).
   The engine service fetches the pack from R2 once, unpacks it on its disk

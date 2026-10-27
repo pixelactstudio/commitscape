@@ -13,8 +13,10 @@ use commitscape_report::pack::{open_unpacked, unpack, PackError};
 
 use crate::loaded::LoadedPack;
 use crate::lru::SizedLru;
+use crate::params;
 use crate::s3::{Fetched, S3Source};
 use crate::work::{Work, WorkError};
+use axum::body::Bytes;
 
 pub enum Fetcher {
     Dir(PathBuf),
@@ -88,6 +90,36 @@ fn file_name(key: &str) -> String {
 
 fn unpacked_name(name: &str) -> String {
     format!("{}.unpacked", name.trim_end_matches(".pack"))
+}
+
+fn screens_name(name: &str) -> String {
+    format!(
+        "{}.screens",
+        name.trim_end_matches(".pack").trim_end_matches(".unpacked")
+    )
+}
+
+/// The standard screens a Build stored beside a pack, gzipped JSON of answers under the keys the Site asks them by, as the answers the engine keeps them by: each question's path and its parameters as `params::key` writes them.
+pub fn screens_of(gzipped: &[u8]) -> HashMap<String, Bytes> {
+    let mut text = Vec::new();
+    if std::io::Read::read_to_end(&mut flate2::read::GzDecoder::new(gzipped), &mut text).is_err() {
+        return HashMap::new();
+    }
+    let Ok(answers) = serde_json::from_slice::<serde_json::Map<String, serde_json::Value>>(&text)
+    else {
+        return HashMap::new();
+    };
+    answers
+        .into_iter()
+        .filter_map(|(key, value)| {
+            let (path, query) = key.split_once('?').unwrap_or((key.as_str(), ""));
+            let asked = params::asked(&params::from_query(query));
+            Some((
+                params::key(path, &asked),
+                Bytes::from(serde_json::to_vec(&value).ok()?),
+            ))
+        })
+        .collect()
 }
 
 fn io(e: std::io::Error) -> PackFailure {
@@ -223,7 +255,8 @@ impl Packs {
                     };
                     let _ = tokio::fs::remove_file(&path).await;
                     for (old, ()) in gone {
-                        let _ = tokio::fs::remove_file(self.dir.join(old)).await;
+                        let _ = tokio::fs::remove_file(self.dir.join(&old)).await;
+                        let _ = tokio::fs::remove_file(self.dir.join(screens_name(&old))).await;
                     }
                     self.open_unpacked(key, &mapped).await?
                 }
@@ -235,11 +268,37 @@ impl Packs {
             }
         };
         self.decodes.fetch_add(1, Ordering::Relaxed);
+        let mut loaded = loaded;
+        loaded.screens = self.screens(key, &name).await;
+        loaded.bytes += loaded.screens.values().map(|b| b.len() as u64).sum::<u64>();
         let loaded = Arc::new(loaded);
         if let Ok(mut memory) = self.memory.lock() {
             memory.insert(key.to_string(), loaded.clone(), loaded.bytes);
         }
         Ok(loaded)
+    }
+
+    async fn screens(&self, key: &str, name: &str) -> HashMap<String, Bytes> {
+        let path = self.dir.join(screens_name(name));
+        if !tokio::fs::try_exists(&path).await.unwrap_or(false) {
+            let part = self.dir.join(format!(
+                "{}.{}.{}.part",
+                screens_name(name),
+                std::process::id(),
+                self.parts.fetch_add(1, Ordering::Relaxed)
+            ));
+            let fetched = self.fetch_into(&format!("{key}.screens"), &part).await;
+            if !matches!(fetched, Ok(Fetched::Written(_)))
+                || tokio::fs::rename(&part, &path).await.is_err()
+            {
+                let _ = tokio::fs::remove_file(&part).await;
+                return HashMap::new();
+            }
+        }
+        match tokio::fs::read(&path).await {
+            Ok(gzipped) => screens_of(&gzipped),
+            Err(_) => HashMap::new(),
+        }
     }
 
     async fn forget(&self, name: &str, path: &Path) {
@@ -323,7 +382,8 @@ impl Packs {
             Err(_) => Vec::new(),
         };
         for (old, ()) in gone {
-            let _ = tokio::fs::remove_file(self.dir.join(old)).await;
+            let _ = tokio::fs::remove_file(self.dir.join(&old)).await;
+            let _ = tokio::fs::remove_file(self.dir.join(screens_name(&old))).await;
         }
         Ok(())
     }

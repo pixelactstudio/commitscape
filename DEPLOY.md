@@ -517,13 +517,13 @@ this order:
 3. To keep Repo States in R2 as well, set `STATE_KEY` on the Builder (a
    secret of 32 characters or more, kept only there, never changed after)
    before or with this deploy. Without it the States live on its disk only.
-4. Deploy the Site: it sends a Report's standard screens (the stats, and
-   the overview, activity, people and top of the map of all history, the
-   last year and the last 90 days) from what the Builder stored with it,
-   asks the engine service for the rest, searches the Commit List's words
+4. Deploy the Site: it asks the engine service for every screen (the
+   engine service answers a Report's standard screens from what the
+   Builder stored beside its pack), searches the Commit List's words
    through the engine service, counts a Report found unchanged as current,
-   and no longer serves `git/log.json`. Reports published before ask the
-   engine service as before until their next Build.
+   and no longer serves `git/log.json`. Packs published before have no
+   stored screens, so the engine service works theirs out, as before,
+   until their next Build.
 5. Run `node builder.mjs rebuild` once (on the Builder, from its Terminal
    in Dokploy). It queues, at the lowest priority, a Build for every
    repository whose live Stored Index was made by a Builder of an earlier
