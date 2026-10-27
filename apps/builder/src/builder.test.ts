@@ -553,6 +553,20 @@ test("the least recently used repository folders go first when the disk budget i
   expect(await prune(work, 1500, [join(work, "repos", "acme", "mid")])).toEqual([join(work, "repos", "acme", "new")]);
 });
 
+test("a cold Build keeps its quick blobless clone as the repository's lean clone instead of cloning again later; a private one keeps nothing", async () => {
+  const work = await mkdtemp(join(tmpdir(), "builder-"));
+  const f = fake();
+  await build(req(), cfg(work), f.deps);
+  expect(existsSync(join(repoDir(cfg(work), "acme", "rocket"), "lean", ".git"))).toBe(true);
+  expect(existsSync(join(work, "jobs", "build-0001"))).toBe(false);
+  const again = fake();
+  await build(req({ id: "build-0002", lean: true }), cfg(work), again.deps);
+  expect(again.calls.filter((c) => c.cmd === "git" && c.args[0] === "clone").map((c) => c.args.at(-1))).not.toContain(join(repoDir(cfg(work), "acme", "rocket"), "lean"));
+  const secret = fake();
+  await build(req({ id: "build-0003", repo: "acme/secret", name: "secret", private: true }), cfg(work), secret.deps);
+  expect(existsSync(join(repoDir(cfg(work), "acme", "secret"), "lean"))).toBe(false);
+});
+
 test("a Build whose cache has no column file for its generation yet asks the memory gate for what writing it takes", async () => {
   const work = await mkdtemp(join(tmpdir(), "builder-"));
   const cache = join(cacheDir(cfg(work), "acme", "rocket"), "key-0123");

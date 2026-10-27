@@ -66,8 +66,12 @@ to a repository the App is installed on, the nightly seeds and
    its commit's lines to count later, never an error. git data reads the
    same clone: git fetches what `diff` and `merge-tree` need itself. The
    count of Surviving Lines fetches every version of the files changed
-   since its last count the same way, and fetches any other it meets as
-   blame walks. A retry reads the full clone. linux, 19 days behind:
+   since its last count the same way; a count that still meets a version
+   the clone lacks fetches it and counts once more before it is queued
+   again on a full clone, and a count reads the lean clone only once a
+   lean Build has deleted the full one. A cold Build keeps its quick
+   blobless clone as the repository's lean clone, so it is never cloned
+   blobless a second time. A retry reads the full clone. linux, 19 days behind:
    36 MB of commits and trees and 105 MB of file versions, against 214 MB
    fetched in full; the kept clone is 2.4 GB instead of 6.6 GB.
    git's own upkeep is off for every git the Builder runs (`gc.auto=0`,

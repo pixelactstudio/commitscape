@@ -125,6 +125,39 @@ test("a count that waited while a Build published another Report counts nothing"
   expect((await rows(db)).map((r) => r[1])).toEqual(["stale", "stale"]);
 });
 
+test("a count that lacks one file version in the blobless clone fetches it and counts once more before reaching for a full clone", async () => {
+  const queued: SurvivalJob[] = [];
+  const dirs: string[] = [];
+  const missing = "f".repeat(40);
+  const { db, ctx } = await setup(
+    async (_cmd, args) => {
+      dirs.push(args.at(-1) ?? "");
+      return dirs.length === 1 ? { code: 1, stderr: `commitscape: could not fetch file contents ${missing} from the remote: missing\n`, timedOut: false } : { code: 0, stderr: "", timedOut: false, stdout: everyone([alice, bob]) };
+    },
+    {},
+    queued,
+  );
+  const home = join(ctx.cfg.work, "repos", "acme", "rocket");
+  await mkdir(join(home, "lean", ".git"), { recursive: true });
+  await runSurvival({ repoId: "acme/rocket", reportKey: "r/b1", personIds: [3, 4], everyone: true }, ctx);
+  expect(dirs).toEqual([join(home, "lean"), join(home, "lean")]);
+  expect(queued).toEqual([]);
+  expect((await rows(db)).map((r) => r[1])).toEqual(["counted", "counted"]);
+});
+
+test("a blobless clone beside a full one is not counted from until a lean Build has let the full one go", async () => {
+  const dirs: string[] = [];
+  const { ctx } = await setup(async (_cmd, args) => {
+    dirs.push(args.at(-1) ?? "");
+    return { code: 0, stderr: "", timedOut: false, stdout: everyone([alice, bob]) };
+  });
+  const home = join(ctx.cfg.work, "repos", "acme", "rocket");
+  await mkdir(join(home, "lean", ".git"), { recursive: true });
+  await mkdir(join(home, "full", ".git"), { recursive: true });
+  await runSurvival({ repoId: "acme/rocket", reportKey: "r/b1", personIds: [3, 4], everyone: true }, ctx);
+  expect(dirs).toEqual([join(home, "full")]);
+});
+
 test("a count that fails on a blobless clone is never recorded, and is made again from a full clone", async () => {
   const queued: SurvivalJob[] = [];
   const dirs: string[] = [];

@@ -63,13 +63,13 @@ export async function runSurvival(job: SurvivalJob, ctx: JobContext & { budget: 
   const scratch = scratchDir(cfg, key);
   const home = repo.isPrivate ? privateDir(cfg, key) : repoDir(cfg, repo.owner, repo.name);
   const lean = join(home, "lean");
-  const leaned = !repo.isPrivate && !job.full && existsSync(join(lean, ".git"));
-  const full = leaned ? lean : join(home, "full");
   const env = gitEnv(token);
   const started = Date.now();
-  const held = await holdingRepo(home, async (): Promise<{ ran: Ran; head: string | null } | "stale" | "failed"> => {
+  const held = await holdingRepo(home, async (): Promise<{ ran: Ran; head: string | null; leaned: boolean } | "stale" | "failed"> => {
     const [current] = await db.select({ reportKey: repositories.reportKey, reportHead: repositories.reportHead }).from(repositories).where(eq(repositories.id, job.repoId));
     if (current?.reportKey !== job.reportKey) return "stale";
+    const leaned = !repo.isPrivate && !job.full && existsSync(join(lean, ".git")) && !existsSync(join(home, "full", ".git"));
+    const full = leaned ? lean : join(home, "full");
     holding.add(key);
     try {
       if (leaned) await prefetch(ctx, repo.id, lean, env);
@@ -90,14 +90,21 @@ export async function runSurvival(job: SurvivalJob, ctx: JobContext & { budget: 
       if (current.reportHead) args.push("--head", current.reportHead);
       if (accounts) args.push("--accounts", accounts);
       args.push("--", full);
-      const ran = await ctx.run(cfg.bin, args, engineEnv, (budget + cfg.timeLimit) * 1000, { nice: cfg.nice, maxStdout: EVERYONE_BYTES, memoryMb: peakMb("surviving", sized) });
+      const count = () => ctx.run(cfg.bin, args, engineEnv, (budget + cfg.timeLimit) * 1000, { nice: cfg.nice, maxStdout: EVERYONE_BYTES, memoryMb: peakMb("surviving", sized) });
+      let ran = await count();
+      const missing = leaned && ran.code !== 0 && !ran.timedOut ? [...ran.stderr.matchAll(/could not fetch file contents ([0-9a-f]{40,64})/g)].map((m) => m[1] ?? "") : [];
+      if (missing.length > 0) {
+        await fetchBlobs({ dir: lean, env, deadline: Date.now() + cfg.cloneLimit * 1000 }, missing).catch((e: unknown) => ctx.log(`surviving ${job.repoId}: file versions not fetched: ${(e as Error).message}`));
+        ctx.log(`surviving ${job.repoId}: the blobless clone lacked ${missing.length} file versions, so they are fetched and the count made once more`);
+        ran = await count();
+      }
       if (ran.code === HEAD_MOVED) {
         ctx.log(`surviving ${job.repoId}: the clone's head is not the Report's, so nothing is counted for it`);
         return "stale";
       }
       const save = ctx.saveState;
       if (save && !repo.isPrivate && ran.code === 0) await save(repo.id, cacheRoot).catch((e: unknown) => ctx.log(`state of ${repo.id} not saved: ${(e as Error).message}`));
-      return { ran, head: current.reportHead };
+      return { ran, head: current.reportHead, leaned };
     } finally {
       await rm(scratch, { recursive: true, force: true });
       if (repo.isPrivate) await rm(home, { recursive: true, force: true });
@@ -108,7 +115,7 @@ export async function runSurvival(job: SurvivalJob, ctx: JobContext & { budget: 
     await mark(held, job.personIds);
     return;
   }
-  const { ran } = held;
+  const { ran, leaned } = held;
   const parsed = ran.code === 0 ? survivingOf(ran.stdout ?? "") : null;
   const answer = parsed && held.head && parsed.head !== held.head ? null : parsed;
   ctx.log(`surviving ${job.repoId}: ${answer ? (answer.complete ? `${answer.people.length} people counted` : "ownership not whole yet") : ran.timedOut ? "timed out" : "failed"} in ${((Date.now() - started) / 1000).toFixed(1)} s, budget ${budget} s`);

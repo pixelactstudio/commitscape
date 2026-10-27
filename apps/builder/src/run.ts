@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, rm, utimes, writeFile } from "node:fs/promises";
+import { mkdir, rename, rm, utimes, writeFile } from "node:fs/promises";
 import { setPriority } from "node:os";
 import { join } from "node:path";
 import type { BuildFailure, BuildStep } from "@commitscape/data";
@@ -349,6 +349,10 @@ export async function build(req: BuildTarget, cfg: Config, deps: Deps): Promise<
       }
       const published: Phase | null = fullMade ? "full" : quickMade ? "quick" : null;
       if (f.ok && lean && fullMade) await rm(join(home, "full"), { recursive: true, force: true });
+      if (f.ok && !req.private && quickMade && existsSync(join(quick, ".git")) && !existsSync(join(home, "lean", ".git"))) {
+        await mkdir(join(home, "lean"), { recursive: true });
+        await rename(join(quick, ".git"), join(home, "lean", ".git")).catch((e: unknown) => deps.log?.(`the quick clone of ${req.owner}/${req.name} was not kept: ${(e as Error).message}`));
+      }
       if (f.ok) return { published, seconds: seconds(), resumable: false, kind: phases.kind, made };
       resumable = f.reason === "timed_out" && attempt < BUILD_ATTEMPTS;
       return { published, seconds: seconds(), failure: { reason: f.reason, ...(f.detail ? { detail: f.detail } : {}) }, resumable, kind: phases.kind, made };
