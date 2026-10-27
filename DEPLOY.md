@@ -54,6 +54,40 @@ deployment server, then create the `builder` application on it. Its
 `DATABASE_URL` uses the first server's private address and the port you
 published for Postgres. Everything else is as below.
 
+### Memory, server by server
+
+Anonymous memory at the peak, measured on linux (1.5M commits) with two
+threads unless marked as an estimate. The kernel can drop mapped pages
+(packs, columns, git's packs) at any time, so they come out of what is
+left.
+
+mercury, the Builder's container (3 GiB):
+
+| What | At most | Held to it by |
+|---|---|---|
+| The Builder's own Node process | about 150 MB (estimate) | |
+| Runs let in by `ENGINE_MEMORY_MB`: builds, counts of Surviving Lines, screens, Atlases, clones, fetches, repacks | 1,200 MB together; one estimated larger runs alone | their estimates (`peakMb`): linux's cold Build 340 MB (measured 248), its Surviving Lines 260 (198), Atlas 108 (98), screens 198 (191), a fetch 177; a whole new clone of linux is estimated at 1.8 GB and runs alone |
+| git data's reads (branches, tags, pull requests) | about 130 MB | their output caps |
+| The head check (`git ls-remote`) | 64 MB | its output cap |
+| Together | about 1.5 GB, 2.1 GB while a whole linux clone runs alone | leaves the rest of the 3 GiB to the page cache |
+
+venus, the Site, the engine service and Postgres:
+
+| What | At most | Held to it by |
+|---|---|---|
+| The Site's own Node process | about 250 MB (estimate) | |
+| The Site's caches | 368 MB: answers 64, stored Reports' answers 16, R2 reads 256, Cards 32 | constants in `answers.ts`, `reports.ts`, `cards.ts` |
+| Atlases the Site keeps | about 50 MB: six packed Atlases (linux's map 7.8 MB, names 0.6 MB) | `KEPT` in `universe.ts` |
+| The engine service | about 830 MB: 80 MB once a linux pack is open, packs' heap up to `PACK_MEMORY_MB` (512), answers up to 128 MB, a request's work besides (linux's standard screens: 112 MB) | `PACK_MEMORY_MB` and its answer cache |
+| Postgres | its shared buffers (128 MB unless set) and about 10 MB a connection in use | its settings and the pools |
+| Together | about 1.7 GB, plus the page cache for unpacked packs (linux: 275 MB) and Postgres's files | |
+
+Two paths kept for this release only take more: the Site makes an Atlas
+itself for a pack the Builder made none for (linux: 1.16 GB for a few
+seconds), from the engine service's rows (linux: about 450 MB). Once
+`node builder.mjs rebuild` has rebuilt every repository, every pack has
+its Atlas and neither path runs; both go in the next release.
+
 ## 1. The R2 bucket
 
 In Cloudflare, create a bucket (for example `commitscape`), with the
@@ -199,7 +233,7 @@ Optional, with their defaults:
 | Variable | Default | What |
 |---|---|---|
 | `CONCURRENCY` | 1 | Builds at a time, for repositories under `LARGE_REPOSITORY_MB`. Their clones, GitHub reads and Postgres loads overlap; their runs of the engine share `ENGINE_MEMORY_MB` |
-| `ENGINE_MEMORY_MB` | 1200 | Memory the runs of the engine, and git's clones, fetches and repacks, may take at once, across every Build and count of Surviving Lines: each run waits, in the order it asked, until its estimate fits beside the others (a warm build of linux about 230 MB, a cold one about 340, everyone's Surviving Lines about 260, react's about 50 to 200); a run larger than this runs alone. 1200 fits a 3 GiB container with the Builder, git and Postgres loads beside it |
+| `ENGINE_MEMORY_MB` | 1200 | Memory the runs of the engine, and git's clones, fetches and repacks, may take at once, across every Build and count of Surviving Lines: each run waits, in the order it asked, until its estimate fits beside the others (on linux a warm build about 230 MB, a cold one about 340, everyone's Surviving Lines about 260, the standard screens about 200, the Atlas about 110, a fetch about 180, a whole clone about 1.8 GB; react's runs about 50 to 400); a run larger than this runs alone. 1200 fits a 3 GiB container with the Builder, git and Postgres loads beside it |
 | `BULK_COMMIT_FILES` | 50 | A commit changing more files than this is a Bulk Commit: left out of Churn, Ownership, Change Coupling and Lines Changed, and passed through by Surviving Lines. A lean clone fetches no file versions for commits changing more than twice as many paths |
 | `COMMITSCAPE_THREADS` | every core, up to 16 | Threads one run of the engine may use |
 | `ENGINE_NICE` | 10 | The engine runs at this lower priority (0 to 19), so git, the database and the Builder stay responsive |

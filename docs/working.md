@@ -17,7 +17,7 @@ on each piece.
 | The Builder | `apps/builder` | Takes Builds from the pg-boss queue, clones, runs `commitscape build`, loads the Stored Index and uploads the pack |
 | The engine service | `apps/engine` | Answers the Site's questions about a repository from its pack, kept on disk and in memory |
 | The Site | `apps/site` | Serves Profiles, Reports, Shared Reports, Cards, the API and MCP from Postgres, R2 and the engine service |
-| The landing page | `apps/landing` | Static HTML drawn at build time, on Cloudflare Pages |
+| The landing page | `apps/landing` | Static HTML drawn at build time, served by a Cloudflare Worker (`apps/landing/worker`) |
 | Shared code | `packages/server`, `packages/data`, `packages/ui` | The schema and storage, the Report's types and Data Sources, every screen |
 
 The binary makes no network calls during a Build: the Builder clones and
