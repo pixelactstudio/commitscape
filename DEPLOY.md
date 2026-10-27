@@ -200,7 +200,7 @@ Optional, with their defaults:
 | `ATLAS_QUALITY` | 5 | The brotli quality the Builder packs each pack's Universe Atlas with, 1 to 11. On linux 5 takes 4.8 CPU-s for a 7.8 MB map and 11 takes 35 CPU-s for 6.6 MB; the Atlas is made once per pack, in a process of its own that waits for an engine slot |
 | `LARGE_REPOSITORY_MB` | 1500 | Repositories larger than this, by GitHub's size, are built in a lane of their own |
 | `LARGE_CONCURRENCY` | 1 | Builds at a time in that lane |
-| `MAX_REPOSITORY_MB` | none | Unset, every repository is cloned, however big; set, larger repositories are refused |
+| `MAX_REPOSITORY_MB` | none | Unset, every repository is cloned, however big; set, larger repositories are refused. Measured on 2 cores (2026-10-27): vercel/next.js (2.6 GB of git, 50,110 commits) clones in 291 s with 163 CPU-s and 0.6 GB, and its first Build counts every line in 19 s with 525 MB; linux (6.6 GB) needs about 1 GB to receive and 1.1 GB for its first Build, and its clone can pass the default `CLONE_TIME_LIMIT_SECONDS`. With `ENGINE_SLOTS` at 1 under a 3 GiB cap, 4000 takes next.js-sized repositories with room to spare; go higher only with a longer clone limit and the disk for one full clone of that size |
 | `TIME_LIMIT_SECONDS` | 900 | How long one run of the binary may take on a Build's first attempt, the clone not included. One that runs out is queued again, each attempt given twice the time, four attempts in all |
 | `CLONE_TIME_LIMIT_SECONDS` | 1800 | How long a clone or fetch may take on the first attempt, doubled with each attempt |
 | `LOGINS_ASKED` | 300 | At most this many commit authors a Build asks GitHub for the login of, a hundred to a GraphQL request; each commit's answer is kept for a year, so a rebuild asks only for new ones |
