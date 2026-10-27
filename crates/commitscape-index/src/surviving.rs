@@ -1,16 +1,17 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use commitscape_core::{
     AuthorId, ChangeKind, CommitFlags, CommitMeta, FileClass, FileId, Index, Oid,
 };
 
-use crate::blame::{blame_in_threads, spans_at, BlameFile, Walked, BATCH_BYTES};
+use crate::blame::{blame_in_threads, BlameFile, Walked, BATCH_BYTES};
 use crate::cache::{repo_dir, BlameStore, CacheOptions, Known, Moved};
 use crate::lines::MAX_BYTES;
 use crate::ownership::{own_in_threads, Known as Owners, Ownership, Writer};
-use crate::similarity::rename_source;
+use crate::similarity::{rename_source, spans, Spans};
 use crate::source::{BlameSource, BlameThreads};
 
 const ENGINE: u64 = 4;
@@ -612,12 +613,23 @@ fn moves_in<S: BlameSource>(source: &S, commit: Oid) -> Result<Moved, S::Error> 
         return Ok(Vec::new());
     };
     let moves = source.blame_moves(commit, *parent)?;
-    let mut texts = vec![None; moves.deleted.len()];
+    let mut known: Vec<Option<Rc<Spans>>> = vec![None; moves.deleted.len()];
     let mut out = Vec::new();
     for (path, blob) in &moves.added {
         let data = source.blame_blob(*blob)?;
         let found = rename_source((path, *blob, &data), &moves.deleted, &mut |i| {
-            spans_at(source, &moves.deleted, &mut texts, i)
+            if let Some(Some(found)) = known.get(i) {
+                return Ok(found.clone());
+            }
+            let text = match moves.deleted.get(i) {
+                Some((_, blob)) => source.blame_blob(*blob)?,
+                None => Vec::new(),
+            };
+            let found = Rc::new(spans(&text));
+            if let Some(slot) = known.get_mut(i) {
+                *slot = Some(found.clone());
+            }
+            Ok(found)
         })?;
         if let Some((from, _)) = found.and_then(|j| moves.deleted.get(j)) {
             out.push((from.clone(), path.clone()));
