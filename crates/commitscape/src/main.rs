@@ -274,7 +274,7 @@ fn report(args: ReportArgs) -> anyhow::Result<()> {
     events::record_to(args.run.events.as_deref())?;
     let options = args.common.cache();
     let accounts = args.accounts.as_deref().map(read_accounts).transpose()?;
-    let path = repo_source(&args.repo, args.partial, &options)?;
+    let path = repo_source(&args.repo, args.partial, &options, args.common.offline)?;
     let count_lines = !(args.no_lines || args.partial);
     let (name, report) = make_report(
         &path,
@@ -567,6 +567,7 @@ pub(crate) fn repo_source(
     repo: &str,
     partial: bool,
     options: &CacheOptions,
+    offline: bool,
 ) -> anyhow::Result<PathBuf> {
     let local = PathBuf::from(repo);
     if local.exists() {
@@ -576,6 +577,10 @@ pub(crate) fn repo_source(
         );
         return Ok(local);
     }
+    anyhow::ensure!(
+        !offline,
+        "{repo} is not a folder here, and --offline does not clone it"
+    );
     let remote = clone::remote(repo)
         .ok_or_else(|| anyhow::anyhow!("{} is neither a folder here nor a GitHub project", repo))?;
     let root = options

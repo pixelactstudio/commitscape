@@ -108,10 +108,10 @@ export async function tipsOf(run: typeof runCommand, dir: string, env: NodeJS.Pr
   return [...new Set((ran.stdout ?? "").split("\n").map((l) => l.trim()).filter((l) => /^[0-9a-f]{40,64}$/.test(l)))];
 }
 
-/** Which of `ids` a clone lacks. */
+/** Which of `ids` a clone lacks, asked without fetching them. */
 export async function missingIn(run: typeof runCommand, dir: string, ids: string[], env: NodeJS.ProcessEnv, timeoutMs: number): Promise<string[]> {
   if (ids.length === 0) return [];
-  const ran = await run("git", ["cat-file", "--batch-check=%(objectname) %(objecttype)"], inClone(dir, env), timeoutMs, { input: `${ids.join("\n")}\n` });
+  const ran = await run("git", ["cat-file", "--batch-check=%(objectname) %(objecttype)"], inClone(dir, { ...env, GIT_NO_LAZY_FETCH: "1" }), timeoutMs, { input: `${ids.join("\n")}\n` });
   if (ran.code !== 0) return [];
   return (ran.stdout ?? "").split("\n").flatMap((l) => (l.endsWith(" missing") ? [l.slice(0, -" missing".length)] : []));
 }

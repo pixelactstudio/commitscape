@@ -68,7 +68,7 @@ pub fn run(args: SurvivingArgs) -> anyhow::Result<()> {
     let path = if Path::new(&args.repo).exists() {
         PathBuf::from(&args.repo)
     } else {
-        repo_source(&args.repo, args.partial, &options)?
+        repo_source(&args.repo, args.partial, &options, args.common.offline)?
     };
     let repo = GixRepo::open(&path)?;
     let mut meter = ProgressLine::new();
@@ -96,6 +96,7 @@ pub fn run(args: SurvivingArgs) -> anyhow::Result<()> {
     let fetching = Fetching {
         threads: repo.threads(),
         dir: path.clone(),
+        offline: args.common.offline,
     };
 
     if args.everyone {
@@ -216,11 +217,13 @@ fn added_by_person(
 struct Fetching {
     threads: GixThreads,
     dir: PathBuf,
+    offline: bool,
 }
 
 struct Fetched {
     repo: GixRepo,
     dir: PathBuf,
+    offline: bool,
 }
 
 impl BlameThreads for Fetching {
@@ -230,6 +233,7 @@ impl BlameThreads for Fetching {
         Fetched {
             repo: self.threads.local(),
             dir: self.dir.clone(),
+            offline: self.offline,
         }
     }
 }
@@ -291,7 +295,11 @@ impl BlameSource for Fetched {
         if let Ok(bytes) = self.repo.blame_blob(blob) {
             return Ok(bytes);
         }
-        let out = Command::new("git")
+        let mut git = Command::new("git");
+        if self.offline {
+            git.env("GIT_NO_LAZY_FETCH", "1");
+        }
+        let out = git
             .arg("-C")
             .arg(&self.dir)
             .args(["cat-file", "blob", &blob.to_hex()])
