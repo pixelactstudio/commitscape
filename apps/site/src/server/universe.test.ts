@@ -1,11 +1,11 @@
-import { brotliCompressSync, brotliDecompressSync, constants } from "node:zlib";
+import { brotliCompressSync, brotliDecompressSync } from "node:zlib";
 import { eq } from "drizzle-orm";
 import { describe, expect, test } from "vitest";
 import { atlasOf, decodeAtlas, decodeNames, encodeAtlas, encodeNames, type AtlasRows } from "@commitscape/data/universe";
-import { atlasKey, now, schema, seedIndex, type SeedIndex } from "@commitscape/server";
-import { fakeEngine, packed, testDeps, viewer, type Asked } from "#/test/deps";
+import { atlasKey, now, schema, seedIndex, type AtlasJob, type SeedIndex } from "@commitscape/server";
+import { fakeEngine, packed, testDeps, viewer } from "#/test/deps";
 import { SiteError } from "./http";
-import { atlasBody, atlasFile, atlasOfPack, warmAtlas } from "./universe";
+import { atlasBody, atlasFile } from "./universe";
 
 const { repositories } = schema;
 
@@ -29,19 +29,23 @@ const rows: AtlasRows = {
   releases: [],
 };
 
-const answering = ({ endpoint }: Asked) => (endpoint === "/v1/universe/rows" ? rows : undefined);
-
-async function stored() {
-  const engine = fakeEngine(answering);
-  const deps = await testDeps({ engine });
+async function stored(made = true) {
+  const engine = fakeEngine(() => undefined);
+  const queued: AtlasJob[] = [];
+  const deps = await testDeps({ engine, queue: async () => ({ send: async () => {}, atlas: async (job) => void queued.push(job) }) });
   await deps.db.insert(repositories).values([
     { id: "acme/rocket", owner: "acme", name: "rocket", githubId: 1, status: "ok", factsAt: now(), reportKey: "reports/gh/acme/rocket/b1", reportAt: 500 },
     { id: "acme/secret", owner: "acme", name: "secret", githubId: 2, status: "private", isPrivate: true, installationId: 5, factsAt: now(), reportKey: "reports/gh/acme/secret/b1", reportAt: 600 },
   ]);
   const si = await seedIndex(deps.db, "acme/rocket", seed);
-  const pack = await packed(deps.db, si, "packs/acme/rocket/1/pack.pack");
-  await packed(deps.db, await seedIndex(deps.db, "acme/secret", seed), "packs/acme/secret/2/pack.pack");
-  return Object.assign(deps, { engine, si, pack });
+  const pack = await packed(deps.db, si, "packs/acme/rocket/1/head-b1-lines.pack");
+  await packed(deps.db, await seedIndex(deps.db, "acme/secret", seed), "packs/acme/secret/2/head-b1-lines.pack");
+  if (made) {
+    const { atlas, names } = atlasOf(rows);
+    await deps.storage.put(atlasKey(si, pack, "map"), brotliCompressSync(encodeAtlas(atlas)), { type: "application/octet-stream", encoding: "br" });
+    await deps.storage.put(atlasKey(si, pack, "names"), brotliCompressSync(encodeNames(names)), { type: "application/octet-stream", encoding: "br" });
+  }
+  return Object.assign(deps, { engine, si, pack, queued });
 }
 
 const bytesOf = async (deps: Awaited<ReturnType<typeof stored>>, part: "map" | "names", v: number | null = null) => {
@@ -50,17 +54,20 @@ const bytesOf = async (deps: Awaited<ReturnType<typeof stored>>, part: "map" | "
   return { found, bytes: new Uint8Array(brotliDecompressSync(found.body.br)) };
 };
 
+const refused = (p: Promise<unknown>) => p.then(() => null, (e: SiteError) => [e.status, e.message]);
+
 describe("the Atlas", () => {
-  test("is made from the rows the engine service reads from the Stored Index's pack, once per pack", async () => {
+  test("is the one the Builder stored for the Stored Index's pack, sent as it is, never made by the Site", async () => {
     const deps = await stored();
     const atlas = decodeAtlas((await bytesOf(deps, "map")).bytes);
     expect(Array.from(atlas.commits.time)).toEqual([100, 300]);
     expect(atlas.people.names).toEqual(["Alice Example", "ci-bot"]);
     expect(decodeNames((await bytesOf(deps, "names")).bytes).names.sort()).toEqual(["README.md", "a.ts"]);
-    expect(deps.engine.asked).toEqual([{ endpoint: "/v1/universe/rows", body: { pack: deps.pack } }]);
+    expect(deps.engine.asked).toEqual([]);
+    expect(deps.queued).toEqual([]);
   });
 
-  test("answers again with 304, pins a year when the address names the Report, and keeps what it made", async () => {
+  test("answers again with 304, pins a year when the address names the Report, and has another ETag once the pack is another", async () => {
     const deps = await stored();
     const { found } = await bytesOf(deps, "map", 500);
     expect(found.cacheControl).toContain("immutable");
@@ -68,61 +75,27 @@ describe("the Atlas", () => {
     expect(again.body).toBeNull();
     const loose = await atlasFile(deps, viewer(), "acme", "rocket", "map", 1);
     expect(loose.cacheControl).toBe("public, max-age=300");
-    await (await atlasOfPack(deps, deps.si, deps.pack)).kept;
-    expect((await deps.storage.keys?.("atlas/"))?.length ?? 0).toBeGreaterThanOrEqual(2);
-    await packed(deps.db, deps.si, "packs/acme/rocket/1/next.pack");
-    expect((await atlasFile(deps, viewer(), "acme", "rocket", "map", 500, found.etag)).etag).not.toBe(found.etag);
+    await packed(deps.db, deps.si, "packs/acme/rocket/1/head-b2-lines.pack");
+    expect((await atlasFile(deps, viewer(), "acme", "rocket", "map", 500, found.etag).catch(() => ({ etag: "none" }))).etag).not.toBe(found.etag);
   });
 
-  test("the Builder stored for a pack is sent as it is, and the Site never makes it or asks the engine service for rows", async () => {
-    const deps = await stored();
+  test("of a pack the Builder made none for is read at the next Build, and the Builder is asked once to make it; the engine service is never asked for rows", async () => {
+    const deps = await stored(false);
+    expect(await refused(atlasFile(deps, viewer(), "acme", "rocket", "map", null))).toEqual([404, "This repository's history is read at its next Build."]);
+    expect(await refused(atlasFile(deps, viewer(), "acme", "rocket", "names", null))).toEqual([404, "This repository's history is read at its next Build."]);
+    expect(deps.queued).toEqual([{ repoId: "acme/rocket", si: deps.si, pack: deps.pack }]);
+    expect(deps.engine.asked).toEqual([]);
     const { atlas, names } = atlasOf(rows);
-    const map = brotliCompressSync(encodeAtlas(atlas));
-    await deps.storage.put(atlasKey(deps.si, deps.pack, "map"), map, { type: "application/octet-stream", encoding: "br" });
+    await deps.storage.put(atlasKey(deps.si, deps.pack, "map"), brotliCompressSync(encodeAtlas(atlas)), { type: "application/octet-stream", encoding: "br" });
     await deps.storage.put(atlasKey(deps.si, deps.pack, "names"), brotliCompressSync(encodeNames(names)), { type: "application/octet-stream", encoding: "br" });
-    expect(await warmAtlas(deps, deps.si, deps.pack)).toBe(true);
-    const { found, bytes } = await bytesOf(deps, "map");
-    expect(Buffer.from(found.body?.br ?? new Uint8Array()).equals(map)).toBe(true);
-    expect(decodeAtlas(bytes).people.names).toEqual(["Alice Example", "ci-bot"]);
-    expect(deps.engine.asked).toEqual([]);
+    expect(decodeAtlas((await bytesOf(deps, "map")).bytes).people.names).toEqual(["Alice Example", "ci-bot"]);
   });
 
-  test("of a Build's quick pack is never made by the Site: the full pack brings it", async () => {
-    const deps = await stored();
-    const quick = await packed(deps.db, deps.si, "packs/acme/rocket/1/head-b2-quick.pack");
-    expect(await warmAtlas(deps, deps.si, quick)).toBe(false);
-    const asked = await atlasFile(deps, viewer(), "acme", "rocket", "map", null).then(
-      () => null,
-      (e: SiteError) => [e.status, e.message],
-    );
-    expect(asked).toEqual([404, "The Universe is drawn once this Build has read the whole history."]);
-    expect(deps.engine.asked).toEqual([]);
-  });
-
-  test("is made ahead of its first visitor, and what the Stored Index's earlier packs left in storage is deleted", async () => {
-    const deps = await stored();
-    await deps.storage.put(`atlas/${deps.si}/0000000000000000/map.bin.br`, "old", { type: "application/octet-stream" });
-    expect(await warmAtlas(deps, deps.si, deps.pack)).toBe(true);
-    const kept = (await deps.storage.keys?.(`atlas/${deps.si}/`)) ?? [];
-    expect(kept.length).toBe(2);
-    expect(kept.some((k) => k.includes("0000000000000000"))).toBe(false);
-    const again = await atlasFile(deps, viewer(), "acme", "rocket", "map", null);
-    expect(again.body).not.toBeNull();
-    expect(deps.engine.asked).toHaveLength(1);
-  });
-
-  test("is sent packed quickly at once, then packed as small as brotli makes it, which is stored and sent from then on, the same bytes once unpacked", async () => {
-    const deps = await stored();
-    const built = await atlasOfPack(deps, deps.si, deps.pack);
-    const first = built.map.br;
-    const raw = brotliDecompressSync(first);
-    expect(first).toEqual(new Uint8Array(brotliCompressSync(raw, { params: { [constants.BROTLI_PARAM_QUALITY]: 5, [constants.BROTLI_PARAM_LGWIN]: 24, [constants.BROTLI_PARAM_SIZE_HINT]: raw.byteLength } })));
-    await built.kept;
-    const kept = await deps.storage.get(`atlas/${deps.si}/${(await deps.storage.keys?.(`atlas/${deps.si}/`))?.[0]?.split("/")[2]}/map.bin.br`);
-    expect(kept?.body).toEqual(built.map.br);
-    expect(built.map.br.byteLength).toBeLessThanOrEqual(first.byteLength);
-    expect(brotliDecompressSync(built.map.br)).toEqual(raw);
-    expect(brotliDecompressSync(built.names.br).byteLength).toBeGreaterThan(0);
+  test("of a Build's quick pack is drawn once the Build has read the whole history, and nothing is asked for", async () => {
+    const deps = await stored(false);
+    await packed(deps.db, deps.si, "packs/acme/rocket/1/head-b2-quick.pack");
+    expect(await refused(atlasFile(deps, viewer(), "acme", "rocket", "map", null))).toEqual([404, "The Universe is drawn once this Build has read the whole history."]);
+    expect(deps.queued).toEqual([]);
   });
 
   test("is read at the next Build while the Stored Index has no pack", async () => {

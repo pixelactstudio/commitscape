@@ -42,16 +42,6 @@ pub struct PersonRow {
     pub bot: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct Rows {
-    pub mainline: bool,
-    pub newest: i64,
-    pub commits: Vec<CommitRow>,
-    pub files: Vec<FileRow>,
-    pub people: Vec<PersonRow>,
-    pub releases: Vec<(String, i64)>,
-}
-
 struct Header {
     mainline: bool,
     newest: i64,
@@ -114,26 +104,6 @@ fn commit_row(pack: &Pack, t: i64, at: usize) -> Option<CommitRow> {
         files: changes.iter().map(|ch| ch.file.0).collect(),
         changes: changes.iter().map(|ch| ch.kind as u8).collect(),
     })
-}
-
-/// What the Atlas is made from, as the Site's `atlasRows` read it from the Stored Index before: the commits that reached the default branch by when they did (every commit when no Mainline is known), Merge Commits left out, files by id, people in the order of their first Signature, and each release at its commit's Main Arrival.
-pub fn rows(pack: &Pack) -> Rows {
-    let Header {
-        mainline,
-        newest,
-        picked,
-    } = header(pack);
-    Rows {
-        mainline,
-        newest,
-        commits: picked
-            .into_iter()
-            .filter_map(|at| commit_row(pack, arrived(pack, mainline, at as usize), at as usize))
-            .collect(),
-        files: files(pack),
-        people: people(pack),
-        releases: releases(pack),
-    }
 }
 
 #[derive(Serialize)]

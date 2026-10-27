@@ -1,7 +1,6 @@
 import "@tanstack/react-start/server-only";
 import * as Sentry from "@sentry/tanstackstart-react";
 import type { CodeLog, CodeStory, CommitQuery, FolderLast, Params, PathHistory, PullInsight } from "@commitscape/data";
-import type { AtlasRows } from "@commitscape/data/universe";
 import { SiteError } from "./http";
 import { EngineError, engineFailed, engineTimed, type EngineOutcome } from "./telemetry";
 
@@ -43,7 +42,6 @@ export type EngineService = {
   under(pack: string, path: string, query: CommitQuery, cursor: string | undefined, said: string[] | null): Promise<UnderPage>;
   search(pack: string, query: CommitQuery, cursor: string | undefined): Promise<UnderPage>;
   insight(pack: string, number: number, paths: string[], author: string | null, named: Named[]): Promise<PullInsight>;
-  universeRows(pack: string): Promise<AtlasRows>;
   warm(pack: string, keys: string[]): Promise<number>;
 };
 
@@ -75,7 +73,6 @@ export function engineOver(post: Post): EngineService {
     under: (pack, path, query, cursor, said) => json("/v1/commits/under", { pack, path, query, ...(cursor === undefined ? {} : { cursor }), said }),
     search: (pack, query, cursor) => json("/v1/commits/search", { pack, query, ...(cursor === undefined ? {} : { cursor }) }),
     insight: (pack, number, paths, author, named) => json("/v1/pulls/insight", { pack, number, paths, author, named }),
-    universeRows: (pack) => json("/v1/universe/rows", { pack }),
     warm: async (pack, keys) => (await json<{ made: number }>("/v1/warm", { pack, keys })).made,
   };
 }

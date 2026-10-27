@@ -4,6 +4,7 @@ export const BUILD_QUEUE = "builds";
 export const BUILD_LARGE_QUEUE = "builds-large";
 export const SURVIVAL_QUEUE = "surviving-by-people";
 export const PULLS_QUEUE = "pulls-by-repo";
+export const ATLAS_QUEUE = "atlases";
 
 export type BuildTrace = { sentryTrace: string; baggage: string };
 
@@ -13,11 +14,13 @@ export type SurvivalJob = { repoId: string; reportKey: string; personIds: number
 
 export type PullsJob = { repoId: string };
 
+export type AtlasJob = { repoId: string; si: number; pack: string };
+
 export const PRIORITY = { person: 10, seed: 0, lines: -10, rebuild: -20 } as const;
 
 export const LONGEST_JOB_SECONDS = 24 * 3600;
 
-export type Queue = { send(job: BuildJob, priority: number): Promise<void>; count?(job: SurvivalJob): Promise<void> };
+export type Queue = { send(job: BuildJob, priority: number): Promise<void>; count?(job: SurvivalJob): Promise<void>; atlas?(job: AtlasJob): Promise<void> };
 
 export const buildKey = (job: BuildJob) => job.repoId ?? job.buildId;
 export const survivalKey = (job: SurvivalJob) => `${job.repoId}:${job.reportKey}:${job.everyone ? "*" : job.personIds.join(",")}`;
@@ -37,6 +40,7 @@ export async function startQueue(url: string, options: { worker: boolean; expire
   }
   await boss.createQueue(PULLS_QUEUE, { policy: "stately", retryLimit: 0, expireInSeconds: 3600, retentionSeconds: 24 * 3600 });
   await boss.createQueue(SURVIVAL_QUEUE, { policy: "stately", retryLimit: 0, expireInSeconds: LONGEST_JOB_SECONDS, retentionSeconds: 24 * 3600 });
+  await boss.createQueue(ATLAS_QUEUE, { policy: "stately", retryLimit: 1, expireInSeconds: 3600, retentionSeconds: 24 * 3600 });
   if (options.worker && options.expireInSeconds) {
     for (const name of [BUILD_QUEUE, BUILD_LARGE_QUEUE]) await boss.updateQueue(name, { expireInSeconds: options.expireInSeconds });
   }
@@ -51,6 +55,9 @@ export function bossQueue(boss: PgBoss): Queue {
     },
     async count(job) {
       await boss.send(SURVIVAL_QUEUE, job, { singletonKey: survivalKey(job) });
+    },
+    async atlas(job) {
+      await boss.send(ATLAS_QUEUE, job, { singletonKey: job.pack });
     },
   };
 }

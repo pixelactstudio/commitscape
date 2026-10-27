@@ -195,16 +195,19 @@ queued ones whose job was lost.
   every subject and matches the words as Postgres did), then read only
   that page's rows from Postgres.
 - The Code window's tree, coupling, story and history, a folder's newest
-  commits, a pull request's insight and the Universe's rows come from the
-  engine service. The Universe's Atlas is made by the Builder from the
-  pack with `commitscape atlas`, in a process of its own that waits for
-  its share of `ENGINE_MEMORY_MB` (linux: 98 MB, 2.9 s), and stored in R2
-  before the pack is published; the Site sends those bytes. A test checks
-  it is byte for byte what the Site's own encoder makes, on every fixture
-  (and by hand on react and linux). The Site makes the Atlas from the
-  engine service's rows only for a pack the Builder did not make one for,
-  a path kept for this release only. Branches, tags and pull requests are rows; file text is
-  in R2.
+  commits and a pull request's insight come from the engine service. The
+  Universe's Atlas is made by the Builder from the pack with `commitscape
+  atlas`, in a process of its own that waits for its share of
+  `ENGINE_MEMORY_MB` (linux: 98 MB, 2.9 s), and stored in R2 before the
+  pack is published; the Site only sends those bytes. A test checks it is
+  byte for byte what the TypeScript encoder makes, on every fixture (and
+  by hand on react and linux). An Atlas that failed while publishing is
+  queued on `atlases` and made later from the pack in R2, and the next
+  full Build makes its own anyway. The Site never makes one: for a pack
+  without an Atlas (one published before this release, until `rebuild`
+  has reached it) the Universe says the history is read at the next
+  Build, and the Site queues the same job, once per pack. Branches, tags
+  and pull requests are rows; file text is in R2.
 - A Shared Report is one locked file. The browser downloads it, decrypts it
   with the key after the `#`, and pages its Commit List itself; the Site
   never sees it unlocked.

@@ -206,10 +206,7 @@ describe("warming", () => {
     expect(engine.asked).toEqual([]);
     await deps.db.update(repositories).set({ viewedAt: now() }).where(eq(repositories.id, "acme/rocket"));
     expect(await warmLoaded(w, si)).toBe(true);
-    expect(engine.asked).toEqual([
-      { endpoint: "/v1/warm", body: { pack, keys: firstAnswers("all") } },
-      { endpoint: "/v1/universe/rows", body: { pack } },
-    ]);
+    expect(engine.asked).toEqual([{ endpoint: "/v1/warm", body: { pack, keys: firstAnswers("all") } }]);
     await deps.db.update(storedIndexes).set({ pack: null }).where(eq(storedIndexes.id, si));
     engine.asked.length = 0;
     expect(await warmLoaded(w, si)).toBe(false);

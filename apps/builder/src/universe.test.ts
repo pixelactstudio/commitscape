@@ -7,9 +7,13 @@ import { fileURLToPath } from "node:url";
 import { brotliDecompressSync } from "node:zlib";
 import { describe, expect, test } from "vitest";
 import { atlasOf, encodeAtlas, encodeNames, type AtlasCommitRow, type AtlasFileRow, type AtlasPersonRow, type AtlasRows } from "@commitscape/data/universe";
-import { atlasKey, memoryStorage } from "@commitscape/server";
+import { PGlite } from "@electric-sql/pglite";
+import { drizzle } from "drizzle-orm/pglite";
+import { migrate } from "drizzle-orm/pglite/migrator";
+import { atlasKey, memoryStorage, schema, type Db } from "@commitscape/server";
 import { writeAtlasMade } from "./fake";
-import { storeAtlas } from "./universe";
+import type { Config } from "./config";
+import { atlasJob, storeAtlas } from "./universe";
 
 const root = fileURLToPath(new URL("../../..", import.meta.url));
 const bin = join(root, "target/release/commitscape");
@@ -53,6 +57,36 @@ test("an Atlas that fails says why and stores nothing", async () => {
   const failing = async () => ({ code: 1, stderr: "out of memory\n", timedOut: false });
   await expect(storeAtlas(failing, storage, { bin: "commitscape", quality: 5, si: 1, pack: "p", file: join(dir, "pack.bin"), dir, timeoutMs: 1000 })).rejects.toThrow("making the Atlas failed: out of memory");
   expect(storage.objects.size).toBe(0);
+});
+
+const migrations = fileURLToPath(new URL("../../../packages/server/drizzle", import.meta.url));
+
+test("an Atlas job makes the Atlas of the repository's live pack from R2, once, and leaves alone a pack that is not live or a quick one", async () => {
+  const db = drizzle(new PGlite(), { schema }) as unknown as Db;
+  await migrate(db as never, { migrationsFolder: migrations });
+  const work = await mkdtemp(join(tmpdir(), "atlas-job-"));
+  const cfg = { bin: "commitscape", timeLimit: 60, nice: 10, work, atlas: { quality: 5 } } as Config;
+  const storage = memoryStorage();
+  const pack = "packs/acme/rocket/1/a-b1-lines.pack";
+  await db.insert(schema.repositories).values({ id: "acme/rocket", owner: "acme", name: "rocket" });
+  const [si] = await db.insert(schema.storedIndexes).values({ repoId: "acme/rocket", lineage: "1", kept: true, state: "live", lines: true, builtAt: 1, pack, commits: 3 }).returning({ id: schema.storedIndexes.id });
+  await db.update(schema.repositories).set({ indexId: si?.id ?? null });
+  await storage.put(pack, "the pack", { type: "application/octet-stream" });
+  const asked: string[][] = [];
+  const run = async (cmd: string, args: string[], _env: NodeJS.ProcessEnv, _t: number, opts?: { memoryMb?: number }) => {
+    asked.push([cmd, args[0] ?? "", String(opts?.memoryMb ?? 0)]);
+    await writeAtlasMade(args);
+    return { code: 0, stderr: "", timedOut: false };
+  };
+  const job = { repoId: "acme/rocket", si: si?.id ?? 0, pack };
+  expect(await atlasJob(job, { db, storage, run, cfg })).toBe("made");
+  expect(storage.objects.has(atlasKey(job.si, pack, "map"))).toBe(true);
+  expect(asked).toEqual([["commitscape", "atlas", expect.stringMatching(/^[1-9]/) as unknown as string]]);
+  expect(await atlasJob(job, { db, storage, run, cfg })).toBe("kept");
+  expect(await atlasJob({ ...job, pack: "packs/acme/rocket/1/old-b0-lines.pack" }, { db, storage, run, cfg })).toBe("gone");
+  expect(await atlasJob({ ...job, pack: "packs/acme/rocket/1/a-b2-quick.pack" }, { db, storage, run, cfg })).toBe("gone");
+  expect(asked).toHaveLength(1);
+  expect(readdirSync(join(work, "jobs"))).toEqual([]);
 });
 
 const why = !existsSync(bin) ? "build the binary first: cargo build --release -p commitscape" : !existsSync(join(fixtures, "crafted/.git")) ? "build the fixtures first: cargo xtask fixtures --force" : null;

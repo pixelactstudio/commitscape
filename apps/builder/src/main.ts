@@ -10,6 +10,7 @@ import {
   holdBuilderLock,
   PRIORITY,
   PULLS_QUEUE,
+  ATLAS_QUEUE,
   reapBuilds,
   runMigrations,
   s3Storage,
@@ -22,6 +23,7 @@ import {
   type BuildJob,
   type Db,
   type PullsJob,
+  type AtlasJob,
   type SurvivalJob,
 } from "@commitscape/server";
 import { configOf, loadEnv, type Config } from "./config";
@@ -36,6 +38,7 @@ import { budgetOf, runSurvival } from "./survival";
 import { queueRebuilds } from "./rebuild";
 import { forgetStates, saveState as saveRepoState, stateKeys } from "./state";
 import { headsOf, queueSeeds, seedConfig, seedList } from "./seeds";
+import { atlasJob } from "./universe";
 
 const command = process.argv[2] ?? "work";
 
@@ -133,7 +136,10 @@ async function work() {
   const tidyTimed = timed("builder-tidy", TIDY_MINUTES, tidy);
   const tier = cfg.state ? { storage, keys: stateKeys(cfg.state.secret), db, log } : null;
   const saveState = tier ? (repoId: string, root: string) => saveRepoState(tier, repoId, root) : undefined;
-  const ctx = { db, pool, storage, cfg, app, run: engine, github, tokenSecret: env.TOKEN_SECRET, log, telemetry, queuePulls, queueCounts, queueBuild, ...(saveState ? { saveState } : {}) };
+  const queueAtlas = async (job: AtlasJob) => {
+    await boss.send(ATLAS_QUEUE, job, { singletonKey: job.pack });
+  };
+  const ctx = { db, pool, storage, cfg, app, run: engine, github, tokenSecret: env.TOKEN_SECRET, log, telemetry, queuePulls, queueCounts, queueBuild, queueAtlas, ...(saveState ? { saveState } : {}) };
   const building = (queue: string, job: { id: string; data: BuildJob }) =>
     inQueueSpan(job, queue, () => runJob(job.data.buildId, ctx, job.data.attempt ?? 1, { ...(job.data.userId ? { userId: job.data.userId } : {}), ...(job.data.more ? { more: job.data.more } : {}) }));
   await reapTimed();
@@ -161,6 +167,11 @@ async function work() {
     if (!job) return;
     await site.ready();
     await runSurvival(job.data, { ...ctx, budget: env.SURVIVING_BUDGET_SECONDS });
+  });
+  await boss.work<AtlasJob>(ATLAS_QUEUE, { localConcurrency: 1, batchSize: 1 }, async ([job]) => {
+    if (!job) return;
+    const done = await atlasJob(job.data, ctx);
+    log(`atlas of ${job.data.repoId} (${job.data.pack}): ${done}`);
   });
   await boss.work<PullsJob>(PULLS_QUEUE, { localConcurrency: 1, batchSize: 1 }, async ([job]) => {
     if (!job) return;

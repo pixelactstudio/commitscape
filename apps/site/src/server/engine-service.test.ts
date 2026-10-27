@@ -176,8 +176,6 @@ async function ask(engine: EngineService, pack: string, endpoint: string, body: 
       return engine.search(pack, b.query, b.cursor);
     case "/v1/pulls/insight":
       return engine.insight(pack, b.number, b.paths, b.author, b.named);
-    case "/v1/universe/rows":
-      return engine.universeRows(pack);
     default:
       throw new Error(`no call for ${endpoint}`);
   }

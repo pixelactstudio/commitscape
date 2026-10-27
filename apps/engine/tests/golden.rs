@@ -208,7 +208,6 @@ fn every_endpoint_has_goldens() {
             "/v1/git/path-history",
             "/v1/git/tree",
             "/v1/pulls/insight",
-            "/v1/universe/rows",
         ]
     );
 }

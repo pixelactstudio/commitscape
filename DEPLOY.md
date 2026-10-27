@@ -82,11 +82,9 @@ venus, the Site, the engine service and Postgres:
 | Postgres | its shared buffers (128 MB unless set) and about 10 MB a connection in use | its settings and the pools |
 | Together | about 1.7 GB, plus the page cache for unpacked packs (linux: 275 MB) and Postgres's files | |
 
-Two paths kept for this release only take more: the Site makes an Atlas
-itself for a pack the Builder made none for (linux: 1.16 GB for a few
-seconds), from the engine service's rows (linux: about 450 MB). Once
-`node builder.mjs rebuild` has rebuilt every repository, every pack has
-its Atlas and neither path runs; both go in the next release.
+The Site never makes an Atlas and the engine service no longer answers
+the rows one was made from: a pack without an Atlas has one made by the
+Builder, under `ENGINE_MEMORY_MB`, on the `atlases` queue.
 
 ## 1. The R2 bucket
 

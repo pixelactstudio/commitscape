@@ -22,7 +22,6 @@ use crate::packs::{PackFailure, Packs};
 use crate::params::{self, Params};
 use crate::questions::{self, Question};
 use crate::work::{Work, WorkError};
-use commitscape_report::universe;
 
 pub const ANSWER_BYTES: u64 = 128 * 1024 * 1024;
 
@@ -245,11 +244,6 @@ struct AnswerBody {
     params: Params,
 }
 
-#[derive(Deserialize)]
-struct PackBody {
-    pack: String,
-}
-
 #[derive(Deserialize, Serialize)]
 struct Asked<Q> {
     pack: String,
@@ -282,24 +276,6 @@ async fn answer(
 ) -> Result<Response, Failure> {
     let Json(body) = body?;
     let made = engine.answer(&body.pack, body.path, &body.params).await?;
-    made.map(json_bytes).ok_or(Failure::NoAnswer)
-}
-
-async fn universe_rows(
-    State(engine): State<Arc<Engine>>,
-    body: Result<Json<PackBody>, JsonRejection>,
-) -> Result<Response, Failure> {
-    let Json(body) = body?;
-    let key = format!("{}\n/v1/universe/rows", body.pack);
-    if let Some(hit) = engine.kept(&key) {
-        return Ok(json_bytes(hit));
-    }
-    let held = engine.pack(&body.pack).await?;
-    let made = engine
-        .made(key, held, |held| {
-            serde_json::to_vec(&universe::rows(&held.pack)).ok()
-        })
-        .await?;
     made.map(json_bytes).ok_or(Failure::NoAnswer)
 }
 
@@ -358,7 +334,6 @@ async fn authorized(State(engine): State<Arc<Engine>>, req: Request, next: Next)
 pub fn router(engine: Arc<Engine>) -> Router {
     let v1 = Router::new()
         .route("/v1/answer", post(answer))
-        .route("/v1/universe/rows", post(universe_rows))
         .route("/v1/warm", post(warm))
         .route(questions::Tree::PATH, post(asked::<questions::Tree>))
         .route(questions::Log::PATH, post(asked::<questions::Log>))

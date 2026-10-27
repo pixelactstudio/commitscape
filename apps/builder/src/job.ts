@@ -16,6 +16,7 @@ import {
   packKey,
   screensKey,
   sha256,
+  type AtlasJob,
   type BuildJob,
   type Db,
   type GitHubApp,
@@ -63,6 +64,7 @@ export type JobContext = {
   saveState?: (repoId: string, root: string) => Promise<unknown>;
   prefetch?: Deps["prefetch"];
   queueBuild?: (job: BuildJob & { attempt: number }, priority: number, startAfter?: number) => Promise<void>;
+  queueAtlas?: (job: AtlasJob) => Promise<void>;
 };
 
 export type JobAsked = Pick<BuildJob, "userId" | "more">;
@@ -299,10 +301,14 @@ async function publishBuild(ctx: JobContext, phases: Phases, buildId: string, ma
   const body = await readFile(made.pack);
   await phases.time(`upload ${made.phase}`, "http.client", () => storage.put(pack, body, { type: "application/octet-stream" }));
   const atlas = ctx.cfg.atlas;
+  let atlasPending = false;
   if (atlas && made.phase === "full") {
     await phases
       .time(`atlas ${made.phase}`, "atlas", () => storeAtlas(ctx.run, storage, { bin: ctx.cfg.bin, quality: atlas.quality, si, pack, file: made.pack, dir: made.dir, timeoutMs: timeLimitOf(ctx.cfg) * 1000, nice: ctx.cfg.nice, commits: made.manifest.total }))
-      .catch((e: unknown) => ctx.log(`atlas of ${named.id}: ${(e as Error).message}, so the Site makes it`));
+      .catch((e: unknown) => {
+        atlasPending = true;
+        ctx.log(`atlas of ${named.id}: ${(e as Error).message}, so it is made later`);
+      });
   }
   const lines = made.phase === "full" && made.manifest.lines_mainline;
   const same = made.phase === "full" && named.reportLines === true && !made.loaded.full && made.before?.id === si && made.before.head === made.manifest.head;
@@ -370,6 +376,7 @@ async function publishBuild(ctx: JobContext, phases: Phases, buildId: string, ma
     await storage.delete([target.replaced]).catch(() => undefined);
     for (const beside of besidePack(si, target.replaced)) await storage.deletePrefix(beside).catch(() => undefined);
   }
+  if (atlasPending) await ctx.queueAtlas?.({ repoId: target.current.id, si, pack }).catch((e: unknown) => ctx.log(`atlas of ${target.current.id} not queued: ${(e as Error).message}`));
   for (const old of target.dropped) {
     if (old.pack) await storage.delete([old.pack, screensKey(old.pack)]).catch(() => undefined);
     await storage.deletePrefix(`atlas/${old.id}/`).catch(() => undefined);
