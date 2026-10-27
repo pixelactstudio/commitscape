@@ -438,6 +438,16 @@ fn merge_history(
     };
     let key = |c: &CommitMeta| (c.time, c.id.0);
     let split = index.commits.partition_point(|c| key(c) <= key(&first_new));
+    let _copied =
+        (index.commits.is_mapped() || index.changes.is_mapped() || index.subjects.is_mapped())
+            .then(|| {
+                tracing::info_span!(
+                    "history_copied",
+                    commits = index.commits.len(),
+                    changes = index.changes.len()
+                )
+                .entered()
+            });
 
     let commits = index.commits.vec_mut();
     let changes = index.changes.vec_mut();

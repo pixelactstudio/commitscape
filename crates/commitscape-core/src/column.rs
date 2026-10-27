@@ -42,7 +42,7 @@ impl<T: Clone + 'static> Column<T> {
         }
     }
 
-    /// The records as a vector to grow or reorder, copied out of the mapping first when the column is mapped.
+    /// The records as a vector to grow or reorder, copied out of the mapping first when the column is mapped: on a long history that is the whole column on the heap, so a caller that may meet a mapped column says so first.
     pub fn vec_mut(&mut self) -> &mut Vec<T> {
         if let Some(m) = self.mapped.take() {
             self.owned = m.get().to_vec();
