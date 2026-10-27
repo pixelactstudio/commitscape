@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { and, eq, sql } from "drizzle-orm";
 import {
+  besidePack,
   BUILD_FORMAT,
   type createDb,
   liveIndex,
@@ -11,6 +12,7 @@ import {
   randomId,
   reportPrefix,
   schema,
+  screensPrefix,
   sha256,
   type BuildJob,
   type Db,
@@ -312,7 +314,7 @@ async function publishBuild(ctx: JobContext, phases: Phases, buildId: string, ma
   const prefix = same && named.reportKey ? named.reportKey : reportPrefix(named.id, made.phase === "full" ? buildId : `${buildId}-quick`);
   await phases
     .time(`screens ${made.phase}`, "screens", () =>
-      storeScreens(ctx.run, storage, { bin: ctx.cfg.bin, pack: made.pack, dir: made.dir, prefix, env: ctx.cfg.threads ? { COMMITSCAPE_THREADS: String(ctx.cfg.threads) } : {}, timeoutMs: timeLimitOf(ctx.cfg) * 1000, nice: ctx.cfg.nice, commits: made.manifest.total }),
+      storeScreens(ctx.run, storage, { bin: ctx.cfg.bin, pack: made.pack, dir: made.dir, prefix: screensPrefix(si, pack), env: ctx.cfg.threads ? { COMMITSCAPE_THREADS: String(ctx.cfg.threads) } : {}, timeoutMs: timeLimitOf(ctx.cfg) * 1000, nice: ctx.cfg.nice, commits: made.manifest.total }),
     )
     .catch((e: unknown) => ctx.log(`screens of ${named.id}: ${(e as Error).message}, so the engine service answers them`));
   const { stats, people } = made.summary;
@@ -360,10 +362,14 @@ async function publishBuild(ctx: JobContext, phases: Phases, buildId: string, ma
   });
   if (!target) {
     await storage.delete([pack]).catch(() => undefined);
+    for (const beside of besidePack(si, pack)) await storage.deletePrefix(beside).catch(() => undefined);
     if (prefix !== named.reportKey) await storage.deletePrefix(`${prefix}/`).catch(() => undefined);
     return null;
   }
-  if (target.replaced && target.replaced !== pack) await storage.delete([target.replaced]).catch(() => undefined);
+  if (target.replaced && target.replaced !== pack) {
+    await storage.delete([target.replaced]).catch(() => undefined);
+    for (const beside of besidePack(si, target.replaced)) await storage.deletePrefix(beside).catch(() => undefined);
+  }
   if (target.current.reportKey && target.current.reportKey !== prefix) await storage.deletePrefix(`${target.current.reportKey}/`).catch(() => undefined);
   return { id: target.current.id, prefix, people, fresh: target.current.reportKey !== prefix };
 }

@@ -11,6 +11,7 @@ import {
   PRIORITY,
   queueBuild,
   readEntry,
+  screensPrefix,
   readIndex,
   reportIndexOf,
   REPORT_FOR,
@@ -337,12 +338,13 @@ const fromReport = (deps: Deps, reportKey: string, asked: ReturnType<typeof aske
 const unstored = new Set<string>();
 const UNSTORED_MAX = 50_000;
 
-/** A standard screen a Build stored with the Report, when the question is one and it is there: read once per Report and question, and kept; a Report written before Builds stored them is asked once. */
-async function storedScreen(deps: Deps, reportKey: string | null, asked: ReturnType<typeof askedKey>, browser = false): Promise<Kept | null> {
-  if (!reportKey || !isStoredScreen(asked.path, asked.params)) return null;
-  const at = `${reportKey}#${keyOf(asked.path, withoutTop(asked.params))}`;
+/** A standard screen a Build stored beside a pack, when the question is one and it is there: read once per pack and question, and kept; a pack it stored none for is asked once. */
+async function storedScreen(deps: Deps, si: number | null, pack: string, asked: ReturnType<typeof askedKey>, browser = false): Promise<Kept | null> {
+  if (si === null || !isStoredScreen(asked.path, asked.params)) return null;
+  const prefix = screensPrefix(si, pack);
+  const at = `${prefix}#${keyOf(asked.path, withoutTop(asked.params))}`;
   if (unstored.has(at)) return null;
-  const kept = await keptEntry(`${reportKey}#${asked.key}`, fromReport(deps, reportKey, asked), browser);
+  const kept = await keptEntry(`${prefix}#${asked.key}`, fromReport(deps, prefix, asked), browser);
   if (!kept) {
     if (unstored.size >= UNSTORED_MAX) unstored.clear();
     unstored.add(at);
@@ -369,15 +371,23 @@ export async function reportEntry(deps: Deps, viewer: Viewer, owner: string, nam
   const started = performance.now();
   const row = await readable(deps, viewer, owner, name);
   const asked = questionOf(key);
-  const stored = await storedScreen(deps, row.reportKey, asked);
-  if (stored) {
-    answerTimed(asked.path, "stored", performance.now() - started);
-    return stored.value;
-  }
-  const found = await withPack(deps.db, row.indexId, (pack) => packedAnswer(deps, viewer, pack, asked), row.reportAt);
+  const found = await withPack(
+    deps.db,
+    row.indexId,
+    async (pack) => {
+      const stored = await storedScreen(deps, row.indexId, pack, asked);
+      return stored ? { stored, packed: null } : { stored: null, packed: await packedAnswer(deps, viewer, pack, asked) };
+    },
+    row.reportAt,
+  );
   if (found) {
-    if (found.value === null) return null;
-    const value = await jsonOf(found.value);
+    const { stored, packed } = found.value;
+    if (stored) {
+      answerTimed(asked.path, "stored", performance.now() - started);
+      return stored.value;
+    }
+    if (packed === null) return null;
+    const value = await jsonOf(packed);
     answerTimed(asked.path, "engine", performance.now() - started);
     return value;
   }
@@ -396,24 +406,24 @@ export async function reportAnswer(deps: Deps, viewer: Viewer, owner: string, na
   const pinned = at !== null && at === row.reportAt;
   const cacheControl = row.isPrivate ? "private, max-age=60" : pinned ? `public, max-age=${YEAR}, immutable` : "public, max-age=60";
   const tagOf = (version: string) => `"${sha256(`${version}\n${asked.key}`).slice(0, 32)}"`;
-  if (row.reportKey && isStoredScreen(asked.path, asked.params)) {
-    const etag = tagOf(row.reportKey);
-    const stored = matches(seen, etag) ? null : await storedScreen(deps, row.reportKey, asked, true);
-    if (matches(seen, etag) || stored) {
-      answerTimed(asked.path, "stored", performance.now() - started);
-      return { packed: stored ? await packedOf(stored) : null, etag, cacheControl };
-    }
-  }
-  const found = await withPack(deps.db, row.indexId, async (pack) => {
-    const etag = tagOf(pack);
-    if (matches(seen, etag)) return { packed: null, etag };
-    const made = await packedAnswer(deps, viewer, pack, asked);
-    if (!made) throw new SiteError(404, NOT_IN_REPORT);
-    return { packed: made, etag };
-  }, row.reportAt);
+  const found = await withPack(
+    deps.db,
+    row.indexId,
+    async (pack) => {
+      const etag = tagOf(pack);
+      if (matches(seen, etag)) return { packed: null, etag, from: "unchanged" as const };
+      const stored = await storedScreen(deps, row.indexId, pack, asked, true);
+      if (stored) return { packed: await packedOf(stored), etag, from: "stored" as const };
+      const made = await packedAnswer(deps, viewer, pack, asked);
+      if (!made) throw new SiteError(404, NOT_IN_REPORT);
+      return { packed: made, etag, from: "engine" as const };
+    },
+    row.reportAt,
+  );
   if (found) {
-    answerTimed(asked.path, found.value.packed ? "engine" : "unchanged", performance.now() - started);
-    return { ...found.value, cacheControl };
+    const { from, ...sent } = found.value;
+    answerTimed(asked.path, from, performance.now() - started);
+    return { ...sent, cacheControl };
   }
   const etag = tagOf(row.reportKey);
   if (matches(seen, etag)) return { packed: null, etag, cacheControl };

@@ -2,7 +2,7 @@ import { brotliDecompressSync, gunzipSync, gzipSync } from "node:zlib";
 import { eq } from "drizzle-orm";
 import { describe, expect, test } from "vitest";
 import { key, limited, OVERVIEW_TOP, topOf, type People, type Params } from "@commitscape/data";
-import { now, schema, seedIndex, sha256, storeEntries, storeReport, type SeedIndex } from "@commitscape/server";
+import { now, schema, screensPrefix, seedIndex, sha256, storeEntries, storeReport, type SeedIndex } from "@commitscape/server";
 import { fakeEngine, packed, testDeps, viewer, type Asked } from "#/test/deps";
 import { forgetPack, packOf, wholeDays } from "./answers";
 import { NoPack } from "./engine-service";
@@ -70,8 +70,8 @@ describe("a Report's answers as plain JSON", () => {
   test("a Build stored with its Report are sent without asking the engine service, cut the same way and kept for good when pinned; other questions still ask it", async () => {
     const { deps, engine } = await stored();
     await deps.db.insert(repositories).values({ id: "acme/stored", owner: "acme", name: "stored", githubId: 3, status: "ok", factsAt: now(), reportKey: "reports/gh/acme/stored/b2", reportAt: 900 });
-    await packed(deps.db, await seedIndex(deps.db, "acme/stored", seed));
-    await storeEntries(deps.storage, "reports/gh/acme/stored/b2", { [overview]: { window: "all", commits: 9 }, [key("/api/people", { window: "all" })]: people });
+    const storedSi = await seedIndex(deps.db, "acme/stored", seed);
+    await storeEntries(deps.storage, screensPrefix(storedSi, await packed(deps.db, storedSi)), { [overview]: { window: "all", commits: 9 }, [key("/api/people", { window: "all" })]: people });
     const sent = await reportAnswer(deps, viewer(), "acme", "stored", key("/api/overview", { window: "all", top: OVERVIEW_TOP }), 900);
     expect(sent.cacheControl).toBe("public, max-age=31536000, immutable");
     expect(await brotliJson(sent)).toEqual({ window: "all", commits: 9 });
@@ -83,6 +83,23 @@ describe("a Report's answers as plain JSON", () => {
     expect(await reportEntry(deps, viewer(), "acme", "stored", key("/api/overview", { window: "30d" }))).toEqual({ window: "30d", commits: 3 });
     expect(await reportEntry(deps, viewer(), "acme", "stored", key("/api/activity", { window: "all" }))).toBeNull();
     expect(engine.asked.map((a) => a.body.path)).toEqual(["/api/overview", "/api/activity"]);
+  });
+
+  test("stored with a pack published again at the same head under the same Report are the new pack's, with a new ETag", async () => {
+    const { deps, engine } = await stored();
+    await deps.db.insert(repositories).values({ id: "acme/again", owner: "acme", name: "again", githubId: 4, status: "ok", factsAt: now(), reportKey: "reports/gh/acme/again/b3", reportAt: 900 });
+    const si = await seedIndex(deps.db, "acme/again", seed);
+    const first = await packed(deps.db, si, `packs/acme/${si}/head-b3-lines.pack`);
+    await storeEntries(deps.storage, screensPrefix(si, first), { [overview]: { window: "all", commits: 9, lines: 10 } });
+    const before = await reportAnswer(deps, viewer(), "acme", "again", overview, null);
+    expect(await brotliJson(before)).toEqual({ window: "all", commits: 9, lines: 10 });
+    const second = await packed(deps.db, si, `packs/acme/${si}/head-b4-lines.pack`);
+    await storeEntries(deps.storage, screensPrefix(si, second), { [overview]: { window: "all", commits: 9, lines: 25 } });
+    const after = await reportAnswer(deps, viewer(), "acme", "again", overview, null, before.etag);
+    expect(after.etag).not.toBe(before.etag);
+    expect(await brotliJson(after)).toEqual({ window: "all", commits: 9, lines: 25 });
+    expect(await reportEntry(deps, viewer(), "acme", "again", overview)).toEqual({ window: "all", commits: 9, lines: 25 });
+    expect(engine.asked).toEqual([]);
   });
 
   test("answer an ETag they gave with no body, whatever params the answer does not depend on, and another once the pack is another", async () => {

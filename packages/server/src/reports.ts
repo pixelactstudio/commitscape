@@ -21,6 +21,17 @@ export type AtlasPart = "map" | "names";
 export function atlasKey(si: number, pack: string, part: AtlasPart): string {
   return `atlas/${si}/${sha256(pack).slice(0, 16)}/${part}.bin.br`;
 }
+/** Where the standard screens of a Stored Index's pack are kept: named by the pack, so a pack published again at the same head never serves the screens of the one before. */
+export function screensPrefix(si: number, pack: string): string {
+  return `screens/${si}/${sha256(pack).slice(0, 16)}`;
+}
+
+/** Where everything kept beside a Stored Index's pack is, its Atlas and its screens, for deleting with the pack. */
+export function besidePack(si: number, pack: string): string[] {
+  const named = sha256(pack).slice(0, 16);
+  return [`atlas/${si}/${named}/`, `screens/${si}/${named}/`];
+}
+
 const entryKey = (prefix: string, key: string) => `${prefix}/e/${sha256(key).slice(0, 32)}.json`;
 
 const gz = (value: unknown) => gzipSync(JSON.stringify(value));

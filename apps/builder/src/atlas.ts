@@ -5,6 +5,7 @@ export async function replaceIndex<T extends { si: number }>(storage: Storage, b
   const loaded = await load();
   if (before && before.id !== loaded.si) {
     await storage.deletePrefix(`atlas/${before.id}/`).catch(() => undefined);
+    await storage.deletePrefix(`screens/${before.id}/`).catch(() => undefined);
     if (before.pack) await storage.delete([before.pack]).catch(() => undefined);
   }
   return loaded;
