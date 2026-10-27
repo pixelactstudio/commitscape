@@ -14,8 +14,9 @@ The owner's target is a Build and an engine service that fit in about 250 MB, id
 
 - **The Index's columns are kept beside the cache, laid out to be mapped.** Each cache generation has a column file (commits, changes, subjects, settled line marks) mapped copy-on-write by one small crate, the only code that maps memory. A warm Build maps it; a Build with new commits streams the old file and the new commits into the next one; the line pass counts only commits not settled and writes them back; a change in which files are left out masks only those files again. The file reads as absent until a save is on disk.
 - **A cold Build goes through files.** The walk reads 32,768 commits at a time; the Index builder appends what it gathers to files in the cache folder and lays the columns out into files it maps; the cache's blocks are encoded one at a time as they are written.
-- **The Ownership of lines is a file read in place,** commits sorted by id, files by path, each file's owners as varint runs; a new one is written file by file to disk and laid out at the end. Carried-over files copy their runs. A blame walk holds 16 MB of head text.
+- **The Ownership of lines is a file read in place,** commits sorted by id, files by path, each file's owners as varint runs; a new one is written file by file to disk and laid out at the end. Carried-over files copy their runs. A blame walk holds 16 MB of head text, and its rename detection asks git for a deleted file's size before reading it and keeps only the spans of those it reads.
 - **git's caches are small:** 1 to 8 MB per handle and thread. Speed is the same within noise, except a cold walk of linux (10% more wall time, the same CPU).
+- **The C allocator gives memory back:** the CLI and the engine service have glibc map every block of 1 MB or more on its own and trim its heap past 1 MB, and the blame walk hands its freed memory back when it ends. glibc otherwise keeps raising the size it maps blocks at and keeps hundreds of MB a long run no longer uses. musl builds are left as they are.
 - **Packs are of format 3:** the bincode of everything but the long columns, then each column as zlib of its fixed records, compressed in R2 (3% larger than format 2). The engine service unpacks a pack once, streaming, into a page-aligned file on its volume and maps it; format 2 packs are still decoded. The engine service deploys before the Builder.
 - **Standard screens are stored per head.** After publishing a pack, the Builder runs `commitscape screens` in a process of its own under an engine slot and stores the stats and the overview, activity, people and top of the map of all, 1y and 90d under the Report's prefix. The Site sends those first and asks the engine service only for the rest. A test checks every stored screen is the engine's own answer.
 
@@ -27,8 +28,8 @@ The owner's target is a Build and an engine service that fit in about 250 MB, id
 
 ## Consequences
 
-- linux, two threads: warm Build 94 MB, a Build 17,127 commits on 211 MB, cold without lines 276 MB, everyone's Surviving Lines from nothing 442 MB in 20 minutes (was 1.6 GB in about an hour), the engine service 117 MB after its first answer with 52 MB per pack on its heap; react under 160 MB for everything.
+- linux, two threads, anonymous memory at the peak: warm Build 94 MB, a Build 17,127 commits on 170 MB, cold without lines 248 MB, everyone's Surviving Lines from nothing 198 MB in 17 minutes (was 1.6 GB in about an hour), 17,127 commits on 199 MB, at the same head 148 MB; the engine service 80 MB after its first answer and 192 MB after the standard screens; react under 160 MB for everything.
 - The first Build of each repository after the upgrade writes its column file once (linux 13 s, 498 MB).
 - The engine service's volume holds packs unpacked, about 2.6 times their R2 size; `PACK_DISK_GB` counts them so.
 - A Report published before this release asks the engine service for its standard screens until its next Build.
-- Still above 256 MB on linux: everyone's Surviving Lines (the blame walk's frontier) and the cold head pass (gix resolving 16 to 24 MB headers two at a time).
+- Nothing the Builder runs on linux goes above 256 MB of anonymous memory. The engine service's Universe rows (asked only for a pack the Builder made no Atlas for) still take about 450 MB.

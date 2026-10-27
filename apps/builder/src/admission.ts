@@ -8,7 +8,7 @@ export type Sized = { commits: number; sizeKb: number };
 
 const UNKNOWN_MB = 256;
 
-/** About how many MB of memory an engine run takes at its peak, a little over what was measured on two threads (2026-10-27: linux, 1.5M commits, and facebook/react, 22k): a warm build 94–170 MB on linux and 9–38 on react, a cold one 248 and 158, everyone's Surviving Lines 245 and 121, the standard screens 191, the Atlas 635 on linux. A cold run knows no commit count yet, so it goes by the repository's size. */
+/** About how many MB of memory an engine run takes at its peak, a little over what was measured on two threads (2026-10-27: linux, 1.5M commits, and facebook/react, 22k): a warm build 94–170 MB on linux and 9–38 on react, a cold one 248 and 158, everyone's Surviving Lines 199 and 121, the standard screens 191, the Atlas 635 on linux. A cold run knows no commit count yet, so it goes by the repository's size. */
 export function peakMb(kind: EngineRun, repo: Sized): number {
   const thousands = repo.commits / 1000;
   const sizeMb = repo.sizeKb / 1024;

@@ -65,7 +65,7 @@ test("an estimate is above every peak measured on linux and react", () => {
     ["build", react, 38],
     ["cold", linux, 248],
     ["cold", react, 158],
-    ["surviving", linux, 245],
+    ["surviving", linux, 199],
     ["surviving", react, 121],
     ["screens", linux, 191],
     ["atlas", linux, 635],

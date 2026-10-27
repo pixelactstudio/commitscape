@@ -120,8 +120,8 @@ to a repository the App is installed on, the nightly seeds and
    budget is kept and the count is queued again with twice the budget; a
    person asked for on the Site gets the same count for everyone. react:
    1,997 people in 16.4 s from nothing, 0.3 s for a head 20 commits on;
-   linux: 31,000 people in 18 minutes from nothing, 5 minutes for a head
-   17,000 commits on.
+   linux: 31,000 people in 17 minutes and 198 MB from nothing, 5 minutes
+   and 199 MB for a head 17,000 commits on.
 
 Every publish sends `pg_notify`, so the Site forgets the old pack key and
 warms the new pack in the engine service. If the full phase fails after the
@@ -198,7 +198,10 @@ next run carries on where it stopped), `--events FILE` writes one JSON line
 per finished step with its start, end and counts, and `COMMITSCAPE_THREADS`
 caps the threads every step uses. `--cache-key KEY` names the cache by KEY
 instead of the clone's path, so the Build's two clones share one cache and
-the history is walked once. `--after FILE --lineage N` writes only the
+the history is walked once. `--lines-from FILE` starts a repository with no
+line store from another's: the Builder passes a fork's parent's
+(`facts.parent`, public repositories only) when that cache is on its disk,
+so a fork counts only its own commits' lines. `--after FILE --lineage N` writes only the
 commits the frontier in FILE does not reach, and `--since MARK`, the mark
 the last loaded export left, narrows the earlier commits' rows to the
 Mainline that moved and the Lines Changed counted since. Beside the Index
