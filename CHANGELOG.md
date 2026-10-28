@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.0](https://github.com/pixelactstudio/commitscape/compare/v0.4.0...v0.5.0) (2026-10-28)
+
+
+### Features
+
+* build only what changed, and read history in place ([#49](https://github.com/pixelactstudio/commitscape/issues/49)) ([983e436](https://github.com/pixelactstudio/commitscape/commit/983e436d960785fee5d9e5fa5e9e459b35d857b4))
+* serve Reports from an engine service over packs ([#44](https://github.com/pixelactstudio/commitscape/issues/44)) ([4e11f5d](https://github.com/pixelactstudio/commitscape/commit/4e11f5dd64bb9c3f37484a129f23522f5c3a07e6))
+* serve the landing page from a Cloudflare Worker, with analytics ([#47](https://github.com/pixelactstudio/commitscape/issues/47)) ([bca9cd9](https://github.com/pixelactstudio/commitscape/commit/bca9cd998c268a7994384a4626c99426affb500a))
+
+
+### Fixes
+
+* **builder:** run on Debian trixie for git 2.47 ([#51](https://github.com/pixelactstudio/commitscape/issues/51)) ([8d58716](https://github.com/pixelactstudio/commitscape/commit/8d58716b6e907bdebcbad7992757eb761ebaa172))
+
 ## [0.4.0](https://github.com/pixelactstudio/commitscape/compare/v0.3.1...v0.4.0) (2026-10-24)
 
 
