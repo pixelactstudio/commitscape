@@ -1,4 +1,4 @@
-FROM rust:1-slim-bookworm AS binary
+FROM rust:1-slim-trixie AS binary
 WORKDIR /src
 COPY Cargo.toml Cargo.lock rust-toolchain.toml clippy.toml ./
 COPY .cargo .cargo
@@ -8,7 +8,7 @@ COPY apps/engine/src apps/engine/src
 COPY xtask xtask
 RUN cargo build --profile dist -p commitscape
 
-FROM node:24-bookworm-slim AS runner
+FROM node:24-trixie-slim AS runner
 WORKDIR /repo
 RUN npm install -g pnpm@12.6.0
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json .oxlintrc.json turbo.json ./
@@ -21,7 +21,7 @@ COPY packages/server packages/server
 COPY apps/builder apps/builder
 RUN pnpm --filter @commitscape/builder build
 
-FROM node:24-bookworm-slim
+FROM node:24-trixie-slim
 RUN apt-get update \
   && apt-get upgrade -y --no-install-recommends \
   && apt-get install -y --no-install-recommends git ca-certificates \
