@@ -21,8 +21,8 @@
     "@fontsource-variable/jetbrains-mono": "5.3.0",
     "@stylexjs/stylex": "catalog:",
     "gsap": "3.15.0",
-    "lucide-react": "1.48.0",
-    "posthog-js": "1.434.15",
+    "lucide-react": "1.61.0",
+    "posthog-js": "1.438.21",
     "react": "catalog:",
     "react-dom": "catalog:"
   },
