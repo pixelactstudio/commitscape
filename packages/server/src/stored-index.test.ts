@@ -9,8 +9,8 @@ import { migrate } from "drizzle-orm/pglite/migrator";
 import { afterAll, describe, expect, test } from "vitest";
 import { createDb, runMigrations, type Db } from "./db/client";
 import * as schema from "./db/schema";
-import { indexCommits, indexFiles, indexFolders, indexPeople, repositories, storedIndexes } from "./db/schema";
-import { appendable, EXPORT_FORMAT, listenForLoads, liveIndex, loadExport, type ExportManifest } from "./stored-index";
+import { indexCommitLines, indexCommits, indexFiles, indexFolders, indexPeople, repositories, storedIndexes } from "./db/schema";
+import { appendable, EXPORT_FORMAT, listenForLoads, liveIndex, loadExport, makeLive, type ExportManifest } from "./stored-index";
 
 const url = process.env.TEST_DATABASE_URL;
 const migrations = fileURLToPath(new URL("../drizzle", import.meta.url));
@@ -41,6 +41,8 @@ function writeExport(manifest: Partial<ExportManifest>, commits: Commit[], extra
     max_changeset_size: 50,
     coupling_support: 5,
     ownership_min_commits: 10,
+    mark: "full mark",
+    changes_only: false,
     ...manifest,
   };
   const arr = (xs: number[] | null) => (xs ? `{${xs.join(",")}}` : "\\N");
@@ -61,7 +63,7 @@ function writeExport(manifest: Partial<ExportManifest>, commits: Commit[], extra
 }
 
 describe("appendable", () => {
-  const live = { id: 1, lineage: "7", kept: true, frontier: ["a"], lines: true, linesLeft: 0, head: "a", pack: null };
+  const live = { id: 1, lineage: "7", kept: true, frontier: ["a"], lines: true, linesLeft: 0, head: "a", pack: null, mark: null, buildFormat: null, commits: 0 };
   test("only a kept Stored Index with a frontier takes what is new", () => {
     expect(appendable(live)).toBe(true);
     expect(appendable(null)).toBe(false);
@@ -81,9 +83,11 @@ test("deleting a Stored Index deletes its rows, with no foreign key checked on e
   const [row] = await db.insert(storedIndexes).values({ repoId: "acme/rocket", lineage: "1", kept: true, state: "live", lines: true, builtAt: 1 }).returning({ id: storedIndexes.id });
   const si = row?.id ?? 0;
   await db.insert(indexCommits).values({ si, sha: Buffer.from(hex(1), "hex"), at: 1, offset: 0, authorDelta: 0, signature: 0, kind: 10, flags: 0, subject: "", files: [], changes: [] });
+  await db.insert(indexCommitLines).values({ si, sha: Buffer.from(hex(1), "hex"), added: 3, removed: 1 });
   await db.insert(indexFiles).values({ si, file: 0, path: "a", folder: 0, born: 1, last: 1, alive: true });
   await db.delete(repositories).where(eq(repositories.id, "acme/rocket"));
   expect(await db.select().from(indexCommits)).toEqual([]);
+  expect(await db.select().from(indexCommitLines)).toEqual([]);
   expect(await db.select().from(indexFiles)).toEqual([]);
 });
 
@@ -101,22 +105,25 @@ describe.skipIf(!url)("loading an export into Postgres", async () => {
 
   const commitRows = (si: number) =>
     db
-      .select({ sha: sql<string>`encode(${indexCommits.sha}, 'hex')`, flags: indexCommits.flags, arrival: indexCommits.arrival, added: indexCommits.added })
+      .select({ sha: sql<string>`encode(${indexCommits.sha}, 'hex')`, flags: indexCommits.flags, arrival: indexCommits.arrival, added: indexCommitLines.added, removed: indexCommitLines.removed })
       .from(indexCommits)
+      .leftJoin(indexCommitLines, and(eq(indexCommitLines.si, indexCommits.si), eq(indexCommitLines.sha, indexCommits.sha)))
       .where(eq(indexCommits.si, si))
       .orderBy(asc(indexCommits.at));
 
-  test("a full export becomes the live Stored Index, with each commit's Mainline", async () => {
+  test("a full export is loaded beside the live Stored Index and becomes live only when published, with each commit's Mainline", async () => {
     await fresh();
     const dir = writeExport({}, [{ n: 1, at: 86_400, signature: 0, files: [0, 1], added: [3, 4] }, { n: 2, at: 2 * 86_400, signature: 1, files: [0], added: [5], flags: 8, arrival: 3 * 86_400 }], { releases: { "v1.0": hex(2) } });
     const loaded = await loadExport(pool, repo, dir);
     expect(loaded).toMatchObject({ full: true, total: 2, mainline: 0, lines: 0 });
+    expect(await liveIndex(db, repo)).toBeNull();
+    expect(await db.transaction((tx) => makeLive(tx, repo, loaded.si))).toEqual([]);
     const live = await liveIndex(db, repo);
-    expect(live).toMatchObject({ id: loaded.si, lineage: "7", lines: true, kept: true });
+    expect(live).toMatchObject({ id: loaded.si, lineage: "7", lines: true, kept: true, mark: "full mark" });
     expect(await db.select({ person: indexPeople.person, login: indexPeople.login }).from(indexPeople).where(eq(indexPeople.si, loaded.si))).toHaveLength(2);
-    expect((await commitRows(loaded.si)).map((r) => [r.flags, r.arrival])).toEqual([
-      [24, 86_400],
-      [8, 3 * 86_400],
+    expect((await commitRows(loaded.si)).map((r) => [r.flags, r.arrival, r.added, r.removed])).toEqual([
+      [24, 86_400, 7, 0],
+      [8, 3 * 86_400, 5, 0],
     ]);
     const [index] = await db.select({ snapshot: storedIndexes.snapshot }).from(storedIndexes).where(eq(storedIndexes.id, loaded.si));
     expect(index?.snapshot?.release_shas).toEqual({ "v1.0": hex(2) });
@@ -126,7 +133,7 @@ describe.skipIf(!url)("loading an export into Postgres", async () => {
     const live = await liveIndex(db, repo);
     if (!live) throw new Error("no live Stored Index");
     const [before] = await db.select({ loadedAt: storedIndexes.loadedAt }).from(storedIndexes).where(eq(storedIndexes.id, live.id));
-    const dir = writeExport({ full: false, total: 3 }, [{ n: 3, at: 2 * 86_400 + 60, signature: 0, files: [1], added: [1], flags: 25, arrival: 2 * 86_400 + 60 }], {
+    const dir = writeExport({ full: false, total: 3, mark: "appended mark", changes_only: true }, [{ n: 3, at: 2 * 86_400 + 60, signature: 0, files: [1], added: [1], flags: 25, arrival: 2 * 86_400 + 60 }], {
       mainline: [
         { n: 1, flags: 24, arrival: 86_400 },
         { n: 2, flags: 8, arrival: 2 * 86_400 + 60 },
@@ -135,6 +142,7 @@ describe.skipIf(!url)("loading an export into Postgres", async () => {
     });
     const loaded = await loadExport(pool, repo, dir);
     expect(loaded).toMatchObject({ si: live.id, full: false, commits: 1, total: 3, mainline: 1 });
+    expect((await liveIndex(db, repo))?.mark).toBe("appended mark");
     expect((await commitRows(live.id)).map((r) => [r.flags, r.arrival])).toEqual([
       [24, 86_400],
       [8, 2 * 86_400 + 60],
@@ -146,9 +154,10 @@ describe.skipIf(!url)("loading an export into Postgres", async () => {
     expect(tree).toEqual([{ id: 0, path: "", parent: null }, { id: 1, path: "src", parent: 0 }]);
   });
 
-  test("lines counted after a quick load are filled in on the same Stored Index, and show once the Mainline's are all counted", async () => {
+  test("lines counted after a quick load are filled in on the same Stored Index, lines sent again replace what was there, and lines show once the Mainline's are all counted", async () => {
     await fresh();
     const quick = await loadExport(pool, repo, writeExport({ lines: false, lines_counted: 0, lines_mainline: false, lines_left: null }, [{ n: 1, at: 86_400, signature: 0, files: [0], added: null }, { n: 2, at: 2 * 86_400, signature: 0, files: [0, 1], added: null }]));
+    await makeLive(db, repo, quick.si);
     expect(await liveIndex(db, repo)).toMatchObject({ id: quick.si, lines: false, linesLeft: null });
     const partly = await loadExport(pool, repo, writeExport({ full: false, lines: false, lines_counted: 1, lines_mainline: false, lines_left: 1, total: 2 }, [], { lines: [{ n: 2, added: [7, 8] }] }));
     expect(partly).toMatchObject({ si: quick.si, commits: 0, lines: 1 });
@@ -157,18 +166,25 @@ describe.skipIf(!url)("loading an export into Postgres", async () => {
     expect(mainline).toMatchObject({ si: quick.si, commits: 0, lines: 0 });
     expect(await liveIndex(db, repo)).toMatchObject({ id: quick.si, lines: true, linesLeft: 1 });
     const filled = await loadExport(pool, repo, writeExport({ full: false, lines: true, total: 2 }, [], { lines: [{ n: 1, added: [9] }, { n: 2, added: [1, 1] }] }));
-    expect(filled).toMatchObject({ si: quick.si, commits: 0, lines: 1 });
+    expect(filled).toMatchObject({ si: quick.si, commits: 0, lines: 2 });
     expect(await liveIndex(db, repo)).toMatchObject({ id: quick.si, lines: true, linesLeft: 0 });
-    expect((await commitRows(quick.si)).map((r) => r.added)).toEqual([[9], [7, 8]]);
+    expect((await commitRows(quick.si)).map((r) => r.added)).toEqual([9, 2]);
+    const same = await loadExport(pool, repo, writeExport({ full: false, lines: true, total: 2 }, [], { lines: [{ n: 1, added: [9] }] }));
+    expect(same).toMatchObject({ lines: 0 });
     expect(await db.select().from(storedIndexes).where(eq(storedIndexes.repoId, repo))).toHaveLength(1);
   });
 
-  test("a full export from another lineage replaces the old Stored Index and its rows", async () => {
+  test("a full export from another lineage replaces the old Stored Index and its rows once published, not before", async () => {
     const before = await liveIndex(db, repo);
+    await db.update(storedIndexes).set({ pack: "packs/old.pack" }).where(eq(storedIndexes.id, before?.id ?? -1));
     const loaded = await loadExport(pool, repo, writeExport({ lineage: "8" }, [{ n: 5, at: 86_400, signature: 0, files: [0], added: [1] }]));
     expect(loaded.si).not.toBe(before?.id);
+    expect((await liveIndex(db, repo))?.id).toBe(before?.id);
+    expect(await db.transaction((tx) => makeLive(tx, repo, loaded.si))).toEqual([{ id: before?.id, pack: "packs/old.pack" }]);
+    expect((await liveIndex(db, repo))?.id).toBe(loaded.si);
     expect(await db.select().from(storedIndexes).where(eq(storedIndexes.repoId, repo))).toHaveLength(1);
     expect(await db.select().from(indexCommits).where(and(eq(indexCommits.si, before?.id ?? -1)))).toHaveLength(0);
+    expect(await db.select().from(indexCommitLines).where(eq(indexCommitLines.si, before?.id ?? -1))).toHaveLength(0);
   });
 
   test("an export of what is new from another lineage is refused and changes nothing", async () => {

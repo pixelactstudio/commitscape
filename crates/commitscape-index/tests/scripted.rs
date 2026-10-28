@@ -27,7 +27,7 @@ fn index(repo: &ScriptedRepo) -> Index {
 
 fn churn(idx: &Index) -> HashMap<String, u32> {
     let mut counts: HashMap<FileId, u32> = HashMap::new();
-    for c in &idx.commits {
+    for c in idx.commits.iter() {
         for ch in idx.changes_of(c) {
             *counts.entry(ch.file).or_default() += 1;
         }

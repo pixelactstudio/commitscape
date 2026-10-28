@@ -312,3 +312,161 @@ fn surviving_given_the_reports_accounts_file_uses_the_reports_ids() {
     assert_eq!(lines.values().sum::<u64>(), 20);
     assert_eq!(lines.get("Alice Example"), Some(&5));
 }
+
+fn git_in(dir: &Path, args: &[&str]) -> std::process::Output {
+    Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_NO_LAZY_FETCH", "1")
+        .output()
+        .expect("git")
+}
+
+#[test]
+#[cfg_attr(
+    windows,
+    ignore = "git for Windows does not fetch a blobless clone's missing file versions from a file:// remote; blobless clones are the Builder's, which runs on Linux"
+)]
+fn offline_never_fetches_a_file_version_a_blobless_clone_lacks() {
+    let dir = tempfile::tempdir().expect("a folder");
+    let bare = dir.path().join("source.git");
+    let made = Command::new("git")
+        .args(["clone", "-q", "--bare"])
+        .arg(fixture())
+        .arg(&bare)
+        .output()
+        .expect("git");
+    assert!(made.status.success());
+    for key in ["uploadpack.allowFilter", "uploadpack.allowAnySHA1InWant"] {
+        assert!(git_in(&bare, &["config", key, "true"]).status.success());
+    }
+    let lean = dir.path().join("lean");
+    let cloned = Command::new("git")
+        .args(["clone", "-q", "--filter=blob:none", "--no-checkout"])
+        .arg(format!("file://{}", bare.display()))
+        .arg(&lean)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .output()
+        .expect("git");
+    assert!(
+        cloned.status.success(),
+        "{}",
+        String::from_utf8_lossy(&cloned.stderr)
+    );
+    let checkout = Command::new("git")
+        .arg("-C")
+        .arg(&lean)
+        .args(["checkout", "-q", "HEAD", "--", "."])
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .output()
+        .expect("git");
+    assert!(
+        checkout.status.success(),
+        "{}",
+        String::from_utf8_lossy(&checkout.stderr)
+    );
+    let missing = || {
+        let listed = git_in(
+            &lean,
+            &["rev-list", "--objects", "--all", "--missing=print"],
+        );
+        String::from_utf8_lossy(&listed.stdout)
+            .lines()
+            .filter(|l| l.starts_with('?'))
+            .count()
+    };
+    let before = missing();
+    assert!(before > 0);
+    let cache = dir.path().join("cache");
+    let out = Command::new(env!("CARGO_BIN_EXE_commitscape"))
+        .env("COMMITSCAPE_TELEMETRY", "0")
+        .args(["surviving", "--offline", "--everyone", "--cache-dir"])
+        .arg(&cache)
+        .arg("--")
+        .arg(&lean)
+        .output()
+        .expect("running commitscape");
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("could not fetch file contents"));
+    assert_eq!(missing(), before);
+    let elsewhere = Command::new(env!("CARGO_BIN_EXE_commitscape"))
+        .env("COMMITSCAPE_TELEMETRY", "0")
+        .args(["surviving", "--offline", "--everyone", "--cache-dir"])
+        .arg(&cache)
+        .args(["--", "acme/not-a-folder-here"])
+        .output()
+        .expect("running commitscape");
+    assert!(!elsewhere.status.success());
+    assert!(String::from_utf8_lossy(&elsewhere.stderr).contains("--offline does not clone"));
+}
+
+#[test]
+fn a_count_asked_for_another_head_stops_with_code_three_and_counts_nothing() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let cache = dir.path().join("cache");
+    let cache = cache.to_str().expect("UTF-8");
+    let repo = fixture();
+    let repo = repo.to_str().expect("UTF-8");
+    let head = String::from_utf8(git_in(&fixture(), &["rev-parse", "HEAD"]).stdout)
+        .expect("UTF-8")
+        .trim()
+        .to_string();
+    let count = |asked: &str| {
+        Command::new(env!("CARGO_BIN_EXE_commitscape"))
+            .env("COMMITSCAPE_TELEMETRY", "0")
+            .args([
+                "surviving",
+                "--everyone",
+                "--offline",
+                "--cache-dir",
+                cache,
+                "--head",
+                asked,
+                repo,
+            ])
+            .output()
+            .expect("running commitscape")
+    };
+    let moved = count(&"0".repeat(40));
+    assert_eq!(moved.status.code(), Some(3));
+    assert!(String::from_utf8_lossy(&moved.stderr).contains(&format!("head is {head}")));
+    assert!(moved.stdout.is_empty());
+    let counted = count(&head);
+    assert!(counted.status.success());
+    let out: Value = serde_json::from_slice(&counted.stdout).expect("one JSON document");
+    assert_eq!(out["head"], Value::String(head));
+}
+
+#[test]
+fn a_run_on_a_cache_another_process_holds_waits_until_it_lets_go() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let cache = dir.path().join("cache");
+    let options = commitscape_index::CacheOptions {
+        root: Some(cache.clone()),
+        key: Some("survival".to_string()),
+    };
+    let repo = GixRepo::open(&fixture()).expect("opening fixture");
+    let held = commitscape_index::load(&repo, &options, &mut |_| {}).expect("loading");
+    let mut waiting = Command::new(env!("CARGO_BIN_EXE_commitscape"))
+        .env("COMMITSCAPE_TELEMETRY", "0")
+        .args([
+            "surviving",
+            "--everyone",
+            "--offline",
+            "--cache-key",
+            "survival",
+            "--cache-dir",
+        ])
+        .arg(&cache)
+        .arg(fixture())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("running commitscape");
+    std::thread::sleep(Duration::from_millis(1500));
+    assert!(waiting.try_wait().expect("polling").is_none());
+    drop(held);
+    assert!(waiting.wait().expect("waiting").success());
+}

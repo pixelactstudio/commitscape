@@ -92,7 +92,7 @@ fn put(dir: &Path, key: &str, pack: &Pack) {
     let path = dir.join(key);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     let mut bytes = Vec::new();
-    write_pack(pack, &mut bytes).unwrap();
+    write_pack(&mut pack.clone(), &mut bytes).unwrap();
     std::fs::write(path, bytes).unwrap();
 }
 
@@ -186,12 +186,28 @@ async fn ask(app: &Router, body: Value) -> (StatusCode, Value) {
     call(app, "/v1/answer", Some(TOKEN), Some(body)).await
 }
 
+#[test]
+fn the_engine_service_writes_beside_the_packs_which_formats_it_reads() {
+    let dir = tempfile::tempdir().expect("a folder");
+    commitscape_engine::announce_formats(&Source::Dir(dir.path().to_path_buf()))
+        .expect("announced");
+    assert_eq!(commitscape_engine::FORMATS_KEY, "engine/formats.json");
+    let marker: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(dir.path().join("engine/formats.json")).expect("written"),
+    )
+    .expect("JSON");
+    assert_eq!(marker["pack_formats"], serde_json::json!([2, 3]));
+    assert_eq!(marker["version"], env!("CARGO_PKG_VERSION"));
+    assert!(marker["at"].as_u64().unwrap_or(0) > 1_700_000_000);
+}
+
 #[tokio::test]
 async fn health_is_open_and_everything_else_needs_the_token() {
     let s = setup().await;
     let (status, health) = call(&s.app, "/healthz", None, None).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(health["ok"], true);
+    assert_eq!(health["pack_formats"], json!([2, 3]));
     let body = json!({ "pack": ROCKET, "path": "/api/overview" });
     let (status, error) = call(&s.app, "/v1/answer", None, Some(body.clone())).await;
     assert_eq!(
@@ -281,6 +297,81 @@ async fn answers_are_the_reports_screens_for_any_window() {
         (gone["lines"].clone(), gone["churn"].clone()),
         (Value::Null, json!(2))
     );
+}
+
+#[tokio::test]
+async fn a_pack_of_the_format_before_answers_as_the_same_pack_does_unpacked() {
+    use std::io::Write;
+
+    let s = setup().await;
+    let old = "packs/acme/rocket/0/old-0-lines.pack";
+    let mut pack = pack("acme/rocket");
+    pack.format = 2;
+    let payload = bincode::serde::encode_to_vec(&pack, bincode::config::standard()).unwrap();
+    let mut z = flate2::write::ZlibEncoder::new(
+        b"commitscape pack 1\n".to_vec(),
+        flate2::Compression::default(),
+    );
+    z.write_all(&payload).unwrap();
+    std::fs::write(
+        s.source
+            .join(old)
+            .parent()
+            .map(|p| {
+                std::fs::create_dir_all(p).unwrap();
+                s.source.join(old)
+            })
+            .unwrap(),
+        z.finish().unwrap(),
+    )
+    .unwrap();
+    for path in ["/api/overview", "/api/people", "/api/activity", "/api/map"] {
+        let (status, new) = ask(&s.app, json!({ "pack": ROCKET, "path": path })).await;
+        assert_eq!(status, StatusCode::OK, "{path}");
+        let (status, before) = ask(&s.app, json!({ "pack": old, "path": path })).await;
+        assert_eq!(status, StatusCode::OK, "{path}");
+        assert_eq!(before, new, "{path}");
+    }
+    let kept: Vec<String> = std::fs::read_dir(&s.cache)
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(
+        kept.iter().filter(|n| n.ends_with(".unpacked")).count(),
+        1,
+        "{kept:?}"
+    );
+    assert_eq!(
+        kept.iter().filter(|n| n.ends_with(".pack")).count(),
+        1,
+        "{kept:?}"
+    );
+}
+
+#[tokio::test]
+async fn the_standard_screens_worked_out_ahead_are_the_engines_answers() {
+    let s = setup().await;
+    let screens = commitscape_report::screens::standard(&pack("acme/rocket"));
+    assert_eq!(screens.len(), 13);
+    for (key, want) in screens {
+        let (path, query) = key.split_once('?').unwrap();
+        let params: serde_json::Map<String, Value> = query
+            .split('&')
+            .filter(|q| !q.is_empty())
+            .map(|q| {
+                let (k, v) = q.split_once('=').unwrap();
+                (k.to_string(), json!(v))
+            })
+            .collect();
+        let (status, got) = ask(
+            &s.app,
+            json!({ "pack": ROCKET, "path": path, "params": params }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{key}");
+        assert_eq!(got, want, "{key}");
+    }
 }
 
 #[tokio::test]
@@ -511,35 +602,67 @@ async fn the_code_window_and_the_universe_are_answered_from_the_pack() {
 }
 
 #[tokio::test]
-async fn the_universe_rows_are_what_the_atlas_is_made_from() {
+async fn commits_are_searched_by_their_words_in_the_engine_as_the_commit_list_searches_them() {
     let s = setup().await;
-    let (status, rows) = call(
+    let search = |query: Value| {
+        let app = s.app.clone();
+        async move {
+            let (status, found) = call(
+                &app,
+                "/v1/commits/search",
+                Some(TOKEN),
+                Some(json!({ "pack": ROCKET, "query": query })),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK);
+            found
+        }
+    };
+    let all = search(json!({})).await;
+    assert_eq!(all["total"], 3);
+    let newest_first = all["shas"].clone();
+    assert_eq!(
+        search(json!({ "q": "FIRST" })).await["shas"],
+        json!([newest_first[2]])
+    );
+    assert_eq!(search(json!({ "q": "feat first" })).await["total"], 1);
+    assert_eq!(search(json!({ "q": "feat nothing" })).await["total"], 0);
+    assert_eq!(
+        search(json!({ "q": "bob" })).await["shas"],
+        json!([newest_first[1]])
+    );
+    assert_eq!(search(json!({ "q": "ada" })).await["total"], 2);
+    assert_eq!(
+        search(json!({ "q": "ada", "merges": 0, "since": (DAY0 + DAY) / DAY })).await["shas"],
+        json!([newest_first[0]])
+    );
+    let first = search(json!({ "limit": 2 })).await;
+    assert_eq!(
+        (
+            first["total"].clone(),
+            first["shas"].as_array().map(Vec::len)
+        ),
+        (json!(3), Some(2))
+    );
+    let (_, rest) = call(
         &s.app,
-        "/v1/universe/rows",
+        "/v1/commits/search",
         Some(TOKEN),
-        Some(json!({ "pack": ROCKET })),
+        Some(json!({ "pack": ROCKET, "query": { "limit": 2 }, "cursor": first["next"] })),
     )
     .await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(rows["mainline"], true);
-    assert_eq!(rows["newest"], DAY0 + 2 * DAY + 60);
-    let commits = rows["commits"].as_array().unwrap();
-    assert_eq!(commits.len(), 3);
-    assert_eq!(commits[0]["time"], DAY0 + 60);
-    assert_eq!(commits[0]["firstParent"], true);
-    assert_eq!(commits[0]["files"].as_array().map(Vec::len), Some(2));
-    let files = rows["files"].as_array().unwrap();
-    assert_eq!(files.len(), 3);
-    assert!(files
-        .iter()
-        .any(|f| f["path"] == "old.txt" && f["alive"] == false && f["lines"].is_null()));
-    assert!(files
-        .iter()
-        .any(|f| f["path"] == "src/a.rs" && f["language"] == "Rust" && f["lines"] == 2));
-    let people = rows["people"].as_array().unwrap();
-    assert_eq!(people.len(), 2);
-    assert!(people.iter().any(|p| p["login"] == "bob"));
-    assert_eq!(rows["releases"], json!([["v1.0.0", DAY0 + DAY + 60]]));
+    assert_eq!(
+        (rest["shas"].clone(), rest["next"].clone()),
+        (json!([newest_first[2]]), Value::Null)
+    );
+    let (_, under) = call(
+        &s.app,
+        "/v1/commits/under",
+        Some(TOKEN),
+        Some(json!({ "pack": ROCKET, "path": "src/", "query": { "q": "bob" } })),
+    )
+    .await;
+    assert_eq!(under["shas"], json!([newest_first[1]]));
 }
 
 #[tokio::test]
@@ -656,7 +779,7 @@ async fn packs_are_fetched_from_s3_with_a_signed_get() {
     use axum::routing::get;
 
     let mut bytes = Vec::new();
-    write_pack(&pack("acme/rocket"), &mut bytes).unwrap();
+    write_pack(&mut pack("acme/rocket"), &mut bytes).unwrap();
     let stored = Arc::new(bytes);
     let fake = Router::new()
         .route(
@@ -706,4 +829,50 @@ async fn packs_are_fetched_from_s3_with_a_signed_get() {
     let (status, _) = ask(&app, json!({ "pack": OTHER, "path": "/api/overview" })).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert_eq!(engine.packs.held().fetches, 1);
+}
+
+#[tokio::test]
+async fn a_packs_standard_screens_are_answered_from_what_its_build_stored_beside_it() {
+    let s = setup().await;
+    let stored = json!({
+        "/api/overview?window=all": { "window": "all", "stored": true },
+        "/api/people?window=all": { "window": "all", "people": [{ "person": { "id": 1 } }, { "person": { "id": 2 } }], "bots": [], "suspects": [] },
+    });
+    let mut z = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    std::io::Write::write_all(&mut z, stored.to_string().as_bytes()).unwrap();
+    std::fs::write(
+        s.source.join(format!("{ROCKET}.screens")),
+        z.finish().unwrap(),
+    )
+    .unwrap();
+    let (status, overview) = ask(
+        &s.app,
+        json!({ "pack": ROCKET, "path": "/api/overview", "params": { "window": "all", "top": 8 } }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(overview["stored"], json!(true));
+    let (_, people) = ask(
+        &s.app,
+        json!({ "pack": ROCKET, "path": "/api/people", "params": { "window": "all", "top": 1 } }),
+    )
+    .await;
+    assert_eq!(people["people"].as_array().map(Vec::len), Some(1));
+    assert_eq!(people["count"], json!(2));
+    let (_, worked_out) = ask(
+        &s.app,
+        json!({ "pack": ROCKET, "path": "/api/overview", "params": { "window": "1y" } }),
+    )
+    .await;
+    assert_eq!(worked_out["stored"], Value::Null);
+    let (_, other) = ask(
+        &s.app,
+        json!({ "pack": OTHER, "path": "/api/overview", "params": { "window": "all" } }),
+    )
+    .await;
+    assert_eq!(other["stored"], Value::Null);
+    assert!(std::fs::read_dir(&s.cache)
+        .unwrap()
+        .flatten()
+        .any(|e| e.file_name().to_string_lossy().ends_with(".screens")));
 }

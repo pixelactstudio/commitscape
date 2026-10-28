@@ -1,0 +1,1 @@
+ALTER TABLE "stored_indexes" ADD COLUMN "mark" text;

@@ -14,7 +14,7 @@ use commitscape_metrics::{Analysis, Window};
 use commitscape_report::api::{Surviving, SurvivingPerson, SurvivingStatus};
 
 use crate::{
-    count_lines_into, now, read_accounts, repo_source, with_accounts, Common, ProgressLine,
+    count_lines_kept, now, read_accounts, repo_source, with_accounts, Common, ProgressLine,
 };
 
 #[derive(Args)]
@@ -27,8 +27,19 @@ pub struct SurvivingArgs {
 
     /// A person, by the id the repository's Report gives them (made with the
     /// same cache directory). Give it once for each person.
-    #[arg(long = "person", value_name = "ID", required = true)]
+    #[arg(
+        long = "person",
+        value_name = "ID",
+        required_unless_present = "everyone"
+    )]
     people: Vec<u32>,
+
+    /// Count everyone at once from who owns each line at the head, kept in
+    /// the cache from one head to the next so a new head works out only the
+    /// files that changed. The budget is for working out the ownership; past
+    /// it what was done is kept and the next run goes on.
+    #[arg(long, conflicts_with = "people")]
+    everyone: bool,
 
     /// How long each person may take. Past it they are not counted, never
     /// estimated.
@@ -46,9 +57,34 @@ pub struct SurvivingArgs {
     #[arg(long, value_name = "FILE")]
     accounts: Option<PathBuf>,
 
+    /// The commit the repository's head must be: the run stops with exit
+    /// code 3 when it is another, so a count is never kept for a head it was
+    /// not asked about.
+    #[arg(long, value_name = "COMMIT", hide = true)]
+    head: Option<String>,
+
     #[command(flatten)]
     common: Common,
 }
+
+/// The repository's head is not the commit the count was asked for.
+#[derive(Debug)]
+pub struct HeadMoved {
+    asked: String,
+    found: String,
+}
+
+impl std::fmt::Display for HeadMoved {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "the repository's head is {}, not {}",
+            self.found, self.asked
+        )
+    }
+}
+
+impl std::error::Error for HeadMoved {}
 
 /// Counts the asked-for people's Surviving Lines and prints them, with the lines each added, as one JSON document.
 pub fn run(args: SurvivingArgs) -> anyhow::Result<()> {
@@ -57,9 +93,19 @@ pub fn run(args: SurvivingArgs) -> anyhow::Result<()> {
     let path = if Path::new(&args.repo).exists() {
         PathBuf::from(&args.repo)
     } else {
-        repo_source(&args.repo, args.partial, &options)?
+        repo_source(&args.repo, args.partial, &options, args.common.offline)?
     };
     let repo = GixRepo::open(&path)?;
+    if let Some(asked) = args.head.as_deref() {
+        let found = repo.head_commit()?.map(|h| h.to_hex()).unwrap_or_default();
+        if !found.eq_ignore_ascii_case(asked) {
+            return Err(HeadMoved {
+                asked: asked.to_string(),
+                found,
+            }
+            .into());
+        }
+    }
     let mut meter = ProgressLine::new();
     let mut loaded = load(&repo, &options, &mut |p| meter.show(p))?;
     meter.clear();
@@ -69,7 +115,7 @@ pub fn run(args: SurvivingArgs) -> anyhow::Result<()> {
     let count_lines = !args.partial;
     let metrics = args.common.metrics();
     if count_lines {
-        count_lines_into(&repo, &options, &mut loaded.index, metrics, None, None)?;
+        count_lines_kept(&repo, &options, &mut loaded, metrics, None, None)?;
     }
     let index = &loaded.index;
     let added = if count_lines {
@@ -85,7 +131,59 @@ pub fn run(args: SurvivingArgs) -> anyhow::Result<()> {
     let fetching = Fetching {
         threads: repo.threads(),
         dir: path.clone(),
+        offline: args.common.offline,
     };
+
+    if args.everyone {
+        let started = Instant::now();
+        let previous = survival.previous();
+        let deadline = started.checked_add(budget);
+        let (ownership, everyone) = if args.partial || repo.is_partial() {
+            let mut ownership = survival.own(&fetching, previous, deadline)?;
+            let everyone = survival.everyone(&fetching.local(), &mut ownership)?;
+            (ownership, everyone)
+        } else {
+            let mut ownership = survival.own(&threads, previous, deadline)?;
+            let everyone = survival.everyone(&repo, &mut ownership)?;
+            (ownership, everyone)
+        };
+        ownership.keep_moves()?;
+        let seconds = (started.elapsed().as_secs_f64() * 1000.0).round() / 1000.0;
+        let people: Vec<SurvivingPerson> = everyone
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|(author, survived)| {
+                let Survived::Counted {
+                    lines,
+                    files,
+                    oldest,
+                } = survived
+                else {
+                    return None;
+                };
+                Some(SurvivingPerson {
+                    id: author.0,
+                    name: index.authors.get(author).map(|a| a.name.to_string()),
+                    status: SurvivingStatus::Counted,
+                    surviving: Some(lines),
+                    added: added.as_ref().map(|a| a.get(&author).copied().unwrap_or(0)),
+                    files,
+                    oldest,
+                    seconds,
+                })
+            })
+            .collect();
+        let out = serde_json::json!({
+            "head": survival.head().to_hex(),
+            "complete": ownership.complete,
+            "files": ownership.len(),
+            "people": people,
+        });
+        let mut stdout = std::io::stdout().lock();
+        serde_json::to_writer(&mut stdout, &out)?;
+        writeln!(stdout)?;
+        return Ok(());
+    }
 
     let mut people = Vec::with_capacity(args.people.len());
     for id in args.people {
@@ -104,7 +202,7 @@ pub fn run(args: SurvivingArgs) -> anyhow::Result<()> {
             });
             continue;
         };
-        let survived = if args.partial {
+        let survived = if args.partial || repo.is_partial() {
             survival.person(&fetching, author, budget)?
         } else {
             survival.person(&threads, author, budget)?
@@ -154,11 +252,13 @@ fn added_by_person(
 struct Fetching {
     threads: GixThreads,
     dir: PathBuf,
+    offline: bool,
 }
 
 struct Fetched {
     repo: GixRepo,
     dir: PathBuf,
+    offline: bool,
 }
 
 impl BlameThreads for Fetching {
@@ -168,6 +268,7 @@ impl BlameThreads for Fetching {
         Fetched {
             repo: self.threads.local(),
             dir: self.dir.clone(),
+            offline: self.offline,
         }
     }
 }
@@ -225,11 +326,19 @@ impl BlameSource for Fetched {
             .map_err(FetchError::Git)
     }
 
+    fn blame_size(&self, blob: Oid) -> Result<Option<u64>, Self::Error> {
+        self.repo.blame_size(blob).map_err(FetchError::Git)
+    }
+
     fn blame_blob(&self, blob: Oid) -> Result<Vec<u8>, Self::Error> {
         if let Ok(bytes) = self.repo.blame_blob(blob) {
             return Ok(bytes);
         }
-        let out = Command::new("git")
+        let mut git = Command::new("git");
+        if self.offline {
+            git.env("GIT_NO_LAZY_FETCH", "1");
+        }
+        let out = git
             .arg("-C")
             .arg(&self.dir)
             .args(["cat-file", "blob", &blob.to_hex()])

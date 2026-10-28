@@ -197,7 +197,7 @@ repository's addresses pinned to a Build are cached for a year.
 | `packages/data/` | The Report's types, generated from Rust, and the Data Sources |
 
 - [Domain language](./CONTEXT.md)
-- [Architecture decisions](./docs/adr), the latest [ADR-0028](./docs/adr/0028-the-engine-service-answers-from-immutable-packs.md)
+- [Architecture decisions](./docs/adr), the latest [ADR-0030](./docs/adr/0030-the-builder-keeps-a-repo-state-and-works-out-only-what-changed.md)
 - [How the pieces work together](./docs/working.md)
 - [The Stored Index in Postgres](./docs/index-in-postgres.md)
 - [GitHub's API limits](./docs/github-api.md)

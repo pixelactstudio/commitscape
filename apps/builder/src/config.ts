@@ -18,6 +18,7 @@ export function loadEnv(runtimeEnv: Record<string, string | undefined> = process
       COMMITSCAPE_BIN: z.string().default("commitscape"),
       COMMITSCAPE_THREADS: z.coerce.number().int().positive().optional(),
       LINES_BUDGET_SECONDS: positive(120),
+      MORE_LINES_BUDGET_SECONDS: positive(600),
       ENGINE_NICE: z.coerce.number().int().min(0).max(19).default(10),
       WORK_DIR: z.string().default(`${runtimeEnv.HOME ?? "."}/builder-work`),
       CONCURRENCY: positive(1),
@@ -28,6 +29,15 @@ export function loadEnv(runtimeEnv: Record<string, string | undefined> = process
       LARGE_CONCURRENCY: positive(1),
       LOGINS_ASKED: positive(300),
       DISK_BUDGET_GB: positive(20),
+      CACHE_BUDGET_GB: positive(5),
+      ENGINE_MEMORY_MB: positive(1200),
+      BULK_COMMIT_FILES: positive(50),
+      ATLAS_QUALITY: z.coerce.number().int().min(1).max(11).default(5),
+      ENGINE_URL: z.url().optional(),
+      PACK_FORMAT: z.enum(["2", "3"]).optional(),
+      STATE_KEY: z.string().min(32).optional(),
+      STATE_DISK_DAYS: positive(7),
+      STATE_KEEP_DAYS: positive(180),
       SURVIVING_BUDGET_SECONDS: positive(60),
       PULLS_TIME_LIMIT_SECONDS: positive(1800),
       GIT_DATA: z.stringbool().default(true),
@@ -85,6 +95,8 @@ export type GitSettings = {
 
 export type Config = {
   bin: string;
+  engineUrl?: string | undefined;
+  packFormat?: 2 | 3 | undefined;
   threads: number | undefined;
   linesBudget: number;
   nice: number;
@@ -97,9 +109,19 @@ export type Config = {
   largeConcurrency: number;
   logins: number;
   diskGb: number;
+  cacheGb: number;
+  engineMemoryMb: number;
+  bulkFiles: number;
+  moreLinesBudget: number;
   gitBase: string | undefined;
   git?: GitSettings | undefined;
+  atlas?: AtlasSettings | undefined;
+  state?: StateSettings | undefined;
 };
+
+export type StateSettings = { secret: string; diskDays: number; keepDays: number };
+
+export type AtlasSettings = { quality: number };
 
 export function configOf(env: Env): Config {
   return {
@@ -116,7 +138,14 @@ export function configOf(env: Env): Config {
     largeConcurrency: env.LARGE_CONCURRENCY,
     logins: env.LOGINS_ASKED,
     diskGb: env.DISK_BUDGET_GB,
+    cacheGb: env.CACHE_BUDGET_GB,
+    engineMemoryMb: env.ENGINE_MEMORY_MB,
+    bulkFiles: env.BULK_COMMIT_FILES,
+    moreLinesBudget: env.MORE_LINES_BUDGET_SECONDS,
     gitBase: env.GIT_BASE,
+    engineUrl: env.ENGINE_URL,
+    packFormat: env.PACK_FORMAT === undefined ? undefined : env.PACK_FORMAT === "2" ? 2 : 3,
+    state: env.STATE_KEY ? { secret: env.STATE_KEY, diskDays: env.STATE_DISK_DAYS, keepDays: env.STATE_KEEP_DAYS } : undefined,
     git: env.GIT_DATA
       ? {
           seconds: env.GIT_TIME_LIMIT_SECONDS,

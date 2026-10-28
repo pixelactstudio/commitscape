@@ -61,7 +61,7 @@ pub fn lines_of(index: &Index, c: &CommitMeta, wanted: impl Fn(FileId) -> bool) 
         .changes_of(c)
         .iter()
         .filter(|ch| wanted(ch.file))
-        .filter_map(|ch| ch.lines)
+        .filter_map(|ch| ch.lines())
         .fold((0, 0), |(a, r), l| {
             (a + u64::from(l.added), r + u64::from(l.removed))
         })

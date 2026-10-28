@@ -278,7 +278,7 @@ impl Shared {
 }
 
 impl Context<'_> {
-    fn person(&self, index: &Index, id: AuthorId) -> PersonRef {
+    pub(crate) fn person(&self, index: &Index, id: AuthorId) -> PersonRef {
         PersonRef {
             id: id.0,
             name: index
@@ -924,7 +924,7 @@ impl CommitList {
             let (mut added, mut removed) = (0u32, 0u32);
             let mut counted = changes.is_empty();
             for ch in changes {
-                if let Some(l) = ch.lines {
+                if let Some(l) = ch.lines() {
                     added = added.saturating_add(l.added);
                     removed = removed.saturating_add(l.removed);
                     counted = true;

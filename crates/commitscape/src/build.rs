@@ -4,15 +4,20 @@ use std::path::{Path, PathBuf};
 
 use clap::Args;
 use commitscape_core::{CommitFlags, Index, Oid};
-use commitscape_index::{load, GixRepo, Loaded, Mainline, RepoSource};
+use commitscape_index::graph::CommitGraph;
+use commitscape_index::mainline::mainline_since;
+use commitscape_index::{
+    cache_generations, load, GixRepo, LineStore, Loaded, Mainline, RepoSource,
+};
 use commitscape_metrics::Span;
-use commitscape_report::export::{self, Manifest};
-use commitscape_report::pack::{write_pack, Pack, Reading};
+use commitscape_report::export::{self, Manifest, Since};
+use commitscape_report::pack::{write_pack, write_pack_2, Pack, Reading};
 use commitscape_report::report::{summary, Report};
 use tracing::field::Empty;
 
+use crate::mark::{fingerprint, Mark};
 use crate::{
-    commit_link, count_lines_into, events, read_accounts, repo_name, with_accounts, Common,
+    commit_link, count_lines_kept, events, read_accounts, repo_name, with_accounts, Common,
     LineCount, ProgressLine, RunArgs,
 };
 
@@ -34,6 +39,12 @@ pub struct ExportArgs {
     #[arg(long)]
     no_lines: bool,
 
+    /// Another repository's line store (its cache's `lines`), such as the
+    /// one this is a fork of: a cache with none yet starts as a copy, so the
+    /// lines counted there for the commits both share are not counted again.
+    #[arg(long, value_name = "FILE", hide = true)]
+    lines_from: Option<PathBuf>,
+
     /// A file of commit ids, one per line: the frontier of the previous
     /// export. Only commits not reachable from them are written.
     #[arg(long, value_name = "FILE", requires = "lineage")]
@@ -43,6 +54,17 @@ pub struct ExportArgs {
     /// cache has another, everything is written.
     #[arg(long)]
     lineage: Option<u64>,
+
+    /// The mark the export the Site last loaded left in its manifest. While
+    /// it holds, only the Mainline that moved and the Lines Changed counted
+    /// since are written for the commits the Site has.
+    #[arg(long, value_name = "MARK", requires = "after")]
+    since: Option<String>,
+
+    /// The pack format to write: 3, or 2 for an engine service of an
+    /// earlier release, which reads no other.
+    #[arg(long, default_value_t = 3, value_parser = clap::value_parser!(u32).range(2..=3), hide = true)]
+    pack_format: u32,
 
     #[command(flatten)]
     run: RunArgs,
@@ -57,7 +79,10 @@ struct Read {
     mainline: Mainline,
     lines: Option<LineCount>,
     accounts: HashMap<String, String>,
-    known: Option<HashSet<Oid>>,
+    known: Option<Vec<bool>>,
+    moved: Option<Vec<bool>>,
+    counted: Option<HashSet<Oid>>,
+    mark: Mark,
     releases: Vec<(String, i64)>,
     release_commits: Vec<(String, Oid)>,
     anchor: i64,
@@ -70,27 +95,95 @@ fn read(args: &ExportArgs) -> anyhow::Result<Read> {
     let mut meter = ProgressLine::new();
     let mut loaded = load(&repo, &options, &mut |p| meter.show(p))?;
     meter.clear();
-    let mainline = commitscape_index::mainline(&repo, &loaded.index)?;
+    let truncated = loaded.index.history_truncated;
+    let mut graph = (!truncated)
+        .then(|| CommitGraph::of(&repo, &options, &loaded.index, loaded.lineage))
+        .transpose()?;
+    let generation = loaded.columns.at.as_ref().map(|(_, g)| *g);
+    let since = args.since.as_deref().and_then(Mark::parse);
+    let extends = since
+        .and_then(|m| m.generation)
+        .is_some_and(|g| cache_generations(&options, &loaded.index.repo).contains(&g));
+    let known = match (&args.after, args.lineage) {
+        (Some(file), Some(lineage)) if lineage == loaded.lineage && extends => match &graph {
+            Some(g) => g.reached_from(&loaded.index, &frontier(file)?),
+            None => repo.ancestors(&frontier(file)?)?.map(|reached| {
+                loaded
+                    .index
+                    .commits
+                    .iter()
+                    .map(|c| reached.contains(&c.id))
+                    .collect()
+            }),
+        },
+        _ => None,
+    };
+    let ignored = repo.blame_ignore_revs()?;
+    let skipped = commitscape_metrics::skipped_files(&loaded.index);
+    let left_out: Vec<(u32, &[u8])> = loaded
+        .index
+        .paths
+        .iter()
+        .filter(|(id, _)| skipped.get(id.idx()).copied().unwrap_or(false))
+        .map(|(id, path)| (id.0, path))
+        .collect();
+    let fingerprint = fingerprint(
+        args.common.metrics().max_changeset_size,
+        &ignored,
+        truncated,
+        &left_out,
+    );
+    let held = since.filter(|m| known.is_some() && m.fingerprint == fingerprint);
+    let before = held.and_then(|m| m.head).filter(|_| !truncated);
+    let (mainline, moved) = match graph.as_mut() {
+        Some(g) => {
+            let found = g.mainline_since(&loaded.index, before);
+            g.keep(&loaded.index);
+            found
+        }
+        None => mainline_since(&repo, &loaded.index, before)?,
+    };
+    if let (Some(from), Some(store), false) = (
+        args.lines_from.as_deref(),
+        LineStore::for_repo(&options, &loaded.index.repo),
+        args.no_lines,
+    ) {
+        let skipped = commitscape_metrics::skipped_files(&loaded.index);
+        if store.seed(from, &loaded.index, &skipped) {
+            tracing::info!("the line store starts from {}", from.display());
+        }
+    }
     let lines = if args.no_lines {
         None
     } else {
-        Some(count_lines_into(
+        Some(count_lines_kept(
             &repo,
             &options,
-            &mut loaded.index,
+            &mut loaded,
             args.common.metrics(),
             args.run.budget(),
             Some(mainline.bits.clone()),
         )?)
     };
-    mark_ignored(&repo, &mut loaded.index)?;
-    let accounts = with_accounts(&repo, &options, &mut loaded.index, given.as_ref())?;
-    let known = match (&args.after, args.lineage) {
-        (Some(file), Some(lineage)) if lineage == loaded.lineage => {
-            repo.ancestors(&frontier(file)?)?
+    let (log, counted) = match LineStore::for_repo(&options, &loaded.index.repo) {
+        Some(store) => {
+            let (now, after) = store.since(held.and_then(|m| m.lines));
+            (Some(now), after.map(|a| a.into_iter().collect()))
         }
-        _ => None,
+        None => (None, None),
     };
+    let mark = Mark {
+        head: loaded.index.head_commit,
+        lines: match (&lines, &known) {
+            (Some(_), _) => log,
+            (None, Some(_)) => held.and_then(|m| m.lines),
+            (None, None) => None,
+        },
+        fingerprint,
+        generation,
+    };
+    mark_ignored(&mut loaded.index, &ignored);
+    let accounts = with_accounts(&repo, &options, &mut loaded.index, given.as_ref())?;
     let tags = repo.release_tags();
     Ok(Read {
         releases: tags.iter().map(|(n, t, _)| (n.clone(), *t)).collect(),
@@ -101,6 +194,9 @@ fn read(args: &ExportArgs) -> anyhow::Result<Read> {
         lines,
         accounts,
         known,
+        moved,
+        counted,
+        mark,
         anchor: args.common.anchor(),
     })
 }
@@ -112,17 +208,16 @@ fn frontier(file: &Path) -> anyhow::Result<Vec<Oid>> {
         .collect()
 }
 
-fn mark_ignored(repo: &GixRepo, index: &mut Index) -> anyhow::Result<()> {
-    let ignored: HashSet<Oid> = repo.blame_ignore_revs()?.into_iter().collect();
+fn mark_ignored(index: &mut Index, ignored: &[Oid]) {
+    let ignored: HashSet<Oid> = ignored.iter().copied().collect();
     if ignored.is_empty() {
-        return Ok(());
+        return;
     }
-    for c in &mut index.commits {
+    for c in index.commits.iter_mut() {
         if ignored.contains(&c.id) {
             c.flags = c.flags.with(CommitFlags::BLAME_IGNORED);
         }
     }
-    Ok(())
 }
 
 fn write_export(r: &Read, args: &ExportArgs) -> anyhow::Result<Manifest> {
@@ -145,7 +240,12 @@ fn write_export(r: &Read, args: &ExportArgs) -> anyhow::Result<Manifest> {
                 bits: &r.mainline.bits,
                 arrival: &r.mainline.arrival,
             },
-            known: r.known.as_ref(),
+            known: r.known.as_deref(),
+            since: Since {
+                moved: r.moved.as_deref(),
+                counted: r.counted.as_ref(),
+            },
+            mark: r.mark.to_string(),
             lineage: r.loaded.lineage,
             kept: r.loaded.kept,
         },
@@ -219,7 +319,7 @@ pub fn build(args: ExportArgs) -> anyhow::Result<()> {
 
     let span = tracing::info_span!("pack", bytes = Empty);
     let entered = span.enter();
-    let pack = Pack::of(
+    let mut pack = Pack::of(
         report,
         Reading {
             lineage: loaded.lineage,
@@ -235,7 +335,10 @@ pub fn build(args: ExportArgs) -> anyhow::Result<()> {
     );
     let path = args.out.join("pack.bin");
     let mut out = BufWriter::with_capacity(1 << 20, std::fs::File::create(&path)?);
-    write_pack(&pack, &mut out)?;
+    match args.pack_format {
+        2 => write_pack_2(&mut pack, &mut out)?,
+        _ => write_pack(&mut pack, &mut out)?,
+    }
     out.flush()?;
     drop(out);
     span.record("bytes", std::fs::metadata(&path)?.len());

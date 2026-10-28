@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { brotliCompressSync } from "node:zlib";
 import { EXPORT_FORMAT, type ExportManifest } from "@commitscape/server";
 import type { Summary, SummaryPerson } from "./engine";
 
@@ -8,6 +9,14 @@ export type FakeBuild = { head?: string; frontier?: string[]; left?: number; mai
 export const flagOf = (args: string[], name: string) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined);
 
 export const fakePerson = (id: number, login: string | null, commits: number): SummaryPerson => ({ person_id: id, name: `P${id}`, login, commits, lines_added: 10 * id, lines_removed: id, first: 1, last: 2 });
+
+/** Writes what `commitscape atlas` would into its `--out` folder: a map and names packed with brotli. */
+export async function writeAtlasMade(args: string[]): Promise<void> {
+  const out = flagOf(args, "--out") ?? "";
+  await mkdir(out, { recursive: true });
+  await writeFile(join(out, "map.bin.br"), brotliCompressSync(Buffer.from(`map of ${args[1] ?? ""}`)));
+  await writeFile(join(out, "names.bin.br"), brotliCompressSync(Buffer.from("names")));
+}
 
 /** Writes what `commitscape build` would into its `--out` folder, for tests of the Builder without the engine. */
 export async function writeBuilt(args: string[], over: FakeBuild = {}): Promise<void> {
@@ -35,6 +44,8 @@ export async function writeBuilt(args: string[], over: FakeBuild = {}): Promise<
     max_changeset_size: 50,
     coupling_support: 5,
     ownership_min_commits: 10,
+    mark: `${head}.${noLines ? "-.-" : `${total}.1`}.0`,
+    changes_only: after && args.includes("--since"),
   };
   const summary: Summary = {
     meta: { name: "rocket", windows: ["all"], window: "all", anchor: 1, history: "complete", lines: noLines ? "off" : "counted", avatars: false },

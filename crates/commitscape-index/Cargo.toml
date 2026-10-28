@@ -12,6 +12,7 @@ homepage.workspace = true
 workspace = true
 
 [dependencies]
+commitscape-map.workspace = true
 commitscape-core.workspace = true
 serde = { version = "1.0.229", features = ["derive"] }
 thiserror = "2.0.20"

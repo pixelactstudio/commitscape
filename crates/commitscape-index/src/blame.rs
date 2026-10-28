@@ -5,12 +5,14 @@ use std::time::Instant;
 use commitscape_core::Oid;
 use imara_diff::{Algorithm, Diff, InternedInput};
 
-use crate::similarity::{rename_source, spans, Spans};
+use crate::similarity::{may_be_renamed, rename_source, spans, Spans};
 use crate::source::{BlameCommit, BlameSource, BlameThreads, InParent};
 
-const UNMAPPED: u32 = u32::MAX;
+pub(crate) const UNMAPPED: u32 = u32::MAX;
 
 const MAX_THREADS: usize = 8;
+
+pub const BATCH_BYTES: usize = 16 << 20;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlameFile {
@@ -28,19 +30,27 @@ pub enum Walked {
 
 type Seg = (u32, u32);
 
-pub(crate) type Text = (Rc<Vec<u8>>, Rc<Spans>);
-
 #[derive(Clone)]
-struct Gone {
-    deleted: Vec<(Vec<u8>, Oid)>,
-    texts: Vec<Option<Text>>,
+pub(crate) struct Gone {
+    pub(crate) deleted: Vec<(Vec<u8>, Oid)>,
+    pub(crate) spans: Vec<Option<Rc<Spans>>>,
+    pub(crate) sizes: Vec<Option<u64>>,
+}
+
+impl Gone {
+    pub(crate) fn new(deleted: Vec<(Vec<u8>, Oid)>) -> Gone {
+        Gone {
+            spans: vec![None; deleted.len()],
+            sizes: vec![None; deleted.len()],
+            deleted,
+        }
+    }
 }
 
 struct Version {
     parent: Oid,
     blob: Oid,
     path: Rc<[u8]>,
-    text: Option<Rc<Vec<u8>>>,
 }
 
 struct Item {
@@ -65,7 +75,8 @@ struct Walk<'a, S: BlameSource> {
     counts: Vec<HashMap<Oid, u32>>,
 }
 
-/// Blames each file at `head`, passing the lines of `pass_through` commits to their parent, and hands each file's line count per commit to `finished` as soon as it is known. `may_change` says whether a one-parent commit may have changed a path; where it says no, the commit is passed over unread.
+/// Blames each file at `head`, passing the lines of `pass_through` commits to their parent, and hands each file's line count per commit to `finished` as soon as it is known. `may_change` says whether a one-parent commit may have changed a path; where it says no, the commit is passed over unread. One walk holds at most `batch_bytes` of head file text (always at least one file); the files past it get walks of their own, one after another, each freed before the next.
+#[allow(clippy::too_many_arguments)]
 pub fn blame<S: BlameSource>(
     source: &S,
     head: Oid,
@@ -73,53 +84,65 @@ pub fn blame<S: BlameSource>(
     pass_through: &HashSet<Oid>,
     may_change: MayChange<'_>,
     deadline: Option<Instant>,
+    batch_bytes: usize,
     finished: &mut dyn FnMut(usize, Blamed),
 ) -> Result<Walked, S::Error> {
-    let mut walk = Walk {
-        source,
-        may_change,
-        pass_through,
-        pending: HashMap::new(),
-        heap: BinaryHeap::new(),
-        queued: HashSet::new(),
-        commits: HashMap::new(),
-        left: vec![0; files.len()],
-        counts: vec![HashMap::new(); files.len()],
-    };
     let late = || deadline.is_some_and(|d| Instant::now() >= d);
-    for (i, f) in files.iter().enumerate() {
-        if late() {
-            return Ok(Walked::OutOfTime);
-        }
-        let text = source.blame_blob(f.blob)?;
-        let n = line_count(&text);
-        if n == 0 {
-            finished(i, Vec::new());
-            continue;
-        }
-        if let Some(slot) = walk.left.get_mut(i) {
-            *slot = n;
-        }
-        walk.push(
-            head,
-            Item {
-                file: i,
-                path: f.path.as_slice().into(),
-                blob: f.blob,
-                text: Rc::new(text),
-                segs: vec![(0, n)],
-            },
-        )?;
-    }
-    while let Some((_, id)) = walk.heap.pop() {
-        if late() {
-            return Ok(Walked::OutOfTime);
-        }
-        walk.queued.remove(&id);
-        let Some(items) = walk.pending.remove(&id) else {
-            continue;
+    let mut next = 0;
+    while next < files.len() {
+        let mut walk = Walk {
+            source,
+            may_change,
+            pass_through,
+            pending: HashMap::new(),
+            heap: BinaryHeap::new(),
+            queued: HashSet::new(),
+            commits: HashMap::new(),
+            left: vec![0; files.len()],
+            counts: vec![HashMap::new(); files.len()],
         };
-        walk.process(id, items, finished)?;
+        let start = next;
+        let mut held = 0usize;
+        while let Some(f) = files.get(next) {
+            if next > start && held >= batch_bytes {
+                break;
+            }
+            if late() {
+                return Ok(Walked::OutOfTime);
+            }
+            let i = next;
+            next += 1;
+            let text = source.blame_blob(f.blob)?;
+            held += text.len();
+            let n = line_count(&text);
+            if n == 0 {
+                finished(i, Vec::new());
+                continue;
+            }
+            if let Some(slot) = walk.left.get_mut(i) {
+                *slot = n;
+            }
+            walk.push(
+                head,
+                Item {
+                    file: i,
+                    path: f.path.as_slice().into(),
+                    blob: f.blob,
+                    text: Rc::new(text),
+                    segs: vec![(0, n)],
+                },
+            )?;
+        }
+        while let Some((_, id)) = walk.heap.pop() {
+            if late() {
+                return Ok(Walked::OutOfTime);
+            }
+            walk.queued.remove(&id);
+            let Some(items) = walk.pending.remove(&id) else {
+                continue;
+            };
+            walk.process(id, items, finished)?;
+        }
     }
     Ok(Walked::Finished)
 }
@@ -232,22 +255,24 @@ impl<S: BlameSource> Walk<'_, S> {
                         parent: *parent,
                         blob,
                         path: item.path.clone(),
-                        text: None,
                     }),
                     InParent::Absent => {
                         if moved.is_none() {
                             let deleted = self.source.blame_moves(id, *parent)?.deleted;
-                            moved = Some(Gone {
-                                texts: vec![None; deleted.len()],
-                                deleted,
-                            });
+                            moved = Some(Gone::new(deleted));
                         }
-                        if let Some(Gone { deleted, texts }) = moved.as_mut() {
+                        if let Some(Gone {
+                            deleted,
+                            spans,
+                            sizes,
+                        }) = moved.as_mut()
+                        {
                             let source = self.source;
+                            let target = item.text.len() as u64;
                             let found = rename_source(
                                 (&item.path, item.blob, &item.text),
                                 deleted,
-                                &mut |i| spans_at(source, deleted, texts, i),
+                                &mut |i| spans_at(source, deleted, (spans, sizes), i, target),
                             )?;
                             if let Some((from, blob)) = found.and_then(|j| deleted.get(j)) {
                                 if *blob == item.blob {
@@ -259,9 +284,6 @@ impl<S: BlameSource> Walk<'_, S> {
                                     parent: *parent,
                                     blob: *blob,
                                     path: from.as_slice().into(),
-                                    text: found
-                                        .and_then(|j| texts.get(j).cloned().flatten())
-                                        .map(|t| t.0),
                                 });
                             }
                         }
@@ -274,20 +296,11 @@ impl<S: BlameSource> Walk<'_, S> {
 
         for (item, versions) in open {
             let mut remaining = item.segs;
-            for Version {
-                parent,
-                blob,
-                path,
-                text,
-            } in versions
-            {
+            for Version { parent, blob, path } in versions {
                 if remaining.is_empty() {
                     break;
                 }
-                let before = match text {
-                    Some(text) => text,
-                    None => Rc::new(self.source.blame_blob(blob)?),
-                };
+                let before = Rc::new(self.source.blame_blob(blob)?);
                 let input = InternedInput::new(before.as_slice(), item.text.as_slice());
                 let mut diff = Diff::compute(Algorithm::Myers, &input);
                 diff.postprocess_lines(&input);
@@ -319,27 +332,42 @@ impl<S: BlameSource> Walk<'_, S> {
     }
 }
 
+/// The spans of the `i`th deleted file, read once, or None when its size alone says it cannot be where a file of `target` bytes came from.
 pub(crate) fn spans_at<S: BlameSource>(
     source: &S,
     deleted: &[(Vec<u8>, Oid)],
-    texts: &mut [Option<Text>],
+    (known, sizes): (&mut [Option<Rc<Spans>>], &mut [Option<u64>]),
     i: usize,
-) -> Result<Rc<Spans>, S::Error> {
-    if let Some(Some((_, found))) = texts.get(i) {
-        return Ok(found.clone());
+    target: u64,
+) -> Result<Option<Rc<Spans>>, S::Error> {
+    if let Some(Some(found)) = known.get(i) {
+        return Ok(Some(found.clone()));
     }
-    let data = match deleted.get(i) {
-        Some((_, blob)) => Rc::new(source.blame_blob(*blob)?),
-        None => Rc::new(Vec::new()),
+    let Some((_, blob)) = deleted.get(i) else {
+        return Ok(None);
     };
-    let found = Rc::new(spans(&data));
-    if let Some(slot) = texts.get_mut(i) {
-        *slot = Some((data, found.clone()));
+    let size = match sizes.get(i).copied().flatten() {
+        Some(size) => Some(size),
+        None => {
+            let size = source.blame_size(*blob)?;
+            if let (Some(slot), Some(size)) = (sizes.get_mut(i), size) {
+                *slot = Some(size);
+            }
+            size
+        }
+    };
+    if size.is_some_and(|size| !may_be_renamed(size, target)) {
+        return Ok(None);
     }
-    Ok(found)
+    let found = Rc::new(spans(&source.blame_blob(*blob)?));
+    if let Some(slot) = known.get_mut(i) {
+        *slot = Some(found.clone());
+    }
+    Ok(Some(found))
 }
 
 /// Blames the files on several threads at once, each with its own handle on the repository and a share of the files grouped by folder, handing every file's result to `finished` on the calling thread.
+#[allow(clippy::too_many_arguments)]
 pub fn blame_in_threads<T: BlameThreads>(
     threads: &T,
     head: Oid,
@@ -347,6 +375,7 @@ pub fn blame_in_threads<T: BlameThreads>(
     pass_through: &HashSet<Oid>,
     may_change: &(dyn Fn(Oid, &[u8]) -> bool + Sync),
     deadline: Option<Instant>,
+    batch_bytes: usize,
     finished: &mut dyn FnMut(usize, Blamed),
 ) -> Result<Walked, <T::Local as BlameSource>::Error> {
     let count = crate::threads::threads(files.len())
@@ -360,9 +389,11 @@ pub fn blame_in_threads<T: BlameThreads>(
             pass_through,
             may_change,
             deadline,
+            batch_bytes,
             finished,
         );
     }
+    let per_thread = (batch_bytes / count).max(1);
     let mut folders: HashMap<&[u8], Vec<usize>> = HashMap::new();
     for (i, f) in files.iter().enumerate() {
         folders.entry(folder(&f.path)).or_default().push(i);
@@ -396,6 +427,7 @@ pub fn blame_in_threads<T: BlameThreads>(
                         pass_through,
                         may_change,
                         deadline,
+                        per_thread,
                         &mut |j, blamed| {
                             if let Some(&i) = shard.get(j) {
                                 let _ = sent.send((i, blamed));
@@ -422,7 +454,7 @@ pub fn blame_in_threads<T: BlameThreads>(
     })
 }
 
-fn folder(path: &[u8]) -> &[u8] {
+pub(crate) fn folder(path: &[u8]) -> &[u8] {
     let mut slashes = path
         .iter()
         .enumerate()
@@ -435,12 +467,12 @@ fn folder(path: &[u8]) -> &[u8] {
     }
 }
 
-fn line_count(text: &[u8]) -> u32 {
+pub(crate) fn line_count(text: &[u8]) -> u32 {
     let n = text.iter().filter(|&&c| c == b'\n').count();
     (n + usize::from(text.last().is_some_and(|&c| c != b'\n'))) as u32
 }
 
-fn line_map(diff: &Diff, before: usize, after: usize) -> Vec<u32> {
+pub(crate) fn line_map(diff: &Diff, before: usize, after: usize) -> Vec<u32> {
     let mut map = vec![UNMAPPED; after];
     let mut b = 0u32;
     for (a, slot) in map.iter_mut().enumerate() {
@@ -491,7 +523,7 @@ fn squeezed(line: &[u8]) -> Vec<u8> {
         .collect()
 }
 
-fn ignored_map(before: &[u8], after: &[u8], diff: &Diff) -> Vec<u32> {
+pub(crate) fn ignored_map(before: &[u8], after: &[u8], diff: &Diff) -> Vec<u32> {
     let old = lines_of(before);
     let new = lines_of(after);
     let mut map = vec![UNMAPPED; new.len()];
@@ -517,4 +549,84 @@ fn ignored_map(before: &[u8], after: &[u8], diff: &Diff) -> Vec<u32> {
         }
     }
     map
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::RefCell;
+    use std::convert::Infallible;
+
+    use super::*;
+    use crate::source::Moves;
+
+    struct Sized {
+        files: Vec<(Oid, Vec<u8>)>,
+        read: RefCell<Vec<Oid>>,
+    }
+
+    impl BlameSource for Sized {
+        type Error = Infallible;
+
+        fn blame_commit(&self, _: Oid) -> Result<Option<BlameCommit>, Infallible> {
+            Ok(None)
+        }
+
+        fn blame_compare(&self, _: Oid, _: Oid, _: &[&[u8]]) -> Result<Vec<InParent>, Infallible> {
+            Ok(Vec::new())
+        }
+
+        fn blame_moves(&self, _: Oid, _: Oid) -> Result<Moves, Infallible> {
+            Ok(Moves {
+                deleted: Vec::new(),
+                added: Vec::new(),
+            })
+        }
+
+        fn blame_blob(&self, blob: Oid) -> Result<Vec<u8>, Infallible> {
+            self.read.borrow_mut().push(blob);
+            Ok(self
+                .files
+                .iter()
+                .find(|(id, _)| *id == blob)
+                .map(|(_, text)| text.clone())
+                .unwrap_or_default())
+        }
+
+        fn blame_size(&self, blob: Oid) -> Result<Option<u64>, Infallible> {
+            Ok(self
+                .files
+                .iter()
+                .find(|(id, _)| *id == blob)
+                .map(|(_, text)| text.len() as u64))
+        }
+    }
+
+    #[test]
+    fn a_deleted_file_too_large_to_be_the_source_is_never_read_and_the_rest_are_read_once() {
+        let small = b"one\ntwo\nthree\nfour\n".to_vec();
+        let large = small.repeat(1000);
+        let source = Sized {
+            files: vec![(Oid([1; 20]), small.clone()), (Oid([2; 20]), large)],
+            read: RefCell::new(Vec::new()),
+        };
+        let mut gone = Gone::new(vec![
+            (b"a.rs".to_vec(), Oid([1; 20])),
+            (b"b.rs".to_vec(), Oid([2; 20])),
+        ]);
+        let target = small.len() as u64;
+        for _ in 0..2 {
+            for i in 0..2 {
+                let found = spans_at(
+                    &source,
+                    &gone.deleted,
+                    (&mut gone.spans, &mut gone.sizes),
+                    i,
+                    target,
+                )
+                .unwrap_or_else(|e| match e {});
+                assert_eq!(found.is_some(), i == 0);
+            }
+        }
+        assert_eq!(*source.read.borrow(), vec![Oid([1; 20])]);
+    }
 }

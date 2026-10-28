@@ -71,7 +71,7 @@ impl Analysis<'_> {
         let mut lately: HashMap<AuthorId, u32> = HashMap::new();
         let mut earlier: HashMap<AuthorId, u32> = HashMap::new();
         let mut in_year: HashMap<AuthorId, u32> = HashMap::new();
-        for c in &self.index().commits {
+        for c in self.index().commits.iter() {
             if c.is_merge() || c.time > end {
                 continue;
             }

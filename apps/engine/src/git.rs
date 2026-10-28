@@ -246,7 +246,7 @@ pub fn tree(held: &LoadedPack, blobs: &BTreeMap<String, BlobFacts>, of: &TreeOf)
     let mut dir_stats: HashMap<&str, DirStat> = HashMap::new();
     let mut logged = 0u32;
     let mut seen: HashSet<&str> = HashSet::new();
-    for c in &index.commits {
+    for c in index.commits.iter() {
         if c.is_merge() {
             continue;
         }
@@ -406,7 +406,7 @@ pub fn coupling(held: &LoadedPack) -> GitCoupling {
     let mut churn = vec![0u64; n];
     let mut pairs: HashMap<u64, u32> = HashMap::new();
     let mut touched: Vec<usize> = Vec::new();
-    for c in &index.commits {
+    for c in index.commits.iter() {
         if !counts(&pack.options, c) {
             continue;
         }
@@ -559,7 +559,7 @@ pub fn log(held: &LoadedPack) -> GitLog {
         file_at(&mut out, h.file);
     }
     let mut before = 0i64;
-    for c in &index.commits {
+    for c in index.commits.iter() {
         if c.is_merge() {
             continue;
         }

@@ -49,11 +49,11 @@ A repository's Index as the Site keeps it, in Postgres: every commit with its Ch
 _Avoid_: index tables, commit store.
 
 **Pack**:
-A repository's Index at one head as the engine service reads it, with its people already resolved to their GitHub logins and colours, its Mainline, and no email address. Each publish of a Build writes a new one, which never changes; the Stored Index names the current one.
+A repository's Index at one head as the engine service reads it, with its people already resolved to their GitHub logins and colours, its Mainline, and no email address. Each publish of a Build writes a new one, which never changes; the Stored Index names the current one. Compressed in R2; the engine service unpacks it once onto its disk and reads its columns in place.
 _Avoid_: snapshot, bundle, cache, export.
 
 **Mainline**:
-The commits of a Stored Index that the default branch holds: every commit reachable from HEAD, and among them the first-parent line, the commits HEAD itself went through. The Stored Index also holds commits only other branches and tags reach, which never reached the default branch; the Mainline tells them apart. A Build works it out again each time, since a merge brings older commits into it.
+The commits of a Stored Index that the default branch holds: every commit reachable from HEAD, and among them the first-parent line, the commits HEAD itself went through. The Stored Index also holds commits only other branches and tags reach, which never reached the default branch; the Mainline tells them apart. A Build brings it up to date from the commits added since, walking only the new part of the first-parent line, and works it out again whole when that line no longer runs through the head it was last worked out for, since a merge can bring older commits into it.
 _Avoid_: main branch, trunk, reachable commits.
 
 **Main Arrival**:
@@ -135,7 +135,7 @@ A Card placed in a README or elsewhere by its address, served from a stored copy
 _Avoid_: badge, widget, stats image.
 
 **Report**:
-A repository's story told screen by screen (the Overview, Activity, People, a person, the Map, a file) for a Window. On the Site the engine service answers each screen from the repository's Pack, for any Window, and its Commit List is rows in the Stored Index. A Shared Report carries every screen's answer for its Windows, written ahead of time on someone's machine, and answers only what it was written with.
+A repository's story told screen by screen (the Overview, Activity, People, a person, the Map, a file) for a Window. On the Site the standard screens of the Windows all, 1y and 90d are worked out from the repository's Pack once per head and stored with the Report; the engine service answers every other screen from the Pack, for any dates, and its Commit List is rows in the Stored Index. A Shared Report carries every screen's answer for its Windows, written ahead of time on someone's machine, and answers only what it was written with.
 _Avoid_: export, snapshot, dump.
 
 **Shared Report**:
@@ -163,7 +163,7 @@ The repository's whole default-branch history as a map to explore: one hex for e
 _Avoid_: galaxy, 3D view, city.
 
 **Atlas**:
-The compact binary history the Universe is made from: the files, folders and people of a Pack and every commit on the Mainline by when it arrived, Merge Commits left out. It is made once per Pack.
+The compact binary history the Universe is made from: the files, folders and people of a Pack and every commit on the Mainline by when it arrived, Merge Commits left out. The Builder makes it once per Pack, from rows the Build writes beside it, and stores it before the Pack is published; the Site only sends it, and makes it itself only for a Pack the Builder did not.
 _Avoid_: payload, snapshot, graph.
 
 **Branch state**:
@@ -192,12 +192,16 @@ _Avoid_: dashboard, cloud, platform, web app.
 The public page that says what commitscape is and leads to signing in: a static page apart from the Site, holding no data. Its Cards are the Site's.
 _Avoid_: home page, marketing site.
 
+**Repo State**:
+What the Builder keeps of a repository between its Builds so the next one reads only what is new: the engine cache, which holds its Index, the Lines Changed already counted and its HEAD's files. It lives on the Builder's disk for days and, sealed with a key only the Builder has, in R2 for months; a Build whose disk lost it brings it back from R2, and only one without either reads the whole history again.
+_Avoid_: cache (the folder it lives in), snapshot, checkpoint.
+
 **Builder**:
 What reads a repository's history for the Site: it clones the repository, runs the same engine the CLI runs, loads the Stored Index into Postgres and stores the Pack in R2. The Site never runs git.
 _Avoid_: worker, backend, crawler.
 
 **Build**:
-One run of the Builder for one repository, from clone to published Pack, in two phases at once: a clone without old file contents gives a Report without Lines Changed, shown at once, while a full clone counts them, the Mainline first, and replaces it. Quiet Builds that follow count the lines left. A repository's Report is rebuilt when someone asks for it and it is more than a day old, or after a push where commitscape's GitHub App is installed.
+One run of the Builder for one repository, from clone to published Pack, in two phases at once: a clone without old file contents gives a Report without Lines Changed, shown at once, while a full clone counts them, the Mainline first, and replaces it. Quiet Builds that follow count the lines left. Once every line and its Surviving Lines are counted, a repository's Builds read a clone without file contents and fetch only the file versions they read. A repository's Report is rebuilt when someone asks for it and it is more than a day old, or after a push where commitscape's GitHub App is installed. A Build whose Report is whole (every line counted, built within a week) ends at once when the default branch's head has not moved since, and the Report counts as current from then. A seed repository is built again when its head moved and someone viewed it since its last Build, and at least weekly.
 _Avoid_: job, scan, analysis, refresh.
 
 **Engine service**:
@@ -219,8 +223,12 @@ Said of a Profile whose person chose to stay out of comparisons: it appears in n
 _Avoid_: private profile, opted out.
 
 **Surviving Lines**:
-The lines at a repository's head that blame attributes to a person, passing through Bulk Commits and ignored revisions, leaving out Generated Files, Prose Files and files over a megabyte (ADR-0022). Passing through gives a changed line to the commit before only when the two are the same once whitespace is removed; any other line a reformat changed stays with the reformat. Counted per person on request; "not counted" when over its time budget, never an estimate.
+The lines at a repository's head that blame attributes to a person, passing through Bulk Commits and ignored revisions, leaving out Generated Files, Prose Files and files over a megabyte (ADR-0022). Passing through gives a changed line to the commit before only when the two are the same once whitespace is removed; any other line a reformat changed stays with the reformat. Counted for everyone at once, once per head, as a sum over the head's Ownership of lines; "counting" until that is whole, "not counted" when it is over its time budget, never an estimate.
 _Avoid_: lines owned, code alive, impact.
+
+**Ownership of lines**:
+Which commit each line of a head's Source files came from, as blame says, kept per head in the Repo State as runs of lines. A new head that went forward along the first-parent line keeps it for every file whose path no first-parent commit since changed, and works out the rest, stopping wherever a walk reaches the earlier head. Surviving Lines are summed from it. Not to be confused with Ownership, which counts commits.
+_Avoid_: blame cache, attribution.
 
 **Survival**:
 A person's Surviving Lines as a share of the lines they added in that repository (their Lines Changed). Shown only when both are known and it is at most 100%: an import left out of Lines Changed as a Bulk Commit can keep more lines than were counted as added.

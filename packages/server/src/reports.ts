@@ -14,6 +14,32 @@ export type ReportIndex = {
 type Written = { meta: Meta; data: Record<string, unknown>; stats?: BuildStats | null };
 
 export const reportPrefix = (repoId: string, buildId: string) => `reports/gh/${repoId}/${buildId}`;
+
+export type AtlasPart = "map" | "names";
+
+/** Where a part of the Atlas of a Stored Index's pack is kept: named by the pack, so a new pack never serves an old Atlas. */
+export function atlasKey(si: number, pack: string, part: AtlasPart): string {
+  return `atlas/${si}/${sha256(pack).slice(0, 16)}/${part}.bin.br`;
+}
+
+/** Where a Build's pack is kept: under its repository and Stored Index, named by its head and Build, and marked when it is the quick one, published without lines before the whole history is read. */
+export function packKey(repoId: string, si: number, head: string | null, buildId: string, quick: boolean): string {
+  return `packs/${repoId}/${si}/${head ?? "empty"}-${buildId}-${quick ? "quick" : "lines"}.pack`;
+}
+
+/** Whether a pack is a Build's quick one, which has no Atlas or stored screens of its own: the full one that follows brings them. */
+export const isQuickPack = (pack: string) => pack.endsWith("-quick.pack");
+
+/** Where the standard screens a Build worked out ahead are kept: beside its pack, as one gzipped JSON object of answers under the keys the Site asks them by, which the engine service fetches with the pack and answers from. */
+export const screensKey = (pack: string) => `${pack}.screens`;
+
+export const ENGINE_FORMATS_KEY = "engine/formats.json";
+
+/** What is kept beside a Stored Index's pack, its Atlas and its screens, as prefixes to delete with the pack. */
+export function besidePack(si: number, pack: string): string[] {
+  return [`atlas/${si}/${sha256(pack).slice(0, 16)}/`, screensKey(pack)];
+}
+
 const entryKey = (prefix: string, key: string) => `${prefix}/e/${sha256(key).slice(0, 32)}.json`;
 
 const gz = (value: unknown) => gzipSync(JSON.stringify(value));
@@ -38,17 +64,29 @@ export async function storeReport(storage: Storage, prefix: string, gzipped: Uin
   return { index, bytes };
 }
 
-const cache = new LRUCache<string, { value: unknown }>({ maxSize: 256 * 1024 * 1024 });
+const cache = new LRUCache<string, Buffer>({ maxSize: 256 * 1024 * 1024, sizeCalculation: (bytes) => Math.max(1, bytes.length) });
+
+const reading = new Map<string, Promise<Buffer | null>>();
+
+function bytesOf(storage: Storage, key: string): Promise<Buffer | null> {
+  const hit = cache.get(key);
+  if (hit) return Promise.resolve(hit);
+  const already = reading.get(key);
+  if (already) return already;
+  const read = (async () => {
+    const object = await storage.get(key);
+    if (!object) return null;
+    const bytes = object.encoding === "gzip" ? await gunzipAsync(object.body) : Buffer.from(object.body);
+    cache.set(key, bytes);
+    return bytes;
+  })().finally(() => reading.delete(key));
+  reading.set(key, read);
+  return read;
+}
 
 async function readJson<T>(storage: Storage, key: string): Promise<T | null> {
-  const hit = cache.get(key);
-  if (hit) return hit.value as T;
-  const object = await storage.get(key);
-  if (!object) return null;
-  const text = (object.encoding === "gzip" ? await gunzipAsync(object.body) : Buffer.from(object.body)).toString("utf8");
-  const value = JSON.parse(text) as T;
-  cache.set(key, { value }, { size: Math.max(1, text.length) });
-  return value;
+  const bytes = await bytesOf(storage, key);
+  return bytes ? (JSON.parse(bytes.toString("utf8")) as T) : null;
 }
 
 /** A stored Report's meta, stats and the answers it holds. */

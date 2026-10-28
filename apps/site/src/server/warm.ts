@@ -4,7 +4,6 @@ import { key, OVERVIEW_TOP } from "@commitscape/data";
 import { listenForLoads, now, reportIndexOf, schema, type Db, type Storage } from "@commitscape/server";
 import { forgetPack, packOf } from "./answers";
 import type { EngineService } from "./engine-service";
-import { warmAtlas } from "./universe";
 
 const { repositories } = schema;
 
@@ -28,7 +27,6 @@ async function warmRepo(w: Warming, repo: Warmable): Promise<number> {
   if (repo.indexId === null || pack === null) return 0;
   const index = await reportIndexOf(w.storage, repo).catch(() => null);
   const warmed = await w.engine.warm(pack, firstAnswers(index?.meta.window ?? "all"));
-  await warmAtlas(w, repo.indexId, pack).catch(() => false);
   return warmed;
 }
 

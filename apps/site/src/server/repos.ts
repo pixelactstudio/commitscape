@@ -4,6 +4,7 @@ import { FAILURE_WORDS, key as keyOf, limited, NOT_IN_REPORT, topOf, withoutTop,
 import {
   busy,
   cachedGet,
+  currentAt,
   installationOf,
   now,
   PRIORITY,
@@ -171,7 +172,7 @@ export async function lastBuild(db: Db, id: string) {
 
 export function lookupOf(row: Row, build: Awaited<ReturnType<typeof lastBuild>>, seen: Lookup["access"] = "public", at = now()): Lookup {
   const visible = row.status === "ok" || seen === "allowed";
-  const stale = (!!row.reportAt && row.reportAt < at - REPORT_FOR) || (!!row.reportKey && row.reportLines === false);
+  const stale = (!!row.reportAt && currentAt(row) < at - REPORT_FOR) || (!!row.reportKey && row.reportLines === false);
   return {
     id: row.id,
     owner: row.owner,
@@ -373,16 +374,22 @@ export async function reportAnswer(deps: Deps, viewer: Viewer, owner: string, na
   const pinned = at !== null && at === row.reportAt;
   const cacheControl = row.isPrivate ? "private, max-age=60" : pinned ? `public, max-age=${YEAR}, immutable` : "public, max-age=60";
   const tagOf = (version: string) => `"${sha256(`${version}\n${asked.key}`).slice(0, 32)}"`;
-  const found = await withPack(deps.db, row.indexId, async (pack) => {
-    const etag = tagOf(pack);
-    if (matches(seen, etag)) return { packed: null, etag };
-    const made = await packedAnswer(deps, viewer, pack, asked);
-    if (!made) throw new SiteError(404, NOT_IN_REPORT);
-    return { packed: made, etag };
-  }, row.reportAt);
+  const found = await withPack(
+    deps.db,
+    row.indexId,
+    async (pack) => {
+      const etag = tagOf(pack);
+      if (matches(seen, etag)) return { packed: null, etag, from: "unchanged" as const };
+      const made = await packedAnswer(deps, viewer, pack, asked);
+      if (!made) throw new SiteError(404, NOT_IN_REPORT);
+      return { packed: made, etag, from: "engine" as const };
+    },
+    row.reportAt,
+  );
   if (found) {
-    answerTimed(asked.path, found.value.packed ? "engine" : "unchanged", performance.now() - started);
-    return { ...found.value, cacheControl };
+    const { from, ...sent } = found.value;
+    answerTimed(asked.path, from, performance.now() - started);
+    return { ...sent, cacheControl };
   }
   const etag = tagOf(row.reportKey);
   if (matches(seen, etag)) return { packed: null, etag, cacheControl };

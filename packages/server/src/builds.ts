@@ -3,12 +3,41 @@ import type { Db } from "./db/client";
 import { builds, repositories } from "./db/schema";
 import { LONGEST_JOB_SECONDS, PRIORITY, type BuildJob, type Queue } from "./queue";
 import { randomId } from "./random";
+import type { LiveIndex } from "./stored-index";
 import { now } from "./time";
 
 export const BUILD_LOST_AFTER = 30 * 60;
 export const RETRY_AFTER = 3600;
 export const REPORT_FOR = 24 * 3600;
 export const RESEND_AFTER = 120;
+export const UNCHANGED_FOR = 7 * 24 * 3600;
+
+/** What a Build of this release makes beside a Stored Index, recorded on it when its pack is published: format 3 packs, the head's standard screens stored with the Report, the Builder's Atlas and everyone's Ownership of lines. A Stored Index made otherwise is built again. */
+export const BUILD_FORMAT = 2;
+
+type Reported = Pick<typeof repositories.$inferSelect, "reportKey" | "reportAt" | "reportLines"> & { checkedAt?: number | null; reportRefs?: string | null };
+
+/** When a repository's Report was last known current: built, or found with its head where the Build left it. */
+export function currentAt(row: Reported): number {
+  return Math.max(row.reportAt ?? 0, row.checkedAt ?? 0);
+}
+
+type Whole = Pick<LiveIndex, "pack" | "lines" | "linesLeft" | "head" | "buildFormat">;
+
+/** Whether a repository's Report is whole: published with every Mainline line counted and none left to count, from a Stored Index with a pack made by a Build of this release (BUILD_FORMAT), and built less than UNCHANGED_FOR ago, so the time Windows have not drifted further than that. Only a whole Report is kept when its head has not moved. */
+export function whole(row: Reported, live: Whole | null, at = now()): boolean {
+  return !!row.reportKey && row.reportLines === true && (row.reportAt ?? 0) > at - UNCHANGED_FOR && !!live?.pack && live.buildFormat === BUILD_FORMAT && live.lines && (live.linesLeft ?? 0) === 0 && !!live.head;
+}
+
+/** Whether a Build has nothing to do: the Report is whole and the default branch's head is still the one it was built from. */
+export function unchanged(row: Reported, live: Whole | null, head: string | null, at = now()): boolean {
+  return !!head && whole(row, live, at) && live?.head === head;
+}
+
+/** Whether a Build has nothing to do, as `unchanged` says, with every branch and tag on the remote as the Build that published the Report saw them: a Report covers them all, not only the default branch. */
+export function refsUnchanged(row: Reported, live: Whole | null, remote: { head: string | null; refs: string } | null, at = now()): boolean {
+  return !!remote && !!row.reportRefs && row.reportRefs === remote.refs && unchanged(row, live, remote.head, at);
+}
 
 type BuildState = Pick<typeof builds.$inferSelect, "state" | "reason" | "requestedAt" | "finishedAt"> & { startedAt?: number | null };
 

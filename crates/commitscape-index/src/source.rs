@@ -7,6 +7,8 @@ use crate::mailmap::Mailmap;
 
 pub type Frontier = HashSet<Oid>;
 
+pub type Parents = Vec<(Oid, i64)>;
+
 pub trait Indexed: Sync {
     fn contains(&self, id: &Oid) -> bool;
 }
@@ -126,6 +128,10 @@ pub trait RepoSource {
         visit: &mut dyn FnMut(Oid, i64, &[Oid]),
     ) -> Result<Option<Oid>, Self::Error>;
 
+    fn history_parents(&self, visit: &mut dyn FnMut(Oid, &[Oid])) -> Result<(), Self::Error>;
+
+    fn parents_of(&self, ids: &[Oid]) -> Result<Vec<Option<Parents>>, Self::Error>;
+
     fn blame_ignore_revs(&self) -> Result<Vec<Oid>, Self::Error>;
 }
 
@@ -169,4 +175,9 @@ pub trait BlameSource {
     fn blame_moves(&self, commit: Oid, parent: Oid) -> Result<Moves, Self::Error>;
 
     fn blame_blob(&self, blob: Oid) -> Result<Vec<u8>, Self::Error>;
+
+    fn blame_size(&self, blob: Oid) -> Result<Option<u64>, Self::Error> {
+        let _ = blob;
+        Ok(None)
+    }
 }

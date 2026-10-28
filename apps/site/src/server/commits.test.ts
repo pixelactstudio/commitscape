@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { cursorOf, UNKNOWN_PERSON } from "@commitscape/data";
 import { now, schema, seedIndex, type SeedIndex } from "@commitscape/server";
-import { testDeps, viewer } from "#/test/deps";
+import { fakeEngine, packed, testDeps, viewer } from "#/test/deps";
 import { commitAskOf, COMMITS_UNAVAILABLE, reportCommitPage } from "./commits";
 import { SiteError } from "./http";
 
@@ -87,6 +87,23 @@ describe("the commits API", () => {
     const seen = await reportCommitPage(deps, signedIn, "acme", "secret", { at: 600 });
     expect(seen.cacheControl).toBe("private, max-age=60");
     expect(seen.page?.rows).toHaveLength(3);
+  });
+
+  test("words are searched by the engine service over the pack, and only the page it names is read from Postgres", async () => {
+    const engine = fakeEngine(({ endpoint }) => (endpoint === "/v1/commits/search" ? { shas: [sha("a1")], total: 2, next: "next-page" } : endpoint === "/v1/commits/under" ? { shas: [sha("b2")], total: 1, next: null } : undefined));
+    const deps = Object.assign(await stored(), { engine });
+    const si = (await deps.db.select().from(repositories)).find((r) => r.id === "acme/rocket")?.indexId ?? 0;
+    const pack = await packed(deps.db, si);
+    const found = await reportCommitPage(deps, viewer(), "acme", "rocket", { q: "Launch", kind: 0 });
+    expect(engine.asked).toEqual([{ endpoint: "/v1/commits/search", body: { pack, query: { q: "Launch", kind: 0 } } }]);
+    expect(found.page?.rows.map((r) => r.subject)).toEqual(["feat: launch"]);
+    expect([found.page?.total, found.page?.next]).toEqual([2, "next-page"]);
+    const under = await reportCommitPage(deps, viewer(), "acme", "rocket", { q: "fuel", under: "a.ts" });
+    expect(engine.asked.at(-1)).toEqual({ endpoint: "/v1/commits/under", body: { pack, path: "a.ts", query: { q: "fuel" }, said: null } });
+    expect(under.page?.rows.map((r) => r.subject)).toEqual(["fix: the fuel"]);
+    const plain = await reportCommitPage(deps, viewer(), "acme", "rocket", { kind: 1 });
+    expect(plain.page?.rows).toHaveLength(2);
+    expect(engine.asked).toHaveLength(2);
   });
 
   test("a repository built before it had a Stored Index says so until it is built again", async () => {

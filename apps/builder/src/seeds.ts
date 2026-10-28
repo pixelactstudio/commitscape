@@ -1,8 +1,34 @@
-import { and, desc, eq, sql } from "drizzle-orm";
-import { busy, now, PRIORITY, queueBuild, REPORT_FOR, repoId, schema, settleRepository, type Db, type Queue, type Storage } from "@commitscape/server";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { busy, now, PRIORITY, queueBuild, REPORT_FOR, repoId, schema, settleRepository, unchanged, whole, type Db, type Queue, type Storage } from "@commitscape/server";
 import type { Env } from "./config";
+import { graphql, type GitHubApi } from "./github";
 
-const { builds, repositories } = schema;
+const { builds, repositories, storedIndexes } = schema;
+
+const HEADS_ASKED = 100;
+
+export type Named = { id: string; owner: string; name: string };
+
+export type Heads = (repos: Named[]) => Promise<Map<string, string>>;
+
+type HeadAnswer = Record<string, { defaultBranchRef: { target: { oid: string } | null } | null } | null>;
+
+/** The head of each repository's default branch, asked of GitHub's GraphQL API a hundred repositories to a request; a repository GitHub does not answer for, or a request that fails, is left out. */
+export async function headsOf(gh: GitHubApi, repos: Named[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  for (let i = 0; i < repos.length; i += HEADS_ASKED) {
+    const chunk = repos.slice(i, i + HEADS_ASKED);
+    const params = chunk.map((_, j) => `$o${j}: String!, $n${j}: String!`).join(", ");
+    const fields = chunk.map((_, j) => `r${j}: repository(owner: $o${j}, name: $n${j}) { defaultBranchRef { target { oid } } }`).join(" ");
+    const variables = Object.fromEntries(chunk.flatMap((r, j) => [[`o${j}`, r.owner], [`n${j}`, r.name]]));
+    const data = await graphql<HeadAnswer>(gh, `query(${params}) { ${fields} }`, variables).catch(() => null);
+    chunk.forEach((r, j) => {
+      const oid = data?.[`r${j}`]?.defaultBranchRef?.target?.oid;
+      if (oid) out.set(r.id, oid);
+    });
+  }
+  return out;
+}
 
 export type SeedConfig = {
   languages: string[];
@@ -59,8 +85,8 @@ function pause(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-/** Marks the list as seeds under their current names, moving rows kept under older ones, and queues tonight's Builds within the budget. */
-export async function queueSeeds(db: Db, queue: Queue, list: Seed[], budget: number, storage: Storage | null = null): Promise<number> {
+/** Marks the list as seeds under their current names, moving rows kept under older ones, and queues tonight's Builds within the budget, the longest unbuilt first. A seed whose Report is whole is built again only when its head moved and someone viewed it since its last Build; its heads are asked in batches, and one whose head has not moved is marked checked. Every seed is built at least weekly. */
+export async function queueSeeds(db: Db, queue: Queue, list: Seed[], budget: number, storage: Storage | null = null, heads: Heads | null = null): Promise<number> {
   const valid = list.filter((r) => repoId(r.owner, r.name)).slice(0, 500);
   for (const r of valid) {
     const fields = { seed: true, language: r.language, stars: r.stars, sizeKb: r.sizeKb };
@@ -73,20 +99,33 @@ export async function queueSeeds(db: Db, queue: Queue, list: Seed[], budget: num
       .values({ id: repoId(r.owner, r.name) ?? "", owner: r.owner, name: r.name, ...fields })
       .onConflictDoUpdate({ target: repositories.id, set: fields });
   }
-  const due = await db
-    .select()
-    .from(repositories)
-    .where(and(eq(repositories.seed, true), eq(repositories.isPrivate, false)))
-    .orderBy(sql`coalesce(${repositories.reportAt}, 0)`)
-    .limit(budget * 2);
+  const at = now();
+  const due = (
+    await db
+      .select({ row: repositories, live: { pack: storedIndexes.pack, lines: storedIndexes.lines, linesLeft: storedIndexes.linesLeft, head: storedIndexes.head, buildFormat: storedIndexes.buildFormat } })
+      .from(repositories)
+      .leftJoin(storedIndexes, eq(storedIndexes.id, repositories.indexId))
+      .where(and(eq(repositories.seed, true), eq(repositories.isPrivate, false)))
+      .orderBy(sql`coalesce(${repositories.reportAt}, 0)`)
+  ).filter(({ row }) => !(row.reportAt && row.reportAt > at - REPORT_FOR && row.reportLines !== false));
+  const kept = due.filter(({ row, live }) => whole(row, live, at));
+  const head = heads && kept.length > 0 ? await heads(kept.map(({ row }) => row)).catch(() => new Map<string, string>()) : new Map<string, string>();
+  const checked: string[] = [];
   let queued = 0;
-  for (const row of due) {
+  for (const { row, live } of due) {
     if (queued >= budget) break;
-    if (row.reportAt && row.reportAt > now() - REPORT_FOR && row.reportLines !== false) continue;
+    if (whole(row, live, at)) {
+      if (unchanged(row, live, head.get(row.id) ?? null, at)) {
+        checked.push(row.id);
+        continue;
+      }
+      if ((row.viewedAt ?? 0) <= (row.reportAt ?? 0)) continue;
+    }
     const [last] = await db.select().from(builds).where(eq(builds.repoId, row.id)).orderBy(desc(builds.requestedAt)).limit(1);
     if (busy(last)) continue;
     await queueBuild(db, queue, row.id, PRIORITY.seed);
     queued++;
   }
+  if (checked.length > 0) await db.update(repositories).set({ checkedAt: at }).where(inArray(repositories.id, checked));
   return queued;
 }

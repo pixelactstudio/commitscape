@@ -138,7 +138,10 @@ pub fn line_pass<S: RepoSource>(
     let _entered = span.enter();
     let until = plan.budget.and_then(|b| Instant::now().checked_add(b));
     let mut known = store.map(LineStore::read).unwrap_or_default();
-    let mut todo: Vec<usize> = index
+    if let Some(store) = store {
+        forget_uncounted(index, plan, store, &mut known);
+    }
+    let todo: Vec<usize> = index
         .commits
         .iter()
         .enumerate()
@@ -146,6 +149,124 @@ pub fn line_pass<S: RepoSource>(
         .map(|(i, _)| i)
         .collect();
     span.record("commits", todo.len());
+    let mainline_count = count_into(
+        source, index, plan, store, &mut known, todo, until, progress,
+    )?;
+    span.record("mainline", mainline_count);
+
+    let mut lines = vec![None; index.changes.len()];
+    let mut settled = vec![true; index.commits.len()];
+    let (mut counted, mut left) = (0u64, 0u64);
+    for (i, c) in index.commits.iter().enumerate() {
+        if plan.skips_commit(i, c) {
+            continue;
+        }
+        let Some(deltas) = known.get(&c.id) else {
+            left += 1;
+            if let Some(s) = settled.get_mut(i) {
+                *s = false;
+            }
+            continue;
+        };
+        counted += 1;
+        if let Some(slots) = lines.get_mut(c.changes()) {
+            if slots.len() == deltas.len() {
+                for ((slot, delta), change) in slots.iter_mut().zip(deltas).zip(index.changes_of(c))
+                {
+                    *slot = if plan.skips_file(change.file) {
+                        None
+                    } else {
+                        *delta
+                    };
+                }
+            }
+        }
+    }
+    span.record("counted", counted);
+    span.record("left", left);
+    if let Some(store) = store {
+        keep_left_out(index, plan, store);
+    }
+    Ok(LinePass {
+        lines,
+        ignored: source.blame_ignore_revs()?,
+        counted,
+        left,
+        settled,
+    })
+}
+
+fn forget_uncounted(index: &Index, plan: &LinePlan, store: &LineStore, known: &mut Counted) {
+    let Some(was) = store.left_out() else {
+        return;
+    };
+    let mut was_out: Vec<bool> = (0..index.paths.len())
+        .map(|i| {
+            index
+                .paths
+                .path(FileId(i as u32))
+                .is_some_and(|p| was.contains(p))
+        })
+        .collect();
+    for (file, path) in index.paths.departures() {
+        if was.contains(path) {
+            if let Some(slot) = was_out.get_mut(file.idx()) {
+                *slot = true;
+            }
+        }
+    }
+    let kept_now: Vec<bool> = was_out
+        .iter()
+        .enumerate()
+        .map(|(i, &out)| out && !plan.skips_file(FileId(i as u32)))
+        .collect();
+    if !kept_now.contains(&true) {
+        return;
+    }
+    for c in index.commits.iter() {
+        let uncounted = known.get(&c.id).is_some_and(|deltas| {
+            index
+                .changes_of(c)
+                .iter()
+                .zip(deltas)
+                .any(|(change, delta)| {
+                    delta.is_none() && kept_now.get(change.file.idx()).copied().unwrap_or(false)
+                })
+        });
+        if uncounted {
+            known.remove(&c.id);
+        }
+    }
+}
+
+fn keep_left_out(index: &Index, plan: &LinePlan, store: &LineStore) {
+    let current = (0..index.paths.len()).filter_map(|i| {
+        let file = FileId(i as u32);
+        plan.skips_file(file)
+            .then(|| index.paths.path(file))
+            .flatten()
+    });
+    let departed = index
+        .paths
+        .departures()
+        .filter(|(file, _)| plan.skips_file(*file))
+        .map(|(_, path)| path);
+    if let Err(e) = store.keep_left_out(current.chain(departed)) {
+        tracing::warn!("the files left out of the line store were not recorded: {e}");
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn count_into<S: RepoSource>(
+    source: &S,
+    index: &Index,
+    plan: &LinePlan,
+    store: Option<&LineStore>,
+    known: &mut Counted,
+    mut todo: Vec<usize>,
+    until: Option<Instant>,
+    progress: &mut dyn FnMut(u64, u64),
+) -> Result<usize, S::Error> {
     let bits = match (&plan.mainline, todo.is_empty()) {
         (Some(bits), _) => Cow::Borrowed(bits.as_slice()),
         (None, false) => Cow::Owned(mainline(source, index)?.bits),
@@ -153,7 +274,7 @@ pub fn line_pass<S: RepoSource>(
     };
     let on_mainline = |i: usize| bits.get(i).is_some_and(|b| b & REACHABLE != 0);
     order(&mut todo, &bits);
-    span.record("mainline", todo.iter().filter(|&&i| on_mainline(i)).count());
+    let on_line = todo.iter().filter(|&&i| on_mainline(i)).count();
 
     let mut skips: Vec<bool> = Vec::new();
     let mut ends: Vec<usize> = Vec::with_capacity(todo.len());
@@ -172,7 +293,7 @@ pub fn line_pass<S: RepoSource>(
     let counting = {
         let mut kept = Kept {
             store,
-            known: &mut known,
+            known,
             fresh: Vec::new(),
             done: 0,
             total: todo.len() as u64,
@@ -205,44 +326,228 @@ pub fn line_pass<S: RepoSource>(
         counting
     };
     counting?;
+    Ok(on_line)
+}
 
-    let mut lines = vec![None; index.changes.len()];
-    let mut settled = vec![true; index.commits.len()];
+fn masked(
+    plan: &LinePlan,
+    index: &Index,
+    c: &CommitMeta,
+    deltas: &[Option<LineDelta>],
+) -> Option<Vec<Option<LineDelta>>> {
+    let changes = index.changes_of(c);
+    (changes.len() == deltas.len()).then(|| {
+        changes
+            .iter()
+            .zip(deltas)
+            .map(|(change, delta)| {
+                if plan.skips_file(change.file) {
+                    None
+                } else {
+                    *delta
+                }
+            })
+            .collect()
+    })
+}
+
+/// What `remask` did: the commits whose changes it rewrote, and those it marked not settled because a file now kept was never counted in them, which the line pass counts again without the store.
+#[derive(Debug, Default)]
+pub struct Remasked {
+    pub rewritten: Vec<usize>,
+    pub recount: std::collections::HashSet<Oid>,
+}
+
+/// Brings the settled lines in the Index's changes, masked when the files in `flipped` were kept or left out the other way, to `plan`'s masking: changes of files now left out lose their lines, and changes of files now kept get theirs from the store, or, when the store left them uncounted, their commit is marked not settled to be counted again.
+pub fn remask(
+    index: &mut Index,
+    plan: &LinePlan,
+    store: Option<&LineStore>,
+    flipped: &[usize],
+    settled: &mut [u8],
+) -> Remasked {
+    if flipped.is_empty() {
+        return Remasked::default();
+    }
+    let mut flips = vec![false; index.paths.len()];
+    for &f in flipped {
+        if let Some(slot) = flips.get_mut(f) {
+            *slot = true;
+        }
+    }
+    let flips_file = |file: FileId| flips.get(file.idx()).copied().unwrap_or(false);
+    let mut rewritten = Vec::new();
+    let mut recount = std::collections::HashSet::new();
+    let mut wanted = std::collections::HashSet::new();
+    for i in 0..index.commits.len() {
+        let Some(c) = index.commits.get(i).copied() else {
+            continue;
+        };
+        if settled.get(i).copied().unwrap_or(0) == 0 || plan.skips_commit(i, &c) {
+            continue;
+        }
+        let Some(slots) = index.changes.get(c.changes()) else {
+            continue;
+        };
+        let mut cleared = false;
+        let mut restore = false;
+        for change in slots.iter().filter(|ch| flips_file(ch.file)) {
+            if plan.skips_file(change.file) {
+                cleared |= change.lines().is_some();
+            } else {
+                restore = true;
+            }
+        }
+        if cleared {
+            if let Some(slots) = index.changes.get_mut(c.changes()) {
+                for slot in slots.iter_mut().filter(|ch| flips_file(ch.file)) {
+                    if plan.skips_file(slot.file) {
+                        slot.set_lines(None);
+                    }
+                }
+            }
+            rewritten.push(i);
+        }
+        if restore {
+            wanted.insert(c.id);
+        }
+    }
+    let known = match (store, wanted.is_empty()) {
+        (Some(store), false) => store.read_some(&wanted),
+        _ => Counted::default(),
+    };
+    for i in 0..index.commits.len() {
+        let Some(c) = index.commits.get(i).copied() else {
+            continue;
+        };
+        let Some(deltas) = known.get(&c.id) else {
+            continue;
+        };
+        let Some(slots) = index.changes.get_mut(c.changes()) else {
+            continue;
+        };
+        if slots.len() != deltas.len() {
+            continue;
+        }
+        let uncounted = slots.iter().zip(deltas).any(|(slot, delta)| {
+            flips_file(slot.file) && !plan.skips_file(slot.file) && delta.is_none()
+        });
+        if uncounted {
+            if let Some(s) = settled.get_mut(i) {
+                *s = 0;
+            }
+            recount.insert(c.id);
+            continue;
+        }
+        for (slot, delta) in slots.iter_mut().zip(deltas) {
+            if flips_file(slot.file) && !plan.skips_file(slot.file) {
+                slot.set_lines(*delta);
+            }
+        }
+        rewritten.push(i);
+    }
+    rewritten.sort_unstable();
+    rewritten.dedup();
+    Remasked { rewritten, recount }
+}
+
+/// Counts the lines of the commits the kept columns do not hold settled, as `line_pass` does, writing them into the Index's changes and marking them settled there; every other commit's lines are already in the Index. The commits in `recount` are counted again whatever the store holds for them. Returns the pass and the commits it settled, for the columns to keep.
+pub fn line_pass_kept<S: RepoSource>(
+    source: &S,
+    index: &mut Index,
+    plan: &LinePlan,
+    store: Option<&LineStore>,
+    settled: &mut [u8],
+    recount: &std::collections::HashSet<Oid>,
+    progress: &mut dyn FnMut(u64, u64),
+) -> Result<(LinePass, Vec<usize>), S::Error> {
+    let span = tracing::info_span!(
+        "line_pass",
+        commits = Empty,
+        mainline = Empty,
+        counted = Empty,
+        left = Empty,
+        kept = true
+    );
+    let _entered = span.enter();
+    let until = plan.budget.and_then(|b| Instant::now().checked_add(b));
+    let open: Vec<usize> = index
+        .commits
+        .iter()
+        .enumerate()
+        .filter(|(i, c)| !plan.skips_commit(*i, c) && settled.get(*i).copied().unwrap_or(0) == 0)
+        .map(|(i, _)| i)
+        .collect();
+    let wanted: std::collections::HashSet<Oid> = open
+        .iter()
+        .filter_map(|&i| index.commits.get(i).map(|c| c.id))
+        .collect();
+    let mut known = store.map(|s| s.read_some(&wanted)).unwrap_or_default();
+    known.retain(|id, _| !recount.contains(id));
+    let todo: Vec<usize> = open
+        .iter()
+        .copied()
+        .filter(|&i| {
+            index
+                .commits
+                .get(i)
+                .is_some_and(|c| !known.contains_key(&c.id))
+        })
+        .collect();
+    span.record("commits", todo.len());
+    let mainline_count = count_into(
+        source, index, plan, store, &mut known, todo, until, progress,
+    )?;
+    span.record("mainline", mainline_count);
+
+    let mut newly = Vec::new();
+    for &i in &open {
+        let Some(c) = index.commits.get(i).copied() else {
+            continue;
+        };
+        let Some(lines) = known.get(&c.id).and_then(|d| masked(plan, index, &c, d)) else {
+            continue;
+        };
+        if let Some(slots) = index.changes.get_mut(c.changes()) {
+            for (slot, delta) in slots.iter_mut().zip(lines) {
+                slot.set_lines(delta);
+            }
+        }
+        if let Some(s) = settled.get_mut(i) {
+            *s = 1;
+        }
+        newly.push(i);
+    }
+    let mut marks = vec![true; index.commits.len()];
     let (mut counted, mut left) = (0u64, 0u64);
     for (i, c) in index.commits.iter().enumerate() {
         if plan.skips_commit(i, c) {
             continue;
         }
-        let Some(deltas) = known.get(&c.id) else {
+        if settled.get(i).copied().unwrap_or(0) == 0 {
             left += 1;
-            if let Some(s) = settled.get_mut(i) {
-                *s = false;
+            if let Some(m) = marks.get_mut(i) {
+                *m = false;
             }
-            continue;
-        };
-        counted += 1;
-        if let Some(slots) = lines.get_mut(c.changes()) {
-            if slots.len() == deltas.len() {
-                for ((slot, delta), change) in slots.iter_mut().zip(deltas).zip(index.changes_of(c))
-                {
-                    *slot = if plan.skips_file(change.file) {
-                        None
-                    } else {
-                        *delta
-                    };
-                }
-            }
+        } else {
+            counted += 1;
         }
     }
     span.record("counted", counted);
     span.record("left", left);
-    Ok(LinePass {
-        lines,
-        ignored: source.blame_ignore_revs()?,
-        counted,
-        left,
-        settled,
-    })
+    if let Some(store) = store {
+        keep_left_out(index, plan, store);
+    }
+    Ok((
+        LinePass {
+            lines: Vec::new(),
+            ignored: source.blame_ignore_revs()?,
+            counted,
+            left,
+            settled: marks,
+        },
+        newly,
+    ))
 }
 
 fn order(todo: &mut [usize], mainline: &[u8]) {

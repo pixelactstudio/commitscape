@@ -109,7 +109,7 @@ pub fn read(repo: &Path, lines: bool, budget: Option<Duration>, anchor: i64) -> 
         (settled, left)
     });
     let ignored: HashSet<Oid> = source.blame_ignore_revs().unwrap().into_iter().collect();
-    for c in &mut loaded.index.commits {
+    for c in loaded.index.commits.iter_mut() {
         if ignored.contains(&c.id) {
             c.flags = c.flags.with(CommitFlags::BLAME_IGNORED);
         }
@@ -170,7 +170,7 @@ pub async fn serve(packs: &[(&str, &Pack)]) -> Served {
         let path = source.join(key);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         let mut bytes = Vec::new();
-        write_pack(pack, &mut bytes).unwrap();
+        write_pack(&mut (*pack).clone(), &mut bytes).unwrap();
         std::fs::write(path, bytes).unwrap();
     }
     let engine = commitscape_engine::engine(&Settings {

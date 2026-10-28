@@ -1,10 +1,13 @@
 mod bots;
+mod column;
 mod ids;
 mod index;
 mod oid;
+mod record;
 mod time;
 
 pub use bots::{is_bot_name, AUTOMATION};
+pub use column::{Column, Slab};
 pub use ids::{AuthorId, FileId, PathId, SignatureId};
 pub use index::{
     Author, AuthorRef, AuthorTable, ChangeKind, CommitFlags, CommitKind, CommitMeta, FileChange,
@@ -12,4 +15,5 @@ pub use index::{
     PathTable, PersonTraits, RepoIdentity, Signature, SignatureRef, SCHEMA_VERSION, SUBJECT_CAP,
 };
 pub use oid::Oid;
+pub use record::Record;
 pub use time::{civil_from_unix, parse_iso8601, Month};

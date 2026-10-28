@@ -21,7 +21,7 @@ catalog:
   "@electric-sql/pglite": 0.5.8
   "@tanstack/react-query": 5.104.0
   "@types/pg": 8.23.1
-  better-auth: 1.7.6
+  better-auth: 1.7.13
   drizzle-kit: 0.31.11
   drizzle-orm: 0.45.3
   lru-cache: 11.5.3

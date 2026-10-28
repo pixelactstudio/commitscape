@@ -1,7 +1,6 @@
 import "@tanstack/react-start/server-only";
 import * as Sentry from "@sentry/tanstackstart-react";
 import type { CodeLog, CodeStory, CommitQuery, FolderLast, Params, PathHistory, PullInsight } from "@commitscape/data";
-import type { AtlasRows } from "@commitscape/data/universe";
 import { SiteError } from "./http";
 import { EngineError, engineFailed, engineTimed, type EngineOutcome } from "./telemetry";
 
@@ -35,15 +34,14 @@ export type EngineService = {
   answerText(pack: string, path: string, params: Params): Promise<string | null>;
   answer<T>(pack: string, path: string, params: Params): Promise<T | null>;
   treeText(pack: string, blobs: Record<string, Blob>, of: TreeOf): Promise<string>;
-  logText(pack: string): Promise<string>;
   couplingText(pack: string): Promise<string>;
   pathHistory(pack: string, path: string): Promise<PathHistory>;
   folderLast(pack: string, path: string): Promise<FolderLast>;
   story(pack: string, path: string): Promise<Story>;
   codeLog(pack: string, path: string, page: number): Promise<CodeLog>;
   under(pack: string, path: string, query: CommitQuery, cursor: string | undefined, said: string[] | null): Promise<UnderPage>;
+  search(pack: string, query: CommitQuery, cursor: string | undefined): Promise<UnderPage>;
   insight(pack: string, number: number, paths: string[], author: string | null, named: Named[]): Promise<PullInsight>;
-  universeRows(pack: string): Promise<AtlasRows>;
   warm(pack: string, keys: string[]): Promise<number>;
 };
 
@@ -67,15 +65,14 @@ export function engineOver(post: Post): EngineService {
       return found === null ? null : (JSON.parse(found) as T);
     },
     treeText: (pack, blobs, of) => text("/v1/git/tree", { pack, blobs, of }),
-    logText: (pack) => text("/v1/git/log", { pack }),
     couplingText: (pack) => text("/v1/git/coupling", { pack }),
     pathHistory: (pack, path) => json("/v1/git/path-history", { pack, path }),
     folderLast: (pack, path) => json("/v1/git/folder-last", { pack, path }),
     story: (pack, path) => json("/v1/code/story", { pack, path }),
     codeLog: (pack, path, page) => json("/v1/code/log", { pack, path, page }),
     under: (pack, path, query, cursor, said) => json("/v1/commits/under", { pack, path, query, ...(cursor === undefined ? {} : { cursor }), said }),
+    search: (pack, query, cursor) => json("/v1/commits/search", { pack, query, ...(cursor === undefined ? {} : { cursor }) }),
     insight: (pack, number, paths, author, named) => json("/v1/pulls/insight", { pack, number, paths, author, named }),
-    universeRows: (pack) => json("/v1/universe/rows", { pack }),
     warm: async (pack, keys) => (await json<{ made: number }>("/v1/warm", { pack, keys })).made,
   };
 }

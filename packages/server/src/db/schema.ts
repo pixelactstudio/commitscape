@@ -92,10 +92,13 @@ export const repositories = pgTable(
     factsAt: seconds("facts_at"),
     sizeKb: integer("size_kb"),
     reportKey: text("report_key"),
+    reportHead: text("report_head"),
+    reportRefs: text("report_refs"),
     reportAt: seconds("report_at"),
     reportBytes: integer("report_bytes"),
     reportLines: boolean("report_lines"),
     viewedAt: seconds("viewed_at"),
+    checkedAt: seconds("checked_at"),
     installationId: bigint("installation_id", { mode: "number" }),
     connectedBy: text("connected_by").references(() => user.id, { onDelete: "set null" }),
     seed: boolean("seed").notNull().default(false),
@@ -472,6 +475,17 @@ export type IndexSnapshot = {
   release_shas?: Record<string, string>;
 };
 
+export const repoStates = pgTable(
+  "repo_states",
+  {
+    repoId: text("repo_id").primaryKey(),
+    savedAt: seconds("saved_at").notNull(),
+    usedAt: seconds("used_at").notNull(),
+    bytes: bigint("bytes", { mode: "number" }).notNull(),
+  },
+  (t) => [index("repo_states_used").on(t.usedAt)],
+);
+
 export const storedIndexes = pgTable(
   "stored_indexes",
   {
@@ -493,6 +507,8 @@ export const storedIndexes = pgTable(
     options: jsonb("options").$type<IndexOptions>().notNull().default({ max_changeset_size: 50, coupling_support: 5, ownership_min_commits: 10 }),
     snapshot: jsonb("snapshot").$type<IndexSnapshot>(),
     pack: text("pack"),
+    mark: text("mark"),
+    buildFormat: integer("build_format"),
   },
   (t) => [index("stored_indexes_repo").on(t.repoId)],
 );
@@ -518,6 +534,17 @@ export const indexCommits = pgTable(
     removed: integer("removed").array(),
   },
   (t) => [primaryKey({ columns: [t.si, t.sha] }), index("index_commits_at").on(t.si, t.at), index("index_commits_signature").on(t.si, t.signature, t.at)],
+);
+
+export const indexCommitLines = pgTable(
+  "index_commit_lines",
+  {
+    si: si(),
+    sha: bytea("sha").notNull(),
+    added: integer("added").notNull(),
+    removed: integer("removed").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.si, t.sha] })],
 );
 
 export const indexFiles = pgTable(

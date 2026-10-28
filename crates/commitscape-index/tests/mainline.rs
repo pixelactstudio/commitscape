@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use commitscape_core::{Index, Oid};
+use commitscape_index::mainline::mainline_since;
 use commitscape_index::mainline::{FIRST_PARENT, REACHABLE};
 use commitscape_index::{index_from_scratch, mainline, GixRepo, ScriptedRepo};
 
@@ -211,4 +212,58 @@ fn the_mainline_of_every_fixture_is_what_the_builder_worked_out_from_git() {
         reachable += check(name);
     }
     assert!(reachable > 50);
+}
+
+fn moved(build: fn() -> ScriptedRepo, before: u32, after: u32) -> Option<Vec<bool>> {
+    let now = build().at(after);
+    let index = index_from_scratch(&build()).expect("indexing");
+    let then = mainline(&build().at(before), &index).expect("the earlier mainline");
+    let (found, moved) =
+        mainline_since(&now, &index, Some(now.commit_id(before))).expect("the mainline since");
+    let by_hand = mainline(&now, &index).expect("the mainline");
+    assert_eq!(found, by_hand);
+    let expected: Vec<bool> = (0..index.commits.len())
+        .map(|i| (by_hand.bits[i], by_hand.arrival[i]) != (then.bits[i], then.arrival[i]))
+        .collect();
+    if let Some(m) = &moved {
+        assert_eq!(m, &expected);
+    }
+    moved
+}
+
+fn twice_merged() -> ScriptedRepo {
+    ScriptedRepo::new()
+        .commit(10, A, &[])
+        .commit(30, A, &[])
+        .commit(50, A, &[])
+        .commit(80, A, &[])
+        .at(1)
+        .commit(40, A, &[])
+        .merge(60, A, 3, &[])
+        .commit(70, A, &[])
+        .merge(90, A, 4, &[])
+        .commit(100, A, &[])
+        .at(9)
+        .commit(110, A, &[])
+}
+
+#[test]
+fn the_mainline_since_an_earlier_head_names_the_commits_a_later_merge_moved_and_no_others() {
+    let moved = moved(twice_merged, 6, 8).expect("the earlier head is in the history");
+    assert_eq!(moved.iter().filter(|m| **m).count(), 3);
+    assert_eq!(
+        self::moved(twice_merged, 8, 8).expect("the same head"),
+        vec![false; moved.len()]
+    );
+}
+
+#[test]
+fn a_head_whose_first_parent_line_changed_moves_the_commits_that_left_the_line() {
+    let moved = moved(twice_merged, 3, 6).expect("the earlier head is in the history");
+    assert_eq!(moved.iter().filter(|m| **m).count(), 4);
+}
+
+#[test]
+fn an_earlier_head_the_history_no_longer_holds_moves_everything() {
+    assert_eq!(moved(twice_merged, 10, 9), None);
 }

@@ -2,7 +2,9 @@ pub mod blame;
 pub mod build;
 pub mod cache;
 mod classify;
+mod commit_at;
 pub mod gix_source;
+pub mod graph;
 mod hash_index;
 mod head_pass;
 pub mod identity;
@@ -11,6 +13,7 @@ pub mod mailmap;
 pub mod mainline;
 pub mod measure;
 mod message;
+pub mod ownership;
 pub mod scripted;
 pub mod similarity;
 pub mod source;
@@ -19,8 +22,8 @@ mod threads;
 
 pub use build::IndexBuilder;
 pub use cache::{
-    default_cache_root, load, repo_dir, BlameStore, CacheOptions, Freshness, IdentityStore,
-    LineStore, Loaded, Progress, RebuildReason,
+    cache_generations, default_cache_root, load, repo_dir, BlameStore, CacheOptions, Freshness,
+    IdentityStore, LineStore, Loaded, LogMark, Progress, RebuildReason,
 };
 pub use commitscape_core::LinePass;
 pub use gix_source::{GixError, GixRepo, GixThreads};

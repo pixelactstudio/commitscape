@@ -9,7 +9,7 @@ use crate::source::BlobSink;
 
 const BATCH: usize = 256;
 
-const THREAD_DELTA_CACHE_BYTES: usize = 32 * 1024 * 1024;
+const THREAD_DELTA_CACHE_BYTES: usize = 2 * 1024 * 1024;
 
 pub(super) fn read(source: &GixRepo, blobs: &[Oid], sink: BlobSink<'_>) -> Result<(), GixError> {
     let threads = crate::threads::threads(blobs.len().div_ceil(BATCH));

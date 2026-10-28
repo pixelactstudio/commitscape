@@ -14,6 +14,8 @@ use crate::head_pass::ClassifyContext;
 const HEAD_MAGIC: [u8; 8] = *b"CSCAPEH\x02";
 const DATA_MAGIC: [u8; 8] = *b"CSCAPED\x02";
 const POINTER_FILE: &str = "index.current";
+const GENERATIONS_FILE: &str = "index.generations";
+const GENERATIONS_KEPT: usize = 512;
 const LOCK_FILE: &str = "index.lock";
 const MAX_ID_RUNS: usize = 16;
 
@@ -343,14 +345,20 @@ pub(super) fn read_ids(dir: &Path, head: &Head) -> Result<SortedIds, Unusable> {
     Ok(SortedIds { runs })
 }
 
-pub(super) fn encode_blocks(
-    commits: &[CommitMeta],
-    changes: &[FileChange],
-    subjects: &[u8],
-) -> Vec<(Month, u32, u32, Vec<u8>)> {
-    let mut out = Vec::new();
+pub(super) type Fresh<'a> = Box<dyn Iterator<Item = (Month, u32, u32, Vec<u8>)> + 'a>;
+
+pub(super) fn no_blocks<'a>() -> Fresh<'a> {
+    Box::new(std::iter::empty())
+}
+
+pub(super) fn encode_blocks<'a>(
+    commits: &'a [CommitMeta],
+    changes: &'a [FileChange],
+    subjects: &'a [u8],
+) -> Fresh<'a> {
     let mut i = 0;
-    while let Some(first) = commits.get(i) {
+    Box::new(std::iter::from_fn(move || {
+        let first = commits.get(i)?;
         let month = Month::of(first.time);
         let len = commits
             .get(i..)
@@ -377,10 +385,9 @@ pub(super) fn encode_blocks(
         }
         let (n_commits, n_changes) = (block.commits.len() as u32, block.changes.len() as u32);
         let bytes = bincode::serde::encode_to_vec(&block, config()).unwrap_or_default();
-        out.push((month, n_commits, n_changes, bytes));
         i += len.max(1);
-    }
-    out
+        Some((month, n_commits, n_changes, bytes))
+    }))
 }
 
 pub(super) struct Previous {
@@ -393,7 +400,7 @@ pub(super) struct Previous {
 pub(super) struct Writing<'a> {
     pub head: Head,
     pub previous: Option<Previous>,
-    pub fresh: Vec<(Month, u32, u32, Vec<u8>)>,
+    pub fresh: Fresh<'a>,
     pub new_ids: Vec<u8>,
     pub dir: &'a Path,
 }
@@ -417,7 +424,7 @@ fn lock(dir: &Path) -> std::io::Result<WriteLock> {
     Ok(WriteLock(f))
 }
 
-pub(super) fn write(w: Writing<'_>) -> std::io::Result<(String, Vec<BlockEntry>)> {
+pub(super) fn write(mut w: Writing<'_>) -> std::io::Result<u64> {
     std::fs::create_dir_all(w.dir)?;
     let _lock = lock(w.dir)?;
     let mut head = w.head;
@@ -441,7 +448,7 @@ pub(super) fn write(w: Writing<'_>) -> std::io::Result<(String, Vec<BlockEntry>)
             let mut out = std::io::BufWriter::with_capacity(1 << 20, &mut file);
             head.data_file = prev.data_file.clone();
             head.blocks = prev.blocks.clone();
-            append_blocks(&mut out, &mut at, &w.fresh, &mut head.blocks)?;
+            append_blocks(&mut out, &mut at, &mut w.fresh, &mut head.blocks)?;
             head.id_runs = prev.id_runs.clone();
             if prev.id_runs.len() >= MAX_ID_RUNS {
                 let merged = prev.ids.merged_with(&w.new_ids);
@@ -475,7 +482,7 @@ pub(super) fn write(w: Writing<'_>) -> std::io::Result<(String, Vec<BlockEntry>)
                 }
                 None => w.new_ids.clone(),
             };
-            append_blocks(&mut out, &mut at, &w.fresh, &mut head.blocks)?;
+            append_blocks(&mut out, &mut at, &mut w.fresh, &mut head.blocks)?;
             head.id_runs = vec![append(&mut out, &mut at, &ids)?];
             out.flush()?;
         }
@@ -494,7 +501,7 @@ pub(super) fn write(w: Writing<'_>) -> std::io::Result<(String, Vec<BlockEntry>)
     drop(out);
 
     swap_to(w.dir, head.generation, &head.data_file)?;
-    Ok((head.data_file, head.blocks))
+    Ok(head.generation)
 }
 
 fn append(out: &mut impl std::io::Write, at: &mut u64, bytes: &[u8]) -> std::io::Result<Extent> {
@@ -511,16 +518,16 @@ fn append(out: &mut impl std::io::Write, at: &mut u64, bytes: &[u8]) -> std::io:
 fn append_blocks(
     out: &mut impl std::io::Write,
     at: &mut u64,
-    fresh: &[(Month, u32, u32, Vec<u8>)],
+    fresh: &mut dyn Iterator<Item = (Month, u32, u32, Vec<u8>)>,
     blocks: &mut Vec<BlockEntry>,
 ) -> std::io::Result<()> {
     for (month, commits, changes, bytes) in fresh {
-        let extent = append(out, at, bytes)?;
-        blocks.retain(|b| b.month != *month);
+        let extent = append(out, at, &bytes)?;
+        blocks.retain(|b| b.month != month);
         blocks.push(BlockEntry {
-            month: *month,
-            commits: *commits,
-            changes: *changes,
+            month,
+            commits,
+            changes,
             extent,
         });
     }
@@ -528,9 +535,37 @@ fn append_blocks(
     Ok(())
 }
 
+/// The generations a cache passed through, oldest first, the current one last: each one written was made from the one before it, so its ids extend that one's.
+pub fn generations(dir: &Path) -> Vec<u64> {
+    std::fs::read_to_string(dir.join(GENERATIONS_FILE))
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|l| u64::from_str_radix(l.trim(), 16).ok())
+        .collect()
+}
+
+fn keep_generation(dir: &Path, previous: Option<u64>, generation: u64) -> std::io::Result<()> {
+    let mut kept = generations(dir);
+    if kept.last().copied() != previous {
+        kept = previous.into_iter().collect();
+    }
+    kept.push(generation);
+    let from = kept.len().saturating_sub(GENERATIONS_KEPT);
+    let text: String = kept
+        .get(from..)
+        .unwrap_or(&[])
+        .iter()
+        .map(|g| format!("{g:016x}\n"))
+        .collect();
+    let tmp = dir.join(format!("{GENERATIONS_FILE}.{generation:016x}.tmp"));
+    std::fs::write(&tmp, text)?;
+    std::fs::rename(&tmp, dir.join(GENERATIONS_FILE))
+}
+
 fn swap_to(dir: &Path, generation: u64, data_file: &str) -> std::io::Result<()> {
     let previous = current_generation(dir).ok();
     let previous_data = previous.and_then(|g| data_file_of(dir, g).ok());
+    keep_generation(dir, previous, generation)?;
     let tmp = dir.join(format!("{POINTER_FILE}.{generation:016x}.tmp"));
     std::fs::write(&tmp, format!("{generation:016x}\n"))?;
     std::fs::rename(&tmp, dir.join(POINTER_FILE))?;
@@ -545,7 +580,15 @@ fn swap_to(dir: &Path, generation: u64, data_file: &str) -> std::io::Result<()> 
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().into_owned();
-            let stale = (name.ends_with(".head") && !keep_head(&name))
+            let keep_cols = |name: &str| {
+                [Some(generation), previous]
+                    .into_iter()
+                    .flatten()
+                    .any(|g| name == format!("{g:016x}.cols"))
+            };
+            let stale = (name.ends_with(".cols") && !keep_cols(&name))
+                || name.ends_with(".cols.writing")
+                || (name.ends_with(".head") && !keep_head(&name))
                 || (name.ends_with(".data") && !keep_data(&name))
                 || name.ends_with(".tmp");
             if stale {

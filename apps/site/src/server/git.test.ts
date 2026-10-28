@@ -51,13 +51,14 @@ const branches: GitBranches = {
 
 function answering({ endpoint, body }: Asked): unknown {
   if (endpoint === "/v1/git/tree") return { v: GIT_FORMAT, head: body.of.head, raw: body.of.raw ?? null, builtAt: body.of.builtAt, paths: ["README.md", "src/a.ts", "src/b.ts"] };
-  if (endpoint === "/v1/git/log") return { v: GIT_FORMAT, names: ["README.md", "a.ts", "b.ts", "old.txt"] };
   if (endpoint === "/v1/git/coupling") return { v: GIT_FORMAT, of: {} };
   if (endpoint === "/v1/git/path-history") return { path: body.path, total: 3, commits: [], logged: 4, complete: true };
   if (endpoint === "/v1/git/folder-last") return { path: body.path, entries: [] };
   if (endpoint === "/v1/commits/under") {
     const said = body.said as string[] | null;
-    const shas = [commit(3), commit(2), commit(1)].filter((c) => said === null || said.includes(c));
+    const words: Record<string, string[]> = { third: [commit(3)], "nothing like it": [] };
+    const q = body.query.q as string | undefined;
+    const shas = [commit(3), commit(2), commit(1)].filter((c) => (said === null || said.includes(c)) && (q === undefined || (words[q] ?? []).includes(c)));
     return { shas: shas.slice(0, body.query.limit ?? 50), total: shas.length, next: (body.query.limit ?? 50) < shas.length ? "next-cursor" : null };
   }
   return undefined;
@@ -123,22 +124,15 @@ describe("the git data of a repository", () => {
     expect(JSON.parse(brotliDecompressSync((await (await gitFile(deps, viewer(), "acme", "rocket", "coupling.json", 900)).packed?.br) ?? new Uint8Array()).toString())).toEqual({ v: GIT_FORMAT, of: {} });
   });
 
-  test("serves the history pinned to the Report it is of, and an ETag it gave without asking again", async () => {
+  test("the whole history as one file is no longer served: the Universe reads its Atlas, the Code window its pages", async () => {
     const deps = await stored();
-    const log = await gitFile(deps, viewer(), "acme", "rocket", "log.json", 500);
-    expect(log.cacheControl).toBe("public, max-age=31536000, immutable");
-    expect(JSON.parse(brotliDecompressSync((await log.packed?.br) ?? new Uint8Array()).toString())).toMatchObject({ names: ["README.md", "a.ts", "b.ts", "old.txt"] });
-    expect((await gitFile(deps, viewer(), "acme", "rocket", "log.json", null)).cacheControl).toBe("public, max-age=300");
-    const again = await gitFile(deps, viewer(), "acme", "rocket", "log.json", 500, log.etag);
-    expect(again.packed).toBeNull();
-    expect(again.etag).toBe(log.etag);
+    expect(await failure(gitFile(deps, viewer(), "acme", "rocket", "log.json", 500))).toEqual([404, "No such file."]);
   });
 
   test("says the tree and history are read at the next Build while the Stored Index has no pack", async () => {
     const deps = await stored();
     await deps.db.update(storedIndexes).set({ pack: null });
     expect(await failure(gitFile(deps, viewer(), "acme", "rocket", "tree.json", 900))).toEqual([404, expect.stringContaining("next Build")]);
-    expect(await failure(gitFile(deps, viewer(), "acme", "rocket", "log.json", 500))).toEqual([404, expect.stringContaining("next Build")]);
     expect(await failure(pathHistory(deps, viewer(), "acme", "rocket", "src/"))).toEqual([404, expect.stringContaining("next Build")]);
     expect(await failure(reportCommitPage(deps, viewer(), "acme", "rocket", { under: "src/" }))).toEqual([404, expect.stringContaining("built again")]);
     expect((await reportCommitPage(deps, viewer(), "acme", "rocket", {})).page?.rows).toHaveLength(4);
@@ -211,15 +205,14 @@ describe("how a path has changed", () => {
     expect(all.etag).not.toBe(first.etag);
   });
 
-  test("searches the commits under a folder by their words in Postgres", async () => {
+  test("searches the commits under a folder by their words in the engine service, and reads only their rows from Postgres", async () => {
     const deps = await stored();
     const engine = deps.engine as ReturnType<typeof fakeEngine>;
     const found = await reportCommitPage(deps, viewer(), "acme", "rocket", { under: "src/", q: "third" });
     expect(found.page?.rows.map((r) => r.sha)).toEqual([commit(3)]);
     expect(found.page?.total).toBe(1);
-    expect(engine.asked.at(-1)?.body.said).toEqual([commit(3)]);
+    expect(engine.asked.at(-1)?.body).toMatchObject({ path: "src/", query: { q: "third" }, said: null });
     expect((await reportCommitPage(deps, viewer(), "acme", "rocket", { under: "src/", q: "nothing like it" })).page?.rows).toEqual([]);
-    expect(engine.asked.at(-1)?.body.said).toEqual([]);
   });
 
   test("refuses a path or a folder that is not one", async () => {

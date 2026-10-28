@@ -2,7 +2,7 @@ import { createReadStream, existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
-import { count, eq, sql } from "drizzle-orm";
+import { and, count, eq, ne, sql, type SQL } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import { from as copyFrom } from "pg-copy-streams";
@@ -11,7 +11,7 @@ import * as schema from "./db/schema";
 import { indexCommits, repositories, storedIndexes, type IndexSnapshot } from "./db/schema";
 import { now } from "./time";
 
-export const EXPORT_FORMAT = 3;
+export const EXPORT_FORMAT = 4;
 
 export type ExportManifest = {
   format: number;
@@ -30,11 +30,13 @@ export type ExportManifest = {
   max_changeset_size: number;
   coupling_support: number;
   ownership_min_commits: number;
+  mark: string;
+  changes_only: boolean;
 };
 
 export const LOADED = "stored_index_loaded";
 
-export type LiveIndex = { id: number; lineage: string; kept: boolean; frontier: string[]; lines: boolean; linesLeft: number | null; head: string | null; pack: string | null };
+export type LiveIndex = { id: number; lineage: string; kept: boolean; frontier: string[]; lines: boolean; linesLeft: number | null; head: string | null; pack: string | null; mark: string | null; buildFormat: number | null; commits: number };
 
 export type Loaded = { si: number; full: boolean; commits: number; total: number; mainline: number; lines: number; seconds: number };
 
@@ -65,7 +67,7 @@ async function readSnapshot(dir: string): Promise<IndexSnapshot | null> {
 /** The repository's live Stored Index, or null when it has none. */
 export async function liveIndex(db: Db, repoId: string): Promise<LiveIndex | null> {
   const [row] = await db
-    .select({ id: storedIndexes.id, lineage: storedIndexes.lineage, kept: storedIndexes.kept, frontier: storedIndexes.frontier, lines: storedIndexes.lines, linesLeft: storedIndexes.linesLeft, head: storedIndexes.head, pack: storedIndexes.pack })
+    .select({ id: storedIndexes.id, lineage: storedIndexes.lineage, kept: storedIndexes.kept, frontier: storedIndexes.frontier, lines: storedIndexes.lines, linesLeft: storedIndexes.linesLeft, head: storedIndexes.head, pack: storedIndexes.pack, mark: storedIndexes.mark, buildFormat: storedIndexes.buildFormat, commits: storedIndexes.commits })
     .from(repositories)
     .innerJoin(storedIndexes, eq(storedIndexes.id, repositories.indexId))
     .where(eq(repositories.id, repoId));
@@ -77,7 +79,7 @@ export function appendable(live: LiveIndex | null): live is LiveIndex {
   return live !== null && live.kept && live.frontier.length > 0;
 }
 
-/** Loads what `commitscape export` wrote into Postgres in one transaction, as a new Stored Index, or appended to the live one with its Mainline brought up to date and the Lines Changed counted since filled in. Its lines show once the Mainline's are all counted; how many commits still wait is kept beside. */
+/** Loads what `commitscape export` wrote into Postgres in one transaction, as a new Stored Index that is not live until `makeLive` publishes it, or appended to the live one with its Mainline brought up to date and the Lines Changed counted since filled in, those sent again (when the files left out of lines changed) replacing what was there. Its lines show once the Mainline's are all counted; how many commits still wait is kept beside. */
 export async function loadExport(pool: pg.Pool, repoId: string, dir: string): Promise<Loaded> {
   const started = Date.now();
   const manifest = await readManifest(dir);
@@ -106,15 +108,14 @@ export async function loadExport(pool: pg.Pool, repoId: string, dir: string): Pr
         lines: manifest.lines_mainline,
         linesLeft: manifest.lines_left,
         commits,
-        state: "live",
+        state: manifest.full ? "ready" : "live",
         loadedAt: sql`greatest(${now()}, coalesce(${storedIndexes.loadedAt}, 0) + 1)`,
         anchor: manifest.anchor,
         options: { max_changeset_size: manifest.max_changeset_size, coupling_support: manifest.coupling_support, ownership_min_commits: manifest.ownership_min_commits },
         snapshot: await readSnapshot(dir),
+        mark: manifest.mark,
       })
       .where(eq(storedIndexes.id, si));
-    await db.update(repositories).set({ indexId: si }).where(eq(repositories.id, repoId));
-    if (manifest.full) await db.execute(sql`DELETE FROM stored_indexes WHERE repo_id = ${repoId} AND id <> ${si}`);
     await client.query("SELECT pg_notify($1, $2)", [LOADED, String(si)]);
     await client.query("COMMIT");
     if (manifest.full) await client.query("ANALYZE index_commits").catch(() => undefined);
@@ -125,6 +126,20 @@ export async function loadExport(pool: pg.Pool, repoId: string, dir: string): Pr
   } finally {
     client.release();
   }
+}
+
+type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
+
+/** Makes a loaded Stored Index the repository's live one, inside the transaction that publishes its pack: points the repository at it and deletes the repository's other Stored Indexes with their rows. Returns what those were and the packs they had, for their R2 objects to be deleted once the transaction has committed. */
+export async function makeLive(tx: Db | Tx, repoId: string, si: number): Promise<{ id: number; pack: string | null }[]> {
+  const others = await tx
+    .select({ id: storedIndexes.id, pack: storedIndexes.pack })
+    .from(storedIndexes)
+    .where(and(eq(storedIndexes.repoId, repoId), ne(storedIndexes.id, si)));
+  await tx.update(storedIndexes).set({ state: "live" }).where(eq(storedIndexes.id, si));
+  await tx.update(repositories).set({ indexId: si }).where(eq(repositories.id, repoId));
+  if (others.length > 0) await tx.delete(storedIndexes).where(and(eq(storedIndexes.repoId, repoId), ne(storedIndexes.id, si)));
+  return others;
 }
 
 async function target(db: Db, repoId: string, manifest: ExportManifest): Promise<number> {
@@ -148,10 +163,18 @@ function rowCount(result: unknown): number {
 
 async function merge(db: Db, si: number, manifest: ExportManifest): Promise<{ mainline: number; lines: number }> {
   await db.execute(sql`
-    INSERT INTO index_commits (si, sha, at, "offset", author_delta, signature, kind, flags, arrival, subject, files, changes, added, removed)
-    SELECT ${si}, sha, at, "offset", author_delta, signature, kind, flags, arrival, subject, files, changes, added, removed FROM s_commits
-    ON CONFLICT (si, sha) DO UPDATE SET added = excluded.added, removed = excluded.removed
-    WHERE index_commits.added IS NULL AND excluded.added IS NOT NULL`);
+    INSERT INTO index_commits (si, sha, at, "offset", author_delta, signature, kind, flags, arrival, subject, files, changes)
+    SELECT ${si}, sha, at, "offset", author_delta, signature, kind, flags, arrival, subject, files, changes FROM s_commits
+    ON CONFLICT (si, sha) DO NOTHING`);
+  const lines = (from: SQL) =>
+    db.execute(sql`
+      INSERT INTO index_commit_lines (si, sha, added, removed)
+      SELECT ${si}, l.sha, coalesce((SELECT sum(x) FROM unnest(l.added) AS x), 0), coalesce((SELECT sum(x) FROM unnest(l.removed) AS x), 0)
+      FROM ${from} l JOIN index_commits c ON c.si = ${si} AND c.sha = l.sha
+      WHERE l.added IS NOT NULL
+      ON CONFLICT (si, sha) DO UPDATE SET added = excluded.added, removed = excluded.removed
+      WHERE (index_commit_lines.added, index_commit_lines.removed) IS DISTINCT FROM (excluded.added, excluded.removed)`);
+  await lines(sql`s_commits`);
   const changed = { mainline: 0, lines: 0 };
   if (!manifest.full) {
     changed.mainline = rowCount(
@@ -159,11 +182,7 @@ async function merge(db: Db, si: number, manifest: ExportManifest): Promise<{ ma
         UPDATE index_commits c SET flags = m.flags, arrival = m.arrival FROM s_mainline m
         WHERE c.si = ${si} AND c.sha = m.sha AND (c.flags <> m.flags OR c.arrival IS DISTINCT FROM m.arrival)`),
     );
-    changed.lines = rowCount(
-      await db.execute(sql`
-        UPDATE index_commits c SET added = l.added, removed = l.removed FROM s_lines l
-        WHERE c.si = ${si} AND c.sha = l.sha AND c.added IS NULL`),
-    );
+    changed.lines = rowCount(await lines(sql`s_lines`));
   }
   await db.execute(sql`
     WITH existing AS (SELECT id, path FROM index_folders WHERE si = ${si}),

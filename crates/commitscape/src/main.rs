@@ -1,8 +1,11 @@
+mod atlas;
 mod build;
 mod clone;
 mod events;
 mod format;
 mod health;
+mod mark;
+mod screens;
 mod share;
 mod signatures;
 mod surviving;
@@ -17,7 +20,9 @@ use std::time::Duration;
 use clap::{Args, Parser, Subcommand};
 use commitscape_core::Index;
 use commitscape_forge::Remote;
+use commitscape_index::cache::cols::{self, Masking};
 use commitscape_index::identity::Account;
+use commitscape_index::lines::{line_pass_kept, remask};
 use commitscape_index::RepoSource;
 use commitscape_index::{
     default_cache_root, line_pass, load, reresolve_authors, CacheOptions, GixRepo, IdentityRules,
@@ -77,6 +82,15 @@ enum Command {
     /// meta, stats and people.
     #[command(hide = true)]
     Build(build::ExportArgs),
+    /// Work out the standard screens of a pack a Build wrote: the overview,
+    /// activity, people and top of the map of the whole history, the last
+    /// year and the last 90 days, and the stats, as one JSON object.
+    #[command(hide = true)]
+    Screens(screens::ScreensArgs),
+    /// Make the Universe's Atlas of a pack a Build wrote: its map and its
+    /// file names, packed with brotli as the Site sends them.
+    #[command(hide = true)]
+    Atlas(atlas::AtlasArgs),
 }
 
 #[derive(Args)]
@@ -222,11 +236,18 @@ fn counted_as(command: Option<&Command>) -> Option<&'static str> {
         Some(Command::Health(_)) => Some("health"),
         Some(Command::Surviving(_)) => Some("surviving"),
         Some(Command::Report(_)) => Some("report"),
-        Some(Command::Signatures(_) | Command::Export(_) | Command::Build(_)) => None,
+        Some(
+            Command::Signatures(_)
+            | Command::Export(_)
+            | Command::Build(_)
+            | Command::Screens(_)
+            | Command::Atlas(_),
+        ) => None,
     }
 }
 
 fn main() -> ExitCode {
+    commitscape_map::release_large_blocks();
     let cli = Cli::parse();
     let _ = rayon::ThreadPoolBuilder::new()
         .num_threads(commitscape_index::threads(usize::MAX))
@@ -240,7 +261,11 @@ fn main() -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("commitscape: {e:#}");
-            ExitCode::FAILURE
+            if e.downcast_ref::<surviving::HeadMoved>().is_some() {
+                ExitCode::from(3)
+            } else {
+                ExitCode::FAILURE
+            }
         }
     }
 }
@@ -254,6 +279,8 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         Some(Command::Signatures(args)) => signatures::run(args),
         Some(Command::Export(args)) => build::export(args),
         Some(Command::Build(args)) => build::build(args),
+        Some(Command::Screens(args)) => screens::run(args),
+        Some(Command::Atlas(args)) => atlas::run(args),
         None => share::run(cli.share),
     }
 }
@@ -262,7 +289,7 @@ fn report(args: ReportArgs) -> anyhow::Result<()> {
     events::record_to(args.run.events.as_deref())?;
     let options = args.common.cache();
     let accounts = args.accounts.as_deref().map(read_accounts).transpose()?;
-    let path = repo_source(&args.repo, args.partial, &options)?;
+    let path = repo_source(&args.repo, args.partial, &options, args.common.offline)?;
     let count_lines = !(args.no_lines || args.partial);
     let (name, report) = make_report(
         &path,
@@ -333,14 +360,7 @@ pub(crate) fn make_report(
     let mut loaded = load(&repo, &options, &mut |p| meter.show(p))?;
     meter.clear();
     if count_lines {
-        count_lines_into(
-            &repo,
-            &options,
-            &mut loaded.index,
-            common.metrics(),
-            budget,
-            None,
-        )?;
+        count_lines_kept(&repo, &options, &mut loaded, common.metrics(), budget, None)?;
     }
     let accounts = with_accounts(&repo, &options, &mut loaded.index, given)?;
     let name = repo_name(&loaded.index);
@@ -366,33 +386,80 @@ pub(crate) struct LineCount {
     pub(crate) settled: Vec<bool>,
 }
 
-/// Counts the Lines Changed the Index lacks, the Mainline first (worked out here unless given), never Bulk Commits, lockfiles or Generated Files, for at most `budget`.
-pub(crate) fn count_lines_into(
+/// Counts Lines Changed into the Index, from its kept columns when they were read and counted with the same masking: only the commits they do not hold settled are read from the line store or counted, and only those are written back. Otherwise every commit's lines are put in as before and the columns are written whole for the cache's generation.
+pub(crate) fn count_lines_kept(
     repo: &GixRepo,
     options: &CacheOptions,
-    index: &mut Index,
+    loaded: &mut commitscape_index::Loaded,
     metrics: Options,
     budget: Option<Duration>,
     mainline: Option<Vec<u8>>,
 ) -> anyhow::Result<LineCount> {
+    let index = &mut loaded.index;
     let plan = LinePlan {
         skip_commits: index.commits.iter().map(|c| metrics.is_bulk(c)).collect(),
         skip_files: commitscape_metrics::skipped_files(index),
         mainline,
         budget,
     };
+    let masking = Masking {
+        bulk: metrics.max_changeset_size,
+        skipped: plan.skip_files.clone(),
+    };
     let store = LineStore::for_repo(options, &index.repo);
     let mut meter = ProgressLine::new();
-    let mut pass = line_pass(repo, index, &plan, store.as_ref(), &mut |done, total| {
-        meter.lines(done, total)
-    })?;
-    meter.clear();
-    let count = LineCount {
-        counted: pass.counted,
-        left: pass.left,
-        settled: std::mem::take(&mut pass.settled),
+    let kept = loaded.columns.kept.as_mut().and_then(|k| {
+        let flipped = k.masking.flips(&masking)?;
+        Some((k, flipped))
+    });
+    let count = match kept {
+        Some((kept, flipped)) => {
+            let remasked = remask(index, &plan, store.as_ref(), &flipped, &mut kept.settled);
+            let (mut pass, newly) = line_pass_kept(
+                repo,
+                index,
+                &plan,
+                store.as_ref(),
+                &mut kept.settled,
+                &remasked.recount,
+                &mut |done, total| meter.lines(done, total),
+            )?;
+            meter.clear();
+            let count = LineCount {
+                counted: pass.counted,
+                left: pass.left,
+                settled: std::mem::take(&mut pass.settled),
+            };
+            pass.apply(index);
+            let mut written = newly;
+            written.extend(remasked.rewritten);
+            written.sort_unstable();
+            written.dedup();
+            if let Err(e) = kept.save(index, &written, &masking) {
+                tracing::warn!("the kept columns were not brought up to date: {e}");
+            }
+            count
+        }
+        None => {
+            let mut pass = line_pass(repo, index, &plan, store.as_ref(), &mut |done, total| {
+                meter.lines(done, total)
+            })?;
+            meter.clear();
+            let count = LineCount {
+                counted: pass.counted,
+                left: pass.left,
+                settled: std::mem::take(&mut pass.settled),
+            };
+            pass.apply(index);
+            if let Some((dir, generation)) = loaded.columns.at.as_ref() {
+                let marks: Vec<u8> = count.settled.iter().map(|&s| u8::from(s)).collect();
+                if let Err(e) = cols::write(dir, *generation, index, &marks, &masking) {
+                    tracing::warn!("the Index's columns were not kept: {e}");
+                }
+            }
+            count
+        }
     };
-    pass.apply(index);
     if count.left > 0 {
         eprintln!(
             "lines not counted yet for {} commits: the next run carries on",
@@ -473,6 +540,7 @@ pub(crate) fn repo_source(
     repo: &str,
     partial: bool,
     options: &CacheOptions,
+    offline: bool,
 ) -> anyhow::Result<PathBuf> {
     let local = PathBuf::from(repo);
     if local.exists() {
@@ -482,6 +550,10 @@ pub(crate) fn repo_source(
         );
         return Ok(local);
     }
+    anyhow::ensure!(
+        !offline,
+        "{repo} is not a folder here, and --offline does not clone it"
+    );
     let remote = clone::remote(repo)
         .ok_or_else(|| anyhow::anyhow!("{} is neither a folder here nor a GitHub project", repo))?;
     let root = options

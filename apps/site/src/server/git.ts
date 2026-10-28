@@ -10,9 +10,8 @@ import { readable, type Deps, type Row, type Viewer } from "./repos";
 const { pullRequests, repoGit, storedIndexes } = schema;
 
 export const NO_GIT = "This repository's files, branches and pull requests are read at its next Build.";
-const NO_HISTORY = "This repository's history is read at its next Build.";
 
-const FILES = /^(tree|coupling|log|branches|pulls)\.json$|^pull-(\d{1,8})\.json$|^branch-(\d{1,5})\.json$/;
+const FILES = /^(tree|coupling|branches|pulls)\.json$|^pull-(\d{1,8})\.json$|^branch-(\d{1,5})\.json$/;
 const YEAR = 31_536_000;
 
 export type GitRepo = { row: Row & { reportKey: string }; git: typeof repoGit.$inferSelect };
@@ -64,7 +63,6 @@ async function fromEngine(deps: Deps, row: GitRepo["row"], git: GitRepo["git"], 
 /** One JSON file of a repository's git data: the tree and Change Coupling from the engine service, its branches from their rows, each packed once per pack and build; its pull requests as stored. Kept for a year when the address names the build it is of. */
 export async function gitFile(deps: Deps, viewer: Viewer, owner: string, name: string, file: string, version: number | null, seen?: string | null): Promise<Served> {
   if (!FILES.test(file)) throw new SiteError(404, "No such file.");
-  if (file === "log.json") return commitLog(deps, viewer, owner, name, version, seen);
   const { row, git } = await gitOf(deps, viewer, owner, name);
   const pinned = version !== null && version === git.builtAt;
   const cacheControl = row.isPrivate ? "private, max-age=300" : pinned ? `public, max-age=${YEAR}, immutable` : "public, max-age=60";
@@ -88,20 +86,6 @@ export async function gitFile(deps: Deps, viewer: Viewer, owner: string, name: s
   const object = await readGitObject(deps.storage, key);
   if (!object) throw new SiteError(404, pull ? "Git data of this pull request was not kept." : NO_GIT);
   return { packed: null, object, etag, cacheControl };
-}
-
-async function commitLog(deps: Deps, viewer: Viewer, owner: string, name: string, version: number | null, seen?: string | null): Promise<Served> {
-  const row = await readable(deps, viewer, owner, name);
-  const pinned = version !== null && version === row.reportAt;
-  const cacheControl = row.isPrivate ? "private, max-age=300" : pinned ? `public, max-age=${YEAR}, immutable` : "public, max-age=300";
-  const made = await withPack(deps.db, row.indexId, async (pack) => {
-    const etag = `"${sha256(pack).slice(0, 16)}-log"`;
-    if (matches(seen, etag)) return { packed: null, etag };
-    return { packed: await keptText(`${pack}#log`, () => deps.engine.logText(pack)), etag };
-  }, row.reportAt);
-  if (!made) throw new SiteError(404, NO_HISTORY);
-  if (made.value.packed === null && !matches(seen, made.value.etag)) throw new SiteError(404, NO_HISTORY);
-  return { packed: made.value.packed, object: null, etag: made.value.etag, cacheControl };
 }
 
 const checkedPath = (path: string) => {

@@ -54,6 +54,38 @@ deployment server, then create the `builder` application on it. Its
 `DATABASE_URL` uses the first server's private address and the port you
 published for Postgres. Everything else is as below.
 
+### Memory, server by server
+
+Anonymous memory at the peak, measured on linux (1.5M commits) with two
+threads unless marked as an estimate. The kernel can drop mapped pages
+(packs, columns, git's packs) at any time, so they come out of what is
+left.
+
+mercury, the Builder's container (3 GiB):
+
+| What | At most | Held to it by |
+|---|---|---|
+| The Builder's own Node process | about 150 MB (estimate) | |
+| Runs let in by `ENGINE_MEMORY_MB`: builds, counts of Surviving Lines, screens, Atlases, clones, fetches, repacks | 1,200 MB together; one estimated larger runs alone | their estimates (`peakMb`): linux's cold Build 340 MB (measured 248), its Surviving Lines 260 (198), Atlas 108 (98), screens 198 (191), a fetch 177; a whole new clone of linux is estimated at 1.8 GB and runs alone |
+| git data's reads (branches, tags, pull requests) | about 130 MB | their output caps |
+| The head check (`git ls-remote`) | 64 MB | its output cap |
+| Together | about 1.5 GB, 2.1 GB while a whole linux clone runs alone | leaves the rest of the 3 GiB to the page cache |
+
+venus, the Site, the engine service and Postgres:
+
+| What | At most | Held to it by |
+|---|---|---|
+| The Site's own Node process | about 250 MB (estimate) | |
+| The Site's caches | 368 MB: answers 64, stored Reports' answers 16, R2 reads 256, Cards 32 | constants in `answers.ts`, `reports.ts`, `cards.ts` |
+| Atlases the Site keeps | about 50 MB: six packed Atlases (linux's map 7.8 MB, names 0.6 MB) | `KEPT` in `universe.ts` |
+| The engine service | about 830 MB: 80 MB once a linux pack is open, packs' heap up to `PACK_MEMORY_MB` (512), answers up to 128 MB, a request's work besides (linux's standard screens: 112 MB) | `PACK_MEMORY_MB` and its answer cache |
+| Postgres | its shared buffers (128 MB unless set) and about 10 MB a connection in use | its settings and the pools |
+| Together | about 1.7 GB, plus the page cache for unpacked packs (linux: 275 MB) and Postgres's files | |
+
+The Site never makes an Atlas and the engine service no longer answers
+the rows one was made from: a pack without an Atlas has one made by the
+Builder, under `ENGINE_MEMORY_MB`, on the `atlases` queue.
+
 ## 1. The R2 bucket
 
 In Cloudflare, create a bucket (for example `commitscape`), with the
@@ -120,7 +152,10 @@ Install the App on an account (or an organisation of your own) and choose
 installation's id, the number at the end of its settings page's address, in
 `GITHUB_APP_INSTALLATION_ID`. If that installation can read any private
 repository the Site refuses its token, logs why, and falls back to
-`GITHUB_TOKEN`, so private data is never kept as public.
+`GITHUB_TOKEN`, so private data is never kept as public. The Builder also
+fetches public repositories with it (in git's environment, never in an
+address or a log), so its many small fetches of file versions count
+against an account's limits rather than GitHub's anonymous ones.
 
 Keep the App ID (`GITHUB_APP_ID`), the slug from `github.com/apps/<slug>`
 (`GITHUB_APP_SLUG`), the Client ID (`GITHUB_APP_CLIENT_ID`), a new client
@@ -158,6 +193,10 @@ one):
 | Provider | Docker, image `ghcr.io/pixelactstudio/commitscape-builder:latest` |
 | Registry | None: the image is public |
 
+Run one Builder per database: a second one stops at once (a Postgres
+advisory lock), so deploy it stop-first, never with an overlapping
+update, and give it one replica.
+
 In Advanced, Volumes, add a volume named `commitscape-builder-work` with
 mount path `/work`. It keeps clones and the engine's caches between Builds,
 so the next Build of a repository only fetches and reads what is new. A
@@ -191,18 +230,28 @@ Optional, with their defaults:
 
 | Variable | Default | What |
 |---|---|---|
-| `CONCURRENCY` | 1 | Builds at a time, for repositories under `LARGE_REPOSITORY_MB`. On a server of its own with two cores, set 2 with `COMMITSCAPE_THREADS=1` |
+| `CONCURRENCY` | 1 | Builds at a time, for repositories under `LARGE_REPOSITORY_MB`. Their clones, GitHub reads and Postgres loads overlap; their runs of the engine share `ENGINE_MEMORY_MB` |
+| `ENGINE_MEMORY_MB` | 1200 | Memory the runs of the engine, and git's clones, fetches and repacks, may take at once, across every Build and count of Surviving Lines: each run waits, in the order it asked, until its estimate fits beside the others (on linux a warm build about 230 MB, a cold one about 340, everyone's Surviving Lines about 260, the standard screens about 200, the Atlas about 110, a fetch about 180, a whole clone about 1.8 GB; react's runs about 50 to 400); a run larger than this runs alone. 1200 fits a 3 GiB container with the Builder, git and Postgres loads beside it |
+| `BULK_COMMIT_FILES` | 50 | A commit changing more files than this is a Bulk Commit: left out of Churn, Ownership, Change Coupling and Lines Changed, and passed through by Surviving Lines. A lean clone fetches no file versions for commits changing more than twice as many paths |
 | `COMMITSCAPE_THREADS` | every core, up to 16 | Threads one run of the engine may use |
 | `ENGINE_NICE` | 10 | The engine runs at this lower priority (0 to 19), so git, the database and the Builder stay responsive |
-| `LINES_BUDGET_SECONDS` | 120 | How long a Build's line pass may count Lines Changed, the Mainline first, newest first. Lines show once the Mainline's are counted; the commits left are counted by quiet Builds queued a minute later, three at most, and by the next Build |
+| `LINES_BUDGET_SECONDS` | 120 | How long a Build's line pass may count Lines Changed, the Mainline first, newest first. Lines show once the Mainline's are counted; the commits left are counted by a quiet Build queued a minute later (three at most), and by the next Build |
+| `MORE_LINES_BUDGET_SECONDS` | 600 | How long such a quiet Build may count, kept two minutes inside `TIME_LIMIT_SECONDS`: nobody waits for it, so it counts what is left in one go and publishes once |
+| `PACK_FORMAT` | none | `2` or `3`: the pack format to write, whatever the engine service says. Set `2` while an engine service of the release before runs (a rollback), and unset it once the engine service is of this release |
+| `ENGINE_URL` | none | Only where the Builder can reach the engine service (on one server, or over a private network): its address as the Site uses it. The Builder then asks its health answer which pack formats it reads, every five minutes, and writes the newest it also writes (format 2 for an engine service of the release before, which lists none) |
+| `ATLAS_QUALITY` | 5 | The brotli quality `commitscape atlas` packs each pack's Universe Atlas with, 1 to 11. On linux 5 gives a 7.8 MB map (the whole Atlas: 2.9 s, 98 MB); the Atlas is made once per pack, in a process of its own that waits for its share of `ENGINE_MEMORY_MB` |
 | `LARGE_REPOSITORY_MB` | 1500 | Repositories larger than this, by GitHub's size, are built in a lane of their own |
 | `LARGE_CONCURRENCY` | 1 | Builds at a time in that lane |
-| `MAX_REPOSITORY_MB` | none | Unset, every repository is cloned, however big; set, larger repositories are refused |
+| `MAX_REPOSITORY_MB` | none | Unset, every repository is cloned, however big; set, larger repositories are refused. Measured on 2 cores (2026-10-27): vercel/next.js (2.6 GB of git, 50,110 commits) clones in 291 s with 163 CPU-s and 0.6 GB, and its first Build counts every line in 19 s with 525 MB; linux (6.6 GB) needs about 1 GB to receive and 1.1 GB for its first Build, and its clone can pass the default `CLONE_TIME_LIMIT_SECONDS`. With `ENGINE_MEMORY_MB` at 1200 under a 3 GiB cap, 4000 takes next.js-sized repositories with room to spare; go higher only with a longer clone limit and the disk for one full clone of that size |
 | `TIME_LIMIT_SECONDS` | 900 | How long one run of the binary may take on a Build's first attempt, the clone not included. One that runs out is queued again, each attempt given twice the time, four attempts in all |
 | `CLONE_TIME_LIMIT_SECONDS` | 1800 | How long a clone or fetch may take on the first attempt, doubled with each attempt |
 | `LOGINS_ASKED` | 300 | At most this many commit authors a Build asks GitHub for the login of, a hundred to a GraphQL request; each commit's answer is kept for a year, so a rebuild asks only for new ones |
-| `DISK_BUDGET_GB` | 20 | Past this, the least recently built clones in `/work` are deleted |
-| `SURVIVING_BUDGET_SECONDS` | 60 | How long one count of a person's Surviving Lines may take at first. A count past it is queued again with twice the budget, up to four hours, and goes on from the files it counted |
+| `DISK_BUDGET_GB` | 20 | Past this, the least recently built clones in `/work/repos` are deleted. A repository whose lines and Surviving Lines are all counted keeps a lean clone (blobless, no files written out: linux 2.4 GB, react 62 MB) instead of a full one (6.6 GB, 1.1 GB) |
+| `CACHE_BUDGET_GB` | 5 | Past this, the least recently used caches in `/work/caches` are deleted. A cache holds what a Build read of a repository's history (linux: about 240 MB, react: 11 MB) and lives apart from its clone, so deleting a clone never makes the next Build read the history again |
+| `STATE_KEY` | unset | A secret of 32 characters or more that only the Builder holds. Set, every public repository's Repo State (its engine cache) is also kept in R2 under `state/`, sealed with a key made from it (AES-256-GCM, zstd), uploading only the chunks R2 does not hold yet; a Build whose disk lost the State brings it back instead of reading the whole history again. Unset, States live on the disk only, as before. Keep it: a new key makes every State in R2 unreadable, and those Builds start clean |
+| `STATE_DISK_DAYS` | 7 | With `STATE_KEY` set, a State unused for this many days leaves the disk even within `CACHE_BUDGET_GB` (R2 still holds it) |
+| `STATE_KEEP_DAYS` | 180 | With `STATE_KEY` set, a State no Build has used for this many days is deleted from R2, checked once a day |
+| `SURVIVING_BUDGET_SECONDS` | 60 | How long one count of everyone's Surviving Lines may spend working out the head's Ownership of lines at first. A count past it keeps what it did and is queued again with twice the budget, up to four hours, going on from there. Each new Report queues one, after its full publish |
 | `PULLS_TIME_LIMIT_SECONDS` | 1800 | How long one read of a repository's pull requests may take; a first read past it goes on from where it stopped a minute later |
 | `GIT_DATA` | true | Once a Build's full clone is ready, read the repository's branches, files and pull requests from it with git, beside the line pass, for the Code, Branches and Pull requests screens. They cost no GitHub request; each step fails on its own and leaves the Report published |
 | `GIT_TIME_LIMIT_SECONDS` | 300 | How long all of it may take; branches get up to a fifth, files up to four fifths of what is left, pull requests the rest. A Build's job limit grows by this |
@@ -224,12 +273,12 @@ In Schedules, add two jobs for this application:
 | Cron | Command | What it does |
 |---|---|---|
 | `*/15 * * * *` | `node builder.mjs cleanup` | Deletes expired Shared Reports, old rate-limit counts, expired GitHub answers, ended sessions, and Connected Repositories' Reports unseen for 30 days |
-| `0 3 * * *` | `node builder.mjs seed` | Queues the night's seed Builds |
+| `0 3 * * *` | `node builder.mjs seed` | Queues the night's seed Builds: a seed whose Report is whole is queued only when its head moved (asked of GitHub's GraphQL API, a hundred repositories to a request) and someone viewed it since its last Build, or when its Report is a week old |
 
 `node builder.mjs rebuild` queues a Build, at the lowest priority, for every
-repository whose live Stored Index has no pack. Run it once after upgrading
-from a release without the engine service (see "Upgrading" below), in the
-application's terminal or as a one-off schedule.
+repository whose live Stored Index has no pack, or was made by a Builder of
+an earlier release. Run it once after an upgrade that says so (see
+"Upgrading" below), in the application's terminal or as a one-off schedule.
 
 ## 5. The engine service
 
@@ -261,8 +310,8 @@ Optional, with their defaults:
 
 | Variable | Default | What |
 |---|---|---|
-| `PACK_DISK_GB` | 10 | Packs kept on the volume; past this, the least recently used are deleted. Fractions are allowed |
-| `PACK_MEMORY_MB` | 512 | Packs kept decoded in memory, the least recently used first to go (facebook/react's is about 17 MB). Its answers are kept besides, up to 128 MB |
+| `PACK_DISK_GB` | 10 | Packs kept on the volume; past this, the least recently used are deleted. Fractions are allowed. A pack is kept unpacked, its columns laid out to be read in place, about 2.6 times its size in R2 (linux: 107 MB in R2, 275 MB unpacked) |
+| `PACK_MEMORY_MB` | 512 | Packs kept open in memory, the least recently used first to go. Only what a pack keeps on the heap counts, not the columns read in place from the volume (linux: about 52 MB, facebook/react: a few MB). Its answers are kept besides, up to 128 MB |
 | `COMMITSCAPE_THREADS` | every core, up to 16 | Threads working out answers, and answers worked out at once |
 | `PORT` | 4100 | The port it listens on |
 | `PACK_DIR` | `/data/packs` | Where packs are kept on disk |
@@ -273,7 +322,11 @@ Optional, with their defaults:
 
 The image has a health check (`commitscape-engine health`, which asks
 `/healthz`). Deploy it before the Site: the Site does not start without
-`ENGINE_URL` and `ENGINE_TOKEN`.
+`ENGINE_URL` and `ENGINE_TOKEN`. Each time it starts it writes
+`engine/formats.json` to the bucket, with the pack formats it reads, for the
+Builder, which cannot reach it from another server; its token needs write
+access for that, and without it the log says so and the Builder writes
+format 3.
 
 ## 6. The Site
 
@@ -441,7 +494,14 @@ record proxied, the Site reads the visitor's address from
 
 When a release is made, the Docker images workflow pushes `latest` and
 `vX.Y.Z` and then calls a Dokploy deploy webhook for each application, in
-this order: Builder, engine service, Site. In each application's
+this order: engine service, Builder, Site. The engine service goes first
+because it reads every pack format a Builder of the same or an earlier
+release writes. When it starts it also writes `engine/formats.json` to R2,
+listing the pack formats it reads, and the Builder writes the newest of
+those it can write, so a Builder that comes up first, or an engine service
+rolled back, is caught. With no such file (an engine service of the release
+before writes none) the Builder writes format 3, so roll back with
+`PACK_FORMAT=2` on the Builder. In each application's
 Deployments tab in Dokploy, copy its webhook URL into this repository's
 secrets on GitHub:
 
@@ -472,6 +532,53 @@ needs. In this order:
    it shows the Report stored for it before, and its Code window, history
    and Universe say they are read at the next Build.
 5. Set up the landing page (section 7).
+
+## Upgrading to the Repo State
+
+The release that keeps each repository's Repo State (ADR-0030) works
+without new settings, and deploys the engine service first: its Builder
+writes packs of a new format (3) that only this engine service reads. In
+this order:
+
+1. Deploy the engine service. It reads packs of both formats; the old ones
+   it decodes as before, the new ones it unpacks once on its volume and
+   reads in place. It adds `/v1/commits/search` and matches words in
+   `/v1/commits/under`.
+2. Deploy the Builder, stopping the old one first: a Builder that finds
+   another running against the database stops. Its migrations add
+   `repositories.checked_at`, `repositories.report_head`,
+   `repositories.report_refs`, the
+   `repo_states` table and `stored_indexes.build_format`. It no longer
+   reads `ENGINE_SLOTS`, which can go: `ENGINE_MEMORY_MB` (1200) takes its
+   place, and every run of the engine, counts of Surviving Lines too, waits
+   for its share. From then on it ends a Build early when the head has not
+   moved, makes each pack's Atlas and standard screens itself, counts
+   everyone's Surviving Lines once per new Report, and moves a repository
+   to a lean clone once its lines and Surviving Lines are counted. The
+   first Build of each repository makes its commit graph and its Index's
+   columns once (linux: 2.6 s and 13 s, up to 498 MB, which
+   `ENGINE_MEMORY_MB` reserves for it as such).
+3. To keep Repo States in R2 as well, set `STATE_KEY` on the Builder (a
+   secret of 32 characters or more, kept only there, never changed after)
+   before or with this deploy. Without it the States live on its disk only.
+4. Deploy the Site: it asks the engine service for every screen (the
+   engine service answers a Report's standard screens from what the
+   Builder stored beside its pack), searches the Commit List's words
+   through the engine service, counts a Report found unchanged as current,
+   and no longer serves `git/log.json`. Packs published before have no
+   stored screens, so the engine service works theirs out, as before,
+   until their next Build.
+5. Run `node builder.mjs rebuild` once (on the Builder, from its Terminal
+   in Dokploy). It queues, at the lowest priority, a Build for every
+   repository whose live Stored Index was made by a Builder of an earlier
+   release; its migration adds `stored_indexes.build_format`, which only
+   this release's Builds fill in, and a Report without it is never kept as
+   whole, so those repositories are built again at their next Build anyway.
+   Until then they answer as before, from the engine service.
+6. Seeds' Surviving Lines rows of older Reports stay; each repository's
+   next Report gets everyone's. The first count of a large repository
+   (linux: about 20 minutes of both cores) shows "counting" until it is
+   whole.
 
 ## Moving to a new R2 bucket
 

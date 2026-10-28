@@ -6,7 +6,7 @@ use gix::objs::TreeRefIter;
 use crate::mailmap::Mailmap;
 use crate::source::{
     BlameCommit, BlameSource, BlameThreads, BlobSink, CommitSink, HeadChange, HeadEntry, InParent,
-    Indexed, LineSink, LineWork, Moves, RepoSource, WalkStats,
+    Indexed, LineSink, LineWork, Moves, Parents, RepoSource, WalkStats,
 };
 
 macro_rules! git_ctx {
@@ -24,9 +24,9 @@ mod lines;
 mod tree_diff;
 mod walk;
 
-const OBJECT_CACHE_BYTES: usize = 64 * 1024 * 1024;
+const OBJECT_CACHE_BYTES: usize = 4 * 1024 * 1024;
 
-const DELTA_CACHE_BYTES: usize = 128 * 1024 * 1024;
+const DELTA_CACHE_BYTES: usize = 8 * 1024 * 1024;
 
 fn with_delta_cache(repo: &mut gix::Repository) {
     repo.objects.set_pack_cache(|| {
@@ -86,6 +86,13 @@ impl GixRepo {
 
     fn to_gix(id: Oid) -> Option<gix::ObjectId> {
         gix::ObjectId::try_from(id.0.as_slice()).ok()
+    }
+
+    /// Whether this is a partial clone, whose missing objects its remote promises.
+    pub fn is_partial(&self) -> bool {
+        let config = self.repo.config_snapshot();
+        config.string("extensions.partialClone").is_some()
+            || config.boolean("remote.origin.promisor") == Some(true)
     }
 
     /// Every commit reachable from the given ones, or None when one of them is not in this repository.
@@ -490,6 +497,56 @@ impl RepoSource for GixRepo {
         Ok(Some(Self::to_oid(head.as_ref())?))
     }
 
+    fn history_parents(&self, visit: &mut dyn FnMut(Oid, &[Oid])) -> Result<(), Self::Error> {
+        let tips: Vec<gix::ObjectId> = self.tips_gix()?.into_iter().map(|(_, id)| id).collect();
+        if tips.is_empty() {
+            return Ok(());
+        }
+        let walk = git_ctx!(
+            self.repo.rev_walk(tips).all(),
+            "walking the history the refs reach"
+        )?;
+        let mut parents = Vec::new();
+        for info in walk {
+            let info = git_ctx!(info, "walking the history the refs reach")?;
+            parents.clear();
+            for p in &info.parent_ids {
+                parents.push(Self::to_oid(p.as_ref())?);
+            }
+            visit(Self::to_oid(info.id.as_ref())?, &parents);
+        }
+        Ok(())
+    }
+
+    fn parents_of(&self, ids: &[Oid]) -> Result<Vec<Option<Parents>>, Self::Error> {
+        let time_of = |id: gix::ObjectId| -> Result<Option<i64>, GixError> {
+            let Ok(commit) = self.repo.find_commit(id) else {
+                return Ok(None);
+            };
+            Ok(Some(
+                git_ctx!(commit.time(), "reading a commit time")?.seconds,
+            ))
+        };
+        let mut out = Vec::with_capacity(ids.len());
+        for id in ids {
+            let Some(found) = Self::to_gix(*id).and_then(|id| self.repo.find_commit(id).ok())
+            else {
+                out.push(None);
+                continue;
+            };
+            let mut parents = Vec::new();
+            for p in found.parent_ids() {
+                let Some(time) = time_of(p.detach())? else {
+                    parents.clear();
+                    break;
+                };
+                parents.push((Self::to_oid(p.as_ref())?, time));
+            }
+            out.push((parents.len() == found.parent_ids().count()).then_some(parents));
+        }
+        Ok(out)
+    }
+
     fn blame_ignore_revs(&self) -> Result<Vec<Oid>, Self::Error> {
         const NAME: &str = ".git-blame-ignore-revs";
         let text = match self.worktree_file(NAME)? {
@@ -570,6 +627,11 @@ impl BlameSource for GixRepo {
 
     fn blame_blob(&self, blob: Oid) -> Result<Vec<u8>, Self::Error> {
         blame::blob(self, blob)
+    }
+
+    fn blame_size(&self, blob: Oid) -> Result<Option<u64>, Self::Error> {
+        let oid = GixRepo::to_gix(blob).ok_or(GixError::UnsupportedHash)?;
+        Ok(self.repo.find_header(oid).ok().map(|h| h.size()))
     }
 }
 

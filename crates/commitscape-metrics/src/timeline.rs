@@ -187,7 +187,7 @@ impl Analysis<'_> {
         for c in &commits {
             let (mut plus, mut minus) = (0u64, 0u64);
             for change in index.changes_of(c) {
-                let Some(d) = change.lines else {
+                let Some(d) = change.lines() else {
                     continue;
                 };
                 if !written(change.file) {

@@ -21,7 +21,6 @@ use crate::lru::SizedLru;
 use crate::packs::{PackFailure, Packs};
 use crate::params::{self, Params};
 use crate::questions::{self, Question};
-use crate::universe;
 use crate::work::{Work, WorkError};
 
 pub const ANSWER_BYTES: u64 = 128 * 1024 * 1024;
@@ -197,11 +196,19 @@ impl Engine {
             Some(hit) => Some(hit),
             None => {
                 let held = self.pack(pack).await?;
-                let (at, ask) = (path.clone(), uncut);
-                self.made(whole_key, held, move |held| {
-                    serde_json::to_vec(&answer::whole(held, &at, &ask)?).ok()
-                })
-                .await?
+                match held.screens.get(&params::key(&path, &uncut)) {
+                    Some(stored) => {
+                        self.keep(whole_key, stored.clone());
+                        Some(stored.clone())
+                    }
+                    None => {
+                        let (at, ask) = (path.clone(), uncut);
+                        self.made(whole_key, held, move |held| {
+                            serde_json::to_vec(&answer::whole(held, &at, &ask)?).ok()
+                        })
+                        .await?
+                    }
+                }
             }
         };
         let Some(whole) = whole else {
@@ -237,11 +244,6 @@ struct AnswerBody {
     params: Params,
 }
 
-#[derive(Deserialize)]
-struct PackBody {
-    pack: String,
-}
-
 #[derive(Deserialize, Serialize)]
 struct Asked<Q> {
     pack: String,
@@ -264,6 +266,7 @@ async fn healthz(State(engine): State<Arc<Engine>>) -> Response {
         "fetches": held.fetches,
         "decodes": held.decodes,
         "threads": engine.work.threads(),
+        "pack_formats": commitscape_report::pack::FORMATS_READ,
     }))
     .into_response()
 }
@@ -274,24 +277,6 @@ async fn answer(
 ) -> Result<Response, Failure> {
     let Json(body) = body?;
     let made = engine.answer(&body.pack, body.path, &body.params).await?;
-    made.map(json_bytes).ok_or(Failure::NoAnswer)
-}
-
-async fn universe_rows(
-    State(engine): State<Arc<Engine>>,
-    body: Result<Json<PackBody>, JsonRejection>,
-) -> Result<Response, Failure> {
-    let Json(body) = body?;
-    let key = format!("{}\n/v1/universe/rows", body.pack);
-    if let Some(hit) = engine.kept(&key) {
-        return Ok(json_bytes(hit));
-    }
-    let held = engine.pack(&body.pack).await?;
-    let made = engine
-        .made(key, held, |held| {
-            serde_json::to_vec(&universe::rows(&held.pack)).ok()
-        })
-        .await?;
     made.map(json_bytes).ok_or(Failure::NoAnswer)
 }
 
@@ -350,7 +335,6 @@ async fn authorized(State(engine): State<Arc<Engine>>, req: Request, next: Next)
 pub fn router(engine: Arc<Engine>) -> Router {
     let v1 = Router::new()
         .route("/v1/answer", post(answer))
-        .route("/v1/universe/rows", post(universe_rows))
         .route("/v1/warm", post(warm))
         .route(questions::Tree::PATH, post(asked::<questions::Tree>))
         .route(questions::Log::PATH, post(asked::<questions::Log>))
@@ -369,6 +353,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route(questions::Story::PATH, post(asked::<questions::Story>))
         .route(questions::CodeLog::PATH, post(asked::<questions::CodeLog>))
         .route(questions::Under::PATH, post(asked::<questions::Under>))
+        .route(questions::Search::PATH, post(asked::<questions::Search>))
         .route(questions::Insight::PATH, post(asked::<questions::Insight>));
     let v1 = v1.route_layer(middleware::from_fn_with_state(engine.clone(), authorized));
     Router::new()

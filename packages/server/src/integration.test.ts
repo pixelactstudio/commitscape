@@ -4,7 +4,7 @@ import { eq, inArray } from "drizzle-orm";
 import { afterAll, describe, expect, test } from "vitest";
 import { busy, queueBuild, waitingBuilds } from "./builds";
 import { cleanup } from "./cleanup";
-import { createDb, runMigrations } from "./db/client";
+import { createDb, holdBuilderLock, runMigrations } from "./db/client";
 import { builds, repoNames, repositories, shares } from "./db/schema";
 import { BUILD_QUEUE, bossQueue, PRIORITY, startQueue, type BuildJob } from "./queue";
 import { readEntry, readIndex, reportPrefix, storeReport } from "./reports";
@@ -26,6 +26,17 @@ describe.skipIf(!url || !s3)("against Postgres and S3", async () => {
 
   test("migrations apply twice", async () => {
     await runMigrations(url, migrations);
+  });
+
+  test("only one Builder holds the lock at a time, and another takes it once the first lets go", async () => {
+    const lost = () => undefined;
+    const first = await holdBuilderLock(url, lost);
+    const second = await holdBuilderLock(url, lost);
+    expect([first.held, second.held]).toEqual([true, false]);
+    await first.release();
+    const third = await holdBuilderLock(url, lost);
+    expect(third.held).toBe(true);
+    await third.release();
   });
 
   test("a queued Build reaches a worker, people's before seeds", async () => {

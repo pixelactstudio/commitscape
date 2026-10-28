@@ -1,7 +1,9 @@
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, rename, rm } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import type { BuildFailure } from "@commitscape/data";
+import { peakMb } from "./admission";
 import type { Config } from "./config";
 import type { run as runCommand } from "./run";
 
@@ -12,6 +14,8 @@ export function gitEnv(token: string | null): NodeJS.ProcessEnv {
   const config: [string, string][] = [
     ["fetch.writeCommitGraph", "true"],
     ["core.commitGraph", "true"],
+    ["gc.auto", "0"],
+    ["maintenance.auto", "false"],
   ];
   if (token) config.push(["http.https://github.com/.extraheader", `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`]);
   const env: NodeJS.ProcessEnv = { GIT_TERMINAL_PROMPT: "0", GIT_CONFIG_COUNT: String(config.length) };
@@ -35,6 +39,9 @@ export function failure(stderr: string): BuildFailure {
 
 const locks = new Map<string, Promise<unknown>>();
 
+/** Whether anything holds or waits for the lock named `key`. */
+export const isLocked = (key: string): boolean => locks.has(key);
+
 /** Runs `fn` once every earlier call with the same key has finished. */
 export function locked<T>(key: string, fn: () => Promise<T>): Promise<T> {
   const before = locks.get(key) ?? Promise.resolve();
@@ -49,11 +56,13 @@ export function locked<T>(key: string, fn: () => Promise<T>): Promise<T> {
 
 const lastLine = (text: string) => text.trim().split("\n").at(-1);
 
-/** Brings a kept clone up to date, or clones the repository afresh beside `dir` and moves it there once whole; `blobless` leaves old file contents on GitHub. */
+/** Brings a kept clone up to date, or clones the repository afresh beside `dir` and moves it there once whole; `blobless` leaves old file contents on GitHub, and `checkout: false` writes no files out, only moving the branch, so a blobless clone fetches none. */
 export async function ensureClone(
   run: typeof runCommand,
-  how: { url: string; dir: string; blobless: boolean; env: NodeJS.ProcessEnv; timeoutMs: number },
+  how: { url: string; dir: string; blobless: boolean; env: NodeJS.ProcessEnv; timeoutMs: number; checkout?: boolean; sizeKb?: number },
 ): Promise<Cloned> {
+  const checkout = how.checkout ?? true;
+  const sized = { commits: 0, sizeKb: how.sizeKb ?? 0 };
   const started = Date.now();
   const left = () => Math.max(1000, how.timeoutMs - (Date.now() - started));
   const seconds = () => Math.round((Date.now() - started) / 100) / 10;
@@ -64,9 +73,9 @@ export async function ensureClone(
     for (const args of [
       ["rev-parse", "--quiet", "--verify", "HEAD"],
       ["fetch", "--quiet", "--prune", "--tags", "origin"],
-      ["reset", "--quiet", "--hard", "origin/HEAD"],
+      ["reset", "--quiet", checkout ? "--hard" : "--soft", "origin/HEAD"],
     ]) {
-      const ran = await run("git", args, inside, left());
+      const ran = await run("git", args, inside, left(), args[0] === "fetch" ? { memoryMb: peakMb("fetch", sized) } : {});
       if (ran.timedOut) return timedOut;
       if (ran.code !== 0) {
         ok = false;
@@ -79,16 +88,32 @@ export async function ensureClone(
   const temp = join(parent, `.${basename(how.dir)}.cloning`);
   await mkdir(parent, { recursive: true });
   await rm(temp, { recursive: true, force: true });
-  const args = ["clone", "--quiet", ...(how.blobless ? ["--filter=blob:none"] : []), "--", how.url, temp];
-  const ran = await run("git", args, { ...how.env, GIT_CEILING_DIRECTORIES: parent }, left());
+  const args = ["clone", "--quiet", ...(how.blobless ? ["--filter=blob:none"] : []), ...(checkout ? [] : ["--no-checkout"]), "--", how.url, temp];
+  const ran = await run("git", args, { ...how.env, GIT_CEILING_DIRECTORIES: parent }, left(), { memoryMb: peakMb(how.blobless ? "blobless" : "clone", sized) });
   if (ran.timedOut || ran.code !== 0) {
     await rm(temp, { recursive: true, force: true });
     return ran.timedOut ? timedOut : { ok: false, reason: failure(ran.stderr), detail: lastLine(ran.stderr) };
   }
-  if (!how.blobless) await run("git", ["commit-graph", "write", "--reachable", "--no-progress"], { ...how.env, GIT_DIR: join(temp, ".git") }, left());
+  if (!how.blobless || !checkout) await run("git", ["commit-graph", "write", "--reachable", "--no-progress"], { ...how.env, GIT_DIR: join(temp, ".git") }, left());
   await rm(how.dir, { recursive: true, force: true });
   await rename(temp, how.dir);
   return { ok: true, fresh: true, seconds: seconds() };
+}
+
+export type RemoteRefs = { head: string | null; refs: string };
+
+/** What `git ls-remote <url> HEAD refs/heads/* refs/tags/*` printed, as the commit HEAD points at and one fingerprint of every branch and tag, annotated tags peeled too. */
+export function refsOf(stdout: string): RemoteRefs {
+  const lines = stdout.split("\n").filter((l) => /^[0-9a-f]{40,64}\t\S/.test(l));
+  const head = lines.find((l) => l.endsWith("\tHEAD"))?.split("\t")[0] ?? null;
+  const refs = lines.filter((l) => /\trefs\/(heads|tags)\//.test(l)).sort();
+  return { head, refs: createHash("sha256").update(refs.join("\n")).digest("hex") };
+}
+
+/** The commit a repository's HEAD points at on its remote and a fingerprint of all its branches and tags, asked in one `git ls-remote` without fetching anything; null when the remote cannot tell. */
+export async function remoteRefs(run: typeof runCommand, url: string, env: NodeJS.ProcessEnv, timeoutMs: number): Promise<RemoteRefs | null> {
+  const ran = await run("git", ["ls-remote", "--", url, "HEAD", "refs/heads/*", "refs/tags/*"], env, timeoutMs, { maxStdout: 64 << 20 });
+  return ran.code === 0 && !ran.timedOut ? refsOf(ran.stdout ?? "") : null;
 }
 
 const inClone = (dir: string, env: NodeJS.ProcessEnv) => ({ ...env, GIT_DIR: join(dir, ".git") });
@@ -100,10 +125,10 @@ export async function tipsOf(run: typeof runCommand, dir: string, env: NodeJS.Pr
   return [...new Set((ran.stdout ?? "").split("\n").map((l) => l.trim()).filter((l) => /^[0-9a-f]{40,64}$/.test(l)))];
 }
 
-/** Which of `ids` a clone lacks. */
+/** Which of `ids` a clone lacks, asked without fetching them. */
 export async function missingIn(run: typeof runCommand, dir: string, ids: string[], env: NodeJS.ProcessEnv, timeoutMs: number): Promise<string[]> {
   if (ids.length === 0) return [];
-  const ran = await run("git", ["cat-file", "--batch-check=%(objectname) %(objecttype)"], inClone(dir, env), timeoutMs, { input: `${ids.join("\n")}\n` });
+  const ran = await run("git", ["cat-file", "--batch-check=%(objectname) %(objecttype)"], inClone(dir, { ...env, GIT_NO_LAZY_FETCH: "1" }), timeoutMs, { input: `${ids.join("\n")}\n` });
   if (ran.code !== 0) return [];
   return (ran.stdout ?? "").split("\n").flatMap((l) => (l.endsWith(" missing") ? [l.slice(0, -" missing".length)] : []));
 }

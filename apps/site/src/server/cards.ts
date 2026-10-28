@@ -8,6 +8,7 @@ import { renderCard, renderPending } from "@commitscape/ui/cards/render";
 import { SiteError } from "./http";
 import { survivingTotal } from "./engine";
 import { isHidden } from "./people";
+import { Sized } from "./sized";
 import { NotRead, STORED_ONLY } from "./profiles";
 import type { Deps } from "./repos";
 import { standingsOf } from "./standings";
@@ -19,6 +20,7 @@ const { profiles, repositories, storedIndexes } = schema;
 
 export const CARD_FOR = 6 * 3600;
 const PENDING_FOR = 60;
+const UNOFFERED_BYTES = 32 * 1024 ** 2;
 
 export type CardDeps = Deps & { site: string; avatar?: (login: string) => Promise<string | null> };
 export type Subject = { login?: string; owner?: string; repo?: string; versus?: string; achievement?: string; year?: number };
@@ -146,7 +148,7 @@ function baseKey(kind: CardKind, subject: Subject, theme: CardTheme, format: For
   return `cards/${who}/${kind}${subject.achievement ? `-${subject.achievement}` : ""}${subject.year ? `-${subject.year}` : ""}-${theme}-d${CARD_DESIGN}.${format}`;
 }
 
-async function draw(deps: CardDeps, kind: CardKind, subject: Subject, theme: CardTheme, style: CardStyle): Promise<{ svg: string; png: Uint8Array; ms: number } | null> {
+async function draw(deps: CardDeps, kind: CardKind, subject: Subject, theme: CardTheme, style: CardStyle): Promise<Drawn | null> {
   let data: ProfileCardData | StandingCardData | HallOfFameData | VersusCardData | ArchetypeCardData | AchievementCardData | WrappedCardData | null;
   let logins: (string | null)[];
   if (kind === "wrapped" || kind === "wrapped-calendar") {
@@ -197,6 +199,10 @@ async function draw(deps: CardDeps, kind: CardKind, subject: Subject, theme: Car
 
 const refreshing = new Set<string>();
 
+type Drawn = { svg: string; png: Uint8Array; ms: number };
+
+const unoffered = new Sized<Drawn & { at: number }>(UNOFFERED_BYTES, (d) => d.svg.length * 2 + d.png.byteLength);
+
 async function isPrivateRepo(deps: CardDeps, owner: string, repo: string): Promise<boolean> {
   const id = repoId(owner, repo);
   if (!id) return false;
@@ -221,13 +227,16 @@ async function store(deps: CardDeps, kind: CardKind, subject: Subject, theme: Ca
   return drawn;
 }
 
-/** A Card as an image in a style: the stored copy while it is under six hours old, a stale one while a new one is drawn in the background, and a plain "reading" card while nothing is stored yet; colours outside the offered swatches are drawn each time and never stored. */
+/** A Card as an image in a style: the stored copy while it is under six hours old, a stale one while a new one is drawn in the background, and a plain "reading" card while nothing is stored yet; colours outside the offered swatches are never stored, only kept in memory for as long. */
 export async function cardImage(deps: CardDeps, kind: CardKind, subject: Subject, theme: CardTheme, format: Format, style: CardStyle = DEFAULT_STYLE): Promise<Served> {
   for (const who of [subject.login, subject.versus]) if (who && (await isHidden(deps, who))) throw new SiteError(404, "This person has chosen to stay out, so they have no Cards.");
   const type = format === "svg" ? "image/svg+xml" : "image/png";
   const key = keyOf(kind, subject, theme, format, style);
   if (subject.owner && subject.repo && (await isPrivateRepo(deps, subject.owner, subject.repo))) throw new SiteError(404, "This repository has no Cards.");
   const [kept, at] = isOffered(style) ? await Promise.all([deps.storage.get(key), deps.storage.get(`${keyOf(kind, subject, theme, "svg", style)}.at`)]) : [null, null];
+  const memo = isOffered(style) ? null : keyOf(kind, subject, theme, "svg", style);
+  const held = memo ? unoffered.get(memo) : undefined;
+  if (held && now() - held.at <= CARD_FOR) return { body: format === "svg" ? new TextEncoder().encode(held.svg) : held.png, type, maxAge: CARD_FOR, ms: null };
   if (kept) {
     const age = now() - Number(new TextDecoder().decode(at?.body ?? new Uint8Array()) || 0);
     if (age > CARD_FOR && !refreshing.has(key)) {
@@ -244,5 +253,6 @@ export async function cardImage(deps: CardDeps, kind: CardKind, subject: Subject
     const body = format === "svg" ? new TextEncoder().encode(svg) : new Resvg(svg, { fitTo: { mode: "zoom", value: 2 } }).render().asPng();
     return { body, type, maxAge: PENDING_FOR, ms: null };
   }
+  if (memo) unoffered.set(memo, { ...drawn, at: now() });
   return { body: format === "svg" ? new TextEncoder().encode(drawn.svg) : drawn.png, type, maxAge: CARD_FOR, ms: drawn.ms };
 }

@@ -34,6 +34,7 @@ pub struct LoadedPack {
     pub key: String,
     pub pack: Pack,
     pub bytes: u64,
+    pub screens: HashMap<String, axum::body::Bytes>,
     colours: HashMap<AuthorId, u8>,
     login_of: HashMap<AuthorId, String>,
     windows: Kept<api::Shared>,
@@ -64,6 +65,7 @@ impl LoadedPack {
         LoadedPack {
             key: key.to_string(),
             bytes: pack.heap_bytes() as u64,
+            screens: HashMap::new(),
             pack,
             colours,
             login_of,

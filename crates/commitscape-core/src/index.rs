@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use crate::column::Column;
 use crate::{AuthorId, FileId, Oid, PathId, SignatureId};
 
 pub const SCHEMA_VERSION: u32 = 11;
@@ -22,13 +23,77 @@ pub struct LineDelta {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(into = "WireChange", from = "WireChange")]
+#[repr(C)]
 pub struct FileChange {
     pub file: FileId,
     pub kind: ChangeKind,
-    pub lines: Option<LineDelta>,
+    counted: u8,
+    added: u32,
+    removed: u32,
+}
+
+#[derive(Serialize, Deserialize)]
+struct WireChange {
+    file: FileId,
+    kind: ChangeKind,
+    lines: Option<LineDelta>,
+}
+
+impl From<FileChange> for WireChange {
+    fn from(c: FileChange) -> Self {
+        WireChange {
+            file: c.file,
+            kind: c.kind,
+            lines: c.lines(),
+        }
+    }
+}
+
+impl From<WireChange> for FileChange {
+    fn from(w: WireChange) -> Self {
+        FileChange::new(w.file, w.kind, w.lines)
+    }
+}
+
+impl FileChange {
+    pub const COUNTED_AT: usize = std::mem::offset_of!(FileChange, counted);
+    pub const ADDED_AT: usize = std::mem::offset_of!(FileChange, added);
+    pub const REMOVED_AT: usize = std::mem::offset_of!(FileChange, removed);
+
+    pub fn new(file: FileId, kind: ChangeKind, lines: Option<LineDelta>) -> FileChange {
+        let mut c = FileChange {
+            file,
+            kind,
+            counted: 0,
+            added: 0,
+            removed: 0,
+        };
+        c.set_lines(lines);
+        c
+    }
+
+    #[inline]
+    pub fn lines(&self) -> Option<LineDelta> {
+        (self.counted != 0).then_some(LineDelta {
+            added: self.added,
+            removed: self.removed,
+        })
+    }
+
+    pub fn set_lines(&mut self, lines: Option<LineDelta>) {
+        let (counted, added, removed) = match lines {
+            Some(d) => (1, d.added, d.removed),
+            None => (0, 0, 0),
+        };
+        self.counted = counted;
+        self.added = added;
+        self.removed = removed;
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[repr(C)]
 pub struct CommitMeta {
     pub id: Oid,
     pub time: i64,
@@ -75,6 +140,7 @@ impl CommitMeta {
     Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
 )]
 #[serde(rename_all = "lowercase")]
+#[repr(u8)]
 pub enum CommitKind {
     Feature,
     Fix,
@@ -123,6 +189,7 @@ impl CommitKind {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[repr(transparent)]
 pub struct CommitFlags(pub u8);
 
 impl CommitFlags {
@@ -618,14 +685,13 @@ pub struct LinePass {
 
 impl LinePass {
     pub fn apply(self, index: &mut Index) {
-        if self.lines.len() != index.changes.len() {
-            return;
-        }
-        for (change, lines) in index.changes.iter_mut().zip(self.lines) {
-            change.lines = lines;
+        if self.lines.len() == index.changes.len() {
+            for (change, lines) in index.changes.iter_mut().zip(self.lines) {
+                change.set_lines(lines);
+            }
         }
         let ignored: std::collections::HashSet<Oid> = self.ignored.into_iter().collect();
-        for c in &mut index.commits {
+        for c in index.commits.iter_mut() {
             if ignored.contains(&c.id) {
                 c.flags = c.flags.with(CommitFlags::BLAME_IGNORED);
             }
@@ -638,9 +704,9 @@ pub struct Index {
     pub schema_version: u32,
     pub repo: RepoIdentity,
     pub frontier: Vec<Oid>,
-    pub commits: Vec<CommitMeta>,
-    pub changes: Vec<FileChange>,
-    pub subjects: Vec<u8>,
+    pub commits: Column<CommitMeta>,
+    pub changes: Column<FileChange>,
+    pub subjects: Column<u8>,
     pub paths: PathTable,
     pub authors: AuthorTable,
     pub head: Vec<HeadFile>,
@@ -688,9 +754,9 @@ impl Index {
             schema_version: SCHEMA_VERSION,
             repo,
             frontier: Vec::new(),
-            commits: Vec::new(),
-            changes: Vec::new(),
-            subjects: Vec::new(),
+            commits: Column::default(),
+            changes: Column::default(),
+            subjects: Column::default(),
             paths: PathTable::default(),
             authors: AuthorTable::default(),
             head: Vec::new(),
@@ -724,9 +790,9 @@ impl Index {
     pub fn heap_bytes(&self) -> usize {
         self.repo.git_dir.capacity()
             + bytes_of(&self.frontier)
-            + bytes_of(&self.commits)
-            + bytes_of(&self.changes)
-            + bytes_of(&self.subjects)
+            + self.commits.heap_bytes()
+            + self.changes.heap_bytes()
+            + self.subjects.heap_bytes()
             + self.paths.heap_bytes()
             + self.authors.heap_bytes()
             + bytes_of(&self.head)
@@ -887,9 +953,9 @@ mod tests {
             subject_start: 0,
             subject_len: 0,
         };
-        idx.commits = vec![mk(10), mk(20), mk(30)];
+        idx.commits = vec![mk(10), mk(20), mk(30)].into();
         assert!(idx.is_time_ordered());
-        idx.commits = vec![mk(10), mk(30), mk(20)];
+        idx.commits = vec![mk(10), mk(30), mk(20)].into();
         assert!(!idx.is_time_ordered());
     }
 }

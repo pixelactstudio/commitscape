@@ -79,6 +79,7 @@ export async function askGitHub(deps: GitHubDeps, owner: string, name: string, a
       archived: r.archived === true,
       createdAt: text(r.created_at) ?? "",
       pushedAt: text(r.pushed_at),
+      parent: r.fork === true ? text((r.parent as Json | null)?.full_name) : null,
       languages: Object.entries(languages)
         .map(([n, bytes]) => ({ name: n, bytes }))
         .sort((a, b) => b.bytes - a.bytes)

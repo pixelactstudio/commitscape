@@ -99,8 +99,8 @@ describe("a request to the engine service", () => {
   });
 
   test("gives the large files as text, and their missing answers as a 404", async () => {
-    const engine = engineService("http://engine.test", TOKEN, { fetcher: (async (url: string) => (String(url).endsWith("/v1/git/log") ? new Response('{"v":1}') : new Response('{"error":"no such answer"}', { status: 404 }))) as unknown as typeof fetch });
-    expect(await engine.logText("p")).toBe('{"v":1}');
+    const engine = engineService("http://engine.test", TOKEN, { fetcher: (async (url: string) => (String(url).endsWith("/v1/git/tree") ? new Response('{"v":1}') : new Response('{"error":"no such answer"}', { status: 404 }))) as unknown as typeof fetch });
+    expect(await engine.treeText("p", {}, { builtAt: 1, head: "h", branch: "main" })).toBe('{"v":1}');
     expect(await failure(engine.couplingText("p"))).toEqual([404, "No such answer."]);
   });
 });
@@ -160,8 +160,6 @@ async function ask(engine: EngineService, pack: string, endpoint: string, body: 
       return engine.answer(pack, b.path, b.params ?? {});
     case "/v1/git/tree":
       return JSON.parse(await engine.treeText(pack, b.blobs, b.of));
-    case "/v1/git/log":
-      return JSON.parse(await engine.logText(pack));
     case "/v1/git/coupling":
       return JSON.parse(await engine.couplingText(pack));
     case "/v1/git/path-history":
@@ -174,10 +172,10 @@ async function ask(engine: EngineService, pack: string, endpoint: string, body: 
       return engine.codeLog(pack, b.path, b.page);
     case "/v1/commits/under":
       return engine.under(pack, b.path, b.query, b.cursor, b.said ?? null);
+    case "/v1/commits/search":
+      return engine.search(pack, b.query, b.cursor);
     case "/v1/pulls/insight":
       return engine.insight(pack, b.number, b.paths, b.author, b.named);
-    case "/v1/universe/rows":
-      return engine.universeRows(pack);
     default:
       throw new Error(`no call for ${endpoint}`);
   }
@@ -200,7 +198,7 @@ describe.skipIf(why !== null)(`the Site's engine client against a running engine
     buildPack(golden, packs, key);
     const engine = engineService(running.base, TOKEN);
     const differences: string[] = [];
-    for (const [endpoint, body, at] of golden.asked) {
+    for (const [endpoint, body, at] of golden.asked.filter(([e]) => e !== "/v1/git/log")) {
       const got = await ask(engine, key, endpoint, body);
       try {
         expect(got).toEqual(golden.answers[at]);

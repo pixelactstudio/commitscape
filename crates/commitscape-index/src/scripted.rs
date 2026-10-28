@@ -6,7 +6,8 @@ use commitscape_core::{Oid, RepoIdentity};
 use crate::mailmap::Mailmap;
 use crate::source::{
     BlameCommit, BlameSource, BlameThreads, BlobSink, CommitSink, HeadChange, HeadEntry, InParent,
-    Indexed, LineSink, LineWork, Moves, RawChange, RawChangeKind, RawCommit, RepoSource, WalkStats,
+    Indexed, LineSink, LineWork, Moves, Parents, RawChange, RawChangeKind, RawCommit, RepoSource,
+    WalkStats,
 };
 
 #[derive(Debug, Clone)]
@@ -346,6 +347,30 @@ impl RepoSource for ScriptedRepo {
         Ok(None)
     }
 
+    fn history_parents(&self, visit: &mut dyn FnMut(Oid, &[Oid])) -> Result<(), Self::Error> {
+        let reachable = self.reachable(self.tips()?);
+        for c in self.commits.iter().rev() {
+            if reachable.contains(&c.id) {
+                visit(c.id, &c.parents);
+            }
+        }
+        Ok(())
+    }
+
+    fn parents_of(&self, ids: &[Oid]) -> Result<Vec<Option<Parents>>, Self::Error> {
+        Ok(ids
+            .iter()
+            .map(|id| {
+                self.find(*id).map(|c| {
+                    c.parents
+                        .iter()
+                        .map(|p| (*p, self.find(*p).map_or(0, |q| q.time)))
+                        .collect()
+                })
+            })
+            .collect())
+    }
+
     fn head_history(
         &self,
         visit: &mut dyn FnMut(Oid, i64, &[Oid]),
@@ -519,5 +544,9 @@ impl BlameSource for ScriptedRepo {
                     .map(|(_, c)| c.clone())
             })
             .unwrap_or_default())
+    }
+
+    fn blame_size(&self, blob: Oid) -> Result<Option<u64>, Self::Error> {
+        Ok(Some(self.blame_blob(blob)?.len() as u64))
     }
 }

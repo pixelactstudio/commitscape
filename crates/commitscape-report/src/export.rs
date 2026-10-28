@@ -13,7 +13,7 @@ use serde::Serialize;
 
 use crate::api;
 
-pub const FORMAT: u32 = 3;
+pub const FORMAT: u32 = 4;
 
 const REACHABLE: u8 = 8;
 
@@ -26,9 +26,17 @@ pub struct Export<'a> {
     pub release_commits: &'a [(String, Oid)],
     pub lines: Option<Lines<'a>>,
     pub mainline: Mainline<'a>,
-    pub known: Option<&'a HashSet<Oid>>,
+    pub known: Option<&'a [bool]>,
+    pub since: Since<'a>,
+    pub mark: String,
     pub lineage: u64,
     pub kept: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Since<'a> {
+    pub moved: Option<&'a [bool]>,
+    pub counted: Option<&'a HashSet<Oid>>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -72,9 +80,11 @@ pub struct Manifest {
     pub max_changeset_size: u32,
     pub coupling_support: u32,
     pub ownership_min_commits: u32,
+    pub mark: String,
+    pub changes_only: bool,
 }
 
-/// Writes the Index, or what is new since the commits the Site already holds, as Postgres `COPY` text files and a manifest: new commits, every commit's Mainline, and the Lines Changed of earlier commits now settled.
+/// Writes the Index, or what is new since the commits the Site already holds, as Postgres `COPY` text files and a manifest: new commits, the Mainline of earlier commits, and the Lines Changed of earlier commits now settled; only what moved and what was counted after the Site's mark, when it still holds.
 pub fn write(e: &Export<'_>, dir: &Path) -> std::io::Result<Manifest> {
     std::fs::create_dir_all(dir)?;
     let index = e.index;
@@ -83,7 +93,7 @@ pub fn write(e: &Export<'_>, dir: &Path) -> std::io::Result<Manifest> {
         .commits
         .iter()
         .enumerate()
-        .filter(|(_, c)| e.known.is_none_or(|k| !k.contains(&c.id)))
+        .filter(|(i, _)| e.known.is_none_or(|k| !k.get(*i).copied().unwrap_or(false)))
         .map(|(i, _)| i)
         .collect();
 
@@ -115,6 +125,8 @@ pub fn write(e: &Export<'_>, dir: &Path) -> std::io::Result<Manifest> {
         max_changeset_size: e.options.max_changeset_size,
         coupling_support: e.options.coupling_support,
         ownership_min_commits: e.options.ownership_min_commits,
+        mark: e.mark.clone(),
+        changes_only: !full && e.since.moved.is_some() && e.since.counted.is_some(),
     };
     let json = serde_json::to_vec_pretty(&manifest).map_err(std::io::Error::other)?;
     std::fs::write(dir.join("manifest.json"), json)?;
@@ -303,8 +315,8 @@ fn write_commits(
 
 fn lines_of(out: &mut Copy, changes: &[FileChange], settled: bool) {
     if settled {
-        out.array(changes.iter().map(|ch| ch.lines.map(|l| l.added)))
-            .array(changes.iter().map(|ch| ch.lines.map(|l| l.removed)));
+        out.array(changes.iter().map(|ch| ch.lines().map(|l| l.added)))
+            .array(changes.iter().map(|ch| ch.lines().map(|l| l.removed)));
     } else {
         out.null().null();
     }
@@ -312,13 +324,22 @@ fn lines_of(out: &mut Copy, changes: &[FileChange], settled: bool) {
 
 fn write_mainline(dir: &Path, index: &Index, e: &Export<'_>) -> std::io::Result<()> {
     let mut out = Copy::create(dir, "mainline.tsv")?;
-    for (at, c) in index.commits.iter().enumerate() {
-        out.oid(c.id).num(c.flags.0 | e.mainline.bits(at));
-        match e.mainline.arrival(at) {
-            Some(t) => out.num(t),
-            None => out.null(),
-        };
-        out.end()?;
+    if let Some(known) = e.known {
+        for (at, c) in index.commits.iter().enumerate() {
+            let moved = e
+                .since
+                .moved
+                .is_none_or(|m| m.get(at).copied().unwrap_or(true));
+            if !moved || !known.get(at).copied().unwrap_or(false) {
+                continue;
+            }
+            out.oid(c.id).num(c.flags.0 | e.mainline.bits(at));
+            match e.mainline.arrival(at) {
+                Some(t) => out.num(t),
+                None => out.null(),
+            };
+            out.end()?;
+        }
     }
     out.finish()
 }
@@ -327,7 +348,8 @@ fn write_lines(dir: &Path, index: &Index, e: &Export<'_>) -> std::io::Result<()>
     let mut out = Copy::create(dir, "lines.tsv")?;
     if let Some(known) = e.known {
         for (at, c) in index.commits.iter().enumerate() {
-            if !known.contains(&c.id) || !settled(e, at) {
+            let counted = e.since.counted.is_none_or(|s| s.contains(&c.id));
+            if !counted || !known.get(at).copied().unwrap_or(false) || !settled(e, at) {
                 continue;
             }
             out.oid(c.id);
@@ -650,8 +672,18 @@ mod tests {
 
     fn export(
         index: &Index,
-        known: Option<&HashSet<Oid>>,
+        known: Option<&[bool]>,
         lines: Option<Lines<'_>>,
+        dir: &Path,
+    ) -> Manifest {
+        export_since(index, known, lines, Since::default(), dir)
+    }
+
+    fn export_since(
+        index: &Index,
+        known: Option<&[bool]>,
+        lines: Option<Lines<'_>>,
+        since: Since<'_>,
         dir: &Path,
     ) -> Manifest {
         let bits = [
@@ -674,6 +706,8 @@ mod tests {
                     arrival: &arrival,
                 },
                 known,
+                since,
+                mark: "a mark".to_string(),
                 lineage: 7,
                 kept: true,
             },
@@ -720,14 +754,7 @@ mod tests {
         assert_eq!(columns[6], "8");
         assert_eq!(columns[7], (DAY0 + 2 * DAY).to_string());
         assert_eq!(&columns[11..], ["\\N", "\\N"]);
-        assert_eq!(
-            lines(&dir, "mainline.tsv"),
-            vec![
-                format!("{}\t24\t{DAY0}", sha(&index, 0)),
-                format!("{}\t8\t{}", sha(&index, 1), DAY0 + 2 * DAY),
-                format!("{}\t24\t{}", sha(&index, 2), DAY0 + 2 * DAY),
-            ]
-        );
+        assert!(lines(&dir, "mainline.tsv").is_empty());
         assert!(lines(&dir, "lines.tsv").is_empty());
         assert_eq!(lines(&dir, "files.tsv").len(), 3);
         for gone in [
@@ -748,7 +775,9 @@ mod tests {
         let manifest: serde_json::Value =
             serde_json::from_slice(&std::fs::read(dir.join("manifest.json")).expect("read"))
                 .expect("JSON");
-        assert_eq!(manifest["format"], 3);
+        assert_eq!(manifest["format"], 4);
+        assert_eq!(manifest["mark"], "a mark");
+        assert_eq!(manifest["changes_only"], false);
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -756,12 +785,12 @@ mod tests {
     fn an_export_after_known_commits_holds_what_is_new_and_the_lines_settled_since() {
         let repo = repo();
         let index = index_of(&repo);
-        let known: HashSet<Oid> = index.commits.iter().take(2).map(|c| c.id).collect();
+        let known: Vec<bool> = (0..index.commits.len()).map(|i| i < 2).collect();
         let dir = scratch("after");
         let settled = [true, false, true];
         let m = export(
             &index,
-            Some(&known),
+            Some(known.as_slice()),
             Some(Lines {
                 settled: &settled,
                 counted: 2,
@@ -776,11 +805,45 @@ mod tests {
         assert_eq!(files.len(), 1);
         assert!(files[0].contains("src/deep/b.rs\tsrc/deep"));
         assert_eq!(lines(&dir, "commits.tsv").len(), 1);
-        assert_eq!(lines(&dir, "mainline.tsv").len(), 3);
+        assert_eq!(lines(&dir, "mainline.tsv").len(), 2);
         assert_eq!(
             lines(&dir, "lines.tsv"),
             vec![format!("{}\t{{NULL,NULL}}\t{{NULL,NULL}}", sha(&index, 0))]
         );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn an_export_after_a_mark_that_holds_writes_only_the_mainline_that_moved_and_the_lines_counted_since(
+    ) {
+        let index = index_of(&repo());
+        let known: Vec<bool> = vec![true; index.commits.len()];
+        let dir = scratch("since");
+        let settled = [true; 3];
+        let moved = [false, true, false];
+        let counted: HashSet<Oid> = [index.commits[2].id].into_iter().collect();
+        let m = export_since(
+            &index,
+            Some(known.as_slice()),
+            Some(Lines {
+                settled: &settled,
+                counted: 3,
+                left: 0,
+            }),
+            Since {
+                moved: Some(&moved),
+                counted: Some(&counted),
+            },
+            &dir,
+        );
+        assert!(!m.full && m.changes_only);
+        assert_eq!(
+            lines(&dir, "mainline.tsv"),
+            vec![format!("{}\t8\t{}", sha(&index, 1), DAY0 + 2 * DAY)]
+        );
+        let filled = lines(&dir, "lines.tsv");
+        assert_eq!(filled.len(), 1);
+        assert!(filled[0].starts_with(&sha(&index, 2)));
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -832,6 +895,8 @@ mod tests {
                     arrival: &arrival,
                 },
                 known: None,
+                since: Since::default(),
+                mark: String::new(),
                 lineage: 7,
                 kept: true,
             },

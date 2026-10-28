@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use commitscape_core::{LineDelta, Oid};
-use gix::objs::{FindExt, FindHeader};
+use gix::objs::{Find, FindExt, FindHeader};
 use gix::odb::pack::cache::lru::MemoryCappedHashmap;
 use gix::ObjectId;
 
@@ -21,9 +21,9 @@ const COMMIT_BATCH: usize = 16;
 const PAIR_BATCH: usize = 32;
 const FIRST_SEGMENT: usize = 1_024;
 const LARGEST_SEGMENT: usize = 16_384;
-const TREE_OBJECT_CACHE_BYTES: usize = 16 * 1024 * 1024;
-const TREE_DELTA_CACHE_BYTES: usize = 32 * 1024 * 1024;
-const BLOB_DELTA_CACHE_BYTES: usize = 48 * 1024 * 1024;
+const TREE_OBJECT_CACHE_BYTES: usize = 1024 * 1024;
+const TREE_DELTA_CACHE_BYTES: usize = 2 * 1024 * 1024;
+const BLOB_DELTA_CACHE_BYTES: usize = 3 * 1024 * 1024;
 const RECENT_BLOBS: usize = 4;
 
 pub(super) fn count(
@@ -187,7 +187,7 @@ fn count_segment(
         .iter()
         .filter_map(|&i| pairs.get(i).map(|p| (p.before, p.after)))
         .collect();
-    let mut by_pair: Vec<Option<Option<LineDelta>>> = vec![None; pairs.len()];
+    let mut by_pair: Vec<Option<Counted>> = vec![None; pairs.len()];
     for (start, out) in pool.run(Task::Count(wanted), until)? {
         if let Output::Counts(found) = out {
             for (k, delta) in found.into_iter().enumerate() {
@@ -203,29 +203,33 @@ fn count_segment(
         let Some(commit) = commit else {
             continue;
         };
-        let deltas: Option<Vec<Option<LineDelta>>> = commit
-            .want
-            .iter()
-            .map(|want| match want {
-                None => Some(None),
-                Some(want) => {
-                    let counted = by_pair.get(want >> 1).copied().flatten()?;
-                    Some(counted.map(|d| {
-                        if want & 1 == 1 {
-                            LineDelta {
-                                added: d.removed,
-                                removed: d.added,
-                            }
-                        } else {
-                            d
+        let mut deltas: Vec<Option<LineDelta>> = Vec::with_capacity(commit.want.len());
+        let mut reached = true;
+        let mut missing = false;
+        for want in &commit.want {
+            let Some(want) = want else {
+                deltas.push(None);
+                continue;
+            };
+            match by_pair.get(want >> 1).copied().flatten() {
+                None => reached = false,
+                Some(Counted::Missing) => missing = true,
+                Some(Counted::Lines(counted)) => deltas.push(counted.map(|d| {
+                    if want & 1 == 1 {
+                        LineDelta {
+                            added: d.removed,
+                            removed: d.added,
                         }
-                    }))
-                }
-            })
-            .collect();
-        match deltas {
-            Some(deltas) => sink(w.id, &commit.raws, &deltas),
-            None => finished = false,
+                    } else {
+                        d
+                    }
+                })),
+            }
+        }
+        if !reached {
+            finished = false;
+        } else if !missing {
+            sink(w.id, &commit.raws, &deltas);
         }
     }
     Ok(finished)
@@ -236,9 +240,15 @@ enum Task {
     Count(Vec<(Option<ObjectId>, ObjectId)>),
 }
 
+#[derive(Clone, Copy)]
+enum Counted {
+    Lines(Option<LineDelta>),
+    Missing,
+}
+
 enum Output {
     Diffs(Vec<Option<Vec<Changed>>>),
-    Counts(Vec<Option<LineDelta>>),
+    Counts(Vec<Counted>),
 }
 
 type Done = Result<Vec<(usize, Output)>, GixError>;
@@ -468,22 +478,29 @@ impl Blobs {
         repo: &gix::Repository,
         before: Option<ObjectId>,
         after: ObjectId,
-    ) -> Result<Option<LineDelta>, GixError> {
+    ) -> Result<Counted, GixError> {
         let mut hint = None;
         if let Some(id) = before {
-            if !self.load(repo, id, None)? {
-                return Ok(None);
+            match self.load(repo, id, None)? {
+                None => return Ok(Counted::Missing),
+                Some(false) => return Ok(Counted::Lines(None)),
+                Some(true) => {}
             }
             let bytes = self.bytes(Some(id));
             if is_binary(bytes) {
-                return Ok(None);
+                return Ok(Counted::Lines(None));
             }
             hint = Some(bytes.len());
         }
-        if !self.load(repo, after, hint)? {
-            return Ok(None);
+        match self.load(repo, after, hint)? {
+            None => return Ok(Counted::Missing),
+            Some(false) => return Ok(Counted::Lines(None)),
+            Some(true) => {}
         }
-        Ok(line_delta(self.bytes(before), self.bytes(Some(after))))
+        Ok(Counted::Lines(line_delta(
+            self.bytes(before),
+            self.bytes(Some(after)),
+        )))
     }
 
     fn bytes(&self, id: Option<ObjectId>) -> &[u8] {
@@ -496,48 +513,57 @@ impl Blobs {
         repo: &gix::Repository,
         id: ObjectId,
         hint: Option<usize>,
-    ) -> Result<bool, GixError> {
+    ) -> Result<Option<bool>, GixError> {
         if let Some(at) = self.recent.iter().position(|r| r.id == id) {
             let big = self.recent.get(at).is_some_and(|r| r.big);
             if let Some(hit) = self.recent.get_mut(at..) {
                 hit.rotate_left(1);
             }
-            return Ok(!big);
+            return Ok(Some(!big));
+        }
+        let unsure = hint.is_none_or(|n| n > MAX_BYTES / 2);
+        if unsure {
+            match self.size_of(repo, &id)? {
+                None => return Ok(None),
+                Some(size) if size > MAX_BYTES as u64 => {
+                    self.keep(id, Vec::new(), true);
+                    return Ok(Some(false));
+                }
+                Some(_) => {}
+            }
         }
         let mut bytes = if self.recent.len() >= RECENT_BLOBS {
             self.recent.remove(0).bytes
         } else {
             Vec::new()
         };
-        let unsure = hint.is_none_or(|n| n > MAX_BYTES / 2);
-        if unsure && self.over_limit(repo, &id)? {
-            bytes.clear();
-            self.recent.push(Recent {
-                id,
-                bytes,
-                big: true,
-            });
-            return Ok(false);
-        }
-        let size = repo
+        let found = repo
             .objects
-            .find_blob(&id, &mut bytes)
-            .map_err(|e| GixError::Git {
+            .try_find(&id, &mut bytes)
+            .map_err(|source| GixError::Git {
                 context: "reading a blob for its lines",
-                source: Box::new(e),
-            })?
-            .data
-            .len();
+                source,
+            })?;
+        let Some(size) = found.map(|d| d.data.len()) else {
+            return Ok(None);
+        };
         bytes.truncate(size);
         let big = size > MAX_BYTES;
         if big {
             bytes = Vec::new();
         }
-        self.recent.push(Recent { id, bytes, big });
-        Ok(!big)
+        self.keep(id, bytes, big);
+        Ok(Some(!big))
     }
 
-    fn over_limit(&self, repo: &gix::Repository, id: &ObjectId) -> Result<bool, GixError> {
+    fn keep(&mut self, id: ObjectId, bytes: Vec<u8>, big: bool) {
+        if self.recent.len() >= RECENT_BLOBS {
+            self.recent.remove(0);
+        }
+        self.recent.push(Recent { id, bytes, big });
+    }
+
+    fn size_of(&self, repo: &gix::Repository, id: &ObjectId) -> Result<Option<u64>, GixError> {
         let header = repo
             .objects
             .try_header(id)
@@ -545,7 +571,7 @@ impl Blobs {
                 context: "reading the size of a blob for its lines",
                 source,
             })?;
-        Ok(header.is_some_and(|h| h.size > MAX_BYTES as u64))
+        Ok(header.map(|h| h.size))
     }
 }
 

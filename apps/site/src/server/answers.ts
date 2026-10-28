@@ -5,6 +5,7 @@ import { askedOf, key as keyOf, type Params } from "@commitscape/data";
 import { now, schema, type Db } from "@commitscape/server";
 import { NoPack } from "./engine-service";
 import { heldBy, pack, packed, type Packed } from "./packed";
+import { Sized } from "./sized";
 import { cacheLooked } from "./telemetry";
 
 const { storedIndexes } = schema;
@@ -17,48 +18,6 @@ const FRESH_FOR = 10_000;
 const KNOWN_MAX = 10_000;
 const WAIT_STEP = 250;
 const WAITS = 12;
-
-class Sized<V> {
-  private readonly map = new Map<string, V>();
-  private readonly budget: number;
-  private readonly size: (v: V) => number;
-  constructor(budget: number, size: (v: V) => number) {
-    this.budget = budget;
-    this.size = size;
-  }
-  get(k: string): V | undefined {
-    const v = this.map.get(k);
-    if (v !== undefined) {
-      this.map.delete(k);
-      this.map.set(k, v);
-    }
-    return v;
-  }
-  peek(k: string): V | undefined {
-    return this.map.get(k);
-  }
-  set(k: string, v: V): void {
-    this.map.delete(k);
-    this.map.set(k, v);
-    this.trim();
-  }
-  delete(k: string): void {
-    this.map.delete(k);
-  }
-  trim(): void {
-    let total = this.bytes();
-    for (const [k, v] of this.map) {
-      if (total <= this.budget || this.map.size <= 1) break;
-      total -= this.size(v);
-      this.map.delete(k);
-    }
-  }
-  bytes(): number {
-    let total = 0;
-    for (const v of this.map.values()) total += this.size(v);
-    return total;
-  }
-}
 
 export type Kept = { value: unknown; bytes: number; packed: Packed | null };
 
@@ -153,7 +112,7 @@ export async function keptText(key: string, make: () => Promise<string | null>, 
       if (text === null) throw NOTHING;
       const p = await packed(pack(text, quality));
       done(p);
-      sent.trim();
+      sent.refresh(key);
       return p;
     };
     const entry: Made = { packed: making((p) => void (entry.done = p)), done: null };

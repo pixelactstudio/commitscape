@@ -3,17 +3,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
-import { and, eq, ne } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { expect, test } from "vitest";
-import { lendToken, memoryStorage, now, PRIORITY, readManifest, schema, settleRepository, type BuildJob, type Db, type Loaded, type Queue, type SurvivalJob } from "@commitscape/server";
+import { atlasKey, BUILD_FORMAT, lendToken, memoryStorage, now, PRIORITY, readManifest, schema, settleRepository, type AtlasJob, type BuildJob, type Db, type Loaded, type Queue, type SurvivalJob } from "@commitscape/server";
 import type { Config } from "./config";
-import { inUse, sweep } from "./disk";
-import { fakePerson, flagOf, writeBuilt, type FakeBuild } from "./fake";
-import { MORE_LINES_AFTER, MORE_LINES_MAX, runJob, type JobContext } from "./job";
+import { cacheDir, inUse, sweep } from "./disk";
+import { fakePerson, flagOf, writeAtlasMade, writeBuilt, type FakeBuild } from "./fake";
+import { MORE_LINES_AFTER, MORE_LINES_MAX, runJob, type JobAsked, type JobContext } from "./job";
 import { BUILD_ATTEMPTS, type Ran } from "./run";
-import { queueSeeds } from "./seeds";
+import { refsOf } from "./clone";
+import { headsOf, queueSeeds, type Named } from "./seeds";
 import type { Telemetry, Who } from "./telemetry";
 
 const { builds, repoPeople, repositories, storedIndexes, surviving } = schema;
@@ -34,6 +35,7 @@ function tools(built: FakeBuild | ((args: string[]) => FakeBuild) = {}, then: (c
     if (cmd === "git" && args[0] === "clone") await mkdir(join(args.at(-1) ?? "", ".git"), { recursive: true });
     if (args[0] === "signatures") await writeFile(flagOf(args, "--out") ?? "", "[]");
     if (args[0] === "build") await writeBuilt(args, typeof built === "function" ? built(args) : built);
+    if (args[0] === "atlas") await writeAtlasMade(args);
     return ran;
   };
 }
@@ -41,16 +43,14 @@ function tools(built: FakeBuild | ((args: string[]) => FakeBuild) = {}, then: (c
 function loader(db: Db) {
   return async (repoId: string, dir: string): Promise<Loaded> => {
     const m = await readManifest(dir);
-    const fields = { lineage: m.lineage, kept: m.kept, head: m.head, frontier: m.frontier, lines: m.lines_mainline, linesLeft: m.lines_left, commits: m.total, state: "live", loadedAt: now() };
+    const fields = { lineage: m.lineage, kept: m.kept, head: m.head, frontier: m.frontier, lines: m.lines_mainline, linesLeft: m.lines_left, commits: m.total, loadedAt: now() };
     let si: number;
     if (m.full) {
       const [row] = await db
         .insert(storedIndexes)
-        .values({ repoId, builtAt: now(), ...fields })
+        .values({ repoId, builtAt: now(), state: "ready", ...fields })
         .returning({ id: storedIndexes.id });
       si = row?.id ?? 0;
-      await db.delete(storedIndexes).where(and(eq(storedIndexes.repoId, repoId), ne(storedIndexes.id, si)));
-      await db.update(repositories).set({ indexId: si }).where(eq(repositories.id, repoId));
     } else {
       const [repo] = await db.select({ indexId: repositories.indexId }).from(repositories).where(eq(repositories.id, repoId));
       si = repo?.indexId ?? 0;
@@ -64,7 +64,7 @@ type Captured = [string, Who, Record<string, unknown>];
 
 async function context(db: Db, over: Partial<JobContext> = {}, built: FakeBuild | ((args: string[]) => FakeBuild) = {}): Promise<JobContext & { storage: ReturnType<typeof memoryStorage>; captured: Captured[] }> {
   const work = await mkdtemp(join(tmpdir(), "builder-"));
-  const cfg: Config = { bin: "commitscape", threads: undefined, linesBudget: 120, nice: 10, work, concurrency: 1, maxMb: undefined, timeLimit: 60, cloneLimit: 120, largeMb: 1500, largeConcurrency: 1, logins: 300, diskGb: 20, gitBase: undefined };
+  const cfg: Config = { bin: "commitscape", threads: undefined, linesBudget: 120, nice: 10, work, concurrency: 1, maxMb: undefined, timeLimit: 60, cloneLimit: 120, largeMb: 1500, largeConcurrency: 1, logins: 300, diskGb: 20, cacheGb: 5, engineMemoryMb: 1200, bulkFiles: 50, moreLinesBudget: 600, gitBase: undefined };
   const captured: Captured[] = [];
   const telemetry: Telemetry = { capture: (event, who, properties) => void captured.push([event, who, properties]), stop: async () => {} };
   return {
@@ -114,6 +114,84 @@ test("a Build publishes its Stored Index: the pack in R2 and on the Stored Index
   expect(Object.keys(ctx.captured.at(-1)?.[2] ?? {})).toEqual(expect.arrayContaining(["seconds_clone_full", "seconds_build_full", "seconds_load_full", "seconds_upload_full", "seconds_publish_full"]));
 });
 
+test("a full Build whose publish fails leaves the old Report served, and the next one replaces it whole", async () => {
+  const db = await database();
+  const head = "c".repeat(40);
+  await wholeReport(db, "acme/rocket", head, { reportAt: now() - 8 * 24 * 3600 });
+  await db.update(storedIndexes).set({ kept: false });
+  const [old] = await db.select().from(storedIndexes);
+  const oldPack = old?.pack ?? "";
+  const ctx = await context(db);
+  await ctx.storage.put(oldPack, "the old pack", { type: "application/octet-stream" });
+  const put = ctx.storage.put.bind(ctx.storage);
+  ctx.storage.put = async (key, body, options) => {
+    if (key.startsWith("packs/") && key !== oldPack) throw new Error("R2 is down");
+    return put(key, body, options);
+  };
+  await db.insert(builds).values({ id: "b1", repoId: "acme/rocket", state: "queued", requestedAt: 1 });
+  await runJob("b1", ctx);
+  expect(await db.select({ state: builds.state }).from(builds)).toEqual([{ state: "failed" }]);
+  expect((await repoRow(db))?.indexId).toBe(old?.id);
+  expect((await repoRow(db))?.reportKey).toBe("reports/gh/acme/rocket/b0");
+  const live = await db.select({ id: storedIndexes.id, pack: storedIndexes.pack }).from(storedIndexes).where(eq(storedIndexes.state, "live"));
+  expect(live).toEqual([{ id: old?.id, pack: oldPack }]);
+  expect(packs(ctx)).toEqual([oldPack]);
+  ctx.storage.put = put;
+  await db.insert(builds).values({ id: "b2", repoId: "acme/rocket", state: "queued", requestedAt: 2 });
+  await runJob("b2", ctx);
+  const rows = await db.select({ id: storedIndexes.id, state: storedIndexes.state, pack: storedIndexes.pack }).from(storedIndexes);
+  expect(rows).toHaveLength(1);
+  expect(rows[0]?.state).toBe("live");
+  expect((await repoRow(db))?.indexId).toBe(rows[0]?.id);
+  expect(packs(ctx)).toEqual([rows[0]?.pack]);
+});
+
+test("a Build makes its pack's Atlas in a process of its own, under the engine's slot, and stores it before the pack is published, so the Site never makes it", async () => {
+  const db = await database();
+  const order: string[] = [];
+  const base = tools();
+  const ctx = await context(db, {
+    run: async (cmd, args) => {
+      if (args[0] === "atlas") order.push(`atlas of ${args[1]?.endsWith("pack.bin") ? "the pack" : args[1]}`);
+      return base(cmd, args);
+    },
+  });
+  ctx.cfg = { ...ctx.cfg, atlas: { quality: 5 } };
+  const put = ctx.storage.put.bind(ctx.storage);
+  ctx.storage.put = async (key, body, options) => {
+    if (key.startsWith("atlas/")) {
+      const [row] = await db.select({ pack: storedIndexes.pack }).from(storedIndexes);
+      order.push(`${key.split("/").at(-1)} ${row?.pack ? "after" : "before"} the publish`);
+    }
+    return put(key, body, options);
+  };
+  await db.insert(repositories).values({ id: "acme/rocket", owner: "acme", name: "rocket", sizeKb: 10, reportKey: "reports/gh/acme/rocket/old", reportLines: true });
+  await db.insert(builds).values({ id: "b1", repoId: "acme/rocket", state: "queued", requestedAt: 1 });
+  await runJob("b1", ctx);
+  const [si] = await db.select().from(storedIndexes);
+  expect(si?.pack).toBeTruthy();
+  expect(si?.buildFormat).toBe(BUILD_FORMAT);
+  expect(ctx.storage.objects.has(atlasKey(si?.id ?? 0, si?.pack ?? "", "map"))).toBe(true);
+  expect(ctx.storage.objects.has(atlasKey(si?.id ?? 0, si?.pack ?? "", "names"))).toBe(true);
+  expect(order).toEqual(["atlas of the pack", "map.bin.br before the publish", "names.bin.br before the publish"]);
+  expect(Object.keys(ctx.captured.at(-1)?.[2] ?? {})).toContain("seconds_atlas_full");
+});
+
+test("a Build whose Atlas fails is still published, and its Atlas is queued to be made later", async () => {
+  const db = await database();
+  const base = tools();
+  const queued: AtlasJob[] = [];
+  const ctx = await context(db, { run: async (cmd, args) => (args[0] === "atlas" ? { code: 1, stderr: "killed", timedOut: false } : base(cmd, args)), queueAtlas: async (job) => void queued.push(job) });
+  ctx.cfg = { ...ctx.cfg, atlas: { quality: 5 } };
+  await db.insert(repositories).values({ id: "acme/rocket", owner: "acme", name: "rocket", sizeKb: 10, reportKey: "reports/gh/acme/rocket/old", reportLines: true });
+  await db.insert(builds).values({ id: "b1", repoId: "acme/rocket", state: "queued", requestedAt: 1 });
+  await runJob("b1", ctx);
+  expect(await db.select().from(builds)).toMatchObject([{ state: "done" }]);
+  expect([...ctx.storage.objects.keys()].filter((k) => k.startsWith("atlas/"))).toEqual([]);
+  const [si] = await db.select().from(storedIndexes);
+  expect(queued).toEqual([{ repoId: "acme/rocket", si: si?.id, pack: si?.pack }]);
+});
+
 test("a repository with no Report gets the quick Stored Index without lines while its lines are counted, then the same one with them", async () => {
   const db = await database();
   const seen: unknown[] = [];
@@ -142,6 +220,22 @@ test("a repository with no Report gets the quick Stored Index without lines whil
   expect(await db.select().from(builds)).toMatchObject([{ state: "done", partial: false, reason: null }]);
   expect(ctx.captured.map((c) => c[0])).toEqual(["build started", "build quick published", "build done"]);
   expect(ctx.captured.every((c) => c[1].userId === "u1")).toBe(true);
+});
+
+test("only the full publish makes its pack's Atlas and stores its screens; the quick one leaves them to it", async () => {
+  const db = await database();
+  const ctx = await context(db);
+  const made: string[] = [];
+  ctx.run = tools({}, async (_cmd, args) => {
+    if (args[0] === "atlas" || args[0] === "screens") made.push(`${args[0]} of ${args[1]?.includes("quick") ? "quick" : "full"}`);
+    return ok;
+  });
+  ctx.cfg = { ...ctx.cfg, atlas: { quality: 5 } };
+  await db.insert(repositories).values({ id: "acme/rocket", owner: "acme", name: "rocket", sizeKb: 10 });
+  await db.insert(builds).values({ id: "b1", repoId: "acme/rocket", state: "queued", requestedAt: 1 });
+  await runJob("b1", ctx);
+  expect(ctx.captured.map((c) => c[0])).toEqual(["build started", "build quick published", "build done"]);
+  expect(made).toEqual(["atlas of full", "screens of full"]);
 });
 
 test("a full build that fails leaves the quick Stored Index published, says why, and stops saying lines are being counted", async () => {
@@ -246,6 +340,113 @@ test("a Build of a repository found renamed while it ran stores its Report and p
   expect((await db.select().from(builds)).map((b) => [b.repoId, b.state])).toEqual([["react/react", "done"]]);
 });
 
+const remoteSays = (head: string, more = "") => `${head}\tHEAD\n${head}\trefs/heads/main\n${"e".repeat(40)}\trefs/tags/v1\n${head}\trefs/tags/v1^{}\n${more}`;
+
+async function wholeReport(db: Db, id: string, head: string, over: Partial<typeof repositories.$inferInsert> = {}) {
+  const [owner = "", name = ""] = id.split("/");
+  await db.insert(repositories).values({ id, owner, name, sizeKb: 10, reportKey: `reports/gh/${id}/b0`, reportAt: now() - 3 * 24 * 3600, reportLines: true, reportRefs: refsOf(remoteSays(head)).refs, ...over });
+  const [si] = await db
+    .insert(storedIndexes)
+    .values({ repoId: id, lineage: "7", kept: true, head, frontier: [head], lines: true, linesLeft: 0, pack: `packs/${id}/1/${head}-b0-lines.pack`, state: "live", builtAt: 1, buildFormat: BUILD_FORMAT })
+    .returning({ id: storedIndexes.id });
+  await db.update(repositories).set({ indexId: si?.id ?? null }).where(eq(repositories.id, id));
+}
+
+test("a Build whose Report is whole and whose head has not moved ends at its head check, without a clone, the engine or an upload", async () => {
+  const db = await database();
+  const head = "c".repeat(40);
+  const ran: string[] = [];
+  const ctx = await context(db, {
+    run: async (cmd, args) => {
+      ran.push(`${cmd} ${args[0]}`);
+      return cmd === "git" && args[0] === "ls-remote" ? { ...ok, stdout: remoteSays(head) } : ok;
+    },
+  });
+  await wholeReport(db, "acme/rocket", head);
+  await db.insert(builds).values({ id: "b1", repoId: "acme/rocket", state: "queued", requestedAt: 1 });
+  await runJob("b1", ctx);
+  expect(ran).toEqual(["git ls-remote"]);
+  expect(await db.select().from(builds)).toMatchObject([{ state: "done", partial: false, reason: null }]);
+  const repo = await repoRow(db);
+  expect(repo?.checkedAt).toBeGreaterThan(now() - 60);
+  expect(repo?.reportKey).toBe("reports/gh/acme/rocket/b0");
+  expect(ctx.captured.map((c) => c[0])).toEqual(["build started", "build unchanged"]);
+  expect(packs(ctx)).toEqual([]);
+});
+
+test("a Report published by a Builder of an earlier release is built again even when its head has not moved", async () => {
+  const db = await database();
+  const head = "c".repeat(40);
+  const ran: string[] = [];
+  const base = tools();
+  const ctx = await context(db, {
+    run: async (cmd, args) => {
+      ran.push(`${cmd} ${args[0]}`);
+      return cmd === "git" && args[0] === "ls-remote" ? { ...ok, stdout: remoteSays(head) } : base(cmd, args);
+    },
+  });
+  await wholeReport(db, "acme/rocket", head);
+  await db.update(storedIndexes).set({ buildFormat: null });
+  await db.insert(builds).values({ id: "b1", repoId: "acme/rocket", state: "queued", requestedAt: 1 });
+  await runJob("b1", ctx);
+  expect(ran[0]).toBe("git ls-remote");
+  expect(ran.some((r) => r.startsWith("commitscape build"))).toBe(true);
+  const live = await db.select().from(storedIndexes).where(eq(storedIndexes.state, "live"));
+  expect(live.map((l) => l.buildFormat)).toEqual([BUILD_FORMAT]);
+});
+
+test("a Build goes on when the head moved, a branch or tag moved or came, the Report is not whole, or for quiet Builds and retries, and asks the remote on every first Build that is not quiet", async () => {
+  const head = "c".repeat(40);
+  const cases: [string, Partial<typeof repositories.$inferInsert>, string, number, JobAsked, boolean][] = [
+    ["moved", {}, remoteSays("d".repeat(40)), 1, {}, true],
+    ["a new tag", {}, remoteSays(head, `${"f".repeat(40)}\trefs/tags/v2\n`), 1, {}, true],
+    ["a branch moved", {}, remoteSays(head, `${"f".repeat(40)}\trefs/heads/next\n`), 1, {}, true],
+    ["refs never seen", { reportRefs: null }, remoteSays(head), 1, {}, true],
+    ["a week old", { reportAt: now() - 8 * 24 * 3600 }, remoteSays(head), 1, {}, true],
+    ["without lines", { reportLines: false }, remoteSays(head), 1, {}, true],
+    ["quiet", {}, remoteSays(head), 1, { more: 1 }, false],
+    ["a retry", {}, remoteSays(head), 2, {}, false],
+  ];
+  for (const [label, over, remote, attempt, asked, asks] of cases) {
+    const db = await database();
+    const ran: string[] = [];
+    const base = tools();
+    const ctx = await context(db, {
+      run: async (cmd, args) => {
+        ran.push(`${cmd} ${args[0]}`);
+        return cmd === "git" && args[0] === "ls-remote" ? { ...ok, stdout: remote } : base(cmd, args);
+      },
+    });
+    await wholeReport(db, "acme/rocket", head, over);
+    await db.insert(builds).values({ id: "b1", repoId: "acme/rocket", state: "queued", requestedAt: 1 });
+    await runJob("b1", ctx, attempt, asked);
+    expect([label, ran.includes("git ls-remote")]).toEqual([label, asks]);
+    expect([label, ran.some((r) => r.startsWith("commitscape build"))]).toEqual([label, true]);
+    if (asks) expect([label, (await repoRow(db))?.reportRefs]).toEqual([label, refsOf(remote).refs]);
+  }
+});
+
+test("a Build reads a blobless clone once its lines and its Report's Surviving Lines are all counted, and a full one before", async () => {
+  const head = "c".repeat(40);
+  for (const [label, status, lean] of [["counted", "counted", true], ["still counting", "queued", false], ["never counted", null, false]] as const) {
+    const db = await database();
+    const clones: string[][] = [];
+    const base = tools();
+    const ctx = await context(db, {
+      prefetch: async () => 0,
+      run: async (cmd, args) => {
+        if (cmd === "git" && args[0] === "clone") clones.push(args);
+        return base(cmd, args);
+      },
+    });
+    await wholeReport(db, "acme/rocket", head, { reportAt: now() - 8 * 24 * 3600 });
+    if (status) await db.insert(surviving).values({ repoId: "acme/rocket", reportKey: "reports/gh/acme/rocket/b0", personId: 1, status, askedAt: 1 });
+    await db.insert(builds).values({ id: "b1", repoId: "acme/rocket", state: "queued", requestedAt: 1 });
+    await runJob("b1", ctx);
+    expect([label, clones.some((c) => c.includes("--no-checkout"))]).toEqual([label, lean]);
+  }
+});
+
 test("seeds are kept under the name GitHub's search gives, and a row under an older name moves there", async () => {
   const db = await database();
   const storage = memoryStorage();
@@ -259,6 +460,61 @@ test("seeds are kept under the name GitHub's search gives, and a row under an ol
     ["react/react", true, "reports/gh/facebook/react/b1"],
   ]);
   expect((await db.select().from(builds)).map((b) => b.repoId)).toEqual(["a/one"]);
+});
+
+test("a whole seed is built again only when its head moved and someone viewed it since, or once it is a week old; an unmoved one is marked checked", async () => {
+  const db = await database();
+  const head = "c".repeat(40);
+  const week = 8 * 24 * 3600;
+  const seen = now() - 3 * 24 * 3600 + 60;
+  await wholeReport(db, "a/unmoved", head, { seed: true, viewedAt: seen });
+  await wholeReport(db, "a/moved-unseen", head, { seed: true });
+  await wholeReport(db, "a/moved-seen", head, { seed: true, viewedAt: seen });
+  await wholeReport(db, "a/old", head, { seed: true, reportAt: now() - week });
+  await wholeReport(db, "a/unknown-unseen", head, { seed: true });
+  await db.insert(repositories).values({ id: "a/never", owner: "a", name: "never", seed: true });
+  const asked: Named[][] = [];
+  const heads = async (repos: Named[]) => {
+    asked.push(repos);
+    const moved = "d".repeat(40);
+    return new Map([
+      ["a/unmoved", head],
+      ["a/moved-unseen", moved],
+      ["a/moved-seen", moved],
+      ["a/old", head],
+    ]);
+  };
+  const sent: string[] = [];
+  const queue: Queue = { send: async (job) => void sent.push(job.repoId ?? "") };
+  expect(await queueSeeds(db, queue, [], 10, null, heads)).toBe(3);
+  expect(sent.sort()).toEqual(["a/moved-seen", "a/never", "a/old"]);
+  expect(asked.flat().map((r) => r.id).sort()).toEqual(["a/moved-seen", "a/moved-unseen", "a/unknown-unseen", "a/unmoved"]);
+  const rows = await db.select().from(repositories);
+  expect(rows.filter((r) => r.checkedAt !== null).map((r) => r.id)).toEqual(["a/unmoved"]);
+});
+
+test("heads are asked of GitHub's GraphQL API a hundred repositories to a request, and one GitHub does not know is left out", async () => {
+  const bodies: { query: string; variables: Record<string, string> }[] = [];
+  const fetcher = (async (_url: string, init: RequestInit) => {
+    const body = JSON.parse(String(init.body)) as { query: string; variables: Record<string, string> };
+    bodies.push(body);
+    const data = Object.fromEntries(
+      Object.keys(body.variables)
+        .filter((k) => k.startsWith("o"))
+        .map((k) => {
+          const j = k.slice(1);
+          const name = body.variables[`n${j}`] ?? "";
+          return [`r${j}`, name === "gone" ? null : { defaultBranchRef: { target: { oid: name.padEnd(40, "0") } } }];
+        }),
+    );
+    return new Response(JSON.stringify({ data }), { status: 200 });
+  }) as unknown as typeof fetch;
+  const repos = Array.from({ length: 150 }, (_, i) => ({ id: `o/r${i}`, owner: "o", name: i === 7 ? "gone" : `r${i}` }));
+  const heads = await headsOf({ api: "http://github.test", token: "t", fetcher }, repos);
+  expect(bodies).toHaveLength(2);
+  expect(heads.size).toBe(149);
+  expect(heads.get("o/r0")).toBe("r0".padEnd(40, "0"));
+  expect(heads.has("o/r7")).toBe(false);
 });
 
 test("a private repository with no installation token fails as private and reads nothing", async () => {
@@ -279,14 +535,16 @@ test("a private repository with no installation token fails as private and reads
   expect(ctx.captured.at(-1)?.[1].repo).toMatch(/^private:[0-9a-f]{16}$/);
 });
 
-test("a public repository is cloned without the token lent for its Build, so a repository gone private since cannot be read with someone's own access", async () => {
+test("a public repository is fetched with the Builder's own token, which reads nothing private, and never with the token lent for its Build, so a repository gone private since cannot be read with someone's own access", async () => {
   const db = await database();
   const envs: NodeJS.ProcessEnv[] = [];
+  const argv: string[] = [];
   const base = tools();
   const ctx = await context(db, {
     tokenSecret: "s".repeat(32),
     run: async (cmd, args, env) => {
       if (cmd === "git") envs.push(env);
+      argv.push(`${cmd} ${args.join(" ")}`);
       return base(cmd, args);
     },
   });
@@ -294,28 +552,28 @@ test("a public repository is cloned without the token lent for its Build, so a r
   await db.insert(schema.user).values({ id: "u1", name: "Ada", email: "ada@example.com", emailVerified: true, createdAt: new Date(), updatedAt: new Date() });
   await lendToken(db, "s".repeat(32), "acme/rocket", "u1", "ghu_lent");
   await db.insert(builds).values({ id: "b9", repoId: "acme/rocket", state: "queued", requestedAt: 1 });
+  ctx.github = { ...ctx.github, token: "ghs_site" };
   await runJob("b9", ctx);
+  const carries = (e: NodeJS.ProcessEnv, token: string) => Object.values(e).some((v) => typeof v === "string" && v.includes(Buffer.from(`x-access-token:${token}`).toString("base64")));
   expect(envs.length).toBeGreaterThan(0);
-  expect(envs.some((e) => Object.values(e).some((v) => typeof v === "string" && v.includes(Buffer.from("x-access-token:ghu_lent").toString("base64"))))).toBe(false);
+  expect(envs.some((e) => carries(e, "ghu_lent"))).toBe(false);
+  expect(envs.every((e) => carries(e, "ghs_site"))).toBe(true);
+  expect(argv.some((a) => a.includes("ghs_site"))).toBe(false);
 });
 
-test("a seed repository's Build asks for the Surviving Lines of its people with most commits, bots and people with no login left out", async () => {
+test("a Build that publishes a new Report asks for everyone's Surviving Lines once, and one that keeps its Report asks for nothing", async () => {
   const db = await database();
-  const people = [fakePerson(1, "bot[bot]", 900), fakePerson(2, null, 800), ...Array.from({ length: 34 }, (_, i) => fakePerson(10 + i, `p${i}`, 100 - i))];
   const asked: SurvivalJob[] = [];
-  const ctx = await context(db, { queueCounts: async (job) => void asked.push(job) }, { people });
+  const ctx = await context(db, { queueCounts: async (job) => void asked.push(job) });
   await db.insert(repositories).values({ id: "acme/seed", owner: "acme", name: "seed", sizeKb: 10, seed: true });
   await db.insert(builds).values({ id: "b3", repoId: "acme/seed", state: "queued", requestedAt: 1 });
   await runJob("b3", ctx);
-  expect(asked.map((j) => j.personIds.length)).toEqual([10, 10, 10]);
-  expect(asked.flatMap((j) => j.personIds)).toEqual(Array.from({ length: 30 }, (_, i) => 10 + i));
-  expect(asked.every((j) => j.reportKey === "reports/gh/acme/seed/b3")).toBe(true);
-  expect(await db.select({ status: surviving.status }).from(surviving)).toHaveLength(30);
-
+  expect(asked).toEqual([{ repoId: "acme/seed", reportKey: "reports/gh/acme/seed/b3", personIds: [], everyone: true }]);
+  expect((await db.select().from(surviving)).map((r) => [r.personId, r.status, r.reportKey])).toEqual([[1, "queued", "reports/gh/acme/seed/b3"]]);
   await db.insert(repositories).values({ id: "acme/other", owner: "acme", name: "other", sizeKb: 10 });
   await db.insert(builds).values({ id: "b4", repoId: "acme/other", state: "queued", requestedAt: 1 });
   await runJob("b4", ctx);
-  expect(asked).toHaveLength(3);
+  expect(asked.map((j) => j.repoId)).toEqual(["acme/seed", "acme/other"]);
 });
 
 test("a Build past its time limit is queued again to go on from the lines it counted, until its last attempt fails", async () => {
@@ -389,6 +647,7 @@ test("pruning leaves the folder of a public repository with a Build or Surviving
   ]);
   const kept = await inUse(db, cfg);
   expect(kept.sort()).toEqual([join(work, "repos", "acme", "building"), join(work, "repos", "acme", "counting")]);
+  expect((await inUse(db, cfg, cacheDir)).sort()).toEqual([join(work, "caches", "acme", "building"), join(work, "caches", "acme", "counting")]);
 });
 
 test("sweeping deletes private clones and scratch folders no open Build or running job owns, and what older Builders left", async () => {

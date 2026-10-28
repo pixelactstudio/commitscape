@@ -67,6 +67,21 @@ describe("a Report's answers as plain JSON", () => {
     expect(engine.asked).toHaveLength(1);
   });
 
+  test("of a pack published again at the same head under the same Report are the new pack's, with a new ETag", async () => {
+    const lines = (pack: string) => (pack.includes("-b4-") ? 25 : 10);
+    const { deps } = await stored((asked) => (asked.endpoint === "/v1/answer" && String(asked.body.pack).includes("head-b") ? { window: "all", commits: 9, lines: lines(String(asked.body.pack)) } : answering(asked)));
+    await deps.db.insert(repositories).values({ id: "acme/again", owner: "acme", name: "again", githubId: 4, status: "ok", factsAt: now(), reportKey: "reports/gh/acme/again/b3", reportAt: 900 });
+    const si = await seedIndex(deps.db, "acme/again", seed);
+    await packed(deps.db, si, `packs/acme/${si}/head-b3-lines.pack`);
+    const before = await reportAnswer(deps, viewer(), "acme", "again", overview, null);
+    expect(await brotliJson(before)).toEqual({ window: "all", commits: 9, lines: 10 });
+    await packed(deps.db, si, `packs/acme/${si}/head-b4-lines.pack`);
+    const after = await reportAnswer(deps, viewer(), "acme", "again", overview, null, before.etag);
+    expect(after.etag).not.toBe(before.etag);
+    expect(await brotliJson(after)).toEqual({ window: "all", commits: 9, lines: 25 });
+    expect(await reportEntry(deps, viewer(), "acme", "again", overview)).toEqual({ window: "all", commits: 9, lines: 25 });
+  });
+
   test("answer an ETag they gave with no body, whatever params the answer does not depend on, and another once the pack is another", async () => {
     const { deps, si, engine } = await stored();
     const sent = await reportAnswer(deps, viewer(), "acme", "rocket", overview, 500);
@@ -191,10 +206,7 @@ describe("warming", () => {
     expect(engine.asked).toEqual([]);
     await deps.db.update(repositories).set({ viewedAt: now() }).where(eq(repositories.id, "acme/rocket"));
     expect(await warmLoaded(w, si)).toBe(true);
-    expect(engine.asked).toEqual([
-      { endpoint: "/v1/warm", body: { pack, keys: firstAnswers("all") } },
-      { endpoint: "/v1/universe/rows", body: { pack } },
-    ]);
+    expect(engine.asked).toEqual([{ endpoint: "/v1/warm", body: { pack, keys: firstAnswers("all") } }]);
     await deps.db.update(storedIndexes).set({ pack: null }).where(eq(storedIndexes.id, si));
     engine.asked.length = 0;
     expect(await warmLoaded(w, si)).toBe(false);

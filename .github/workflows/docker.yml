@@ -143,7 +143,7 @@ jobs:
           SITE: ${{ secrets.DOKPLOY_SITE_WEBHOOK }}
           ENGINE: ${{ secrets.DOKPLOY_ENGINE_WEBHOOK }}
         run: |
-          for app in BUILDER ENGINE SITE; do
+          for app in ENGINE BUILDER SITE; do
             hook="${!app}"
             if [ -z "$hook" ]; then
               echo "::notice::DOKPLOY_${app}_WEBHOOK is not set: not deployed."

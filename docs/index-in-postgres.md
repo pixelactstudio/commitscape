@@ -10,10 +10,16 @@ Every phase is built, and [ADR-0028](./adr/0028-the-engine-service-answers-from-
 changed where answers come from. The Stored Index is now for row lookups:
 the Commit List and its search, a person's commits on a day, branches,
 tags, pull requests and the files at HEAD. Every screen's answer comes from
-the engine service, from the pack each Build writes beside the rows, and
-the Site holds no Stored Index in memory. The four daily summary tables were
-dropped with export format 3: nothing read them. What else differs from the
-plan below:
+the pack each Build writes beside the rows, and the Site holds no Stored
+Index in memory: since 2026-10-27 a Report's standard screens (all, 1y and
+90d) are worked out from the pack once per head and stored in R2 with the
+Report, and the engine service answers the rest, reading the pack's
+columns in place. The four daily summary tables were
+dropped with export format 3: nothing read them. Since 2026-10-27 a search
+of the Commit List by its words asks the engine service which commits match
+(it holds every subject), and reads only that page's rows from Postgres; the
+whole-table scan is left for a Report with no pack. What else differs from
+the plan below:
 
 - **Phase 2** worked the answers out in TypeScript from the Stored Index held
   in memory, a port of the engine's `Analysis`, rather than in SQL. Since the
@@ -61,18 +67,25 @@ rename touches one row.
 the next export may append), `head`, `frontier` (the heads the export was
 made at), `commits`, `lines` (whether the Mainline's Lines Changed are all
 counted), `lines_left` (commits the line pass has not reached yet), `pack`
-(the R2 key of the current pack), `state` (`loading`, `live`), `built_at`,
-`loaded_at`. `repositories.index_id` points at the live one.
+(the R2 key of the current pack), `mark` (where the last loaded export left
+the Stored Index: the next export writes only the Mainline that moved and
+the Lines Changed counted after it), `state` (`loading`, `live`),
+`built_at`, `loaded_at`. `repositories.index_id` points at the live one.
 
 **Facts, appended**
 
 - `index_commits`: `si`, `sha` bytea, `at`, `offset`, `author_delta`,
   `signature`, `kind`, `flags` (merge, bulk, ignored by blame, reachable
   from HEAD, first-parent), `arrival` (Main Arrival), `subject`,
-  `files int4[]`, `changes int2[]` (added, modified, deleted, renamed),
-  `added int4[]`, `removed int4[]` (null until counted). Keys: `(si, sha)`;
-  `(si, at)`; `(si, signature, at)`; GIN `(si, files)` with `btree_gin`
-  (GIN on `files` alone where the extension is missing, as in PGlite).
+  `files int4[]`, `changes int2[]` (added, modified, deleted, renamed).
+  Keys: `(si, sha)`; `(si, at)`; `(si, signature, at)`; GIN `(si, files)`
+  with `btree_gin` (GIN on `files` alone where the extension is missing, as
+  in PGlite). `added int4[]` and `removed int4[]` are no longer written and
+  go with the per-file arrays.
+- `index_commit_lines`: `si`, `sha`, `added`, `removed`: each commit's Lines
+  Changed, summed, once counted. A narrow row of its own, so counting the
+  lines of a commit already loaded inserts a row instead of writing the
+  whole commit row again. Key: `(si, sha)`.
 - `index_files`: `si`, `file` (File Identity), `path` (where it is now, or
   was last, with a hash index), `folder` (id), `born`, `last`, `alive`.
   `index_file_paths`: `si`, `file`, `path` for every earlier path, so

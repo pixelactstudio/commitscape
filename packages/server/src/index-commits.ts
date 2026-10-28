@@ -1,7 +1,7 @@
 import { and, count, desc, eq, ilike, or, sql, type SQL } from "drizzle-orm";
 import { afterCommit, afterOf, pageLimit, seqOf, UNKNOWN_PERSON, wordsOf, type CommitPage, type CommitQuery, type CommitRow, type PersonRef } from "@commitscape/data";
 import type { Db } from "./db/client";
-import { indexCommits, indexPeople, storedIndexes } from "./db/schema";
+import { indexCommitLines, indexCommits, indexPeople, storedIndexes } from "./db/schema";
 
 export const COMMIT_KINDS = ["features", "fixes", "docs", "refactors", "tests", "performance", "style", "build and CI", "chores", "reverts", "other"];
 
@@ -44,17 +44,6 @@ function conditions(ask: Omit<IndexCommitAsk, "link">, who: Who[]): SQL[] {
   return where;
 }
 
-/** The shas of every commit of a Stored Index a query matches, newest first. */
-export async function indexCommitShas(db: Db, ask: Omit<IndexCommitAsk, "link" | "cursor" | "limit">): Promise<string[]> {
-  const where = conditions(ask, await peopleOf(db, ask.si));
-  const rows = await db
-    .select({ sha: sql<string>`encode(${indexCommits.sha}, 'hex')` })
-    .from(indexCommits)
-    .where(and(...where))
-    .orderBy(desc(indexCommits.at), desc(indexCommits.sha));
-  return rows.map((r) => r.sha);
-}
-
 /** One page of a Stored Index's commits, newest first: every word in the subject or in the name or login of who made it, narrowed by person, kind, time and the commits named. */
 export async function indexCommitPage(db: Db, ask: IndexCommitAsk): Promise<CommitPage | null> {
   const [index] = await db.select({ commits: storedIndexes.commits, lines: storedIndexes.lines }).from(storedIndexes).where(eq(storedIndexes.id, ask.si));
@@ -80,11 +69,11 @@ export async function indexCommitPage(db: Db, ask: IndexCommitAsk): Promise<Comm
         kind: indexCommits.kind,
         flags: indexCommits.flags,
         files: sql<number>`cardinality(${indexCommits.files})`.mapWith(Number),
-        added: sql<number | null>`(SELECT sum(x) FROM unnest(${indexCommits.added}) AS x)`.mapWith((v) => (v === null ? null : Number(v))),
-        removed: sql<number | null>`(SELECT sum(x) FROM unnest(${indexCommits.removed}) AS x)`.mapWith((v) => (v === null ? null : Number(v))),
-        hasLines: sql<boolean>`${indexCommits.added} IS NOT NULL`,
+        added: indexCommitLines.added,
+        removed: indexCommitLines.removed,
       })
       .from(indexCommits)
+      .leftJoin(indexCommitLines, and(eq(indexCommitLines.si, indexCommits.si), eq(indexCommitLines.sha, indexCommits.sha)))
       .where(and(...page))
       .orderBy(desc(indexCommits.at), desc(indexCommits.sha))
       .offset(skip)
@@ -119,8 +108,8 @@ export async function indexCommitPage(db: Db, ask: IndexCommitAsk): Promise<Comm
       kind: r.kind,
       merge: (r.flags & 1) !== 0,
       files: r.files,
-      added: index.lines && r.hasLines ? (r.added ?? (r.files === 0 ? 0 : null)) : null,
-      removed: index.lines && r.hasLines ? (r.removed ?? (r.files === 0 ? 0 : null)) : null,
+      added: index.lines ? r.added : null,
+      removed: index.lines ? r.removed : null,
     };
   });
   return {

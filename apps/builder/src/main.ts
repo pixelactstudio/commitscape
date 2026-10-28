@@ -7,8 +7,10 @@ import {
   buildKey,
   cleanup,
   createDb,
+  holdBuilderLock,
   PRIORITY,
   PULLS_QUEUE,
+  ATLAS_QUEUE,
   reapBuilds,
   runMigrations,
   s3Storage,
@@ -21,17 +23,25 @@ import {
   type BuildJob,
   type Db,
   type PullsJob,
+  type AtlasJob,
   type SurvivalJob,
 } from "@commitscape/server";
 import { configOf, loadEnv, type Config } from "./config";
 import { inQueueSpan, log, monitored, startTelemetry } from "./telemetry";
-import { inUse, prune, sweep } from "./disk";
+import { cacheDir, inUse, prune, sweep } from "./disk";
 import { runJob } from "./job";
+import { admitting } from "./admission";
 import { jobLimitOf, run } from "./run";
 import { pullsToken, readPulls } from "./pulls";
+import { repackClones } from "./repack";
 import { budgetOf, runSurvival } from "./survival";
 import { queueRebuilds } from "./rebuild";
-import { queueSeeds, seedConfig, seedList } from "./seeds";
+import { forgetStates, saveState as saveRepoState, stateKeys } from "./state";
+import { headsOf, queueSeeds, seedConfig, seedList } from "./seeds";
+import { atlasJob } from "./universe";
+import { packFormatOf } from "./formats";
+
+const command = process.argv[2] ?? "work";
 
 const env = loadEnv();
 const telemetry = startTelemetry({
@@ -42,7 +52,7 @@ const telemetry = startTelemetry({
   posthogHost: env.POSTHOG_HOST,
   analyticsSecret: env.TOKEN_SECRET,
 });
-const cfg = configOf(env);
+const cfg = { ...configOf(env), atlas: { quality: env.ATLAS_QUALITY } };
 const storage = s3Storage({
   endpoint: env.S3_ENDPOINT,
   bucket: env.S3_BUCKET,
@@ -71,6 +81,14 @@ async function laneOf(db: Db, config: Config, buildId: string): Promise<{ queue:
 }
 
 async function work() {
+  const one = await holdBuilderLock(env.DATABASE_URL, (e) => {
+    log(`the connection holding the Builder's lock was lost (${e.message}), so this Builder stops`);
+    process.exit(1);
+  });
+  if (!one.held) {
+    log("another Builder is running against this database, so this one stops");
+    process.exit(1);
+  }
   await runMigrations(env.DATABASE_URL, env.MIGRATIONS_DIR);
   const { db, pool } = createDb(env.DATABASE_URL, cfg.concurrency + cfg.largeConcurrency + 3);
   const boss = await startQueue(env.DATABASE_URL, { worker: true, expireInSeconds: Math.min(LONGEST_JOB_SECONDS, jobLimitOf(cfg, 1)) });
@@ -94,10 +112,21 @@ async function work() {
     const lane = await laneOf(db, cfg, job.buildId);
     await sendBuild(lane?.queue ?? BUILD_QUEUE, { queuedAt: Date.now(), ...job }, priority, startAfter);
   };
+  const engine = admitting(run, [cfg.bin], cfg.engineMemoryMb);
+  let forgotAt = 0;
   const tidy = async () => {
     for (const p of await sweep(db, cfg).catch(() => [])) log(`swept ${p}`);
     const keep = await inUse(db, cfg).catch(() => null);
     if (keep) for (const p of await prune(cfg.work, cfg.diskGb * 1024 ** 3, keep)) log(`pruned ${p}`);
+    const caches = await inUse(db, cfg, cacheDir).catch(() => null);
+    const days = cfg.state ? cfg.state.diskDays * 86_400_000 : undefined;
+    if (caches) for (const p of await prune(cfg.work, cfg.cacheGb * 1024 ** 3, caches, "caches", days)) log(`pruned ${p}`);
+    for (const p of await repackClones(engine, cfg.work, cfg.cloneLimit * 1000).catch(() => [])) log(`repacked ${p}`);
+    if (cfg.state && Date.now() - forgotAt > 86_400_000) {
+      forgotAt = Date.now();
+      const gone = await forgetStates({ storage, db }, cfg.state.keepDays).catch((e: unknown) => (log(`states not forgotten: ${(e as Error).message}`), []));
+      if (gone.length > 0) log(`forgot the States of ${gone.length} repositories unused for ${cfg.state.keepDays} days`);
+    }
   };
   const reap = async () => {
     const reaped = await reapBuilds(db, (id) => buildJobStates(boss, id), bossQueue(boss));
@@ -106,13 +135,20 @@ async function work() {
   const timed = (slug: string, minutes: number, fn: () => Promise<void>) => () => monitored(slug, minutes, fn).catch((e: unknown) => log(`${slug}: ${(e as Error).message}`));
   const reapTimed = timed("builder-reaper", REAP_MINUTES, reap);
   const tidyTimed = timed("builder-tidy", TIDY_MINUTES, tidy);
-  const ctx = { db, pool, storage, cfg, app, run, github, tokenSecret: env.TOKEN_SECRET, log, telemetry, queuePulls, queueCounts, queueBuild };
+  let tidying: Promise<void> | null = null;
+  const tidyOnce = () => (tidying ??= tidyTimed().finally(() => (tidying = null)));
+  const tier = cfg.state ? { storage, keys: stateKeys(cfg.state.secret), db, log } : null;
+  const saveState = tier ? (repoId: string, root: string) => saveRepoState(tier, repoId, root) : undefined;
+  const queueAtlas = async (job: AtlasJob) => {
+    await boss.send(ATLAS_QUEUE, job, { singletonKey: job.pack });
+  };
+  const ctx = { db, pool, storage, cfg, app, run: engine, github, tokenSecret: env.TOKEN_SECRET, log, telemetry, queuePulls, queueCounts, queueBuild, queueAtlas, packFormat: packFormatOf({ setting: cfg.packFormat, url: cfg.engineUrl, storage, log }), ...(saveState ? { saveState } : {}) };
   const building = (queue: string, job: { id: string; data: BuildJob }) =>
     inQueueSpan(job, queue, () => runJob(job.data.buildId, ctx, job.data.attempt ?? 1, { ...(job.data.userId ? { userId: job.data.userId } : {}), ...(job.data.more ? { more: job.data.more } : {}) }));
   await reapTimed();
-  await tidyTimed();
+  await tidyOnce();
   const reaper = setInterval(() => void reapTimed(), REAP_MINUTES * 60_000);
-  const tidier = setInterval(() => void tidyTimed(), TIDY_MINUTES * 60_000);
+  const tidier = setInterval(() => void tidyOnce(), TIDY_MINUTES * 60_000);
   await boss.work<BuildJob>(BUILD_QUEUE, { localConcurrency: cfg.concurrency, batchSize: 1 }, async ([job]) => {
     if (!job) return;
     await site.ready();
@@ -122,18 +158,23 @@ async function work() {
       return;
     }
     await building(BUILD_QUEUE, job);
-    await tidy();
+    void tidyOnce();
   });
   await boss.work<BuildJob>(BUILD_LARGE_QUEUE, { localConcurrency: cfg.largeConcurrency, batchSize: 1 }, async ([job]) => {
     if (!job) return;
     await site.ready();
     await building(BUILD_LARGE_QUEUE, job);
-    await tidy();
+    void tidyOnce();
   });
   await boss.work<SurvivalJob>(SURVIVAL_QUEUE, { localConcurrency: 1, batchSize: 1 }, async ([job]) => {
     if (!job) return;
     await site.ready();
     await runSurvival(job.data, { ...ctx, budget: env.SURVIVING_BUDGET_SECONDS });
+  });
+  await boss.work<AtlasJob>(ATLAS_QUEUE, { localConcurrency: 1, batchSize: 1 }, async ([job]) => {
+    if (!job) return;
+    const done = await atlasJob(job.data, ctx);
+    log(`atlas of ${job.data.repoId} (${job.data.pack}): ${done}`);
   });
   await boss.work<PullsJob>(PULLS_QUEUE, { localConcurrency: 1, batchSize: 1 }, async ([job]) => {
     if (!job) return;
@@ -175,7 +216,7 @@ async function once(what: string) {
       const s = { ...seedConfig(env), token: await site.ready() };
       const list = await seedList(s);
       const boss = await startQueue(env.DATABASE_URL, { worker: false });
-      const queued = await queueSeeds(db, bossQueue(boss), list, s.budget, storage);
+      const queued = await queueSeeds(db, bossQueue(boss), list, s.budget, storage, (repos) => headsOf({ api: env.GITHUB_API, token: s.token ?? null }, repos));
       await boss.stop();
       console.log(`seeds: ${list.length} from GitHub's search, ${queued} queued`);
     } else if (what === "rebuild") {
@@ -189,7 +230,6 @@ async function once(what: string) {
   }
 }
 
-const command = process.argv[2] ?? "work";
 if (command === "migrate") {
   await runMigrations(env.DATABASE_URL, env.MIGRATIONS_DIR);
   console.log("migrations applied");

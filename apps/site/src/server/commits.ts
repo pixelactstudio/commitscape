@@ -1,6 +1,6 @@
 import "@tanstack/react-start/server-only";
 import { wordsOf, type CommitPage, type CommitQuery } from "@commitscape/data";
-import { indexCommitPage, indexCommitShas, sha256 } from "@commitscape/server";
+import { indexCommitPage, sha256 } from "@commitscape/server";
 import { packOf, withPack } from "./answers";
 import { SiteError } from "./http";
 import { readable, type Deps, type Viewer } from "./repos";
@@ -42,15 +42,13 @@ export function commitAskOf(params: URLSearchParams): CommitAsk {
   return ask;
 }
 
-async function pageUnder(deps: Deps, si: number, pack: string, path: string, query: CommitQuery, cursor: string | undefined, link: string): Promise<CommitPage | null> {
-  const said = wordsOf(query.q).length > 0 ? await indexCommitShas(deps.db, { si, q: query.q }) : null;
-  const { shas, total, next } = await deps.engine.under(pack, path, query, cursor, said);
-  const page = await indexCommitPage(deps.db, { si, link, shas, limit: Math.max(1, shas.length) });
+async function pageOf(deps: Deps, si: number, found: { shas: string[]; total: number; next: string | null }, link: string): Promise<CommitPage | null> {
+  const page = await indexCommitPage(deps.db, { si, link, shas: found.shas, limit: Math.max(1, found.shas.length) });
   if (!page) return null;
-  return { ...page, total, next };
+  return { ...page, total: found.total, next: found.next };
 }
 
-/** One page of a readable Report's commits, with its ETag and how long it may be kept; no page when `seen` is already its ETag. Commits under a path are found by the engine service, their words and rows in Postgres. */
+/** One page of a readable Report's commits, with its ETag and how long it may be kept; no page when `seen` is already its ETag. Commits under a path, and commits searched by their words, are found by the engine service, which holds every subject, and their rows read from Postgres. */
 export async function reportCommitPage(deps: Deps, viewer: Viewer, owner: string, name: string, ask: CommitAsk, seen?: string | null): Promise<CommitAnswer> {
   const row = await readable(deps, viewer, owner, name);
   const { at, under, cursor, ...query } = ask;
@@ -65,9 +63,10 @@ export async function reportCommitPage(deps: Deps, viewer: Viewer, owner: string
   if (seen && seen.split(",").some((t) => t.trim().replace(/^W\//, "") === etag)) return { page: null, etag, cacheControl };
   const link = `https://github.com/${row.owner}/${row.name}/commit/`;
   let page: CommitPage | null;
-  if (under === undefined) page = await indexCommitPage(deps.db, { ...query, cursor, si, link });
+  if (under === undefined && (pack === null || wordsOf(query.q).length === 0)) page = await indexCommitPage(deps.db, { ...query, cursor, si, link });
   else {
-    const made = await withPack(deps.db, si, (p) => pageUnder(deps, si, p, under, query, cursor, link), row.reportAt);
+    const find = (p: string) => (under === undefined ? deps.engine.search(p, query, cursor) : deps.engine.under(p, under, query, cursor, null));
+    const made = await withPack(deps.db, si, async (p) => pageOf(deps, si, await find(p), link), row.reportAt);
     if (!made) throw new SiteError(404, COMMITS_UNAVAILABLE);
     page = made.value;
   }

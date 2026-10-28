@@ -1,15 +1,27 @@
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use commitscape_core::{AuthorId, ChangeKind, CommitFlags, FileClass, FileId, Index, Oid};
 
-use crate::blame::{blame_in_threads, spans_at, BlameFile, Walked};
-use crate::cache::{BlameStore, CacheOptions, Known, Moved};
+use crate::blame::{blame_in_threads, spans_at, BlameFile, Gone, Walked, BATCH_BYTES};
+use crate::cache::{repo_dir, BlameStore, CacheOptions, Known, Moved};
+use crate::commit_at::CommitAt;
 use crate::lines::MAX_BYTES;
+use crate::ownership::{own_in_threads, Known as Owners, Ownership, Writer};
 use crate::similarity::rename_source;
 use crate::source::{BlameSource, BlameThreads};
 
 const ENGINE: u64 = 4;
+
+/// Why working out the Ownership stopped: the repository could not be read, or the Ownership could not be kept.
+#[derive(Debug, thiserror::Error)]
+pub enum OwnError<E: std::error::Error + 'static> {
+    #[error(transparent)]
+    Source(E),
+    #[error("could not keep the ownership of lines")]
+    Kept(#[source] std::io::Error),
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Survived {
@@ -23,18 +35,41 @@ pub enum Survived {
     },
 }
 
+enum Named {
+    One(FileId),
+    Many(Vec<FileId>),
+}
+
+impl Named {
+    fn add(&mut self, file: FileId) {
+        match self {
+            Named::One(first) => *self = Named::Many(vec![*first, file]),
+            Named::Many(files) => files.push(file),
+        }
+    }
+
+    fn has(&self, file: FileId) -> bool {
+        match self {
+            Named::One(only) => *only == file,
+            Named::Many(files) => files.contains(&file),
+        }
+    }
+}
+
 pub struct Survival<'i> {
     index: &'i Index,
     head: Oid,
     pass_through: HashSet<Oid>,
-    authors: HashMap<Oid, (AuthorId, i64)>,
     known: Known,
     store: Option<BlameStore>,
     deletions: HashMap<FileId, Vec<usize>>,
     flows: HashMap<usize, Vec<(FileId, FileId)>>,
     paths: Option<HashMap<FileId, Vec<Vec<u8>>>>,
-    commit_at: HashMap<Oid, usize>,
-    files_at: HashMap<Vec<u8>, Vec<FileId>>,
+    commit_at: CommitAt,
+    files_at: HashMap<&'i [u8], Named>,
+    batch_bytes: usize,
+    settings: u64,
+    kept: Option<PathBuf>,
 }
 
 impl<'i> Survival<'i> {
@@ -56,16 +91,6 @@ impl<'i> Survival<'i> {
             .map(|c| c.id)
             .collect();
         pass_through.extend(ignored.iter().copied());
-        let authors = index
-            .commits
-            .iter()
-            .filter_map(|c| {
-                Some((
-                    c.id,
-                    (index.author_of(c)?, c.time + i64::from(c.author_delta)),
-                ))
-            })
-            .collect();
         let store = BlameStore::for_head(
             options,
             &index.repo,
@@ -88,24 +113,46 @@ impl<'i> Survival<'i> {
             index,
             head,
             pass_through,
-            authors,
             known,
             store,
             deletions,
             flows: HashMap::new(),
             paths: None,
-            commit_at: index
-                .commits
-                .iter()
-                .enumerate()
-                .map(|(i, c)| (c.id, i))
-                .collect(),
+            commit_at: CommitAt::of(index),
             files_at: HashMap::new(),
+            batch_bytes: BATCH_BYTES,
+            settings: settings(max_changeset_size, ignored),
+            kept: repo_dir(options, &index.repo).map(|d| d.join("ownership")),
         })
     }
 
     pub fn head(&self) -> Oid {
         self.head
+    }
+
+    fn name_files(&mut self) {
+        if !self.files_at.is_empty() {
+            return;
+        }
+        let index: &'i Index = self.index;
+        for (file, path) in index.paths.iter().chain(index.paths.departures()) {
+            match self.files_at.get_mut(path) {
+                Some(named) => named.add(file),
+                None => {
+                    self.files_at.insert(path, Named::One(file));
+                }
+            }
+        }
+    }
+
+    /// The Ownership kept in the cache from the last count, when there is one.
+    pub fn previous(&self) -> Option<Ownership> {
+        self.kept.as_deref().and_then(Ownership::open)
+    }
+
+    fn author(&self, commit: &Oid) -> Option<(AuthorId, i64)> {
+        let c = self.commit_at.get(self.index, commit)?;
+        Some((self.index.author_of(c)?, c.time + i64::from(c.author_delta)))
     }
 
     /// Counts one person's Surviving Lines over the files at the head they ever changed, or says they are over budget.
@@ -130,11 +177,7 @@ impl<'i> Survival<'i> {
             .cloned()
             .collect();
         if !todo.is_empty() {
-            if self.files_at.is_empty() {
-                for (file, path) in self.index.paths.iter().chain(self.index.paths.departures()) {
-                    self.files_at.entry(path.to_vec()).or_default().push(file);
-                }
-            }
+            self.name_files();
             let Survival {
                 index,
                 head,
@@ -143,11 +186,12 @@ impl<'i> Survival<'i> {
                 store,
                 commit_at,
                 files_at,
+                batch_bytes,
                 ..
             } = self;
             let index: &Index = index;
             let may_change = |commit: Oid, path: &[u8]| -> bool {
-                let Some(c) = commit_at.get(&commit).and_then(|&i| index.commits.get(i)) else {
+                let Some(c) = commit_at.get(index, &commit) else {
                     return true;
                 };
                 if c.is_merge() || c.flags.contains(CommitFlags::BULK) {
@@ -159,7 +203,7 @@ impl<'i> Survival<'i> {
                 index
                     .changes_of(c)
                     .iter()
-                    .any(|change| files.contains(&change.file))
+                    .any(|change| files.has(change.file))
             };
             let walked = blame_in_threads(
                 threads,
@@ -168,6 +212,7 @@ impl<'i> Survival<'i> {
                 pass_through,
                 &may_change,
                 Some(deadline),
+                *batch_bytes,
                 &mut |i, blamed| {
                     if let Some(file) = todo.get(i) {
                         if let Some(store) = store.as_ref() {
@@ -186,8 +231,8 @@ impl<'i> Survival<'i> {
             .filter_map(|f| self.known.files.get(&f.path))
             .flatten()
             .filter(|(_, n)| *n > 0)
-            .filter_map(|(commit, n)| match self.authors.get(commit) {
-                Some((author, time)) if *author == person => Some((u64::from(*n), *time)),
+            .filter_map(|(commit, n)| match self.author(commit) {
+                Some((author, time)) if author == person => Some((u64::from(*n), time)),
                 _ => None,
             })
             .collect();
@@ -198,19 +243,252 @@ impl<'i> Survival<'i> {
         })
     }
 
-    fn files_of<S: BlameSource>(
+    fn head_files(&self) -> Vec<BlameFile> {
+        let index = self.index;
+        index
+            .head
+            .iter()
+            .filter(|h| h.class == FileClass::Source && h.bytes <= MAX_BYTES as u64)
+            .filter_map(|h| {
+                Some(BlameFile {
+                    path: index.paths.path_name(h.path)?.to_vec(),
+                    blob: h.blob,
+                })
+            })
+            .collect()
+    }
+
+    fn first_parent_line<S: BlameSource>(
+        &self,
+        source: &S,
+        to: Oid,
+    ) -> Result<Option<Vec<(Oid, Oid)>>, S::Error> {
+        let mut edges = Vec::new();
+        let mut at = self.head;
+        for _ in 0..=self.index.commits.len() {
+            if at == to {
+                return Ok(Some(edges));
+            }
+            let Some(parent) = source
+                .blame_commit(at)?
+                .and_then(|c| c.parents.first().copied())
+            else {
+                return Ok(None);
+            };
+            edges.push((at, parent));
+            at = parent;
+        }
+        Ok(None)
+    }
+
+    /// Works out who owns each line of the head's Source files, as blame would, carrying over from `previous` every file whose path no first-parent commit since its head changed, and stopping every other walk where it reaches that head with a file whose owners are known there. Past `deadline` it keeps what it finished, and says it is not complete.
+    pub fn own<T: BlameThreads>(
+        &mut self,
+        threads: &T,
+        previous: Option<Ownership>,
+        deadline: Option<Instant>,
+    ) -> Result<Ownership, OwnError<<T::Local as BlameSource>::Error>> {
+        let source = threads.local();
+        let files = self.head_files();
+        let previous = previous.filter(|p| p.settings == self.settings && p.head.is_some());
+        let mut out = Writer::create(
+            self.kept.as_deref(),
+            previous.as_ref(),
+            Some(self.head),
+            self.settings,
+        )
+        .map_err(OwnError::Kept)?;
+        let mut carried: HashSet<Vec<u8>> = HashSet::new();
+        if let Some(prev) = previous.as_ref() {
+            let candidates: Vec<&BlameFile> = files
+                .iter()
+                .filter(|f| prev.get(&f.path).is_some_and(|o| o.blob == f.blob))
+                .collect();
+            let line = match prev.head {
+                Some(h) => self
+                    .first_parent_line(&source, h)
+                    .map_err(OwnError::Source)?,
+                None => None,
+            };
+            if let Some(edges) = line {
+                let paths: Vec<&[u8]> = candidates.iter().map(|f| f.path.as_slice()).collect();
+                let mut changed = vec![false; paths.len()];
+                for (commit, parent) in edges {
+                    let states = source
+                        .blame_compare(commit, parent, &paths)
+                        .map_err(OwnError::Source)?;
+                    for (c, s) in changed.iter_mut().zip(states) {
+                        *c |= s != crate::source::InParent::Same;
+                    }
+                }
+                for (f, changed) in candidates.iter().zip(changed) {
+                    if !changed && out.carry(&f.path).map_err(OwnError::Kept)? {
+                        carried.insert(f.path.clone());
+                    }
+                }
+            }
+        }
+        let todo: Vec<BlameFile> = files
+            .into_iter()
+            .filter(|f| !carried.contains(&f.path))
+            .collect();
+        drop(carried);
+        self.name_files();
+        let Survival {
+            index,
+            pass_through,
+            commit_at,
+            files_at,
+            batch_bytes,
+            head,
+            ..
+        } = self;
+        let index: &Index = index;
+        let may_change = |commit: Oid, path: &[u8]| -> bool {
+            let Some(c) = commit_at.get(index, &commit) else {
+                return true;
+            };
+            if c.is_merge() || c.flags.contains(CommitFlags::BULK) {
+                return true;
+            }
+            let Some(files) = files_at.get(path) else {
+                return true;
+            };
+            index
+                .changes_of(c)
+                .iter()
+                .any(|change| files.has(change.file))
+        };
+        let known = previous.as_ref().and_then(|p| {
+            Some(Owners {
+                head: p.head?,
+                ownership: p,
+            })
+        });
+        let mut failed: Option<std::io::Error> = None;
+        let walked = own_in_threads(
+            threads,
+            *head,
+            &todo,
+            pass_through,
+            &may_change,
+            known.as_ref(),
+            deadline,
+            *batch_bytes,
+            &mut |i, owners| {
+                if let (Some(f), None) = (todo.get(i), failed.as_ref()) {
+                    if let Err(e) = out.add(f.path.clone(), f.blob, &owners) {
+                        failed = Some(e);
+                    }
+                }
+            },
+        )
+        .map_err(OwnError::Source)?;
+        commitscape_map::release_free_memory();
+        if let Some(e) = failed {
+            return Err(OwnError::Kept(e));
+        }
+        let moves = previous
+            .as_ref()
+            .map(|p| p.moves.clone())
+            .unwrap_or_default();
+        out.finish(walked == Walked::Finished, moves)
+            .map_err(OwnError::Kept)
+    }
+
+    /// Every person's Surviving Lines from the head's Ownership, as `person` counts them one by one: their lines in the head files they or the files they changed flowed into, with how many such files and when their oldest surviving line was written. None when the Ownership is not complete, or not of this head; the moves found on the way are kept in it.
+    pub fn everyone<S: BlameSource>(
         &mut self,
         source: &S,
-        person: AuthorId,
-        deadline: Instant,
-    ) -> Result<Option<Vec<BlameFile>>, S::Error> {
+        ownership: &mut Ownership,
+    ) -> Result<Option<Vec<(AuthorId, Survived)>>, S::Error> {
+        if !ownership.complete || ownership.head != Some(self.head) {
+            return Ok(None);
+        }
+        self.known
+            .moves
+            .extend(std::mem::take(&mut ownership.moves));
         let index = self.index;
-        let mut seen: HashSet<FileId> = index
+        let head_files = self.head_files();
+        let file_of_path: HashMap<&[u8], FileId> = index
+            .head
+            .iter()
+            .filter_map(|h| Some((index.paths.path_name(h.path)?, h.file)))
+            .collect();
+        let mut owned: HashMap<AuthorId, Vec<(FileId, u64, i64)>> = HashMap::new();
+        for f in &head_files {
+            let Some(&file) = file_of_path.get(f.path.as_slice()) else {
+                continue;
+            };
+            let mut by: HashMap<AuthorId, (u64, i64)> = HashMap::new();
+            for (commit, n) in ownership.counts(&f.path) {
+                if n == 0 {
+                    continue;
+                }
+                if let Some((author, time)) = self.author(&commit) {
+                    let e = by.entry(author).or_insert((0, i64::MAX));
+                    e.0 += u64::from(n);
+                    e.1 = e.1.min(time);
+                }
+            }
+            for (author, (n, oldest)) in by {
+                owned.entry(author).or_default().push((file, n, oldest));
+            }
+        }
+        let mut by_author: Vec<(AuthorId, u32)> = index
             .commits
             .iter()
-            .filter(|c| index.author_of(c) == Some(person))
-            .flat_map(|c| index.changes_of(c).iter().map(|ch| ch.file))
+            .zip(0u32..)
+            .filter_map(|(c, i)| Some((index.author_of(c)?, i)))
             .collect();
+        by_author.sort_unstable();
+        let head_ids: HashSet<FileId> = head_files
+            .iter()
+            .filter_map(|f| file_of_path.get(f.path.as_slice()).copied())
+            .collect();
+        let far = Instant::now()
+            .checked_add(Duration::from_secs(365 * 24 * 3600))
+            .unwrap_or_else(Instant::now);
+        let mut out = Vec::new();
+        for theirs in by_author.chunk_by(|a, b| a.0 == b.0) {
+            let Some(&(person, _)) = theirs.first() else {
+                continue;
+            };
+            let touched: HashSet<FileId> = theirs
+                .iter()
+                .filter_map(|&(_, i)| index.commits.get(i as usize))
+                .flat_map(|c| index.changes_of(c).iter().map(|ch| ch.file))
+                .collect();
+            let Some(seen) = self.closure(source, touched, far)? else {
+                continue;
+            };
+            let files = seen.iter().filter(|f| head_ids.contains(f)).count() as u32;
+            let theirs: Vec<(u64, i64)> = owned
+                .get(&person)
+                .into_iter()
+                .flatten()
+                .filter(|(file, _, _)| seen.contains(file))
+                .map(|&(_, n, t)| (n, t))
+                .collect();
+            out.push((
+                person,
+                Survived::Counted {
+                    lines: theirs.iter().map(|t| t.0).sum(),
+                    files,
+                    oldest: theirs.iter().map(|t| t.1).min(),
+                },
+            ));
+        }
+        ownership.moves = std::mem::take(&mut self.known.moves);
+        Ok(Some(out))
+    }
+
+    fn closure<S: BlameSource>(
+        &mut self,
+        source: &S,
+        mut seen: HashSet<FileId>,
+        deadline: Instant,
+    ) -> Result<Option<HashSet<FileId>>, S::Error> {
         let mut queue: Vec<FileId> = seen.iter().copied().collect();
         while let Some(file) = queue.pop() {
             let commits = self.deletions.get(&file).cloned().unwrap_or_default();
@@ -225,6 +503,25 @@ impl<'i> Survival<'i> {
                 }
             }
         }
+        Ok(Some(seen))
+    }
+
+    fn files_of<S: BlameSource>(
+        &mut self,
+        source: &S,
+        person: AuthorId,
+        deadline: Instant,
+    ) -> Result<Option<Vec<BlameFile>>, S::Error> {
+        let index = self.index;
+        let touched: HashSet<FileId> = index
+            .commits
+            .iter()
+            .filter(|c| index.author_of(c) == Some(person))
+            .flat_map(|c| index.changes_of(c).iter().map(|ch| ch.file))
+            .collect();
+        let Some(seen) = self.closure(source, touched, deadline)? else {
+            return Ok(None);
+        };
         Ok(Some(
             index
                 .head
@@ -312,14 +609,19 @@ fn moves_in<S: BlameSource>(source: &S, commit: Oid) -> Result<Moved, S::Error> 
         return Ok(Vec::new());
     };
     let moves = source.blame_moves(commit, *parent)?;
-    let mut texts = vec![None; moves.deleted.len()];
+    let Gone {
+        deleted,
+        mut spans,
+        mut sizes,
+    } = Gone::new(moves.deleted);
     let mut out = Vec::new();
     for (path, blob) in &moves.added {
         let data = source.blame_blob(*blob)?;
-        let found = rename_source((path, *blob, &data), &moves.deleted, &mut |i| {
-            spans_at(source, &moves.deleted, &mut texts, i)
+        let target = data.len() as u64;
+        let found = rename_source((path, *blob, &data), &deleted, &mut |i| {
+            spans_at(source, &deleted, (&mut spans, &mut sizes), i, target)
         })?;
-        if let Some((from, _)) = found.and_then(|j| moves.deleted.get(j)) {
+        if let Some((from, _)) = found.and_then(|j| deleted.get(j)) {
             out.push((from.clone(), path.clone()));
         }
     }
@@ -403,6 +705,45 @@ mod tests {
     }
 
     #[test]
+    fn blaming_one_file_per_walk_counts_the_same_as_one_walk_for_all() {
+        let repo = ScriptedRepo::new()
+            .blob(blob(1), "a1\na2\n")
+            .blob(blob(2), "x1\nx2\nx3\n")
+            .blob(blob(3), "a1\nb2\nb3\n")
+            .blob(blob(4), "x1\nc2\nx3\n")
+            .commit(
+                1,
+                ALICE,
+                &[(b"src/a.rs", Added, blob(1)), (b"src/x.rs", Added, blob(2))],
+            )
+            .commit(2, BOB, &[(b"src/a.rs", Modified, blob(3))])
+            .commit(3, CAROL, &[(b"src/x.rs", Modified, blob(4))])
+            .head_file(b"src/a.rs", "a1\nb2\nb3\n")
+            .head_file(b"src/x.rs", "x1\nc2\nx3\n");
+        let index = index_from_scratch(&repo).unwrap();
+        let ignored = repo.blame_ignore_revs().unwrap();
+        let counted = |batch_bytes: usize| -> Vec<u64> {
+            let mut survival =
+                Survival::new(&index, &ignored, 50, &CacheOptions::default()).unwrap();
+            survival.batch_bytes = batch_bytes;
+            ["Alice Example", "Bob Example", "Carol Example"]
+                .iter()
+                .map(|name| {
+                    match survival
+                        .person(&repo, person(&index, name), MINUTE)
+                        .unwrap()
+                    {
+                        Survived::Counted { lines, .. } => lines,
+                        Survived::OverBudget { .. } => unreachable!(),
+                    }
+                })
+                .collect()
+        };
+        assert_eq!(counted(1), [3, 2, 1]);
+        assert_eq!(counted(1), counted(BATCH_BYTES));
+    }
+
+    #[test]
     fn lines_belong_to_who_wrote_them_through_overwrites_and_a_rename() {
         let repo = overwritten_and_renamed();
         assert_eq!(
@@ -465,9 +806,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_merge_passes_each_file_to_the_parent_it_came_from() {
-        let repo = ScriptedRepo::new()
+    fn merged() -> ScriptedRepo {
+        ScriptedRepo::new()
             .blob(blob(1), "m1\nm2\n")
             .blob(blob(2), "m1\nm2\nb3\n")
             .blob(blob(3), "s1\n")
@@ -478,7 +818,12 @@ mod tests {
             .at(2)
             .merge(4, ALICE, 3, &[(b"side.rs", Added, blob(3))])
             .head_file(b"m.rs", "m1\nm2\nb3\n")
-            .head_file(b"side.rs", "s1\n");
+            .head_file(b"side.rs", "s1\n")
+    }
+
+    #[test]
+    fn a_merge_passes_each_file_to_the_parent_it_came_from() {
+        let repo = merged();
         assert_eq!(
             count(
                 &repo,
@@ -489,9 +834,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_file_moved_and_edited_keeps_its_lines_and_its_people() {
-        let repo = ScriptedRepo::new()
+    fn moved_and_edited() -> ScriptedRepo {
+        ScriptedRepo::new()
             .blob(
                 blob(1),
                 "first line\nsecond line\nthird line\nfourth line\n",
@@ -517,7 +861,12 @@ mod tests {
             .head_file(
                 b"lib/new.rs",
                 "first line\nsecond line\nthird line\nchanged line\nfifth line\n",
-            );
+            )
+    }
+
+    #[test]
+    fn a_file_moved_and_edited_keeps_its_lines_and_its_people() {
+        let repo = moved_and_edited();
         assert_eq!(
             count(
                 &repo,
@@ -591,5 +940,157 @@ mod tests {
                 oldest: None
             }
         );
+    }
+
+    fn lines_of(o: &Ownership, path: &[u8]) -> Vec<Oid> {
+        o.get(path)
+            .and_then(|f| o.lines(path, f.blob))
+            .unwrap_or_default()
+    }
+
+    fn same_as_blame(repo: &ScriptedRepo, max: u32) -> Ownership {
+        let index = index_from_scratch(repo).unwrap();
+        let ignored = repo.blame_ignore_revs().unwrap();
+        let mut survival = Survival::new(&index, &ignored, max, &CacheOptions::default()).unwrap();
+        let mut ownership = survival.own(repo, None, None).unwrap();
+        assert!(ownership.complete);
+        let kept = ownership.clone();
+        let everyone = survival.everyone(repo, &mut ownership).unwrap().unwrap();
+        let mut oracle = Survival::new(&index, &ignored, max, &CacheOptions::default()).unwrap();
+        assert!(!everyone.is_empty());
+        for (person, found) in everyone {
+            assert_eq!(
+                oracle.person(repo, person, MINUTE).unwrap(),
+                found,
+                "{person:?}"
+            );
+        }
+        kept
+    }
+
+    #[test]
+    fn everyones_lines_from_the_ownership_are_each_persons_lines_from_blame() {
+        let ignored = format!("# tabs\n{}\n\n", &synthetic_oid(3).to_hex()[..8]);
+        for (repo, max) in [
+            (overwritten_and_renamed(), 50),
+            (reformatted(), 2),
+            (reformatted(), 50),
+            (
+                reformatted().head_file(b".git-blame-ignore-revs", &ignored),
+                2,
+            ),
+            (merged(), 50),
+            (moved_and_edited(), 50),
+        ] {
+            same_as_blame(&repo, max);
+        }
+    }
+
+    fn grown(steps: usize) -> ScriptedRepo {
+        let texts = [
+            "a1\na2\na3\n",
+            "a1\nb2\na3\nb4\n",
+            "s1\n",
+            "a1\nb2\nc3\na3\nb4\n",
+            "x1\nx2\n",
+            "a1\nb2\nc3\na3\nb4\nd6\n",
+            "s1\ns2\n",
+            "x1\ny2\n",
+        ];
+        let mut repo = ScriptedRepo::new();
+        for (i, t) in texts.iter().enumerate() {
+            repo = repo.blob(blob(i as u8 + 1), t);
+        }
+        let all: Vec<Box<dyn Fn(ScriptedRepo) -> ScriptedRepo>> = vec![
+            Box::new(|r| {
+                r.commit(
+                    1,
+                    ALICE,
+                    &[(b"src/a.rs", Added, blob(1)), (b"src/x.rs", Added, blob(5))],
+                )
+                .head_file(b"src/a.rs", "a1\na2\na3\n")
+                .head_file(b"src/x.rs", "x1\nx2\n")
+            }),
+            Box::new(|r| {
+                r.commit(2, BOB, &[(b"src/a.rs", Modified, blob(2))])
+                    .head_file(b"src/a.rs", "a1\nb2\na3\nb4\n")
+            }),
+            Box::new(|r| {
+                r.at(1)
+                    .commit(3, CAROL, &[(b"src/s.rs", Added, blob(3))])
+                    .at(2)
+            }),
+            Box::new(|r| {
+                r.merge(4, ALICE, 3, &[(b"src/s.rs", Added, blob(3))])
+                    .head_file(b"src/s.rs", "s1\n")
+            }),
+            Box::new(|r| {
+                r.commit(5, CAROL, &[(b"src/a.rs", Modified, blob(4))])
+                    .head_file(b"src/a.rs", "a1\nb2\nc3\na3\nb4\n")
+            }),
+            Box::new(|r| {
+                r.at(5)
+                    .commit(6, BOB, &[(b"src/s.rs", Modified, blob(7))])
+                    .at(5)
+                    .commit(7, ALICE, &[(b"src/a.rs", Modified, blob(6))])
+                    .merge(8, CAROL, 6, &[(b"src/s.rs", Modified, blob(7))])
+                    .head_file(b"src/a.rs", "a1\nb2\nc3\na3\nb4\nd6\n")
+                    .head_file(b"src/s.rs", "s1\ns2\n")
+            }),
+            Box::new(|r| {
+                r.commit(9, CAROL, &[(b"src/x.rs", Modified, blob(8))])
+                    .commit(10, BOB, &[(b"src/x.rs", Modified, blob(5))])
+            }),
+        ];
+        all.iter().take(steps).fold(repo, |r, step| step(r))
+    }
+
+    #[test]
+    fn a_later_head_carries_over_what_did_not_change_and_works_out_the_rest_as_blame_does() {
+        let dir = tempfile::tempdir().unwrap();
+        let options = CacheOptions {
+            root: Some(dir.path().to_path_buf()),
+            key: Some("acme/grown".to_string()),
+        };
+        for steps in [1, 2, 4, 5, 6, 7] {
+            let repo = grown(steps);
+            let index = index_from_scratch(&repo).unwrap();
+            let mut survival = Survival::new(&index, &[], 50, &options).unwrap();
+            let fresh = same_as_blame(&repo, 50);
+            let previous = survival.previous();
+            assert_eq!(previous.is_some(), steps > 1, "step {steps}");
+            let mut carried = survival.own(&repo, previous, None).unwrap();
+            assert!(carried.complete);
+            assert!(survival.everyone(&repo, &mut carried).unwrap().is_some());
+            carried.keep_moves().unwrap();
+            assert_eq!(
+                carried.paths().collect::<Vec<_>>(),
+                fresh.paths().collect::<Vec<_>>()
+            );
+            for path in fresh.paths() {
+                assert_eq!(
+                    lines_of(&carried, path),
+                    lines_of(&fresh, path),
+                    "step {steps}: {}",
+                    String::from_utf8_lossy(path)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn ownership_cut_short_keeps_what_it_finished_and_the_next_run_finishes_it() {
+        let repo = grown(6);
+        let index = index_from_scratch(&repo).unwrap();
+        let mut survival = Survival::new(&index, &[], 50, &CacheOptions::default()).unwrap();
+        let cut = survival.own(&repo, None, Some(Instant::now())).unwrap();
+        assert!(!cut.complete);
+        let mut ownership = survival.own(&repo, Some(cut), None).unwrap();
+        assert!(ownership.complete);
+        assert!(survival.everyone(&repo, &mut ownership).unwrap().is_some());
+        let fresh = same_as_blame(&repo, 50);
+        for path in fresh.paths() {
+            assert_eq!(lines_of(&ownership, path), lines_of(&fresh, path));
+        }
     }
 }
