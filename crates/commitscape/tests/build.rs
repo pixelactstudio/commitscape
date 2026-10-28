@@ -66,7 +66,15 @@ fn field(events: &[Value], span: &str, name: &str) -> Value {
 }
 
 fn git(args: &[&str]) -> String {
-    let out = Command::new("git").args(args).output().expect("git");
+    let out = Command::new("git")
+        .env("GIT_CONFIG_COUNT", "2")
+        .env("GIT_CONFIG_KEY_0", "uploadpack.allowFilter")
+        .env("GIT_CONFIG_VALUE_0", "true")
+        .env("GIT_CONFIG_KEY_1", "uploadpack.allowAnySHA1InWant")
+        .env("GIT_CONFIG_VALUE_1", "true")
+        .args(args)
+        .output()
+        .expect("git");
     assert!(
         out.status.success(),
         "{}",
