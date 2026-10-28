@@ -66,15 +66,7 @@ fn field(events: &[Value], span: &str, name: &str) -> Value {
 }
 
 fn git(args: &[&str]) -> String {
-    let out = Command::new("git")
-        .env("GIT_CONFIG_COUNT", "2")
-        .env("GIT_CONFIG_KEY_0", "uploadpack.allowFilter")
-        .env("GIT_CONFIG_VALUE_0", "true")
-        .env("GIT_CONFIG_KEY_1", "uploadpack.allowAnySHA1InWant")
-        .env("GIT_CONFIG_VALUE_1", "true")
-        .args(args)
-        .output()
-        .expect("git");
+    let out = Command::new("git").args(args).output().expect("git");
     assert!(
         out.status.success(),
         "{}",
@@ -689,6 +681,10 @@ fn lines_of(out: &Path) -> LinesOf {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "git for Windows does not fetch a blobless clone's missing file versions from a file:// remote; blobless clones are the Builder's, which runs on Linux"
+)]
 fn a_blobless_clone_counts_only_the_lines_it_can_read_and_a_full_clone_fills_in_the_rest() {
     let dir = tempfile::tempdir().expect("a temporary directory");
     let origin = format!("file://{}", fixture("lines").display());

@@ -325,6 +325,10 @@ fn git_in(dir: &Path, args: &[&str]) -> std::process::Output {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "git for Windows does not fetch a blobless clone's missing file versions from a file:// remote; blobless clones are the Builder's, which runs on Linux"
+)]
 fn offline_never_fetches_a_file_version_a_blobless_clone_lacks() {
     let dir = tempfile::tempdir().expect("a folder");
     let bare = dir.path().join("source.git");
