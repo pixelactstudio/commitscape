@@ -21,13 +21,13 @@
     "@fontsource-variable/jetbrains-mono": "5.3.0",
     "@stylexjs/stylex": "catalog:",
     "gsap": "3.15.0",
-    "lucide-react": "1.48.0",
-    "posthog-js": "1.434.15",
+    "lucide-react": "1.64.0",
+    "posthog-js": "1.442.0",
     "react": "catalog:",
     "react-dom": "catalog:"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "5.20261025.1",
+    "@cloudflare/workers-types": "5.20261029.1",
     "@tailwindcss/vite": "4.3.3",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
@@ -39,6 +39,6 @@
     "typescript": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:",
-    "wrangler": "4.152.0"
+    "wrangler": "4.155.0"
   }
 }
