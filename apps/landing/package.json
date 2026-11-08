@@ -20,25 +20,25 @@
     "@commitscape/ui": "workspace:*",
     "@fontsource-variable/jetbrains-mono": "5.3.0",
     "@stylexjs/stylex": "catalog:",
-    "gsap": "3.15.0",
-    "lucide-react": "1.48.0",
-    "posthog-js": "1.434.15",
+    "gsap": "3.15.1",
+    "lucide-react": "1.69.0",
+    "posthog-js": "1.446.3",
     "react": "catalog:",
     "react-dom": "catalog:"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "5.20261025.1",
-    "@tailwindcss/vite": "4.3.3",
+    "@cloudflare/workers-types": "5.20261104.1",
+    "@tailwindcss/vite": "4.3.4",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "oxlint": "catalog:",
-    "tailwindcss": "4.3.3",
+    "tailwindcss": "4.3.4",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:",
-    "wrangler": "4.152.0"
+    "wrangler": "4.158.0"
   }
 }
